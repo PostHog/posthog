@@ -184,6 +184,7 @@ export const ExperimentSchema = z.object({
     holdout: z.any().nullish(),
     holdout_id: z.number().nullish(),
     stats_config: z.any().optional(),
+    scheduling_config: z.any().optional(),
     conclusion: z.enum(ExperimentConclusion).nullish(),
     conclusion_comment: z.string().nullish(),
     primary_metrics_ordered_uuids: z.array(z.string()).nullish(),
@@ -350,6 +351,9 @@ export const ExperimentCreatePayloadSchema = ToolExperimentCreateSchema.transfor
 
         // Stats config (empty, will be filled by backend)
         stats_config: {},
+
+        // Scheduling config (empty, will be filled by backend)
+        scheduling_config: {},
 
         // State fields
         start_date: input.draft === false ? new Date().toISOString() : null,
@@ -562,6 +566,7 @@ export const ExperimentUpdatePayloadSchema = z
         exposure_criteria: ExperimentExposureCriteriaSchema.optional(),
         saved_metrics_ids: z.array(z.any()).nullish(),
         stats_config: z.any().optional(),
+        scheduling_config: z.any().optional(),
     })
     .strict()
 

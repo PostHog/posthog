@@ -21,7 +21,7 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.0.0",
     "structlog>=24.4.0",
     "httpx>=0.28.0",
-    "posthog>=3.0.0",
+    "posthoganalytics>=3.0.0",
     "cachetools>=5.5.0",
 ]
 

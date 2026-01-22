@@ -17,8 +17,8 @@ from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
@@ -676,6 +676,55 @@ def team_api_test_factory():
 
                 with self.assertRaises(RPCError):
                     describe_schedule(temporal, batch_export_id)
+
+        def test_delete_team_with_already_deleted_batch_export(self):
+            """Team deletion should succeed even if batch exports were already soft-deleted."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.organization.save()
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            destination_data = {
+                "type": "S3",
+                "config": {
+                    "bucket_name": "my-production-s3-bucket",
+                    "region": "us-east-1",
+                    "prefix": "posthog-events/",
+                    "aws_access_key_id": "abc123",
+                    "aws_secret_access_key": "secret",
+                },
+            }
+
+            batch_export_data = {
+                "name": "my-production-s3-bucket-destination",
+                "destination": destination_data,
+                "interval": "hour",
+            }
+
+            temporal = sync_connect()
+
+            with start_test_worker(temporal):
+                response = self.client.post(
+                    f"/api/environments/{team.id}/batch_exports",
+                    json.dumps(batch_export_data),
+                    content_type="application/json",
+                )
+                assert response.status_code == 201, response.json()
+
+                batch_export = response.json()
+                batch_export_id = batch_export["id"]
+
+                # Delete the batch export first (this soft-deletes it and removes the Temporal schedule)
+                response = self.client.delete(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
+                assert response.status_code == 204
+
+                # Verify the schedule is gone
+                with self.assertRaises(RPCError):
+                    describe_schedule(temporal, batch_export_id)
+
+                # Now delete the team - this should succeed
+                response = self.client.delete(f"/api/environments/{team.id}")
+                assert response.status_code == 204
 
         @freeze_time("2022-02-08")
         def test_reset_token(self):
@@ -1927,6 +1976,80 @@ def team_api_test_factory():
                 assert actual_value is None
             else:
                 assert actual_value == expected_output
+
+        def test_conversations_settings_filters_null_widget_domains(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_domains": ["https://example.com", None, "https://test.com", None]}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_domains"] == [
+                "https://example.com",
+                "https://test.com",
+            ]
+
+        def test_conversations_settings_merges_with_existing(self):
+            self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_greeting_text": "Hello!"}},
+            )
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_color": "#ff0000"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_greeting_text"] == "Hello!"
+            assert settings["widget_color"] == "#ff0000"
+
+        def test_enabling_conversations_auto_generates_token(self):
+            self.team.conversations_enabled = False
+            self.team.conversations_settings = None
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings is not None
+            assert settings.get("widget_public_token") is not None
+            assert len(settings["widget_public_token"]) > 20
+
+        def test_enabling_conversations_preserves_existing_token(self):
+            self.team.conversations_enabled = False
+            self.team.conversations_settings = {"widget_public_token": "existing_token_123"}
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_public_token"] == "existing_token_123"
+
+        def test_disabling_conversations_clears_token(self):
+            self.team.conversations_enabled = True
+            self.team.conversations_settings = {"widget_public_token": "some_token", "widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_public_token"] is None
+            assert settings["widget_color"] == "#123456"
+
+        def test_generate_conversations_public_token(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.conversations_settings = {"widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_public_token"] is not None
+            assert len(settings["widget_public_token"]) > 20
+            assert settings["widget_color"] == "#123456"
+
+        def test_generate_conversations_public_token_requires_admin(self):
+            response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
 
     return TestTeamAPI
 

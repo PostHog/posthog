@@ -15,7 +15,6 @@ from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
-import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -113,19 +112,23 @@ class UsageReportCounters:
     mobile_recording_count_in_period: int
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
+
     # Persons and Groups
     group_types_total: int
+
     # Dashboards
     dashboard_count: int
     dashboard_template_count: int
     dashboard_shared_count: int
     dashboard_tagged_count: int
+
     # Feature flags
     ff_count: int
     ff_active_count: int
     decide_requests_count_in_period: int
     local_evaluation_requests_count_in_period: int
     billable_feature_flag_requests_count_in_period: int
+
     # Queries
     query_app_bytes_read: int
     query_app_rows_read: int
@@ -145,22 +148,24 @@ class UsageReportCounters:
     event_explorer_api_bytes_read: int
     event_explorer_api_rows_read: int
     event_explorer_api_duration_ms: int
+
     # Surveys
     survey_responses_count_in_period: int
+
     # Data Warehouse
     rows_synced_in_period: int
     free_historical_rows_synced_in_period: int
 
     # Data Warehouse metadata
     active_external_data_schemas_in_period: int
+    dwh_total_storage_in_s3_in_mib: float
+    dwh_tables_storage_in_s3_in_mib: float
+    dwh_mat_views_storage_in_s3_in_mib: float
 
     # Batch Exports metadata
     rows_exported_in_period: int
     active_batch_exports_in_period: int
 
-    dwh_total_storage_in_s3_in_mib: float
-    dwh_tables_storage_in_s3_in_mib: float
-    dwh_mat_views_storage_in_s3_in_mib: float
     # Error Tracking
     issues_created_total: int
     symbol_sets_count: int
@@ -181,12 +186,15 @@ class UsageReportCounters:
 
     # LLM Analytics
     ai_event_count_in_period: int
+
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
+
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
     cdp_billable_invocations_in_period: int
+
     # SDK usage
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
@@ -205,14 +213,17 @@ class UsageReportCounters:
     unity_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
+
     # Workflow metrics
     workflow_emails_sent_in_period: int
     workflow_push_sent_in_period: int
     workflow_sms_sent_in_period: int
     workflow_billable_invocations_in_period: int
+
     # Logs
     logs_bytes_in_period: int
     logs_records_in_period: int
+    logs_mb_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -529,7 +540,7 @@ def get_teams_with_billable_event_count_in_period(
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=12)
 
 
 @timed_log()
@@ -567,7 +578,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=12)
 
 
 @timed_log()
@@ -667,13 +678,13 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         return result
 
-    # Execute the split query with 3 splits
+    # Execute the split query with 12 splits
     return _execute_split_query(
         begin=begin,
         end=end,
         query_template=query_template,
         params={},
-        num_splits=3,
+        num_splits=12,
         combine_results_func=combine_event_metrics_results,
     )
 
@@ -902,6 +913,48 @@ def get_teams_with_feature_flag_requests_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
+    begin: datetime, end: datetime, request_type: FlagRequestType
+) -> list[tuple[int, str, int]]:
+    """
+    Get per-SDK breakdown of feature flag requests for each team.
+    Returns list of (team_id, sdk_name, count) tuples.
+    """
+    team_to_query = 1 if get_instance_region() == "EU" else 2
+    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+
+    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+
+    result = sync_execute(
+        """
+        SELECT
+            distinct_id as team,
+            arrayJoin(JSONExtractKeys(properties, 'sdk_breakdown')) as sdk,
+            sum(JSONExtractInt(JSONExtractRaw(properties, 'sdk_breakdown'), sdk)) as sum
+        FROM events
+        WHERE team_id = %(team_to_query)s
+          AND event = %(target_event)s
+          AND timestamp >= %(begin)s AND timestamp < %(end)s
+          AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
+          AND JSONHas(properties, 'sdk_breakdown')
+        GROUP BY team, sdk
+    """,
+        {
+            "begin": begin,
+            "end": end,
+            "team_to_query": team_to_query,
+            "validity_token": validity_token,
+            "target_event": target_event,
+        },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
@@ -1016,7 +1069,16 @@ def get_teams_with_ai_credits_used_in_period(
     Using the field from properties to filter events instead.
     """
     region = get_instance_region()
-    assert region is not None, "Region must be set in production infrastructure"
+
+    if region is None:
+        # In production, we want to fail fast if region is not set
+        # In non-production environments (e.g., tests), we can return gracefully
+        from posthog.settings import TEST
+
+        if not TEST:
+            assert region is not None, "Region must be set in production infrastructure"
+        return []
+
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
@@ -1607,7 +1669,9 @@ def capture_report(
             organization_id=organization_id,
             properties=full_report_dict,
             timestamp=at_date,
+            set_on_organization=True,
         )
+
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
@@ -1666,11 +1730,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
-    )
-
-    # Check if AI billing usage report is enabled
-    is_ai_billing_enabled = posthoganalytics.feature_enabled(
-        "posthog-ai-billing-usage-report", "internal_billing_events"
     )
 
     return {
@@ -1884,9 +1943,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
-        "teams_with_ai_credits_used_in_period": (
-            get_teams_with_ai_credits_used_in_period(period_start, period_end) if is_ai_billing_enabled else []
-        ),
+        "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2051,6 +2108,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
+        logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 
@@ -2120,7 +2178,10 @@ def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: Instanc
 
 
 def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str, Any]:
-    return dataclasses.asdict(full_report)
+    return {
+        **dataclasses.asdict(full_report),
+        "has_non_zero_usage": has_non_zero_usage(full_report),
+    }
 
 
 def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:

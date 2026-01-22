@@ -37,8 +37,7 @@ class TestMRRStripeBuilder(StripeSourceBaseTest):
         query = build(self.stripe_handle)
         query_sql = query.query.to_hogql()
 
-        # HogQL uses equals() syntax
-        self.assertIn("equals(is_recurring, true)", query_sql)
+        self.assertIn("and(is_recurring,", query_sql)
 
     def test_mrr_groups_by_customer_and_subscription(self):
         query = build(self.stripe_handle)

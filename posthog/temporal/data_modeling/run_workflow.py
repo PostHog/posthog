@@ -30,6 +30,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -58,6 +59,7 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
+from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
 
 LOGGER = get_logger(__name__)
 
@@ -543,12 +545,11 @@ async def materialize_model(
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
         if delta_table is None:
-            delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
+            error_message = "Query returned no results. Check that the query returns data before materializing."
+            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
     except Exception as e:
         error_message = str(e)
-
         await logger.aerror(f"Error materializing model {model_label}: {error_message}")
-
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -587,6 +588,7 @@ async def materialize_model(
             )
             saved_query.latest_error = error_message
             await logger.ainfo("Table reference no longer exists for model %s, reverting materialization", model_label)
+            # saving query handled in revert_materialization()
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
@@ -594,21 +596,29 @@ async def materialize_model(
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
             await logger.ainfo("Query exceeded memory limit for model %s", model_label)
+            await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
         elif "Timeout exceeded" in error_message:
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
+            saved_query.sync_frequency_interval = None
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
+            await database_sync_to_async(saved_query.save)()
+            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            await set_view_to_never_sync(saved_query, logger)
+            await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
+            saved_query.sync_frequency_interval = None
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
+            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
+            if isinstance(e, NonRetryableException):
+                raise
+            raise Exception(error_message) from e
 
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
@@ -672,17 +682,6 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     await database_sync_to_async(job.save)()
 
 
-async def set_view_to_never_sync(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
-    """Updates saved_query to set the sync schedule to "never" to protect from high strain on clickhouse"""
-
-    saved_query.sync_frequency_interval = None
-    await database_sync_to_async(saved_query.save)()
-
-    await a_pause_saved_query_schedule(str(saved_query.id))
-
-    await logger.adebug(f"Updated saved query {saved_query.id} to never sync")
-
-
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
     """
     This stops the temporal workflow for a materialization view. Expected to be used in the case of an
@@ -729,11 +728,13 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     context.output_format = "TabSeparated"
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
@@ -775,11 +776,13 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
@@ -1094,37 +1097,33 @@ def _get_credentials():
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
-            settings.AIRBYTE_BUCKET_KEY,
-            settings.AIRBYTE_BUCKET_SECRET,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             settings.OBJECT_STORAGE_ENDPOINT,
         )
 
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
     if TEST:
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
     return {
-        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        "region_name": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
@@ -1436,6 +1435,10 @@ async def update_saved_query_status(
     saved_query.status = status
 
     await database_sync_to_async(saved_query.save)()
+
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
+        await database_sync_to_async(set_endpoint_materialization_ready)(team_id, saved_query.name, is_ready)
 
 
 @dataclasses.dataclass

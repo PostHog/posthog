@@ -1,11 +1,12 @@
 import dataclasses
 from datetime import date, datetime
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
@@ -70,7 +71,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
 ) -> ast.Expr:
     if context.database is None:
         raise QueryError("Database needs to be defined")
@@ -91,7 +92,7 @@ def resolve_types_from_table(
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
 ) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
@@ -113,7 +114,7 @@ class Resolver(CloningVisitor):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
         scopes: Optional[list[ast.SelectQueryType]] = None,
     ):
         super().__init__()

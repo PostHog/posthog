@@ -19,13 +19,14 @@ use tracing::{debug, error, info, warn};
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
-use crate::limiters::{is_exception_event, is_llm_event, is_survey_event};
+use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
 
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY};
 
-use crate::limiters::CaptureQuotaLimiter;
+use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
@@ -240,6 +241,48 @@ where
         .expect("failed to create redis client"),
     );
 
+    let global_rate_limiter = if config.global_rate_limit_enabled {
+        // Use dedicated Redis if configured, otherwise fall back to shared client
+        let grl_redis_client: Arc<dyn common_redis::Client + Send + Sync> =
+            if let Some(ref grl_redis_url) = config.global_rate_limit_redis_url {
+                let response_timeout = config
+                    .global_rate_limit_redis_response_timeout_ms
+                    .unwrap_or(config.redis_response_timeout_ms);
+                let connection_timeout = config
+                    .global_rate_limit_redis_connection_timeout_ms
+                    .unwrap_or(config.redis_connection_timeout_ms);
+
+                Arc::new(
+                    RedisClient::with_config(
+                        grl_redis_url.clone(),
+                        common_redis::CompressionConfig::disabled(),
+                        common_redis::RedisValueFormat::default(),
+                        if response_timeout == 0 {
+                            None
+                        } else {
+                            Some(Duration::from_millis(response_timeout))
+                        },
+                        if connection_timeout == 0 {
+                            None
+                        } else {
+                            Some(Duration::from_millis(connection_timeout))
+                        },
+                    )
+                    .await
+                    .expect("failed to create global rate limiter redis client"),
+                )
+            } else {
+                redis_client.clone()
+            };
+
+        Some(Arc::new(
+            GlobalRateLimiter::new(&config, vec![grl_redis_client])
+                .expect("failed to create global rate limiter"),
+        ))
+    } else {
+        None
+    };
+
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
     // global billing limiter applied here to every event batch. You must supply the
@@ -328,6 +371,7 @@ where
         liveness,
         sink,
         redis_client,
+        global_rate_limiter,
         quota_limiter,
         token_dropper,
         config.export_prometheus,

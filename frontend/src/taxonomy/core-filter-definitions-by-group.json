@@ -3,17 +3,27 @@
     "elements": {
         "href": {
             "description": "Filter on the `href` attribute of the element.",
-            "examples": ["https://posthog.com/about"],
+            "examples": [
+                "https://posthog.com/about"
+            ],
             "label": "Target (href)"
         },
         "selector": {
             "description": "Select any element by CSS selector.",
-            "examples": ["div > a", "table td:nth-child(2)", ".my-class"],
+            "examples": [
+                "div > a",
+                "table td:nth-child(2)",
+                ".my-class"
+            ],
             "label": "CSS selector"
         },
         "tag_name": {
             "description": "HTML tag name of the element which you want to filter.",
-            "examples": ["a", "button", "input"],
+            "examples": [
+                "a",
+                "button",
+                "input"
+            ],
             "label": "Tag name"
         },
         "text": {
@@ -43,31 +53,43 @@
     "event_metadata": {
         "distinct_id": {
             "description": "The current distinct ID of the user.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Distinct ID"
         },
         "event": {
             "description": "The name of the event.",
-            "examples": ["$pageview"],
+            "examples": [
+                "$pageview"
+            ],
             "ignored_in_assistant": true,
             "label": "Event",
             "system": true
         },
         "person_id": {
             "description": "The ID of the person, depending on the person properties mode.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Person ID"
         },
         "person_mode": {
             "description": "The person mode determined during ingestion: full (identified user with properties), propertyless (anonymous user), or force_upgrade (anonymous event linked to an already identified user). Used in usage reports.",
-            "examples": ["full", "propertyless", "force_upgrade"],
+            "examples": [
+                "full",
+                "propertyless",
+                "force_upgrade"
+            ],
             "ignored_in_assistant": true,
             "label": "Person mode",
             "system": true
         },
         "timestamp": {
             "description": "Time the event happened.",
-            "examples": ["2023-05-20T15:30:00Z"],
+            "examples": [
+                "2023-05-20T15:30:00Z"
+            ],
             "ignored_in_assistant": true,
             "label": "Timestamp",
             "system": true
@@ -80,72 +102,105 @@
         },
         "$active_feature_flags": {
             "description": "Keys of the feature flags that were active while this event was sent.",
-            "examples": ["['beta-feature']"],
+            "examples": [
+                "['beta-feature']"
+            ],
             "label": "Active feature flags"
         },
         "$ai_base_url": {
             "description": "The base URL of the request made to the LLM API.",
-            "examples": ["https://api.openai.com/v1/"],
+            "examples": [
+                "https://api.openai.com/v1/"
+            ],
             "label": "AI base URL (LLM)"
         },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI cache creation input tokens (LLM)"
         },
         "$ai_cache_read_input_tokens": {
             "description": "The number of tokens read from the cache for the input prompt.",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI cache read input tokens (LLM)"
         },
         "$ai_evaluation_id": {
             "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
-            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
             "label": "AI Evaluation ID (LLM)"
         },
         "$ai_evaluation_model": {
             "description": "The LLM model used as the judge for the evaluation.",
-            "examples": ["gpt-4", "claude-3-opus"],
+            "examples": [
+                "gpt-4",
+                "claude-3-opus"
+            ],
             "label": "AI Evaluation Model (LLM)"
         },
         "$ai_evaluation_name": {
             "description": "The name of the evaluation configuration used.",
-            "examples": ["Factual accuracy check", "Response relevance"],
+            "examples": [
+                "Factual accuracy check",
+                "Response relevance"
+            ],
             "label": "AI Evaluation Name (LLM)"
         },
         "$ai_evaluation_reasoning": {
             "description": "The LLM's explanation for why the evaluation passed or failed.",
-            "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+            "examples": [
+                "The response accurately addresses the query",
+                "The output contains factual inaccuracies"
+            ],
             "label": "AI Evaluation Reasoning (LLM)"
         },
         "$ai_evaluation_result": {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
-            "examples": [true, false],
+            "examples": [
+                true,
+                false
+            ],
             "label": "AI Evaluation Result (LLM)"
         },
         "$ai_evaluation_start_time": {
             "description": "The timestamp when the evaluation started executing.",
-            "examples": ["2025-01-15T10:30:00Z"],
+            "examples": [
+                "2025-01-15T10:30:00Z"
+            ],
             "label": "AI Evaluation Start Time (LLM)"
         },
         "$ai_feedback_text": {
             "description": "The text provided by the user for feedback on the LLM trace.",
-            "examples": ["\"The response was helpful, but it did not use the provided context.\""],
+            "examples": [
+                "\"The response was helpful, but it did not use the provided context.\""
+            ],
             "label": "AI Feedback Text (LLM)"
         },
         "$ai_http_status": {
             "description": "The HTTP status code of the request made to the LLM API.",
-            "examples": [200, 429],
+            "examples": [
+                200,
+                429
+            ],
             "label": "AI HTTP status (LLM)"
         },
         "$ai_input": {
             "description": "The input JSON that was sent to the LLM API.",
-            "examples": ["{\"content\": \"Explain quantum computing in simple terms.\", \"role\": \"user\"}"],
+            "examples": [
+                "{\"content\": \"Explain quantum computing in simple terms.\", \"role\": \"user\"}"
+            ],
             "label": "AI input (LLM)"
         },
         "$ai_input_cost_usd": {
             "description": "The cost in USD of the input tokens sent to the LLM API.",
-            "examples": [0.0017],
+            "examples": [
+                0.0017
+            ],
             "label": "AI input cost USD (LLM)"
         },
         "$ai_input_state": {
@@ -154,32 +209,46 @@
         },
         "$ai_input_tokens": {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI input tokens (LLM)"
         },
         "$ai_latency": {
             "description": "The latency of the request made to the LLM API, in seconds.",
-            "examples": [0.361],
+            "examples": [
+                0.361
+            ],
             "label": "AI latency (LLM)"
         },
         "$ai_metric_name": {
             "description": "The name assigned to the metric used to evaluate the LLM trace.",
-            "examples": ["rating", "accuracy"],
+            "examples": [
+                "rating",
+                "accuracy"
+            ],
             "label": "AI Metric Name (LLM)"
         },
         "$ai_metric_value": {
             "description": "The value assigned to the metric used to evaluate the LLM trace.",
-            "examples": ["negative", "95"],
+            "examples": [
+                "negative",
+                "95"
+            ],
             "label": "AI Metric Value (LLM)"
         },
         "$ai_model": {
             "description": "The model used to generate the output from the LLM API.",
-            "examples": ["gpt-4o-mini"],
+            "examples": [
+                "gpt-4o-mini"
+            ],
             "label": "AI model (LLM)"
         },
         "$ai_model_parameters": {
             "description": "The parameters used to configure the model in the LLM API, in JSON.",
-            "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"],
+            "examples": [
+                "{\"temperature\": 0.5, \"max_tokens\": 50}"
+            ],
             "label": "AI model parameters (LLM)"
         },
         "$ai_output_choices": {
@@ -191,7 +260,9 @@
         },
         "$ai_output_cost_usd": {
             "description": "The cost in USD of the output tokens received from the LLM API.",
-            "examples": [0.0024],
+            "examples": [
+                0.0024
+            ],
             "label": "AI output cost USD (LLM)"
         },
         "$ai_output_state": {
@@ -200,62 +271,90 @@
         },
         "$ai_output_tokens": {
             "description": "The number of tokens in the output from the LLM API.",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI output tokens (LLM)"
         },
         "$ai_parent_id": {
             "description": "The parent span ID of a span or generation, used to group a trace into a tree view.",
-            "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
+            "examples": [
+                "bdf42359-9364-4db7-8958-c001f28c9255"
+            ],
             "label": "AI Parent ID (LLM)"
         },
         "$ai_provider": {
             "description": "The provider of the AI model used to generate the output from the LLM API.",
-            "examples": ["openai"],
+            "examples": [
+                "openai"
+            ],
             "label": "AI Provider (LLM)"
         },
         "$ai_reasoning_tokens": {
             "description": "The number of tokens in the reasoning output from the LLM API.",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI reasoning tokens (LLM)"
         },
         "$ai_request_url": {
             "description": "The full URL of the request made to the LLM API.",
-            "examples": ["https://api.openai.com/v1/chat/completions"],
+            "examples": [
+                "https://api.openai.com/v1/chat/completions"
+            ],
             "label": "AI Request URL (LLM)"
         },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
-            "examples": ["session-abc-123", "conv-user-456"],
+            "examples": [
+                "session-abc-123",
+                "conv-user-456"
+            ],
             "label": "AI Session ID (LLM)"
         },
         "$ai_span_id": {
             "description": "The unique identifier for a LLM trace, generation, or span.",
-            "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
+            "examples": [
+                "bdf42359-9364-4db7-8958-c001f28c9255"
+            ],
             "label": "AI Span ID (LLM)"
         },
         "$ai_span_name": {
             "description": "The name given to this LLM trace, generation, or span.",
-            "examples": ["summarize_text"],
+            "examples": [
+                "summarize_text"
+            ],
             "label": "AI Span Name (LLM)"
         },
         "$ai_stream": {
             "description": "Whether the response from the LLM API was streamed.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "AI stream (LLM)"
         },
         "$ai_target_event_id": {
             "description": "The unique identifier of the event being evaluated.",
-            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+            "examples": [
+                "c9222e05-8708-41b8-98ea-d4a21849e761"
+            ],
             "label": "AI Target Event ID (LLM)"
         },
         "$ai_target_event_type": {
             "description": "The type of event being evaluated (e.g., $ai_generation).",
-            "examples": ["$ai_generation", "$ai_span"],
+            "examples": [
+                "$ai_generation",
+                "$ai_span"
+            ],
             "label": "AI Target Event Type (LLM)"
         },
         "$ai_temperature": {
             "description": "The temperature parameter used in the request to the LLM API.",
-            "examples": [0.7, 1.0],
+            "examples": [
+                0.7,
+                1.0
+            ],
             "label": "AI temperature (LLM)"
         },
         "$ai_tools": {
@@ -267,17 +366,23 @@
         },
         "$ai_total_cost_usd": {
             "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
-            "examples": [0.0041],
+            "examples": [
+                0.0041
+            ],
             "label": "AI total cost USD (LLM)"
         },
         "$ai_trace_id": {
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
-            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+            "examples": [
+                "c9222e05-8708-41b8-98ea-d4a21849e761"
+            ],
             "label": "AI Trace ID (LLM)"
         },
         "$anon_distinct_id": {
             "description": "If the user was previously anonymous, their anonymous ID will be set here.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Anon distinct ID",
             "system": true
         },
@@ -291,7 +396,9 @@
         },
         "$app_namespace": {
             "description": "The namespace of the app as identified in the app store.",
-            "examples": ["com.posthog.app"],
+            "examples": [
+                "com.posthog.app"
+            ],
             "label": "App namespace"
         },
         "$app_version": {
@@ -306,27 +413,44 @@
         },
         "$browser": {
             "description": "Name of the browser the user has used.",
-            "examples": ["Chrome", "Firefox"],
+            "examples": [
+                "Chrome",
+                "Firefox"
+            ],
             "label": "Browser"
         },
         "$browser_language": {
             "description": "Language.",
-            "examples": ["en", "en-US", "cn", "pl-PL"],
+            "examples": [
+                "en",
+                "en-US",
+                "cn",
+                "pl-PL"
+            ],
             "label": "Browser language"
         },
         "$browser_language_prefix": {
             "description": "Language prefix.",
-            "examples": ["en", "ja"],
+            "examples": [
+                "en",
+                "ja"
+            ],
             "label": "Browser language prefix"
         },
         "$browser_type": {
             "description": "This is only added when posthog-js config.opt_out_useragent_filter is true.",
-            "examples": ["browser", "bot"],
+            "examples": [
+                "browser",
+                "bot"
+            ],
             "label": "Browser type"
         },
         "$browser_version": {
             "description": "The version of the browser that was used. Used in combination with Browser.",
-            "examples": ["70", "79"],
+            "examples": [
+                "70",
+                "79"
+            ],
             "label": "Browser version"
         },
         "$capture_failed_request": {
@@ -341,37 +465,61 @@
         },
         "$client_session_initial_pathname": {
             "description": "Path that the user started their session on. (First-touch, session-scoped)",
-            "examples": ["/register", "/some/landing/page"],
+            "examples": [
+                "/register",
+                "/some/landing/page"
+            ],
             "label": "Initial path"
         },
         "$client_session_initial_referring_host": {
             "description": "Host that the user came from. (First-touch, session-scoped)",
-            "examples": ["google.com", "facebook.com"],
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ],
             "label": "Referrer host"
         },
         "$client_session_initial_utm_campaign": {
             "description": "UTM Campaign. (First-touch, session-scoped)",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "label": "Initial UTM campaign"
         },
         "$client_session_initial_utm_content": {
             "description": "UTM Source. (First-touch, session-scoped)",
-            "examples": ["bottom link", "second button"],
+            "examples": [
+                "bottom link",
+                "second button"
+            ],
             "label": "Initial UTM source"
         },
         "$client_session_initial_utm_medium": {
             "description": "UTM Medium. (First-touch, session-scoped)",
-            "examples": ["Social", "Organic", "Paid", "Email"],
+            "examples": [
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
+            ],
             "label": "Initial UTM medium"
         },
         "$client_session_initial_utm_source": {
             "description": "UTM Source. (First-touch, session-scoped)",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "label": "Initial UTM source"
         },
         "$client_session_initial_utm_term": {
             "description": "UTM term. (First-touch, session-scoped)",
-            "examples": ["free goodies"],
+            "examples": [
+                "free goodies"
+            ],
             "label": "Initial UTM term"
         },
         "$config_defaults": {
@@ -382,7 +530,9 @@
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
-            "examples": ["1800000"],
+            "examples": [
+                "1800000"
+            ],
             "label": "Configured session timeout",
             "system": true,
             "used_for_debug": true
@@ -395,48 +545,70 @@
         },
         "$copy_type": {
             "description": "Type of copy event.",
-            "examples": ["copy", "cut"],
+            "examples": [
+                "copy",
+                "cut"
+            ],
             "ignored_in_assistant": true,
             "label": "Copy type"
         },
         "$creator_event_uuid": {
             "description": "Unique ID for the event, which created this person.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Creator event ID"
         },
         "$csp_blocked_url": {
             "description": "The URL that was blocked by the CSP policy.",
-            "examples": ["https://malicious-site.com/script.js"],
+            "examples": [
+                "https://malicious-site.com/script.js"
+            ],
             "label": "Blocked URL"
         },
         "$csp_column_number": {
             "description": "The column number in the source file where the violation occurred.",
-            "examples": ["13"],
+            "examples": [
+                "13"
+            ],
             "label": "Column number"
         },
         "$csp_disposition": {
             "description": "The disposition of the CSP policy that was violated (enforce or report).",
-            "examples": ["enforce", "report"],
+            "examples": [
+                "enforce",
+                "report"
+            ],
             "label": "Disposition"
         },
         "$csp_document_url": {
             "description": "The URL of the document where the violation occurred.",
-            "examples": ["https://example.com/page"],
+            "examples": [
+                "https://example.com/page"
+            ],
             "label": "Document URL"
         },
         "$csp_effective_directive": {
             "description": "The CSP directive that was effectively violated.",
-            "examples": ["script-src", "img-src", "default-src"],
+            "examples": [
+                "script-src",
+                "img-src",
+                "default-src"
+            ],
             "label": "Effective directive"
         },
         "$csp_line_number": {
             "description": "The line number in the source file where the violation occurred.",
-            "examples": ["42"],
+            "examples": [
+                "42"
+            ],
             "label": "Line number"
         },
         "$csp_original_policy": {
             "description": "The CSP policy that was active when the violation occurred.",
-            "examples": ["default-src 'self'; script-src 'self' example.com"],
+            "examples": [
+                "default-src 'self'; script-src 'self' example.com"
+            ],
             "label": "Original policy"
         },
         "$csp_raw_report": {
@@ -445,7 +617,9 @@
         },
         "$csp_referrer": {
             "description": "The referrer of the CSP report if available.",
-            "examples": ["https://example.com/referrer"],
+            "examples": [
+                "https://example.com/referrer"
+            ],
             "label": "CSP Referrer"
         },
         "$csp_report_type": {
@@ -454,32 +628,47 @@
         },
         "$csp_script_sample": {
             "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
-            "examples": ["eval('alert(1)')"],
+            "examples": [
+                "eval('alert(1)')"
+            ],
             "label": "Script sample"
         },
         "$csp_source_file": {
             "description": "The source file where the violation occurred.",
-            "examples": ["script.js"],
+            "examples": [
+                "script.js"
+            ],
             "label": "Source file"
         },
         "$csp_status_code": {
             "description": "The HTTP status code that was returned when trying to load the blocked resource.",
-            "examples": ["200", "404"],
+            "examples": [
+                "200",
+                "404"
+            ],
             "label": "Status code"
         },
         "$csp_version": {
             "description": "The version of the CSP policy. Must be provided in the report URL.",
-            "examples": ["1.0"],
+            "examples": [
+                "1.0"
+            ],
             "label": "CSP Policy version"
         },
         "$csp_violated_directive": {
             "description": "The CSP directive that was violated.",
-            "examples": ["script-src", "img-src", "default-src"],
+            "examples": [
+                "script-src",
+                "img-src",
+                "default-src"
+            ],
             "label": "Violated directive"
         },
         "$current_url": {
             "description": "The URL visited at the time of the event.",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "label": "Current URL"
         },
         "$cymbal_errors": {
@@ -543,48 +732,75 @@
         },
         "$device": {
             "description": "The mobile device that was used.",
-            "examples": ["iPad", "iPhone", "Android"],
+            "examples": [
+                "iPad",
+                "iPhone",
+                "Android"
+            ],
             "label": "Device"
         },
         "$device_id": {
             "description": "Unique ID for that device, consistent even if users are logging in/out.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Device ID",
             "system": true
         },
         "$device_manufacturer": {
             "description": "The manufacturer of the device",
-            "examples": ["Apple", "Samsung"],
+            "examples": [
+                "Apple",
+                "Samsung"
+            ],
             "label": "Device manufacturer"
         },
         "$device_model": {
             "description": "The model of the device that was used.",
-            "examples": ["iPhone9,3", "SM-G965W"],
+            "examples": [
+                "iPhone9,3",
+                "SM-G965W"
+            ],
             "label": "Device model"
         },
         "$device_name": {
             "description": "Name of the device",
-            "examples": ["iPhone 12 Pro", "Samsung Galaxy 10"],
+            "examples": [
+                "iPhone 12 Pro",
+                "Samsung Galaxy 10"
+            ],
             "label": "Device name"
         },
         "$device_type": {
             "description": "The type of device that was used.",
-            "examples": ["Mobile", "Tablet", "Desktop"],
+            "examples": [
+                "Mobile",
+                "Tablet",
+                "Desktop"
+            ],
             "label": "Device type"
         },
         "$el_text": {
             "description": "The text of the element that was clicked. Only sent with Autocapture events.",
-            "examples": ["Click here!"],
+            "examples": [
+                "Click here!"
+            ],
             "label": "Element text"
         },
         "$enabled_feature_flags": {
             "description": "Keys and multivariate values of the feature flags that were active while this event was sent.",
-            "examples": ["{\"flag\": \"value\"}"],
+            "examples": [
+                "{\"flag\": \"value\"}"
+            ],
             "label": "Enabled feature flags"
         },
         "$event_type": {
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
-            "examples": ["click", "submit", "change"],
+            "examples": [
+                "click",
+                "submit",
+                "change"
+            ],
             "label": "Event type"
         },
         "$exception_DOMException_code": {
@@ -597,12 +813,16 @@
         },
         "$exception_capture_endpoint": {
             "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
+            "examples": [
+                "/e/"
+            ],
             "label": "Exception capture endpoint"
         },
         "$exception_capture_endpoint_suffix": {
             "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
+            "examples": [
+                "/e/"
+            ],
             "label": "Exception capture endpoint suffix"
         },
         "$exception_colno": {
@@ -631,7 +851,9 @@
         },
         "$exception_level": {
             "description": "Exception categorized by severity.",
-            "examples": ["error"],
+            "examples": [
+                "error"
+            ],
             "label": "Exception level"
         },
         "$exception_lineno": {
@@ -657,7 +879,9 @@
         },
         "$exception_source": {
             "description": "The source of the exception.",
-            "examples": ["JS file"],
+            "examples": [
+                "JS file"
+            ],
             "label": "Exception source"
         },
         "$exception_sources": {
@@ -666,12 +890,16 @@
         },
         "$exception_type": {
             "description": "Exception categorized into types.",
-            "examples": ["Error"],
+            "examples": [
+                "Error"
+            ],
             "label": "Exception type"
         },
         "$exception_types": {
             "description": "The type of the exception.",
-            "examples": ["TypeError"],
+            "examples": [
+                "TypeError"
+            ],
             "label": "Exception type"
         },
         "$exception_values": {
@@ -680,12 +908,23 @@
         },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
-            "examples": ["beta-feature"],
+            "examples": [
+                "beta-feature"
+            ],
             "label": "Feature flag"
+        },
+        "$feature_flag_evaluated_at": {
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": [
+                "1732051200000"
+            ],
+            "label": "Feature flag evaluated at"
         },
         "$feature_flag_payload": {
             "description": "The JSON payload that the call to feature flag responded with (if any)",
-            "examples": ["{\"variant\": \"test\"}"],
+            "examples": [
+                "{\"variant\": \"test\"}"
+            ],
             "label": "Feature flag response payload"
         },
         "$feature_flag_payloads": {
@@ -695,69 +934,97 @@
         },
         "$feature_flag_reason": {
             "description": "The reason the feature flag was matched or not matched.",
-            "examples": ["Matched condition set 1"],
+            "examples": [
+                "Matched condition set 1"
+            ],
             "label": "Feature flag evaluation reason"
         },
         "$feature_flag_request_id": {
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
-            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+            "examples": [
+                "01234567-89ab-cdef-0123-456789abcdef"
+            ],
             "label": "Feature flag request ID"
-        },
-        "$feature_flag_evaluated_at": {
-          "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
-          "examples": [
-            "1732051200000"
-          ],
-          "label": "Feature flag evaluated at"
         },
         "$feature_flag_response": {
             "description": "What the call to feature flag responded with.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Feature flag response"
         },
         "$feature_flag_version": {
             "description": "The version of the feature flag that was called.",
-            "examples": ["3"],
+            "examples": [
+                "3"
+            ],
             "label": "Feature flag version"
         },
         "$geoip_accuracy_radius": {
             "description": "Accuracy radius of the location matched to this event's IP address (in kilometers).",
-            "examples": ["50"],
+            "examples": [
+                "50"
+            ],
             "label": "GeoIP detection accuracy radius"
         },
         "$geoip_city_confidence": {
             "description": "Confidence level of the city matched to this event's IP address.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "GeoIP detection city confidence"
         },
         "$geoip_city_name": {
             "description": "Name of the city matched to this event's IP address.",
-            "examples": ["Sydney", "Chennai", "Brooklyn"],
+            "examples": [
+                "Sydney",
+                "Chennai",
+                "Brooklyn"
+            ],
             "label": "City name"
         },
         "$geoip_continent_code": {
             "description": "Code of the continent matched to this event's IP address.",
-            "examples": ["OC", "AS", "NA"],
+            "examples": [
+                "OC",
+                "AS",
+                "NA"
+            ],
             "label": "Continent code"
         },
         "$geoip_continent_name": {
             "description": "Name of the continent matched to this event's IP address.",
-            "examples": ["Oceania", "Asia", "North America"],
+            "examples": [
+                "Oceania",
+                "Asia",
+                "North America"
+            ],
             "label": "Continent name"
         },
         "$geoip_country_code": {
             "description": "Code of the country matched to this event's IP address.",
-            "examples": ["AU", "IN", "US"],
+            "examples": [
+                "AU",
+                "IN",
+                "US"
+            ],
             "label": "Country code"
         },
         "$geoip_country_confidence": {
             "description": "Confidence level of the country matched to this event's IP address.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "GeoIP detection country confidence"
         },
         "$geoip_country_name": {
             "description": "Name of the country matched to this event's IP address.",
-            "examples": ["Australia", "India", "United States"],
+            "examples": [
+                "Australia",
+                "India",
+                "United States"
+            ],
             "label": "Country name"
         },
         "$geoip_disable": {
@@ -766,39 +1033,64 @@
         },
         "$geoip_latitude": {
             "description": "Approximated latitude matched to this event's IP address.",
-            "examples": ["-33.8591", "13.1337", "40.7"],
+            "examples": [
+                "-33.8591",
+                "13.1337",
+                "40.7"
+            ],
             "label": "Latitude"
         },
         "$geoip_longitude": {
             "description": "Approximated longitude matched to this event's IP address.",
-            "examples": ["151.2", "80.8008", "-73.9"],
+            "examples": [
+                "151.2",
+                "80.8008",
+                "-73.9"
+            ],
             "label": "Longitude"
         },
         "$geoip_postal_code": {
             "description": "Approximated postal code matched to this event's IP address.",
-            "examples": ["2000", "600004", "11211"],
+            "examples": [
+                "2000",
+                "600004",
+                "11211"
+            ],
             "label": "Postal code"
         },
         "$geoip_postal_code_confidence": {
             "description": "If provided by the licensed geoip database",
-            "examples": ["null", "0.1"],
+            "examples": [
+                "null",
+                "0.1"
+            ],
             "ignored_in_assistant": true,
             "label": "Postal code identification confidence score",
             "system": true
         },
         "$geoip_subdivision_1_code": {
             "description": "Code of the subdivision matched to this event's IP address.",
-            "examples": ["NSW", "TN", "NY"],
+            "examples": [
+                "NSW",
+                "TN",
+                "NY"
+            ],
             "label": "Subdivision 1 code"
         },
         "$geoip_subdivision_1_confidence": {
             "description": "Confidence level of the first subdivision matched to this event's IP address.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "GeoIP detection subdivision 1 confidence"
         },
         "$geoip_subdivision_1_name": {
             "description": "Name of the subdivision matched to this event's IP address.",
-            "examples": ["New South Wales", "Tamil Nadu", "New York"],
+            "examples": [
+                "New South Wales",
+                "Tamil Nadu",
+                "New York"
+            ],
             "label": "Subdivision 1 name"
         },
         "$geoip_subdivision_2_code": {
@@ -807,7 +1099,10 @@
         },
         "$geoip_subdivision_2_confidence": {
             "description": "If provided by the licensed geoip database",
-            "examples": ["null", "0.1"],
+            "examples": [
+                "null",
+                "0.1"
+            ],
             "ignored_in_assistant": true,
             "label": "Subdivision 2 identification confidence score",
             "system": true
@@ -826,7 +1121,11 @@
         },
         "$geoip_time_zone": {
             "description": "Timezone matched to this event's IP address.",
-            "examples": ["Australia/Sydney", "Asia/Kolkata", "America/New_York"],
+            "examples": [
+                "Australia/Sydney",
+                "Asia/Kolkata",
+                "America/New_York"
+            ],
             "label": "Timezone"
         },
         "$group_0": {
@@ -870,9 +1169,18 @@
             "label": "$had_persisted_distinct_id",
             "system": true
         },
+        "$has_recording": {
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
+            "label": "Has recording",
+            "system": true,
+            "used_for_debug": true
+        },
         "$host": {
             "description": "The hostname of the Current URL.",
-            "examples": ["example.com", "localhost:8000"],
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ],
             "label": "Host"
         },
         "$initial_person_info": {
@@ -882,7 +1190,12 @@
         },
         "$initial_utm_source": {
             "description": "UTM source tag.",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "label": "Initial UTM source"
         },
         "$initialization_time": {
@@ -898,12 +1211,17 @@
         },
         "$ip": {
             "description": "IP address for this user when the event was sent.",
-            "examples": ["203.0.113.0"],
+            "examples": [
+                "203.0.113.0"
+            ],
             "label": "IP address"
         },
         "$is_emulator": {
             "description": "Indicates whether the app is running on an emulator or a physical device",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Is emulator"
         },
         "$is_identified": {
@@ -912,12 +1230,18 @@
         },
         "$is_ios_running_on_mac": {
             "description": "Indicates whether the app is an iOS app running on macOS (Apple Silicon)",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Is iOS app running on Mac"
         },
         "$is_mac_catalyst_app": {
             "description": "Indicates whether the app is a Mac Catalyst app running on macOS",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Is Mac Catalyst app"
         },
         "$last_posthog_reset": {
@@ -929,79 +1253,117 @@
         },
         "$lib": {
             "description": "What library was used to send the event.",
-            "examples": ["web", "posthog-ios"],
+            "examples": [
+                "web",
+                "posthog-ios"
+            ],
             "label": "Library"
         },
         "$lib_custom_api_host": {
             "description": "The custom API host used to send the event.",
-            "examples": ["https://ph.example.com"],
+            "examples": [
+                "https://ph.example.com"
+            ],
             "label": "Library custom API host"
         },
         "$lib_rate_limit_remaining_tokens": {
             "description": "Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.",
-            "examples": ["100"],
+            "examples": [
+                "100"
+            ],
             "ignored_in_assistant": true,
             "label": "Clientside rate limit remaining tokens",
             "used_for_debug": true
         },
         "$lib_version": {
             "description": "Version of the library used to send the event. Used in combination with Library.",
-            "examples": ["1.0.3"],
+            "examples": [
+                "1.0.3"
+            ],
             "label": "Library version"
         },
         "$lib_version__major": {
             "description": "Major version of the library used to send the event.",
-            "examples": [1],
+            "examples": [
+                1
+            ],
             "label": "Library version (major)"
         },
         "$lib_version__minor": {
             "description": "Minor version of the library used to send the event.",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Library version (minor)"
         },
         "$lib_version__patch": {
             "description": "Patch version of the library used to send the event.",
-            "examples": [3],
+            "examples": [
+                3
+            ],
             "label": "Library version (patch)"
         },
         "$locale": {
             "description": "The locale of the device",
-            "examples": ["en-US", "de-DE"],
+            "examples": [
+                "en-US",
+                "de-DE"
+            ],
             "label": "Locale"
         },
         "$network_bluetooth": {
             "description": "Whether the user was on Bluetooth when the event was sent.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Network Bluetooth"
         },
         "$network_carrier": {
             "description": "The network carrier that the user is on.",
-            "examples": ["cricket", "telecom"],
+            "examples": [
+                "cricket",
+                "telecom"
+            ],
             "label": "Network carrier"
         },
         "$network_cellular": {
             "description": "Whether the user was on cellular when the event was sent.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Network Cellular"
         },
         "$network_wifi": {
             "description": "Whether the user was on WiFi when the event was sent.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Network WiFi"
         },
         "$os": {
             "description": "The operating system of the user.",
-            "examples": ["Windows", "Mac OS X"],
+            "examples": [
+                "Windows",
+                "Mac OS X"
+            ],
             "label": "OS"
         },
         "$os_name": {
             "description": "The Operating System name",
-            "examples": ["iOS", "Android"],
+            "examples": [
+                "iOS",
+                "Android"
+            ],
             "label": "OS name"
         },
         "$os_version": {
             "description": "The Operating System version.",
-            "examples": ["15.5"],
+            "examples": [
+                "15.5"
+            ],
             "label": "OS version"
         },
         "$pageview_id": {
@@ -1012,7 +1374,10 @@
         },
         "$pathname": {
             "description": "The path of the Current URL, which means everything in the url after the domain.",
-            "examples": ["/pricing", "/about-us/team"],
+            "examples": [
+                "/pricing",
+                "/about-us/team"
+            ],
             "label": "Path name"
         },
         "$performance_page_loaded": {
@@ -1038,58 +1403,81 @@
         },
         "$prev_pageview_duration": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview duration"
         },
         "$prev_pageview_id": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": ["1"],
+            "examples": [
+                "1"
+            ],
             "label": "Previous pageview ID",
             "system": true
         },
         "$prev_pageview_last_content": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview last content"
         },
         "$prev_pageview_last_content_percentage": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview last content percentage"
         },
         "$prev_pageview_last_scroll": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview last scroll"
         },
         "$prev_pageview_last_scroll_percentage": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview last scroll percentage"
         },
         "$prev_pageview_max_content": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview max content"
         },
         "$prev_pageview_max_content_percentage": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview max content percentage"
         },
         "$prev_pageview_max_scroll": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview max scroll"
         },
         "$prev_pageview_max_scroll_percentage": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview max scroll percentage"
         },
         "$prev_pageview_pathname": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": ["/pricing", "/about-us/team"],
+            "examples": [
+                "/pricing",
+                "/about-us/team"
+            ],
             "label": "Previous pageview pathname"
         },
         "$process_person_profile": {
@@ -1099,21 +1487,27 @@
         },
         "$python_runtime": {
             "description": "The Python runtime that was used to capture the event.",
-            "examples": ["CPython"],
+            "examples": [
+                "CPython"
+            ],
             "ignored_in_assistant": true,
             "label": "Python runtime",
             "system": true
         },
         "$python_version": {
             "description": "The Python version that was used to capture the event.",
-            "examples": ["3.11.5"],
+            "examples": [
+                "3.11.5"
+            ],
             "ignored_in_assistant": true,
             "label": "Python version",
             "system": true
         },
         "$raw_user_agent": {
             "description": "PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string.",
-            "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"],
+            "examples": [
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"
+            ],
             "label": "Raw user agent"
         },
         "$recording_status": {
@@ -1124,43 +1518,59 @@
         },
         "$referrer": {
             "description": "URL of where the user came from.",
-            "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
+            "examples": [
+                "https://google.com/search?q=posthog&rlz=1C..."
+            ],
             "label": "Referrer URL"
         },
         "$referring_domain": {
             "description": "Domain of where the user came from.",
-            "examples": ["google.com", "facebook.com"],
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ],
             "label": "Referring domain"
         },
         "$replay_minimum_duration": {
             "description": "Config for minimum duration before emitting a session recording.",
-            "examples": ["1000"],
+            "examples": [
+                "1000"
+            ],
             "label": "Replay config - minimum duration",
             "system": true,
             "used_for_debug": true
         },
         "$replay_sample_rate": {
             "description": "Config for sampling rate of session recordings.",
-            "examples": ["0.1"],
+            "examples": [
+                "0.1"
+            ],
             "label": "Replay config - sample rate",
             "system": true,
             "used_for_debug": true
         },
         "$replay_script_config": {
             "description": "Sets an alternative recorder script for the web sdk.",
-            "examples": ["{\"script\": \"recorder-next\"}"],
+            "examples": [
+                "{\"script\": \"recorder-next\"}"
+            ],
             "label": "Replay script config",
             "system": true,
             "used_for_debug": true
         },
         "$screen_density": {
             "description": "The logical density of the display. This is a scaling factor for the Density Independent Pixel unit, where one DIP is one pixel on an approximately 160 dpi screen (for example a 240x320, 1.5\"x2\" screen), providing the baseline of the system's display. Thus on a 160dpi screen this density value will be 1; on a 120 dpi screen it would be .75; etc.",
-            "examples": [2.75],
+            "examples": [
+                2.75
+            ],
             "label": "Screen density"
         },
         "$screen_height": {
             "description": "The height of the user's entire screen (in pixels).",
-            "examples": ["2160", "1050"],
+            "examples": [
+                "2160",
+                "1050"
+            ],
             "label": "Screen height"
         },
         "$screen_name": {
@@ -1169,7 +1579,10 @@
         },
         "$screen_width": {
             "description": "The width of the user's entire screen (in pixels).",
-            "examples": ["1440", "1920"],
+            "examples": [
+                "1440",
+                "1920"
+            ],
             "label": "Screen width"
         },
         "$sdk_debug_current_session_duration": {
@@ -1180,7 +1593,11 @@
         },
         "$sdk_debug_replay_event_trigger_status": {
             "description": "The status of the recording event trigger.",
-            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "examples": [
+                "trigger_disabled",
+                "trigger_pending",
+                "trigger_matched"
+            ],
             "label": "event trigger status",
             "type": "String",
             "used_for_debug": true
@@ -1193,7 +1610,9 @@
         },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
-            "examples": ["100"],
+            "examples": [
+                "100"
+            ],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer length",
             "system": true,
@@ -1201,7 +1620,9 @@
         },
         "$sdk_debug_replay_internal_buffer_size": {
             "description": "Useful for debugging. The internal buffer size for replay.",
-            "examples": ["100"],
+            "examples": [
+                "100"
+            ],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer size",
             "system": true,
@@ -1209,28 +1630,41 @@
         },
         "$sdk_debug_replay_linked_flag_trigger_status": {
             "description": "The status of the linked flag trigger.",
-            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "examples": [
+                "trigger_disabled",
+                "trigger_pending",
+                "trigger_matched"
+            ],
             "label": "linked flag trigger status",
             "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_replay_remote_trigger_matching_config": {
             "description": "Whether to match on all or any triggers.",
-            "examples": ["all", "any"],
+            "examples": [
+                "all",
+                "any"
+            ],
             "label": "remote trigger matching config",
             "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_replay_url_trigger_status": {
             "description": "The status of the recording url trigger.",
-            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "examples": [
+                "trigger_disabled",
+                "trigger_pending",
+                "trigger_matched"
+            ],
             "label": "URL trigger status",
             "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_retry_queue_size": {
             "description": "Useful for debugging. The size of the retry queue.",
-            "examples": ["100"],
+            "examples": [
+                "100"
+            ],
             "ignored_in_assistant": true,
             "label": "Retry queue size",
             "system": true,
@@ -1244,7 +1678,10 @@
         },
         "$search_engine": {
             "description": "The search engine the user came in from (if any).",
-            "examples": ["Google", "DuckDuckGo"],
+            "examples": [
+                "Google",
+                "DuckDuckGo"
+            ],
             "label": "Search engine"
         },
         "$selected_content": {
@@ -1254,18 +1691,24 @@
         },
         "$sent_at": {
             "description": "Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.",
-            "examples": ["2023-05-20T15:31:00Z"],
+            "examples": [
+                "2023-05-20T15:31:00Z"
+            ],
             "label": "Sent at"
         },
         "$sentry_event_id": {
             "description": "This is the Sentry key for an event.",
-            "examples": ["byroc2ar9ee4ijqp"],
+            "examples": [
+                "byroc2ar9ee4ijqp"
+            ],
             "label": "Sentry event ID",
             "system": true
         },
         "$sentry_url": {
             "description": "Direct link to the exception in Sentry",
-            "examples": ["https://sentry.io/..."],
+            "examples": [
+                "https://sentry.io/..."
+            ],
             "label": "Sentry URL"
         },
         "$sess_rec_flush_size": {
@@ -1316,7 +1759,10 @@
         },
         "$session_entry_host": {
             "description": "The hostname of the Current URL. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["example.com", "localhost:8000"],
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Host"
         },
@@ -1347,7 +1793,10 @@
         },
         "$session_entry_pathname": {
             "description": "The path of the Current URL, which means everything in the url after the domain. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["/pricing", "/about-us/team"],
+            "examples": [
+                "/pricing",
+                "/about-us/team"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Path name"
         },
@@ -1363,13 +1812,18 @@
         },
         "$session_entry_referrer": {
             "description": "URL of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
+            "examples": [
+                "https://google.com/search?q=posthog&rlz=1C..."
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Referrer URL"
         },
         "$session_entry_referring_domain": {
             "description": "Domain of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["google.com", "facebook.com"],
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Referring domain"
         },
@@ -1390,37 +1844,57 @@
         },
         "$session_entry_url": {
             "description": "The URL visited at the time of the event. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Current URL"
         },
         "$session_entry_utm_campaign": {
             "description": "UTM campaign tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM campaign"
         },
         "$session_entry_utm_content": {
             "description": "UTM content tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["bottom link", "second button"],
+            "examples": [
+                "bottom link",
+                "second button"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM content"
         },
         "$session_entry_utm_medium": {
             "description": "UTM medium tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["Social", "Organic", "Paid", "Email"],
+            "examples": [
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM medium"
         },
         "$session_entry_utm_source": {
             "description": "UTM source tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM source"
         },
         "$session_entry_utm_term": {
             "description": "UTM term tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["free goodies"],
+            "examples": [
+                "free goodies"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM term"
         },
@@ -1436,7 +1910,10 @@
         },
         "$session_is_sampled": {
             "description": "Whether the session is sampled for session recording.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "ignored_in_assistant": true,
             "label": "Whether the session is sampled",
             "system": true,
@@ -1444,7 +1921,9 @@
         },
         "$session_recording_canvas_recording": {
             "description": "Session recording canvas capture config.",
-            "examples": ["{\"enabled\": false}"],
+            "examples": [
+                "{\"enabled\": false}"
+            ],
             "label": "Session recording canvas recording",
             "system": true,
             "used_for_debug": true
@@ -1457,14 +1936,18 @@
         },
         "$session_recording_network_payload_capture": {
             "description": "Session recording network payload capture config.",
-            "examples": ["{\"recordHeaders\": false}"],
+            "examples": [
+                "{\"recordHeaders\": false}"
+            ],
             "label": "Session recording network payload capture",
             "system": true,
             "used_for_debug": true
         },
         "$session_recording_recorder_version_server_side": {
             "description": "The version of the session recording recorder that is enabled server-side.",
-            "examples": ["v2"],
+            "examples": [
+                "v2"
+            ],
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
             "system": true,
@@ -1477,7 +1960,11 @@
         },
         "$session_recording_start_reason": {
             "description": "Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.",
-            "examples": ["sampling_override", "recording_initialized", "linked_flag_match"],
+            "examples": [
+                "sampling_override",
+                "recording_initialized",
+                "linked_flag_match"
+            ],
             "label": "Session recording start reason",
             "system": true,
             "used_for_debug": true
@@ -1522,7 +2009,10 @@
         },
         "$survey_name": {
             "description": "The name of the survey.",
-            "examples": ["Product Feedback for New Product", "Home page NPS"],
+            "examples": [
+                "Product Feedback for New Product",
+                "Home page NPS"
+            ],
             "label": "Survey name"
         },
         "$survey_partially_completed": {
@@ -1535,7 +2025,11 @@
         },
         "$survey_response": {
             "description": "The response value for the first question in the survey.",
-            "examples": ["I love it!", 5, "['choice 1', 'choice 3']"],
+            "examples": [
+                "I love it!",
+                5,
+                "['choice 1', 'choice 3']"
+            ],
             "label": "Survey response"
         },
         "$survey_submission_id": {
@@ -1548,13 +2042,17 @@
         },
         "$time": {
             "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
-            "examples": ["1681211521.345"],
+            "examples": [
+                "1681211521.345"
+            ],
             "label": "$time (deprecated)",
             "system": true
         },
         "$timestamp": {
             "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
-            "examples": ["2023-05-20T15:30:00Z"],
+            "examples": [
+                "2023-05-20T15:30:00Z"
+            ],
             "label": "Timestamp (deprecated)",
             "system": true
         },
@@ -1587,7 +2085,9 @@
         },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
-            "examples": ["Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)"],
+            "examples": [
+                "Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)"
+            ],
             "label": "Raw user agent"
         },
         "$user_id": {
@@ -1596,12 +2096,18 @@
         },
         "$viewport_height": {
             "description": "The height of the user's actual browser window (in pixels).",
-            "examples": ["2094", "1031"],
+            "examples": [
+                "2094",
+                "1031"
+            ],
             "label": "Viewport height"
         },
         "$viewport_width": {
             "description": "The width of the user's actual browser window (in pixels).",
-            "examples": ["1439", "1915"],
+            "examples": [
+                "1439",
+                "1915"
+            ],
             "label": "Viewport width"
         },
         "$web_vitals_CLS_event": {
@@ -1630,7 +2136,9 @@
         },
         "$web_vitals_allowed_metrics": {
             "description": "Allowed web vitals metrics config.",
-            "examples": ["[\"LCP\", \"CLS\"]"],
+            "examples": [
+                "[\"LCP\", \"CLS\"]"
+            ],
             "label": "Web vitals allowed metrics",
             "system": true
         },
@@ -1649,12 +2157,19 @@
         },
         "build": {
             "description": "The build number for the app",
-            "examples": ["1"],
+            "examples": [
+                "1"
+            ],
             "label": "App build"
         },
         "currency": {
             "description": "The currency code associated with the event.",
-            "examples": ["USD", "EUR", "GBP", "CAD"],
+            "examples": [
+                "USD",
+                "EUR",
+                "GBP",
+                "CAD"
+            ],
             "label": "Currency"
         },
         "dclid": {
@@ -1663,7 +2178,9 @@
         },
         "distinct_id": {
             "description": "The current distinct ID of the user.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Distinct ID"
         },
         "epik": {
@@ -1676,7 +2193,10 @@
         },
         "from_background": {
             "description": "Whether the app was opened for the first time or from the background.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "From background"
         },
         "gad_source": {
@@ -1717,12 +2237,16 @@
         },
         "previous_build": {
             "description": "The previous build number for the app",
-            "examples": ["1"],
+            "examples": [
+                "1"
+            ],
             "label": "App previous build"
         },
         "previous_version": {
             "description": "The previous version of the app",
-            "examples": ["1.0.0"],
+            "examples": [
+                "1.0.0"
+            ],
             "label": "App previous version"
         },
         "qclid": {
@@ -1735,12 +2259,16 @@
         },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
-            "examples": ["com.posthog.app"],
+            "examples": [
+                "com.posthog.app"
+            ],
             "label": "Referrer application"
         },
         "revenue": {
             "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
-            "examples": [10.0],
+            "examples": [
+                10.0
+            ],
             "label": "Revenue"
         },
         "sccid": {
@@ -1749,19 +2277,26 @@
         },
         "sdk_debug_extensions_init_method": {
             "description": "The method used to initialize PostHog.js extensions.",
-            "examples": ["deferred", "synchronous"],
+            "examples": [
+                "deferred",
+                "synchronous"
+            ],
             "label": "PostHog.js extensions init method",
             "used_for_debug": true
         },
         "sdk_debug_extensions_init_time_ms": {
             "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
-            "examples": ["150"],
+            "examples": [
+                "150"
+            ],
             "label": "PostHog.js extensions init time (ms)",
             "used_for_debug": true
         },
         "token": {
             "description": "Token used for authentication.",
-            "examples": ["ph_abcdefg"],
+            "examples": [
+                "ph_abcdefg"
+            ],
             "ignored_in_assistant": true,
             "label": "Token"
         },
@@ -1775,42 +2310,67 @@
         },
         "url": {
             "description": "The deep link URL that the app was opened from.",
-            "examples": ["https://open.my.app"],
+            "examples": [
+                "https://open.my.app"
+            ],
             "label": "URL"
         },
         "utm_campaign": {
             "description": "UTM campaign tag.",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "label": "UTM campaign"
         },
         "utm_content": {
             "description": "UTM content tag.",
-            "examples": ["bottom link", "second button"],
+            "examples": [
+                "bottom link",
+                "second button"
+            ],
             "label": "UTM content"
         },
         "utm_medium": {
             "description": "UTM medium tag.",
-            "examples": ["Social", "Organic", "Paid", "Email"],
+            "examples": [
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
+            ],
             "label": "UTM medium"
         },
         "utm_name": {
             "description": "UTM campaign tag, sent via Segment.",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "label": "UTM name"
         },
         "utm_source": {
             "description": "UTM source tag.",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "label": "UTM source"
         },
         "utm_term": {
             "description": "UTM term tag.",
-            "examples": ["free goodies"],
+            "examples": [
+                "free goodies"
+            ],
             "label": "UTM term"
         },
         "version": {
             "description": "The version of the app",
-            "examples": ["1.0.0"],
+            "examples": [
+                "1.0.0"
+            ],
             "label": "App version"
         },
         "wbraid": {
@@ -1854,7 +2414,9 @@
         },
         "$autocapture": {
             "description": "User interactions that were automatically captured.",
-            "examples": ["clicked button"],
+            "examples": [
+                "clicked button"
+            ],
             "ignored_in_assistant": true,
             "label": "Autocapture"
         },
@@ -1875,7 +2437,10 @@
         },
         "$csp_violation": {
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
-            "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
+            "examples": [
+                "Unauthorized inline script",
+                "Trying to load resources from unauthorized domain"
+            ],
             "label": "CSP violation"
         },
         "$dead_click": {
@@ -1893,7 +2458,9 @@
         },
         "$feature_flag_called": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try \"Active feature flags\".",
-            "examples": ["beta-feature"],
+            "examples": [
+                "beta-feature"
+            ],
             "ignored_in_assistant": true,
             "label": "Feature flag called"
         },
@@ -1987,15 +2554,15 @@
             "description": "Specified group key",
             "label": "Group key"
         },
-        "$virt_revenue": {
-            "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",
-            "label": "Total revenue",
+        "$virt_mrr": {
+            "description": "The current MRR for this group.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": true
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this group in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_revenue": {
+            "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",
+            "label": "Total revenue",
             "type": "Numeric",
             "virtual": true
         }
@@ -2003,7 +2570,11 @@
     "log_entries": {
         "level": {
             "description": "Level of the ",
-            "examples": ["info", "warn", "error"],
+            "examples": [
+                "info",
+                "warn",
+                "error"
+            ],
             "label": "Console log level"
         },
         "message": {
@@ -2014,31 +2585,43 @@
     "metadata": {
         "distinct_id": {
             "description": "The current distinct ID of the user.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Distinct ID"
         },
         "event": {
             "description": "The name of the event.",
-            "examples": ["$pageview"],
+            "examples": [
+                "$pageview"
+            ],
             "ignored_in_assistant": true,
             "label": "Event",
             "system": true
         },
         "person_id": {
             "description": "The ID of the person, depending on the person properties mode.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Person ID"
         },
         "person_mode": {
             "description": "The person mode determined during ingestion: full (identified user with properties), propertyless (anonymous user), or force_upgrade (anonymous event linked to an already identified user). Used in usage reports.",
-            "examples": ["full", "propertyless", "force_upgrade"],
+            "examples": [
+                "full",
+                "propertyless",
+                "force_upgrade"
+            ],
             "ignored_in_assistant": true,
             "label": "Person mode",
             "system": true
         },
         "timestamp": {
             "description": "Time the event happened.",
-            "examples": ["2023-05-20T15:30:00Z"],
+            "examples": [
+                "2023-05-20T15:30:00Z"
+            ],
             "ignored_in_assistant": true,
             "label": "Timestamp",
             "system": true
@@ -2052,72 +2635,105 @@
         },
         "$active_feature_flags": {
             "description": "Keys of the feature flags that were active while this event was sent.",
-            "examples": ["['beta-feature']"],
+            "examples": [
+                "['beta-feature']"
+            ],
             "label": "Active feature flags"
         },
         "$ai_base_url": {
             "description": "The base URL of the request made to the LLM API.",
-            "examples": ["https://api.openai.com/v1/"],
+            "examples": [
+                "https://api.openai.com/v1/"
+            ],
             "label": "AI base URL (LLM)"
         },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI cache creation input tokens (LLM)"
         },
         "$ai_cache_read_input_tokens": {
             "description": "The number of tokens read from the cache for the input prompt.",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI cache read input tokens (LLM)"
         },
         "$ai_evaluation_id": {
             "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
-            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
             "label": "AI Evaluation ID (LLM)"
         },
         "$ai_evaluation_model": {
             "description": "The LLM model used as the judge for the evaluation.",
-            "examples": ["gpt-4", "claude-3-opus"],
+            "examples": [
+                "gpt-4",
+                "claude-3-opus"
+            ],
             "label": "AI Evaluation Model (LLM)"
         },
         "$ai_evaluation_name": {
             "description": "The name of the evaluation configuration used.",
-            "examples": ["Factual accuracy check", "Response relevance"],
+            "examples": [
+                "Factual accuracy check",
+                "Response relevance"
+            ],
             "label": "AI Evaluation Name (LLM)"
         },
         "$ai_evaluation_reasoning": {
             "description": "The LLM's explanation for why the evaluation passed or failed.",
-            "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+            "examples": [
+                "The response accurately addresses the query",
+                "The output contains factual inaccuracies"
+            ],
             "label": "AI Evaluation Reasoning (LLM)"
         },
         "$ai_evaluation_result": {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
-            "examples": [true, false],
+            "examples": [
+                true,
+                false
+            ],
             "label": "AI Evaluation Result (LLM)"
         },
         "$ai_evaluation_start_time": {
             "description": "The timestamp when the evaluation started executing.",
-            "examples": ["2025-01-15T10:30:00Z"],
+            "examples": [
+                "2025-01-15T10:30:00Z"
+            ],
             "label": "AI Evaluation Start Time (LLM)"
         },
         "$ai_feedback_text": {
             "description": "The text provided by the user for feedback on the LLM trace.",
-            "examples": ["\"The response was helpful, but it did not use the provided context.\""],
+            "examples": [
+                "\"The response was helpful, but it did not use the provided context.\""
+            ],
             "label": "AI Feedback Text (LLM)"
         },
         "$ai_http_status": {
             "description": "The HTTP status code of the request made to the LLM API.",
-            "examples": [200, 429],
+            "examples": [
+                200,
+                429
+            ],
             "label": "AI HTTP status (LLM)"
         },
         "$ai_input": {
             "description": "The input JSON that was sent to the LLM API.",
-            "examples": ["{\"content\": \"Explain quantum computing in simple terms.\", \"role\": \"user\"}"],
+            "examples": [
+                "{\"content\": \"Explain quantum computing in simple terms.\", \"role\": \"user\"}"
+            ],
             "label": "AI input (LLM)"
         },
         "$ai_input_cost_usd": {
             "description": "The cost in USD of the input tokens sent to the LLM API.",
-            "examples": [0.0017],
+            "examples": [
+                0.0017
+            ],
             "label": "AI input cost USD (LLM)"
         },
         "$ai_input_state": {
@@ -2126,32 +2742,46 @@
         },
         "$ai_input_tokens": {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI input tokens (LLM)"
         },
         "$ai_latency": {
             "description": "The latency of the request made to the LLM API, in seconds.",
-            "examples": [0.361],
+            "examples": [
+                0.361
+            ],
             "label": "AI latency (LLM)"
         },
         "$ai_metric_name": {
             "description": "The name assigned to the metric used to evaluate the LLM trace.",
-            "examples": ["rating", "accuracy"],
+            "examples": [
+                "rating",
+                "accuracy"
+            ],
             "label": "AI Metric Name (LLM)"
         },
         "$ai_metric_value": {
             "description": "The value assigned to the metric used to evaluate the LLM trace.",
-            "examples": ["negative", "95"],
+            "examples": [
+                "negative",
+                "95"
+            ],
             "label": "AI Metric Value (LLM)"
         },
         "$ai_model": {
             "description": "The model used to generate the output from the LLM API.",
-            "examples": ["gpt-4o-mini"],
+            "examples": [
+                "gpt-4o-mini"
+            ],
             "label": "AI model (LLM)"
         },
         "$ai_model_parameters": {
             "description": "The parameters used to configure the model in the LLM API, in JSON.",
-            "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"],
+            "examples": [
+                "{\"temperature\": 0.5, \"max_tokens\": 50}"
+            ],
             "label": "AI model parameters (LLM)"
         },
         "$ai_output_choices": {
@@ -2163,7 +2793,9 @@
         },
         "$ai_output_cost_usd": {
             "description": "The cost in USD of the output tokens received from the LLM API.",
-            "examples": [0.0024],
+            "examples": [
+                0.0024
+            ],
             "label": "AI output cost USD (LLM)"
         },
         "$ai_output_state": {
@@ -2172,62 +2804,90 @@
         },
         "$ai_output_tokens": {
             "description": "The number of tokens in the output from the LLM API.",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI output tokens (LLM)"
         },
         "$ai_parent_id": {
             "description": "The parent span ID of a span or generation, used to group a trace into a tree view.",
-            "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
+            "examples": [
+                "bdf42359-9364-4db7-8958-c001f28c9255"
+            ],
             "label": "AI Parent ID (LLM)"
         },
         "$ai_provider": {
             "description": "The provider of the AI model used to generate the output from the LLM API.",
-            "examples": ["openai"],
+            "examples": [
+                "openai"
+            ],
             "label": "AI Provider (LLM)"
         },
         "$ai_reasoning_tokens": {
             "description": "The number of tokens in the reasoning output from the LLM API.",
-            "examples": [23],
+            "examples": [
+                23
+            ],
             "label": "AI reasoning tokens (LLM)"
         },
         "$ai_request_url": {
             "description": "The full URL of the request made to the LLM API.",
-            "examples": ["https://api.openai.com/v1/chat/completions"],
+            "examples": [
+                "https://api.openai.com/v1/chat/completions"
+            ],
             "label": "AI Request URL (LLM)"
         },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
-            "examples": ["session-abc-123", "conv-user-456"],
+            "examples": [
+                "session-abc-123",
+                "conv-user-456"
+            ],
             "label": "AI Session ID (LLM)"
         },
         "$ai_span_id": {
             "description": "The unique identifier for a LLM trace, generation, or span.",
-            "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
+            "examples": [
+                "bdf42359-9364-4db7-8958-c001f28c9255"
+            ],
             "label": "AI Span ID (LLM)"
         },
         "$ai_span_name": {
             "description": "The name given to this LLM trace, generation, or span.",
-            "examples": ["summarize_text"],
+            "examples": [
+                "summarize_text"
+            ],
             "label": "AI Span Name (LLM)"
         },
         "$ai_stream": {
             "description": "Whether the response from the LLM API was streamed.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "AI stream (LLM)"
         },
         "$ai_target_event_id": {
             "description": "The unique identifier of the event being evaluated.",
-            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+            "examples": [
+                "c9222e05-8708-41b8-98ea-d4a21849e761"
+            ],
             "label": "AI Target Event ID (LLM)"
         },
         "$ai_target_event_type": {
             "description": "The type of event being evaluated (e.g., $ai_generation).",
-            "examples": ["$ai_generation", "$ai_span"],
+            "examples": [
+                "$ai_generation",
+                "$ai_span"
+            ],
             "label": "AI Target Event Type (LLM)"
         },
         "$ai_temperature": {
             "description": "The temperature parameter used in the request to the LLM API.",
-            "examples": [0.7, 1.0],
+            "examples": [
+                0.7,
+                1.0
+            ],
             "label": "AI temperature (LLM)"
         },
         "$ai_tools": {
@@ -2239,17 +2899,23 @@
         },
         "$ai_total_cost_usd": {
             "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
-            "examples": [0.0041],
+            "examples": [
+                0.0041
+            ],
             "label": "AI total cost USD (LLM)"
         },
         "$ai_trace_id": {
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
-            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+            "examples": [
+                "c9222e05-8708-41b8-98ea-d4a21849e761"
+            ],
             "label": "AI Trace ID (LLM)"
         },
         "$anon_distinct_id": {
             "description": "If the user was previously anonymous, their anonymous ID will be set here.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Anon distinct ID",
             "system": true
         },
@@ -2263,7 +2929,9 @@
         },
         "$app_namespace": {
             "description": "The namespace of the app as identified in the app store. Data from the last time this user was seen.",
-            "examples": ["com.posthog.app"],
+            "examples": [
+                "com.posthog.app"
+            ],
             "label": "Latest app namespace"
         },
         "$app_version": {
@@ -2278,27 +2946,44 @@
         },
         "$browser": {
             "description": "Name of the browser the user has used. Data from the last time this user was seen.",
-            "examples": ["Chrome", "Firefox"],
+            "examples": [
+                "Chrome",
+                "Firefox"
+            ],
             "label": "Latest browser"
         },
         "$browser_language": {
             "description": "Language.",
-            "examples": ["en", "en-US", "cn", "pl-PL"],
+            "examples": [
+                "en",
+                "en-US",
+                "cn",
+                "pl-PL"
+            ],
             "label": "Browser language"
         },
         "$browser_language_prefix": {
             "description": "Language prefix.",
-            "examples": ["en", "ja"],
+            "examples": [
+                "en",
+                "ja"
+            ],
             "label": "Browser language prefix"
         },
         "$browser_type": {
             "description": "This is only added when posthog-js config.opt_out_useragent_filter is true.",
-            "examples": ["browser", "bot"],
+            "examples": [
+                "browser",
+                "bot"
+            ],
             "label": "Browser type"
         },
         "$browser_version": {
             "description": "The version of the browser that was used. Used in combination with Browser. Data from the last time this user was seen.",
-            "examples": ["70", "79"],
+            "examples": [
+                "70",
+                "79"
+            ],
             "label": "Latest browser version"
         },
         "$capture_failed_request": {
@@ -2313,37 +2998,61 @@
         },
         "$client_session_initial_pathname": {
             "description": "Path that the user started their session on. (First-touch, session-scoped)",
-            "examples": ["/register", "/some/landing/page"],
+            "examples": [
+                "/register",
+                "/some/landing/page"
+            ],
             "label": "Initial path"
         },
         "$client_session_initial_referring_host": {
             "description": "Host that the user came from. (First-touch, session-scoped)",
-            "examples": ["google.com", "facebook.com"],
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ],
             "label": "Referrer host"
         },
         "$client_session_initial_utm_campaign": {
             "description": "UTM Campaign. (First-touch, session-scoped)",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "label": "Initial UTM campaign"
         },
         "$client_session_initial_utm_content": {
             "description": "UTM Source. (First-touch, session-scoped)",
-            "examples": ["bottom link", "second button"],
+            "examples": [
+                "bottom link",
+                "second button"
+            ],
             "label": "Initial UTM source"
         },
         "$client_session_initial_utm_medium": {
             "description": "UTM Medium. (First-touch, session-scoped)",
-            "examples": ["Social", "Organic", "Paid", "Email"],
+            "examples": [
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
+            ],
             "label": "Initial UTM medium"
         },
         "$client_session_initial_utm_source": {
             "description": "UTM Source. (First-touch, session-scoped)",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "label": "Initial UTM source"
         },
         "$client_session_initial_utm_term": {
             "description": "UTM term. (First-touch, session-scoped)",
-            "examples": ["free goodies"],
+            "examples": [
+                "free goodies"
+            ],
             "label": "Initial UTM term"
         },
         "$config_defaults": {
@@ -2354,7 +3063,9 @@
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
-            "examples": ["1800000"],
+            "examples": [
+                "1800000"
+            ],
             "label": "Configured session timeout",
             "system": true,
             "used_for_debug": true
@@ -2367,48 +3078,70 @@
         },
         "$copy_type": {
             "description": "Type of copy event.",
-            "examples": ["copy", "cut"],
+            "examples": [
+                "copy",
+                "cut"
+            ],
             "ignored_in_assistant": true,
             "label": "Copy type"
         },
         "$creator_event_uuid": {
             "description": "Unique ID for the event, which created this person.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Creator event ID"
         },
         "$csp_blocked_url": {
             "description": "The URL that was blocked by the CSP policy.",
-            "examples": ["https://malicious-site.com/script.js"],
+            "examples": [
+                "https://malicious-site.com/script.js"
+            ],
             "label": "Blocked URL"
         },
         "$csp_column_number": {
             "description": "The column number in the source file where the violation occurred.",
-            "examples": ["13"],
+            "examples": [
+                "13"
+            ],
             "label": "Column number"
         },
         "$csp_disposition": {
             "description": "The disposition of the CSP policy that was violated (enforce or report).",
-            "examples": ["enforce", "report"],
+            "examples": [
+                "enforce",
+                "report"
+            ],
             "label": "Disposition"
         },
         "$csp_document_url": {
             "description": "The URL of the document where the violation occurred.",
-            "examples": ["https://example.com/page"],
+            "examples": [
+                "https://example.com/page"
+            ],
             "label": "Document URL"
         },
         "$csp_effective_directive": {
             "description": "The CSP directive that was effectively violated.",
-            "examples": ["script-src", "img-src", "default-src"],
+            "examples": [
+                "script-src",
+                "img-src",
+                "default-src"
+            ],
             "label": "Effective directive"
         },
         "$csp_line_number": {
             "description": "The line number in the source file where the violation occurred.",
-            "examples": ["42"],
+            "examples": [
+                "42"
+            ],
             "label": "Line number"
         },
         "$csp_original_policy": {
             "description": "The CSP policy that was active when the violation occurred.",
-            "examples": ["default-src 'self'; script-src 'self' example.com"],
+            "examples": [
+                "default-src 'self'; script-src 'self' example.com"
+            ],
             "label": "Original policy"
         },
         "$csp_raw_report": {
@@ -2417,7 +3150,9 @@
         },
         "$csp_referrer": {
             "description": "The referrer of the CSP report if available.",
-            "examples": ["https://example.com/referrer"],
+            "examples": [
+                "https://example.com/referrer"
+            ],
             "label": "CSP Referrer"
         },
         "$csp_report_type": {
@@ -2426,32 +3161,47 @@
         },
         "$csp_script_sample": {
             "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
-            "examples": ["eval('alert(1)')"],
+            "examples": [
+                "eval('alert(1)')"
+            ],
             "label": "Script sample"
         },
         "$csp_source_file": {
             "description": "The source file where the violation occurred.",
-            "examples": ["script.js"],
+            "examples": [
+                "script.js"
+            ],
             "label": "Source file"
         },
         "$csp_status_code": {
             "description": "The HTTP status code that was returned when trying to load the blocked resource.",
-            "examples": ["200", "404"],
+            "examples": [
+                "200",
+                "404"
+            ],
             "label": "Status code"
         },
         "$csp_version": {
             "description": "The version of the CSP policy. Must be provided in the report URL.",
-            "examples": ["1.0"],
+            "examples": [
+                "1.0"
+            ],
             "label": "CSP Policy version"
         },
         "$csp_violated_directive": {
             "description": "The CSP directive that was violated.",
-            "examples": ["script-src", "img-src", "default-src"],
+            "examples": [
+                "script-src",
+                "img-src",
+                "default-src"
+            ],
             "label": "Violated directive"
         },
         "$current_url": {
             "description": "The URL visited at the time of the event. Data from the last time this user was seen.",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "label": "Latest current URL"
         },
         "$cymbal_errors": {
@@ -2515,48 +3265,75 @@
         },
         "$device": {
             "description": "The mobile device that was used.",
-            "examples": ["iPad", "iPhone", "Android"],
+            "examples": [
+                "iPad",
+                "iPhone",
+                "Android"
+            ],
             "label": "Device"
         },
         "$device_id": {
             "description": "Unique ID for that device, consistent even if users are logging in/out.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Device ID",
             "system": true
         },
         "$device_manufacturer": {
             "description": "The manufacturer of the device",
-            "examples": ["Apple", "Samsung"],
+            "examples": [
+                "Apple",
+                "Samsung"
+            ],
             "label": "Device manufacturer"
         },
         "$device_model": {
             "description": "The model of the device that was used.",
-            "examples": ["iPhone9,3", "SM-G965W"],
+            "examples": [
+                "iPhone9,3",
+                "SM-G965W"
+            ],
             "label": "Device model"
         },
         "$device_name": {
             "description": "Name of the device",
-            "examples": ["iPhone 12 Pro", "Samsung Galaxy 10"],
+            "examples": [
+                "iPhone 12 Pro",
+                "Samsung Galaxy 10"
+            ],
             "label": "Device name"
         },
         "$device_type": {
             "description": "The type of device that was used. Data from the last time this user was seen.",
-            "examples": ["Mobile", "Tablet", "Desktop"],
+            "examples": [
+                "Mobile",
+                "Tablet",
+                "Desktop"
+            ],
             "label": "Latest device type"
         },
         "$el_text": {
             "description": "The text of the element that was clicked. Only sent with Autocapture events.",
-            "examples": ["Click here!"],
+            "examples": [
+                "Click here!"
+            ],
             "label": "Element text"
         },
         "$enabled_feature_flags": {
             "description": "Keys and multivariate values of the feature flags that were active while this event was sent.",
-            "examples": ["{\"flag\": \"value\"}"],
+            "examples": [
+                "{\"flag\": \"value\"}"
+            ],
             "label": "Enabled feature flags"
         },
         "$event_type": {
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
-            "examples": ["click", "submit", "change"],
+            "examples": [
+                "click",
+                "submit",
+                "change"
+            ],
             "label": "Event type"
         },
         "$exception_DOMException_code": {
@@ -2569,12 +3346,16 @@
         },
         "$exception_capture_endpoint": {
             "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
+            "examples": [
+                "/e/"
+            ],
             "label": "Exception capture endpoint"
         },
         "$exception_capture_endpoint_suffix": {
             "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
+            "examples": [
+                "/e/"
+            ],
             "label": "Exception capture endpoint suffix"
         },
         "$exception_colno": {
@@ -2603,7 +3384,9 @@
         },
         "$exception_level": {
             "description": "Exception categorized by severity.",
-            "examples": ["error"],
+            "examples": [
+                "error"
+            ],
             "label": "Exception level"
         },
         "$exception_lineno": {
@@ -2629,7 +3412,9 @@
         },
         "$exception_source": {
             "description": "The source of the exception.",
-            "examples": ["JS file"],
+            "examples": [
+                "JS file"
+            ],
             "label": "Exception source"
         },
         "$exception_sources": {
@@ -2638,12 +3423,16 @@
         },
         "$exception_type": {
             "description": "Exception categorized into types.",
-            "examples": ["Error"],
+            "examples": [
+                "Error"
+            ],
             "label": "Exception type"
         },
         "$exception_types": {
             "description": "The type of the exception.",
-            "examples": ["TypeError"],
+            "examples": [
+                "TypeError"
+            ],
             "label": "Exception type"
         },
         "$exception_values": {
@@ -2652,12 +3441,23 @@
         },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
-            "examples": ["beta-feature"],
+            "examples": [
+                "beta-feature"
+            ],
             "label": "Feature flag"
+        },
+        "$feature_flag_evaluated_at": {
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": [
+                "1732051200000"
+            ],
+            "label": "Feature flag evaluated at"
         },
         "$feature_flag_payload": {
             "description": "The JSON payload that the call to feature flag responded with (if any)",
-            "examples": ["{\"variant\": \"test\"}"],
+            "examples": [
+                "{\"variant\": \"test\"}"
+            ],
             "label": "Feature flag response payload"
         },
         "$feature_flag_payloads": {
@@ -2667,62 +3467,97 @@
         },
         "$feature_flag_reason": {
             "description": "The reason the feature flag was matched or not matched.",
-            "examples": ["Matched condition set 1"],
+            "examples": [
+                "Matched condition set 1"
+            ],
             "label": "Feature flag evaluation reason"
         },
         "$feature_flag_request_id": {
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
-            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+            "examples": [
+                "01234567-89ab-cdef-0123-456789abcdef"
+            ],
             "label": "Feature flag request ID"
         },
         "$feature_flag_response": {
             "description": "What the call to feature flag responded with.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Feature flag response"
         },
         "$feature_flag_version": {
             "description": "The version of the feature flag that was called.",
-            "examples": ["3"],
+            "examples": [
+                "3"
+            ],
             "label": "Feature flag version"
         },
         "$geoip_accuracy_radius": {
             "description": "Accuracy radius of the location matched to this event's IP address (in kilometers). Data from the last time this user was seen.",
-            "examples": ["50"],
+            "examples": [
+                "50"
+            ],
             "label": "Latest GeoIP detection accuracy radius"
         },
         "$geoip_city_confidence": {
             "description": "Confidence level of the city matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "Latest GeoIP detection city confidence"
         },
         "$geoip_city_name": {
             "description": "Name of the city matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["Sydney", "Chennai", "Brooklyn"],
+            "examples": [
+                "Sydney",
+                "Chennai",
+                "Brooklyn"
+            ],
             "label": "Latest city name"
         },
         "$geoip_continent_code": {
             "description": "Code of the continent matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["OC", "AS", "NA"],
+            "examples": [
+                "OC",
+                "AS",
+                "NA"
+            ],
             "label": "Latest continent code"
         },
         "$geoip_continent_name": {
             "description": "Name of the continent matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["Oceania", "Asia", "North America"],
+            "examples": [
+                "Oceania",
+                "Asia",
+                "North America"
+            ],
             "label": "Latest continent name"
         },
         "$geoip_country_code": {
             "description": "Code of the country matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["AU", "IN", "US"],
+            "examples": [
+                "AU",
+                "IN",
+                "US"
+            ],
             "label": "Latest country code"
         },
         "$geoip_country_confidence": {
             "description": "Confidence level of the country matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "Latest GeoIP detection country confidence"
         },
         "$geoip_country_name": {
             "description": "Name of the country matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["Australia", "India", "United States"],
+            "examples": [
+                "Australia",
+                "India",
+                "United States"
+            ],
             "label": "Latest country name"
         },
         "$geoip_disable": {
@@ -2731,39 +3566,64 @@
         },
         "$geoip_latitude": {
             "description": "Approximated latitude matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["-33.8591", "13.1337", "40.7"],
+            "examples": [
+                "-33.8591",
+                "13.1337",
+                "40.7"
+            ],
             "label": "Latest latitude"
         },
         "$geoip_longitude": {
             "description": "Approximated longitude matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["151.2", "80.8008", "-73.9"],
+            "examples": [
+                "151.2",
+                "80.8008",
+                "-73.9"
+            ],
             "label": "Latest longitude"
         },
         "$geoip_postal_code": {
             "description": "Approximated postal code matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["2000", "600004", "11211"],
+            "examples": [
+                "2000",
+                "600004",
+                "11211"
+            ],
             "label": "Latest postal code"
         },
         "$geoip_postal_code_confidence": {
             "description": "If provided by the licensed geoip database Data from the last time this user was seen.",
-            "examples": ["null", "0.1"],
+            "examples": [
+                "null",
+                "0.1"
+            ],
             "ignored_in_assistant": true,
             "label": "Latest postal code identification confidence score",
             "system": true
         },
         "$geoip_subdivision_1_code": {
             "description": "Code of the subdivision matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["NSW", "TN", "NY"],
+            "examples": [
+                "NSW",
+                "TN",
+                "NY"
+            ],
             "label": "Latest subdivision 1 code"
         },
         "$geoip_subdivision_1_confidence": {
             "description": "Confidence level of the first subdivision matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "Latest GeoIP detection subdivision 1 confidence"
         },
         "$geoip_subdivision_1_name": {
             "description": "Name of the subdivision matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["New South Wales", "Tamil Nadu", "New York"],
+            "examples": [
+                "New South Wales",
+                "Tamil Nadu",
+                "New York"
+            ],
             "label": "Latest subdivision 1 name"
         },
         "$geoip_subdivision_2_code": {
@@ -2772,7 +3632,10 @@
         },
         "$geoip_subdivision_2_confidence": {
             "description": "If provided by the licensed geoip database Data from the last time this user was seen.",
-            "examples": ["null", "0.1"],
+            "examples": [
+                "null",
+                "0.1"
+            ],
             "ignored_in_assistant": true,
             "label": "Latest subdivision 2 identification confidence score",
             "system": true
@@ -2791,7 +3654,11 @@
         },
         "$geoip_time_zone": {
             "description": "Timezone matched to this event's IP address. Data from the last time this user was seen.",
-            "examples": ["Australia/Sydney", "Asia/Kolkata", "America/New_York"],
+            "examples": [
+                "Australia/Sydney",
+                "Asia/Kolkata",
+                "America/New_York"
+            ],
             "label": "Latest timezone"
         },
         "$group_0": {
@@ -2835,9 +3702,18 @@
             "label": "$had_persisted_distinct_id",
             "system": true
         },
+        "$has_recording": {
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
+            "label": "Has recording",
+            "system": true,
+            "used_for_debug": true
+        },
         "$host": {
             "description": "The hostname of the Current URL.",
-            "examples": ["example.com", "localhost:8000"],
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ],
             "label": "Host"
         },
         "$initial__kx": {
@@ -2854,7 +3730,9 @@
         },
         "$initial_app_namespace": {
             "description": "The namespace of the app as identified in the app store. Data from the first time this user was seen.",
-            "examples": ["com.posthog.app"],
+            "examples": [
+                "com.posthog.app"
+            ],
             "label": "Initial app namespace"
         },
         "$initial_app_version": {
@@ -2863,17 +3741,25 @@
         },
         "$initial_browser": {
             "description": "Name of the browser the user has used. Data from the first time this user was seen.",
-            "examples": ["Chrome", "Firefox"],
+            "examples": [
+                "Chrome",
+                "Firefox"
+            ],
             "label": "Initial browser"
         },
         "$initial_browser_version": {
             "description": "The version of the browser that was used. Used in combination with Browser. Data from the first time this user was seen.",
-            "examples": ["70", "79"],
+            "examples": [
+                "70",
+                "79"
+            ],
             "label": "Initial browser version"
         },
         "$initial_current_url": {
             "description": "The URL visited at the time of the event. Data from the first time this user was seen.",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "label": "Initial current URL"
         },
         "$initial_dclid": {
@@ -2882,7 +3768,11 @@
         },
         "$initial_device_type": {
             "description": "The type of device that was used. Data from the first time this user was seen.",
-            "examples": ["Mobile", "Tablet", "Desktop"],
+            "examples": [
+                "Mobile",
+                "Tablet",
+                "Desktop"
+            ],
             "label": "Initial device type"
         },
         "$initial_epik": {
@@ -2911,42 +3801,68 @@
         },
         "$initial_geoip_accuracy_radius": {
             "description": "Accuracy radius of the location matched to this event's IP address (in kilometers). Data from the first time this user was seen.",
-            "examples": ["50"],
+            "examples": [
+                "50"
+            ],
             "label": "Initial GeoIP detection accuracy radius"
         },
         "$initial_geoip_city_confidence": {
             "description": "Confidence level of the city matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "Initial GeoIP detection city confidence"
         },
         "$initial_geoip_city_name": {
             "description": "Name of the city matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["Sydney", "Chennai", "Brooklyn"],
+            "examples": [
+                "Sydney",
+                "Chennai",
+                "Brooklyn"
+            ],
             "label": "Initial city name"
         },
         "$initial_geoip_continent_code": {
             "description": "Code of the continent matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["OC", "AS", "NA"],
+            "examples": [
+                "OC",
+                "AS",
+                "NA"
+            ],
             "label": "Initial continent code"
         },
         "$initial_geoip_continent_name": {
             "description": "Name of the continent matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["Oceania", "Asia", "North America"],
+            "examples": [
+                "Oceania",
+                "Asia",
+                "North America"
+            ],
             "label": "Initial continent name"
         },
         "$initial_geoip_country_code": {
             "description": "Code of the country matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["AU", "IN", "US"],
+            "examples": [
+                "AU",
+                "IN",
+                "US"
+            ],
             "label": "Initial country code"
         },
         "$initial_geoip_country_confidence": {
             "description": "Confidence level of the country matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "Initial GeoIP detection country confidence"
         },
         "$initial_geoip_country_name": {
             "description": "Name of the country matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["Australia", "India", "United States"],
+            "examples": [
+                "Australia",
+                "India",
+                "United States"
+            ],
             "label": "Initial country name"
         },
         "$initial_geoip_disable": {
@@ -2955,39 +3871,64 @@
         },
         "$initial_geoip_latitude": {
             "description": "Approximated latitude matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["-33.8591", "13.1337", "40.7"],
+            "examples": [
+                "-33.8591",
+                "13.1337",
+                "40.7"
+            ],
             "label": "Initial latitude"
         },
         "$initial_geoip_longitude": {
             "description": "Approximated longitude matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["151.2", "80.8008", "-73.9"],
+            "examples": [
+                "151.2",
+                "80.8008",
+                "-73.9"
+            ],
             "label": "Initial longitude"
         },
         "$initial_geoip_postal_code": {
             "description": "Approximated postal code matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["2000", "600004", "11211"],
+            "examples": [
+                "2000",
+                "600004",
+                "11211"
+            ],
             "label": "Initial postal code"
         },
         "$initial_geoip_postal_code_confidence": {
             "description": "If provided by the licensed geoip database Data from the first time this user was seen.",
-            "examples": ["null", "0.1"],
+            "examples": [
+                "null",
+                "0.1"
+            ],
             "ignored_in_assistant": true,
             "label": "Initial postal code identification confidence score",
             "system": true
         },
         "$initial_geoip_subdivision_1_code": {
             "description": "Code of the subdivision matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["NSW", "TN", "NY"],
+            "examples": [
+                "NSW",
+                "TN",
+                "NY"
+            ],
             "label": "Initial subdivision 1 code"
         },
         "$initial_geoip_subdivision_1_confidence": {
             "description": "Confidence level of the first subdivision matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["0.5"],
+            "examples": [
+                "0.5"
+            ],
             "label": "Initial GeoIP detection subdivision 1 confidence"
         },
         "$initial_geoip_subdivision_1_name": {
             "description": "Name of the subdivision matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["New South Wales", "Tamil Nadu", "New York"],
+            "examples": [
+                "New South Wales",
+                "Tamil Nadu",
+                "New York"
+            ],
             "label": "Initial subdivision 1 name"
         },
         "$initial_geoip_subdivision_2_code": {
@@ -2996,7 +3937,10 @@
         },
         "$initial_geoip_subdivision_2_confidence": {
             "description": "If provided by the licensed geoip database Data from the first time this user was seen.",
-            "examples": ["null", "0.1"],
+            "examples": [
+                "null",
+                "0.1"
+            ],
             "ignored_in_assistant": true,
             "label": "Initial subdivision 2 identification confidence score",
             "system": true
@@ -3015,7 +3959,11 @@
         },
         "$initial_geoip_time_zone": {
             "description": "Timezone matched to this event's IP address. Data from the first time this user was seen.",
-            "examples": ["Australia/Sydney", "Asia/Kolkata", "America/New_York"],
+            "examples": [
+                "Australia/Sydney",
+                "Asia/Kolkata",
+                "America/New_York"
+            ],
             "label": "Initial timezone"
         },
         "$initial_igshid": {
@@ -3040,17 +3988,25 @@
         },
         "$initial_os": {
             "description": "The operating system of the user. Data from the first time this user was seen.",
-            "examples": ["Windows", "Mac OS X"],
+            "examples": [
+                "Windows",
+                "Mac OS X"
+            ],
             "label": "Initial OS"
         },
         "$initial_os_version": {
             "description": "The Operating System version. Data from the first time this user was seen.",
-            "examples": ["15.5"],
+            "examples": [
+                "15.5"
+            ],
             "label": "Initial OS version"
         },
         "$initial_pathname": {
             "description": "The path of the Current URL, which means everything in the url after the domain. Data from the first time this user was seen.",
-            "examples": ["/pricing", "/about-us/team"],
+            "examples": [
+                "/pricing",
+                "/about-us/team"
+            ],
             "label": "Initial path name"
         },
         "$initial_person_info": {
@@ -3064,7 +4020,9 @@
         },
         "$initial_raw_user_agent": {
             "description": "PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string. Data from the first time this user was seen.",
-            "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"],
+            "examples": [
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"
+            ],
             "label": "Initial raw user agent"
         },
         "$initial_rdt_cid": {
@@ -3073,12 +4031,17 @@
         },
         "$initial_referrer": {
             "description": "URL of where the user came from. Data from the first time this user was seen.",
-            "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
+            "examples": [
+                "https://google.com/search?q=posthog&rlz=1C..."
+            ],
             "label": "Initial referrer URL"
         },
         "$initial_referring_domain": {
             "description": "Domain of where the user came from. Data from the first time this user was seen.",
-            "examples": ["google.com", "facebook.com"],
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ],
             "label": "Initial referring domain"
         },
         "$initial_sccid": {
@@ -3087,12 +4050,18 @@
         },
         "$initial_screen_height": {
             "description": "The height of the user's entire screen (in pixels). Data from the first time this user was seen.",
-            "examples": ["2160", "1050"],
+            "examples": [
+                "2160",
+                "1050"
+            ],
             "label": "Initial screen height"
         },
         "$initial_screen_width": {
             "description": "The width of the user's entire screen (in pixels). Data from the first time this user was seen.",
-            "examples": ["1440", "1920"],
+            "examples": [
+                "1440",
+                "1920"
+            ],
             "label": "Initial screen width"
         },
         "$initial_ttclid": {
@@ -3105,37 +4074,61 @@
         },
         "$initial_utm_campaign": {
             "description": "UTM campaign tag. Data from the first time this user was seen.",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "label": "Initial UTM campaign"
         },
         "$initial_utm_content": {
             "description": "UTM content tag. Data from the first time this user was seen.",
-            "examples": ["bottom link", "second button"],
+            "examples": [
+                "bottom link",
+                "second button"
+            ],
             "label": "Initial UTM content"
         },
         "$initial_utm_medium": {
             "description": "UTM medium tag. Data from the first time this user was seen.",
-            "examples": ["Social", "Organic", "Paid", "Email"],
+            "examples": [
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
+            ],
             "label": "Initial UTM medium"
         },
         "$initial_utm_source": {
             "description": "UTM source tag.",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "label": "Initial UTM source"
         },
         "$initial_utm_term": {
             "description": "UTM term tag. Data from the first time this user was seen.",
-            "examples": ["free goodies"],
+            "examples": [
+                "free goodies"
+            ],
             "label": "Initial UTM term"
         },
         "$initial_viewport_height": {
             "description": "The height of the user's actual browser window (in pixels). Data from the first time this user was seen.",
-            "examples": ["2094", "1031"],
+            "examples": [
+                "2094",
+                "1031"
+            ],
             "label": "Initial viewport height"
         },
         "$initial_viewport_width": {
             "description": "The width of the user's actual browser window (in pixels). Data from the first time this user was seen.",
-            "examples": ["1439", "1915"],
+            "examples": [
+                "1439",
+                "1915"
+            ],
             "label": "Initial viewport width"
         },
         "$initial_wbraid": {
@@ -3155,12 +4148,17 @@
         },
         "$ip": {
             "description": "IP address for this user when the event was sent.",
-            "examples": ["203.0.113.0"],
+            "examples": [
+                "203.0.113.0"
+            ],
             "label": "IP address"
         },
         "$is_emulator": {
             "description": "Indicates whether the app is running on an emulator or a physical device",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Is emulator"
         },
         "$is_identified": {
@@ -3169,12 +4167,18 @@
         },
         "$is_ios_running_on_mac": {
             "description": "Indicates whether the app is an iOS app running on macOS (Apple Silicon)",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Is iOS app running on Mac"
         },
         "$is_mac_catalyst_app": {
             "description": "Indicates whether the app is a Mac Catalyst app running on macOS",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Is Mac Catalyst app"
         },
         "$last_posthog_reset": {
@@ -3186,79 +4190,117 @@
         },
         "$lib": {
             "description": "What library was used to send the event.",
-            "examples": ["web", "posthog-ios"],
+            "examples": [
+                "web",
+                "posthog-ios"
+            ],
             "label": "Library"
         },
         "$lib_custom_api_host": {
             "description": "The custom API host used to send the event.",
-            "examples": ["https://ph.example.com"],
+            "examples": [
+                "https://ph.example.com"
+            ],
             "label": "Library custom API host"
         },
         "$lib_rate_limit_remaining_tokens": {
             "description": "Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.",
-            "examples": ["100"],
+            "examples": [
+                "100"
+            ],
             "ignored_in_assistant": true,
             "label": "Clientside rate limit remaining tokens",
             "used_for_debug": true
         },
         "$lib_version": {
             "description": "Version of the library used to send the event. Used in combination with Library.",
-            "examples": ["1.0.3"],
+            "examples": [
+                "1.0.3"
+            ],
             "label": "Library version"
         },
         "$lib_version__major": {
             "description": "Major version of the library used to send the event.",
-            "examples": [1],
+            "examples": [
+                1
+            ],
             "label": "Library version (major)"
         },
         "$lib_version__minor": {
             "description": "Minor version of the library used to send the event.",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Library version (minor)"
         },
         "$lib_version__patch": {
             "description": "Patch version of the library used to send the event.",
-            "examples": [3],
+            "examples": [
+                3
+            ],
             "label": "Library version (patch)"
         },
         "$locale": {
             "description": "The locale of the device",
-            "examples": ["en-US", "de-DE"],
+            "examples": [
+                "en-US",
+                "de-DE"
+            ],
             "label": "Locale"
         },
         "$network_bluetooth": {
             "description": "Whether the user was on Bluetooth when the event was sent.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Network Bluetooth"
         },
         "$network_carrier": {
             "description": "The network carrier that the user is on.",
-            "examples": ["cricket", "telecom"],
+            "examples": [
+                "cricket",
+                "telecom"
+            ],
             "label": "Network carrier"
         },
         "$network_cellular": {
             "description": "Whether the user was on cellular when the event was sent.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Network Cellular"
         },
         "$network_wifi": {
             "description": "Whether the user was on WiFi when the event was sent.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Network WiFi"
         },
         "$os": {
             "description": "The operating system of the user. Data from the last time this user was seen.",
-            "examples": ["Windows", "Mac OS X"],
+            "examples": [
+                "Windows",
+                "Mac OS X"
+            ],
             "label": "Latest OS"
         },
         "$os_name": {
             "description": "The Operating System name",
-            "examples": ["iOS", "Android"],
+            "examples": [
+                "iOS",
+                "Android"
+            ],
             "label": "OS name"
         },
         "$os_version": {
             "description": "The Operating System version. Data from the last time this user was seen.",
-            "examples": ["15.5"],
+            "examples": [
+                "15.5"
+            ],
             "label": "Latest OS version"
         },
         "$pageview_id": {
@@ -3269,7 +4311,10 @@
         },
         "$pathname": {
             "description": "The path of the Current URL, which means everything in the url after the domain. Data from the last time this user was seen.",
-            "examples": ["/pricing", "/about-us/team"],
+            "examples": [
+                "/pricing",
+                "/about-us/team"
+            ],
             "label": "Latest path name"
         },
         "$performance_page_loaded": {
@@ -3295,58 +4340,81 @@
         },
         "$prev_pageview_duration": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview duration"
         },
         "$prev_pageview_id": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": ["1"],
+            "examples": [
+                "1"
+            ],
             "label": "Previous pageview ID",
             "system": true
         },
         "$prev_pageview_last_content": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview last content"
         },
         "$prev_pageview_last_content_percentage": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview last content percentage"
         },
         "$prev_pageview_last_scroll": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview last scroll"
         },
         "$prev_pageview_last_scroll_percentage": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview last scroll percentage"
         },
         "$prev_pageview_max_content": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview max content"
         },
         "$prev_pageview_max_content_percentage": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview max content percentage"
         },
         "$prev_pageview_max_scroll": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview max scroll"
         },
         "$prev_pageview_max_scroll_percentage": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": [0],
+            "examples": [
+                0
+            ],
             "label": "Previous pageview max scroll percentage"
         },
         "$prev_pageview_pathname": {
             "description": "posthog-js adds these to the page leave event, they are used in web analytics calculations",
-            "examples": ["/pricing", "/about-us/team"],
+            "examples": [
+                "/pricing",
+                "/about-us/team"
+            ],
             "label": "Previous pageview pathname"
         },
         "$process_person_profile": {
@@ -3356,21 +4424,27 @@
         },
         "$python_runtime": {
             "description": "The Python runtime that was used to capture the event.",
-            "examples": ["CPython"],
+            "examples": [
+                "CPython"
+            ],
             "ignored_in_assistant": true,
             "label": "Python runtime",
             "system": true
         },
         "$python_version": {
             "description": "The Python version that was used to capture the event.",
-            "examples": ["3.11.5"],
+            "examples": [
+                "3.11.5"
+            ],
             "ignored_in_assistant": true,
             "label": "Python version",
             "system": true
         },
         "$raw_user_agent": {
             "description": "PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string. Data from the last time this user was seen.",
-            "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"],
+            "examples": [
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"
+            ],
             "label": "Latest raw user agent"
         },
         "$recording_status": {
@@ -3381,43 +4455,59 @@
         },
         "$referrer": {
             "description": "URL of where the user came from. Data from the last time this user was seen.",
-            "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
+            "examples": [
+                "https://google.com/search?q=posthog&rlz=1C..."
+            ],
             "label": "Latest referrer URL"
         },
         "$referring_domain": {
             "description": "Domain of where the user came from. Data from the last time this user was seen.",
-            "examples": ["google.com", "facebook.com"],
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ],
             "label": "Latest referring domain"
         },
         "$replay_minimum_duration": {
             "description": "Config for minimum duration before emitting a session recording.",
-            "examples": ["1000"],
+            "examples": [
+                "1000"
+            ],
             "label": "Replay config - minimum duration",
             "system": true,
             "used_for_debug": true
         },
         "$replay_sample_rate": {
             "description": "Config for sampling rate of session recordings.",
-            "examples": ["0.1"],
+            "examples": [
+                "0.1"
+            ],
             "label": "Replay config - sample rate",
             "system": true,
             "used_for_debug": true
         },
         "$replay_script_config": {
             "description": "Sets an alternative recorder script for the web sdk.",
-            "examples": ["{\"script\": \"recorder-next\"}"],
+            "examples": [
+                "{\"script\": \"recorder-next\"}"
+            ],
             "label": "Replay script config",
             "system": true,
             "used_for_debug": true
         },
         "$screen_density": {
             "description": "The logical density of the display. This is a scaling factor for the Density Independent Pixel unit, where one DIP is one pixel on an approximately 160 dpi screen (for example a 240x320, 1.5\"x2\" screen), providing the baseline of the system's display. Thus on a 160dpi screen this density value will be 1; on a 120 dpi screen it would be .75; etc.",
-            "examples": [2.75],
+            "examples": [
+                2.75
+            ],
             "label": "Screen density"
         },
         "$screen_height": {
             "description": "The height of the user's entire screen (in pixels). Data from the last time this user was seen.",
-            "examples": ["2160", "1050"],
+            "examples": [
+                "2160",
+                "1050"
+            ],
             "label": "Latest screen height"
         },
         "$screen_name": {
@@ -3426,7 +4516,10 @@
         },
         "$screen_width": {
             "description": "The width of the user's entire screen (in pixels). Data from the last time this user was seen.",
-            "examples": ["1440", "1920"],
+            "examples": [
+                "1440",
+                "1920"
+            ],
             "label": "Latest screen width"
         },
         "$sdk_debug_current_session_duration": {
@@ -3437,7 +4530,11 @@
         },
         "$sdk_debug_replay_event_trigger_status": {
             "description": "The status of the recording event trigger.",
-            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "examples": [
+                "trigger_disabled",
+                "trigger_pending",
+                "trigger_matched"
+            ],
             "label": "event trigger status",
             "type": "String",
             "used_for_debug": true
@@ -3450,7 +4547,9 @@
         },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
-            "examples": ["100"],
+            "examples": [
+                "100"
+            ],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer length",
             "system": true,
@@ -3458,7 +4557,9 @@
         },
         "$sdk_debug_replay_internal_buffer_size": {
             "description": "Useful for debugging. The internal buffer size for replay.",
-            "examples": ["100"],
+            "examples": [
+                "100"
+            ],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer size",
             "system": true,
@@ -3466,28 +4567,41 @@
         },
         "$sdk_debug_replay_linked_flag_trigger_status": {
             "description": "The status of the linked flag trigger.",
-            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "examples": [
+                "trigger_disabled",
+                "trigger_pending",
+                "trigger_matched"
+            ],
             "label": "linked flag trigger status",
             "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_replay_remote_trigger_matching_config": {
             "description": "Whether to match on all or any triggers.",
-            "examples": ["all", "any"],
+            "examples": [
+                "all",
+                "any"
+            ],
             "label": "remote trigger matching config",
             "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_replay_url_trigger_status": {
             "description": "The status of the recording url trigger.",
-            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "examples": [
+                "trigger_disabled",
+                "trigger_pending",
+                "trigger_matched"
+            ],
             "label": "URL trigger status",
             "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_retry_queue_size": {
             "description": "Useful for debugging. The size of the retry queue.",
-            "examples": ["100"],
+            "examples": [
+                "100"
+            ],
             "ignored_in_assistant": true,
             "label": "Retry queue size",
             "system": true,
@@ -3501,7 +4615,10 @@
         },
         "$search_engine": {
             "description": "The search engine the user came in from (if any).",
-            "examples": ["Google", "DuckDuckGo"],
+            "examples": [
+                "Google",
+                "DuckDuckGo"
+            ],
             "label": "Search engine"
         },
         "$selected_content": {
@@ -3511,18 +4628,24 @@
         },
         "$sent_at": {
             "description": "Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.",
-            "examples": ["2023-05-20T15:31:00Z"],
+            "examples": [
+                "2023-05-20T15:31:00Z"
+            ],
             "label": "Sent at"
         },
         "$sentry_event_id": {
             "description": "This is the Sentry key for an event.",
-            "examples": ["byroc2ar9ee4ijqp"],
+            "examples": [
+                "byroc2ar9ee4ijqp"
+            ],
             "label": "Sentry event ID",
             "system": true
         },
         "$sentry_url": {
             "description": "Direct link to the exception in Sentry",
-            "examples": ["https://sentry.io/..."],
+            "examples": [
+                "https://sentry.io/..."
+            ],
             "label": "Sentry URL"
         },
         "$sess_rec_flush_size": {
@@ -3573,7 +4696,10 @@
         },
         "$session_entry_host": {
             "description": "The hostname of the Current URL. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["example.com", "localhost:8000"],
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Host"
         },
@@ -3604,7 +4730,10 @@
         },
         "$session_entry_pathname": {
             "description": "The path of the Current URL, which means everything in the url after the domain. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["/pricing", "/about-us/team"],
+            "examples": [
+                "/pricing",
+                "/about-us/team"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Path name"
         },
@@ -3620,13 +4749,18 @@
         },
         "$session_entry_referrer": {
             "description": "URL of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
+            "examples": [
+                "https://google.com/search?q=posthog&rlz=1C..."
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Referrer URL"
         },
         "$session_entry_referring_domain": {
             "description": "Domain of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["google.com", "facebook.com"],
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Referring domain"
         },
@@ -3647,37 +4781,57 @@
         },
         "$session_entry_url": {
             "description": "The URL visited at the time of the event. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry Current URL"
         },
         "$session_entry_utm_campaign": {
             "description": "UTM campaign tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM campaign"
         },
         "$session_entry_utm_content": {
             "description": "UTM content tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["bottom link", "second button"],
+            "examples": [
+                "bottom link",
+                "second button"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM content"
         },
         "$session_entry_utm_medium": {
             "description": "UTM medium tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["Social", "Organic", "Paid", "Email"],
+            "examples": [
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM medium"
         },
         "$session_entry_utm_source": {
             "description": "UTM source tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM source"
         },
         "$session_entry_utm_term": {
             "description": "UTM term tag. Captured at the start of the session and remains constant for the duration of the session.",
-            "examples": ["free goodies"],
+            "examples": [
+                "free goodies"
+            ],
             "ignored_in_assistant": true,
             "label": "Session entry UTM term"
         },
@@ -3693,7 +4847,10 @@
         },
         "$session_is_sampled": {
             "description": "Whether the session is sampled for session recording.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "ignored_in_assistant": true,
             "label": "Whether the session is sampled",
             "system": true,
@@ -3701,7 +4858,9 @@
         },
         "$session_recording_canvas_recording": {
             "description": "Session recording canvas capture config.",
-            "examples": ["{\"enabled\": false}"],
+            "examples": [
+                "{\"enabled\": false}"
+            ],
             "label": "Session recording canvas recording",
             "system": true,
             "used_for_debug": true
@@ -3714,14 +4873,18 @@
         },
         "$session_recording_network_payload_capture": {
             "description": "Session recording network payload capture config.",
-            "examples": ["{\"recordHeaders\": false}"],
+            "examples": [
+                "{\"recordHeaders\": false}"
+            ],
             "label": "Session recording network payload capture",
             "system": true,
             "used_for_debug": true
         },
         "$session_recording_recorder_version_server_side": {
             "description": "The version of the session recording recorder that is enabled server-side.",
-            "examples": ["v2"],
+            "examples": [
+                "v2"
+            ],
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
             "system": true,
@@ -3734,7 +4897,11 @@
         },
         "$session_recording_start_reason": {
             "description": "Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.",
-            "examples": ["sampling_override", "recording_initialized", "linked_flag_match"],
+            "examples": [
+                "sampling_override",
+                "recording_initialized",
+                "linked_flag_match"
+            ],
             "label": "Session recording start reason",
             "system": true,
             "used_for_debug": true
@@ -3779,7 +4946,10 @@
         },
         "$survey_name": {
             "description": "The name of the survey.",
-            "examples": ["Product Feedback for New Product", "Home page NPS"],
+            "examples": [
+                "Product Feedback for New Product",
+                "Home page NPS"
+            ],
             "label": "Survey name"
         },
         "$survey_partially_completed": {
@@ -3792,7 +4962,11 @@
         },
         "$survey_response": {
             "description": "The response value for the first question in the survey.",
-            "examples": ["I love it!", 5, "['choice 1', 'choice 3']"],
+            "examples": [
+                "I love it!",
+                5,
+                "['choice 1', 'choice 3']"
+            ],
             "label": "Survey response"
         },
         "$survey_submission_id": {
@@ -3805,13 +4979,17 @@
         },
         "$time": {
             "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
-            "examples": ["1681211521.345"],
+            "examples": [
+                "1681211521.345"
+            ],
             "label": "$time (deprecated)",
             "system": true
         },
         "$timestamp": {
             "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
-            "examples": ["2023-05-20T15:30:00Z"],
+            "examples": [
+                "2023-05-20T15:30:00Z"
+            ],
             "label": "Timestamp (deprecated)",
             "system": true
         },
@@ -3844,7 +5022,9 @@
         },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
-            "examples": ["Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)"],
+            "examples": [
+                "Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)"
+            ],
             "label": "Raw user agent"
         },
         "$user_id": {
@@ -3853,37 +5033,51 @@
         },
         "$viewport_height": {
             "description": "The height of the user's actual browser window (in pixels). Data from the last time this user was seen.",
-            "examples": ["2094", "1031"],
+            "examples": [
+                "2094",
+                "1031"
+            ],
             "label": "Latest viewport height"
         },
         "$viewport_width": {
             "description": "The width of the user's actual browser window (in pixels). Data from the last time this user was seen.",
-            "examples": ["1439", "1915"],
+            "examples": [
+                "1439",
+                "1915"
+            ],
             "label": "Latest viewport width"
         },
         "$virt_initial_channel_type": {
             "description": "What type of acquisition channel this user initially came from. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
-            "examples": ["Paid Search", "Organic Video", "Direct"],
+            "examples": [
+                "Paid Search",
+                "Organic Video",
+                "Direct"
+            ],
             "label": "Initial channel type",
             "type": "String",
             "virtual": true
         },
         "$virt_initial_referring_domain_type": {
             "description": "What type of referring domain this user initially came from.",
-            "examples": ["Search", "Video", "Direct"],
+            "examples": [
+                "Search",
+                "Video",
+                "Direct"
+            ],
             "label": "Initial referring domain type",
             "type": "String",
+            "virtual": true
+        },
+        "$virt_mrr": {
+            "description": "The current MRR for this person.",
+            "label": "Total MRR",
+            "type": "Numeric",
             "virtual": true
         },
         "$virt_revenue": {
             "description": "The total revenue for this person. This will always be the current total revenue even when referring to a person via events.",
             "label": "Total revenue",
-            "type": "Numeric",
-            "virtual": true
-        },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this person in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
             "type": "Numeric",
             "virtual": true
         },
@@ -3913,7 +5107,9 @@
         },
         "$web_vitals_allowed_metrics": {
             "description": "Allowed web vitals metrics config.",
-            "examples": ["[\"LCP\", \"CLS\"]"],
+            "examples": [
+                "[\"LCP\", \"CLS\"]"
+            ],
             "label": "Web vitals allowed metrics",
             "system": true
         },
@@ -3932,12 +5128,19 @@
         },
         "build": {
             "description": "The build number for the app",
-            "examples": ["1"],
+            "examples": [
+                "1"
+            ],
             "label": "App build"
         },
         "currency": {
             "description": "The currency code associated with the event.",
-            "examples": ["USD", "EUR", "GBP", "CAD"],
+            "examples": [
+                "USD",
+                "EUR",
+                "GBP",
+                "CAD"
+            ],
             "label": "Currency"
         },
         "dclid": {
@@ -3946,12 +5149,18 @@
         },
         "distinct_id": {
             "description": "The current distinct ID of the user.",
-            "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+            "examples": [
+                "16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"
+            ],
             "label": "Distinct ID"
         },
         "email": {
             "description": "The email address of the user.",
-            "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
+            "examples": [
+                "johnny.appleseed@icloud.com",
+                "sales@posthog.com",
+                "test@example.com"
+            ],
             "label": "Email address",
             "type": "String"
         },
@@ -3965,7 +5174,10 @@
         },
         "from_background": {
             "description": "Whether the app was opened for the first time or from the background.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "From background"
         },
         "gad_source": {
@@ -4006,12 +5218,16 @@
         },
         "previous_build": {
             "description": "The previous build number for the app",
-            "examples": ["1"],
+            "examples": [
+                "1"
+            ],
             "label": "App previous build"
         },
         "previous_version": {
             "description": "The previous version of the app",
-            "examples": ["1.0.0"],
+            "examples": [
+                "1.0.0"
+            ],
             "label": "App previous version"
         },
         "qclid": {
@@ -4024,12 +5240,16 @@
         },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
-            "examples": ["com.posthog.app"],
+            "examples": [
+                "com.posthog.app"
+            ],
             "label": "Referrer application"
         },
         "revenue": {
             "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
-            "examples": [10.0],
+            "examples": [
+                10.0
+            ],
             "label": "Revenue"
         },
         "sccid": {
@@ -4038,19 +5258,26 @@
         },
         "sdk_debug_extensions_init_method": {
             "description": "The method used to initialize PostHog.js extensions.",
-            "examples": ["deferred", "synchronous"],
+            "examples": [
+                "deferred",
+                "synchronous"
+            ],
             "label": "PostHog.js extensions init method",
             "used_for_debug": true
         },
         "sdk_debug_extensions_init_time_ms": {
             "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
-            "examples": ["150"],
+            "examples": [
+                "150"
+            ],
             "label": "PostHog.js extensions init time (ms)",
             "used_for_debug": true
         },
         "token": {
             "description": "Token used for authentication.",
-            "examples": ["ph_abcdefg"],
+            "examples": [
+                "ph_abcdefg"
+            ],
             "ignored_in_assistant": true,
             "label": "Token"
         },
@@ -4064,42 +5291,67 @@
         },
         "url": {
             "description": "The deep link URL that the app was opened from.",
-            "examples": ["https://open.my.app"],
+            "examples": [
+                "https://open.my.app"
+            ],
             "label": "URL"
         },
         "utm_campaign": {
             "description": "UTM campaign tag. Data from the last time this user was seen.",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "label": "Latest UTM campaign"
         },
         "utm_content": {
             "description": "UTM content tag. Data from the last time this user was seen.",
-            "examples": ["bottom link", "second button"],
+            "examples": [
+                "bottom link",
+                "second button"
+            ],
             "label": "Latest UTM content"
         },
         "utm_medium": {
             "description": "UTM medium tag. Data from the last time this user was seen.",
-            "examples": ["Social", "Organic", "Paid", "Email"],
+            "examples": [
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
+            ],
             "label": "Latest UTM medium"
         },
         "utm_name": {
             "description": "UTM campaign tag, sent via Segment.",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "label": "UTM name"
         },
         "utm_source": {
             "description": "UTM source tag. Data from the last time this user was seen.",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "label": "Latest UTM source"
         },
         "utm_term": {
             "description": "UTM term tag. Data from the last time this user was seen.",
-            "examples": ["free goodies"],
+            "examples": [
+                "free goodies"
+            ],
             "label": "Latest UTM term"
         },
         "version": {
             "description": "The version of the app",
-            "examples": ["1.0.0"],
+            "examples": [
+                "1.0.0"
+            ],
             "label": "App version"
         },
         "wbraid": {
@@ -4122,7 +5374,11 @@
         },
         "console_log_level": {
             "description": "Level of console logs captured",
-            "examples": ["info", "warn", "error"],
+            "examples": [
+                "info",
+                "warn",
+                "error"
+            ],
             "label": "Log level"
         },
         "console_log_query": {
@@ -4135,7 +5391,10 @@
         },
         "snapshot_source": {
             "description": "Platform the session was recorded on",
-            "examples": ["web", "mobile"],
+            "examples": [
+                "web",
+                "mobile"
+            ],
             "label": "Platform"
         },
         "visited_page": {
@@ -4256,31 +5515,43 @@
     "session_properties": {
         "$autocapture_count": {
             "description": "The number of autocapture events in this session.",
-            "examples": ["123"],
+            "examples": [
+                "123"
+            ],
             "label": "Autocapture count",
             "type": "Numeric"
         },
         "$channel_type": {
             "description": "What type of acquisition channel this traffic came from.",
-            "examples": ["Paid Search", "Organic Video", "Direct"],
+            "examples": [
+                "Paid Search",
+                "Organic Video",
+                "Direct"
+            ],
             "label": "Channel type",
             "type": "String"
         },
         "$end_current_url": {
             "description": "The last URL visited in this session.",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "label": "End URL",
             "type": "String"
         },
         "$end_pathname": {
             "description": "The last pathname visited in this session.",
-            "examples": ["/interesting-article?parameter=true"],
+            "examples": [
+                "/interesting-article?parameter=true"
+            ],
             "label": "End pathname",
             "type": "String"
         },
         "$end_timestamp": {
             "description": "The timestamp of the last event from this session.",
-            "examples": ["2023-05-20T16:30:00Z"],
+            "examples": [
+                "2023-05-20T16:30:00Z"
+            ],
             "label": "End timestamp",
             "type": "DateTime"
         },
@@ -4290,7 +5561,9 @@
         },
         "$entry_current_url": {
             "description": "The first URL visited in this session.",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "label": "Entry URL",
             "type": "String"
         },
@@ -4344,7 +5617,9 @@
         },
         "$entry_pathname": {
             "description": "The first pathname visited in this session.",
-            "examples": ["/interesting-article?parameter=true"],
+            "examples": [
+                "/interesting-article?parameter=true"
+            ],
             "label": "Entry pathname",
             "type": "String"
         },
@@ -4358,7 +5633,10 @@
         },
         "$entry_referring_domain": {
             "description": "Domain of where the user came from. Data from the first event in this session.",
-            "examples": ["google.com", "facebook.com"],
+            "examples": [
+                "google.com",
+                "facebook.com"
+            ],
             "label": "Entry referring domain"
         },
         "$entry_sccid": {
@@ -4375,27 +5653,45 @@
         },
         "$entry_utm_campaign": {
             "description": "UTM campaign tag. Data from the first event in this session.",
-            "examples": ["feature launch", "discount"],
+            "examples": [
+                "feature launch",
+                "discount"
+            ],
             "label": "Entry UTM campaign"
         },
         "$entry_utm_content": {
             "description": "UTM content tag. Data from the first event in this session.",
-            "examples": ["bottom link", "second button"],
+            "examples": [
+                "bottom link",
+                "second button"
+            ],
             "label": "Entry UTM content"
         },
         "$entry_utm_medium": {
             "description": "UTM medium tag. Data from the first event in this session.",
-            "examples": ["Social", "Organic", "Paid", "Email"],
+            "examples": [
+                "Social",
+                "Organic",
+                "Paid",
+                "Email"
+            ],
             "label": "Entry UTM medium"
         },
         "$entry_utm_source": {
             "description": "UTM source tag. Data from the first event in this session.",
-            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "examples": [
+                "Google",
+                "Bing",
+                "Twitter",
+                "Facebook"
+            ],
             "label": "Entry UTM source"
         },
         "$entry_utm_term": {
             "description": "UTM term tag. Data from the first event in this session.",
-            "examples": ["free goodies"],
+            "examples": [
+                "free goodies"
+            ],
             "label": "Entry UTM term"
         },
         "$entry_wbraid": {
@@ -4404,54 +5700,75 @@
         },
         "$exit_current_url": {
             "description": "The last URL visited in this session. (deprecated, use $end_current_url).",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "label": "Exit URL",
             "type": "String"
         },
         "$exit_pathname": {
             "description": "The last pathname visited in this session. (deprecated, use $end_pathname).",
-            "examples": ["/interesting-article?parameter=true"],
+            "examples": [
+                "/interesting-article?parameter=true"
+            ],
             "label": "Exit pathname",
             "type": "String"
         },
         "$is_bounce": {
             "description": "Whether the session was a bounce.",
-            "examples": ["true", "false"],
+            "examples": [
+                "true",
+                "false"
+            ],
             "label": "Is bounce",
             "type": "Boolean"
         },
         "$last_external_click_url": {
             "description": "The last external URL clicked in this session.",
-            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "examples": [
+                "https://example.com/interesting-article?parameter=true"
+            ],
             "label": "Last external click URL"
         },
         "$pageview_count": {
             "description": "The number of page view events in this session.",
-            "examples": ["123"],
+            "examples": [
+                "123"
+            ],
             "label": "Pageview count",
             "type": "Numeric"
         },
         "$screen_count": {
             "description": "The number of screen events in this session.",
-            "examples": ["123"],
+            "examples": [
+                "123"
+            ],
             "label": "Screen count",
             "type": "Numeric"
         },
         "$session_duration": {
             "description": "The duration of the session being tracked. Learn more about how PostHog tracks sessions in [our documentation](https://posthog.com/docs/user-guides/sessions).\n\nNote: If the duration is formatted as a single number (not `HH:MM:SS`), it's in seconds.",
-            "examples": ["30", "146", "2"],
+            "examples": [
+                "30",
+                "146",
+                "2"
+            ],
             "label": "Session duration",
             "type": "Numeric"
         },
         "$start_timestamp": {
             "description": "The timestamp of the first event from this session.",
-            "examples": ["2023-05-20T15:30:00Z"],
+            "examples": [
+                "2023-05-20T15:30:00Z"
+            ],
             "label": "Start timestamp",
             "type": "DateTime"
         },
         "$vitals_lcp": {
             "description": "The time it took for the Largest Contentful Paint on the page. This captures the perceived load time of the page, and measure how long it took for the main content of the page to be visible to users.",
-            "examples": ["2.2"],
+            "examples": [
+                "2.2"
+            ],
             "label": "Web vitals LCP"
         }
     }

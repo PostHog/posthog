@@ -6,10 +6,8 @@ import { useEffect } from 'react'
 import { IconPerson, IconVideoCamera } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber, humanFriendlyNumber, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -139,29 +137,29 @@ export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps):
     }
 
     return (
-        <FlaggedFeature flag={FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS}>
-            <Tooltip
-                title={
-                    activeRecordings == null
-                        ? 'Unable to retrieve active recordings count.'
-                        : 'Session recordings currently in progress.'
-                }
-                placement="right"
+        <Tooltip
+            title={
+                activeRecordings == null
+                    ? 'Unable to retrieve active recordings count.'
+                    : 'Session recordings currently in progress.'
+            }
+            placement="right"
+        >
+            <div
+                className={cn(
+                    'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
+                    hasRecordings ? 'bg-success-highlight' : 'bg-border-light'
+                )}
             >
-                <div
-                    className={cn(
-                        'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
-                        hasRecordings ? 'bg-success-highlight' : 'bg-border-light'
-                    )}
-                >
-                    <div className={cn('live-user-indicator', hasRecordings ? 'online' : 'offline')} />
-                    <IconVideoCamera className="size-4 shrink-0 min-[660px]:hidden" />
-                    <span className="text-xs font-medium whitespace-nowrap" data-attr="live-recordings-count">
-                        <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
-                    </span>
-                    <span className="hidden min-[660px]:inline">recently active recordings</span>
-                </div>
-            </Tooltip>
-        </FlaggedFeature>
+                <div className={cn('live-user-indicator', hasRecordings ? 'online' : 'offline')} />
+                <IconVideoCamera className="size-4 shrink-0 min-[660px]:hidden" />
+                <span className="text-xs font-medium whitespace-nowrap" data-attr="live-recordings-count">
+                    <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
+                </span>
+                <span className="hidden min-[660px]:inline">
+                    recently active {pluralize(activeRecordings, 'recording', undefined, false)}
+                </span>
+            </div>
+        </Tooltip>
     )
 }

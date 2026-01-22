@@ -45,29 +45,6 @@ pub const TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
 pub const TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER: &str =
     "timestamp_dedup_field_differences_total";
 
-// ==== UUID deduplication metrics ====
-/// Histogram for timestamp variance in milliseconds for UUID duplicates
-pub const UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM: &str = "uuid_dedup_timestamp_variance_ms";
-
-/// Histogram for number of unique timestamps seen for the same UUID
-pub const UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM: &str = "uuid_dedup_unique_timestamps";
-
-/// Histogram for similarity score in UUID deduplication
-pub const UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM: &str = "uuid_dedup_similarity_score";
-
-/// Histogram for number of different fields in UUID deduplication
-pub const UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM: &str = "uuid_dedup_different_fields";
-
-/// Histogram for number of different properties in UUID deduplication
-pub const UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str = "uuid_dedup_different_properties";
-
-/// Histogram for properties similarity score in UUID deduplication
-pub const UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
-    "uuid_dedup_properties_similarity_score";
-
-/// Counter for specific fields that differ in UUID deduplication
-pub const UUID_DEDUP_FIELD_DIFFERENCES_COUNTER: &str = "uuid_dedup_field_differences_total";
-
 // ==== Cleanup operations metrics ====
 /// Counter for cleanup operations performed
 pub const CLEANUP_OPERATIONS_COUNTER: &str = "cleanup_operations_total";
@@ -88,18 +65,8 @@ pub const CHECKPOINT_FILE_COUNT_HISTOGRAM: &str = "checkpoint_file_count";
 pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 
 /// Counter for checkpoint worker status
+/// Tags: result=success|error|skipped, cause=..., export=...
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
-
-/// Counter for the number of checkpoint directories found
-pub const CHECKPOINT_CLEANER_DIRS_FOUND: &str = "checkpoint_cleaner_dirs_found";
-
-/// Counter for the number of checkpoint directories deleted
-pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_attempts";
-
-/// Counts number of times a StoreManager lookup by partition
-/// finds no associated DeduplicationStore, meaning ownership
-/// has changed across a rebalance or other event asynchronously
-pub const CHECKPOINT_STORE_NOT_FOUND_COUNTER: &str = "checkpoint_store_not_found";
 
 /// Histogram for checkpoint upload duration
 pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
@@ -126,6 +93,10 @@ pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_a
 
 /// Histogram for checkpoint metadata file list duration; only measured on success
 pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";
+
+/// Record outcomes for attempts to restore checkpoints
+/// when local store is missing after Kafka rebalances
+pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
 
 // ==== Store Manager Diagnostics ====
 /// Histogram for store creation duration (in milliseconds)

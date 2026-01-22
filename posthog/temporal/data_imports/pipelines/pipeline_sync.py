@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch
 
@@ -21,8 +20,8 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
-from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.table import DataWarehouseTable
@@ -95,12 +94,6 @@ def validate_schema_and_update_table_sync(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=run_id)
 
-    credential = get_or_create_datawarehouse_credential(
-        team_id=team_id,
-        access_key=settings.AIRBYTE_BUCKET_KEY,
-        access_secret=settings.AIRBYTE_BUCKET_SECRET,
-    )
-
     external_data_schema = (
         ExternalDataSchema.objects.prefetch_related("source").exclude(deleted=True).get(id=schema_id, team_id=team_id)
     )
@@ -109,7 +102,7 @@ def validate_schema_and_update_table_sync(
     _schema_name: str = external_data_schema.name
     incremental_or_append = external_data_schema.should_use_incremental_field
 
-    table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
+    table_name = build_table_name(job.pipeline, _schema_name)
     normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
     new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
@@ -119,7 +112,6 @@ def validate_schema_and_update_table_sync(
             logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
 
             table_params = {
-                "credential": credential,
                 "name": table_name,
                 "format": table_format,
                 "url_pattern": new_url_pattern,
@@ -131,7 +123,6 @@ def validate_schema_and_update_table_sync(
             # create or update
             table_created: DataWarehouseTable | None = external_data_schema.table
             if table_created:
-                table_created.credential = table_params["credential"]
                 table_created.format = table_params["format"]
                 table_created.url_pattern = new_url_pattern
                 table_created.queryable_folder = queryable_folder

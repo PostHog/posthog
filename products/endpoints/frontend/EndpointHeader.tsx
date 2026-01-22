@@ -14,14 +14,14 @@ export interface EndpointSceneHeaderProps {
 }
 
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
-    const { endpoint, endpointLoading, localQuery } = useValues(endpointSceneLogic({ tabId }))
-    const { endpointName, endpointDescription, cacheAge, syncFrequency, isMaterialized } = useValues(
-        endpointLogic({ tabId })
+    const { endpoint, endpointLoading, localQuery, cacheAge, syncFrequency, isMaterialized } = useValues(
+        endpointSceneLogic({ tabId })
     )
-    const { setEndpointDescription, updateEndpoint, setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(
-        endpointLogic({ tabId })
+    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
+    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(
+        endpointSceneLogic({ tabId })
     )
-    const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
 
     const hasNameChange = endpointName && endpointName !== endpoint?.name
     const hasDescriptionChange = endpointDescription !== null && endpointDescription !== endpoint?.description

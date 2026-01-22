@@ -1,14 +1,12 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { NextJSInstallation } from '@posthog/shared-onboarding/product-analytics'
 
-import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
-import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
+import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 
 export function ProductAnalyticsNextJSInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallNextJSInstructions />
-            <LemonDivider thick dashed className="my-4" />
-            <ProductAnalyticsAllJSFinalSteps />
+            <SetupWizardBanner integrationName="Next.js" />
+            <NextJSInstallation />
         </>
     )
 }

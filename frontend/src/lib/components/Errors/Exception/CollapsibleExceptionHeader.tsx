@@ -24,7 +24,7 @@ export function CollapsibleExceptionHeader({
     runtime,
     part,
     loading,
-    truncate = true,
+    truncate = false,
 }: CollapsibleExceptionHeaderProps): JSX.Element {
     const type = useMemo(() => formatType(exception), [exception])
     const { value } = exception

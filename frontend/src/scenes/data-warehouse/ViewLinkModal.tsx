@@ -123,8 +123,8 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
                         <br />
                         <b>All</b> fields from the joined table or view will be accessible in queries at the top level
                         without needing to explicitly join the view. This will also enable you to see revenue for a
-                        person via the <code>persons.$virt_revenue</code> and{' '}
-                        <code>persons.$virt_revenue_last_30_days</code> virtual fields.
+                        person via the <code>persons.$virt_revenue</code> and <code>persons.$virt_mrr</code> virtual
+                        fields.
                     </span>
                 ) : (
                     <span>

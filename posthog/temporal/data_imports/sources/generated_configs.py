@@ -158,7 +158,7 @@ class MailjetSourceConfig(config.Config):
 class MetaAdsSourceConfig(config.Config):
     account_id: str
     meta_ads_integration_id: int = config.value(converter=config.str_to_int)
-    sync_lookback_days: int | None = config.value(converter=int, default_factory=lambda: None)
+    sync_lookback_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
 
 
 @config.config

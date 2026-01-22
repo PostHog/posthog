@@ -91,6 +91,14 @@ export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEven
     return 'properties' in item
 }
 
+/**
+ * Checks if the item is a trace-level object (LLMTrace) rather than an individual event.
+ * This is the inverse of isLLMEvent and provides semantic clarity when checking for traces.
+ */
+export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
+    return !isLLMEvent(item)
+}
+
 function normalizeSessionId(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -724,6 +732,10 @@ export function getTraceTimestamp(timestamp: string): string {
     return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
+export function getSessionStartTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(24, 'hours').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {
@@ -812,11 +824,24 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean | string,
+    result: boolean | string | null,
     reasoning: string | null,
+    applicable: boolean | string | null,
 ]
 
 export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
+    const rawResult = row[6]
+    const applicable = row[8]
+
+    // N/A only when backend explicitly sets applicable=false
+    // Otherwise, convert result to boolean (handle string 'false' from HogQL)
+    let result: boolean | null
+    if (applicable === false || applicable === 'false') {
+        result = null
+    } else {
+        result = rawResult === true || rawResult === 'true'
+    }
+
     return {
         id: row[0],
         timestamp: row[1],
@@ -824,9 +849,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
         trace_id: row[5],
-        result: row[6] === true || row[6] === 'true',
+        result,
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
+        applicable: applicable === null ? undefined : applicable === 'true' || applicable === true,
     }
 }
 
@@ -853,7 +879,8 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_target_event_id as generation_id,
             properties.$ai_trace_id as trace_id,
             properties.$ai_evaluation_result as result,
-            properties.$ai_evaluation_reasoning as reasoning
+            properties.$ai_evaluation_reasoning as reasoning,
+            properties.$ai_evaluation_applicable as applicable
         FROM events
         WHERE
             event = '$ai_evaluation'

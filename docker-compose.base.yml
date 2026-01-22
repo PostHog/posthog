@@ -7,12 +7,13 @@ services:
         image: caddy
         entrypoint: sh
         restart: always
-        command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
+        command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && echo "$$CADDY_EXTRA_CONFIG" >> /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
         volumes:
             - /root/.caddy
         environment:
             CADDY_TLS_BLOCK: ''
             CADDY_HOST: 'http://localhost:8000'
+            CADDY_EXTRA_CONFIG: ''
             CADDYFILE: |
                 {
                 ${CADDY_TLS_BLOCK:-}
@@ -45,6 +46,12 @@ services:
                         path /capture/*
                     }
 
+                    @capture-logs {
+                        path /i/v1/logs
+                        path /i/v1/logs/
+                        path /i/v1/logs/*
+                    }
+
                     @flags {
                         path /flags
                         path /flags/
@@ -59,6 +66,19 @@ services:
                         path /public/m/*
                     }
 
+                    @livestream {
+                        path /livestream
+                        path /livestream/
+                        path /livestream/*
+                    }
+
+                    handle @livestream {
+                        uri strip_prefix /livestream
+                        reverse_proxy livestream:8080 {
+                            flush_interval -1
+                        }
+                    }
+
                     handle @capture-ai {
                         reverse_proxy capture-ai:3000
                     }
@@ -69,6 +89,10 @@ services:
 
                     handle @replay-capture {
                         reverse_proxy replay-capture:3000
+                    }
+
+                    handle @capture-logs {
+                        reverse_proxy capture-logs:4318
                     }
 
                     handle @flags {
@@ -181,6 +205,14 @@ services:
             MINIO_ROOT_PASSWORD: object_storage_root_password
         entrypoint: sh
         command: -c 'mkdir -p /data/posthog /data/ducklake-dev /data/ai-blobs && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog', 'ducklake-dev', and 'ai-blobs' buckets before starting the service
+
+    objectstorage-azure:
+        image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+        restart: on-failure
+        profiles: ['batch-exports']
+        command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data
+        ports:
+            - '10000:10000'
 
     maildev:
         image: maildev/maildev:2.0.5
@@ -346,7 +378,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     plugins:
-        command: ./bin/plugin-server --no-restart-loop
+        command: ./bin/posthog-node --no-restart-loop
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'

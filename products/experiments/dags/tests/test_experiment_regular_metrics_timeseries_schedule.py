@@ -47,7 +47,7 @@ class TestScheduleIntegration(BaseTest):
             feature_flag=flag_ended,
             start_date=datetime.datetime.now(),
             end_date=datetime.datetime.now(),  # Has end date - should be excluded
-            stats_config={"timeseries": True},
+            scheduling_config={"timeseries": True},
             metrics=[{"uuid": "metric1", "metric_type": "mean"}],
         )
 
@@ -57,7 +57,7 @@ class TestScheduleIntegration(BaseTest):
             team=team,
             feature_flag=flag_no_timeseries,
             start_date=datetime.datetime.now(),
-            stats_config={"timeseries": False},  # Timeseries disabled - should be excluded
+            scheduling_config={"timeseries": False},  # Timeseries disabled - should be excluded
             metrics=[{"uuid": "metric2", "metric_type": "mean"}],
         )
 
@@ -67,7 +67,7 @@ class TestScheduleIntegration(BaseTest):
             team=team,
             feature_flag=flag_valid,
             start_date=datetime.datetime.now(),
-            stats_config={"timeseries": True},  # This one should be included
+            scheduling_config={"timeseries": True},  # This one should be included
             metrics=[{"uuid": "metric3", "metric_type": "mean"}],
         )
 

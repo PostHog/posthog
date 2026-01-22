@@ -211,12 +211,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 'file-file': {
                     snapshots: snapshots,
                     source: { source: SnapshotSourceType.file },
+                    sourceLoaded: true,
                 },
             }
+            // Set sources first, then trigger the success action
+            // Otherwise processSnapshotsAsync will see null sources
+            actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
             actions.loadSnapshotsForSourceSuccess({
                 source: { source: SnapshotSourceType.file },
             })
-            actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
         },
 
         loadSnapshots: () => {

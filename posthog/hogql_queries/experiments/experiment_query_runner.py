@@ -196,6 +196,7 @@ class ExperimentQueryRunner(QueryRunner):
                 allow_experimental_analyzer=True,
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
             ),
+            workload=self.workload,
         )
 
         # Remove the $multiple variant only when using exclude handling

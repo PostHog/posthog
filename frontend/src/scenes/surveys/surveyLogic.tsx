@@ -210,27 +210,37 @@ function isQuestionOpenChoice(question: SurveyQuestion, choiceIndex: number): bo
     return !!(choiceIndex === question.choices.length - 1 && question?.hasOpenChoice)
 }
 
+// Builds a COALESCE expression that tries each display name property in order,
+// falling back to distinct_id if none are set. Respects team-level customization.
+function buildPersonDisplayNameExpression(personDisplayNameProperties: string[]): string {
+    const propertyExpressions = personDisplayNameProperties.map((prop) => {
+        // Handle property names with special characters
+        if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(prop)) {
+            return `toString(person.properties.${prop})`
+        }
+        return `toString(person.properties.\`${prop}\`)`
+    })
+    // COALESCE returns the first non-null value; fall back to distinct_id
+    return `coalesce(${[...propertyExpressions, 'toString(events.distinct_id)'].join(', ')})`
+}
+
 // Helper to extract person data from a survey response row
+// Query structure: [...questions, person_display_name, distinct_id, timestamp]
 function extractPersonData(row: SurveyResponseRow): {
     distinctId: string
-    personProperties?: Record<string, any>
+    personDisplayName?: string
     timestamp: string
 } {
-    const distinctId = row.at(-2) as string
     const timestamp = row.at(-1) as string
-    // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
-    // from those values. We use them to have a display name for the person
-    const personProperties: Record<string, any> = {}
-    const personDisplayProperties = PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-    let hasAnyProperties = false
-    for (let i = 0; i < personDisplayProperties.length; i++) {
-        const value = row.at(-3 - i) as string
-        if (value && value !== null && value !== '') {
-            personProperties[personDisplayProperties[i]] = value
-            hasAnyProperties = true
-        }
+    const distinctId = row.at(-2) as string
+    const personDisplayName = row.at(-3) as string | null
+
+    return {
+        distinctId,
+        // Only include display name if it's different from distinct_id (meaning a real name was found)
+        personDisplayName: personDisplayName && personDisplayName !== distinctId ? personDisplayName : undefined,
+        timestamp,
     }
-    return { distinctId, personProperties: hasAnyProperties ? personProperties : undefined, timestamp }
 }
 
 // Helper to count a choice and store person data for latest occurrence
@@ -313,7 +323,7 @@ function processChoiceQuestion(
                 return {
                     ...baseData,
                     distinctId: latestResponsePersonData[label].distinctId,
-                    personProperties: latestResponsePersonData[label].personProperties,
+                    personDisplayName: latestResponsePersonData[label].personDisplayName,
                     timestamp: latestResponsePersonData[label].timestamp,
                 }
             }
@@ -386,8 +396,7 @@ function processRatingQuestion(
 }
 
 function processOpenQuestion(questionIndex: number, results: SurveyRawResults): OpenQuestionProcessedResponses {
-    const data: { distinctId: string; response: string; personProperties?: Record<string, any>; timestamp?: string }[] =
-        []
+    const data: { distinctId: string; response: string; personDisplayName?: string; timestamp?: string }[] = []
     let totalResponses = 0
 
     results?.forEach((row: SurveyResponseRow) => {
@@ -400,7 +409,7 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
         const response = {
             distinctId: personData.distinctId,
             response: value,
-            personProperties: personData.personProperties,
+            personDisplayName: personData.personDisplayName,
             timestamp: personData.timestamp,
         }
 
@@ -543,11 +552,6 @@ export const surveyLogic = kea<surveyLogicType>([
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
     }),
     loaders(({ props, actions, values }) => ({
-        responseSummary: {
-            summarize: async ({ questionIndex, questionId }: { questionIndex?: number; questionId?: string }) => {
-                return api.surveys.summarize_responses(props.id, questionIndex, questionId)
-            },
-        },
         surveyHeadline: [
             null as { headline: string; responses_sampled: number; has_more: boolean } | null,
             {
@@ -824,12 +828,18 @@ export const surveyLogic = kea<surveyLogicType>([
                     return `${getSurveyResponse(question, index)} AS q${index}_response`
                 })
 
-                // Also get distinct_id, person properties, and timestamp for open text questions
+                // Build person display name using team settings or defaults
+                const personDisplayNameProps =
+                    teamLogic.values.currentTeam?.person_display_name_properties ||
+                    PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                const personDisplayNameExpr = buildPersonDisplayNameExpression(personDisplayNameProps)
+
+                // Query structure: [question_responses..., person_display_name, distinct_id, timestamp]
                 const query = `
                     -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                     SELECT
                         ${questionFields.join(',\n')},
-                        ${PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.map((property) => `person.properties.${property}`).join(',\n')},
+                        ${personDisplayNameExpr} AS person_display_name,
                         events.distinct_id,
                         events.timestamp
                     FROM events
@@ -906,16 +916,19 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.loadSurveys()
             },
             archiveSurvey: () => {
-                actions.updateSurvey({ archived: true })
-                actions.addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_ARCHIVED,
-                    metadata: {
-                        survey_id: values.survey.id,
-                    },
-                })
+                const updates: Partial<Survey> & { intentContext?: ProductIntentContext } = {
+                    archived: true,
+                    intentContext: ProductIntentContext.SURVEY_ARCHIVED,
+                }
+                if (values.isSurveyRunning) {
+                    updates.end_date = dayjs().toISOString()
+                }
+                actions.updateSurvey(updates)
             },
             loadSurveySuccess: () => {
+                // Initialize dataCollectionType from survey data (using selector pattern for consistency)
+                actions.setDataCollectionType(values.derivedDataCollectionType)
+
                 // Trigger stats loading after survey loads
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
@@ -1349,18 +1362,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 return `AND uuid NOT IN (${uuidList})`
             },
         ],
-        isSurveyAnalysisMaxToolEnabled: [
-            (s) => [s.enabledFlags],
-            (enabledFlags: FeatureFlagsSet): boolean => {
-                return !!enabledFlags[FEATURE_FLAGS.SURVEY_ANALYSIS_MAX_TOOL]
-            },
-        ],
-        isExternalSurveyFFEnabled: [
-            (s) => [s.enabledFlags],
-            (enabledFlags: FeatureFlagsSet): boolean => {
-                return !!enabledFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS]
-            },
-        ],
         isAdaptiveLimitFFEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -1419,6 +1420,21 @@ export const surveyLogic = kea<surveyLogicType>([
                     survey.response_sampling_limit &&
                     survey.response_sampling_limit > 0
                 )
+            },
+        ],
+        derivedDataCollectionType: [
+            (s) => [s.surveyUsesAdaptiveLimit, s.surveyUsesLimit, s.isAdaptiveLimitFFEnabled],
+            (
+                surveyUsesAdaptiveLimit: boolean,
+                surveyUsesLimit: boolean,
+                isAdaptiveLimitFFEnabled: boolean
+            ): DataCollectionType => {
+                if (isAdaptiveLimitFFEnabled && surveyUsesAdaptiveLimit) {
+                    return 'until_adaptive_limit'
+                } else if (surveyUsesLimit) {
+                    return 'until_limit'
+                }
+                return 'until_stopped'
             },
         ],
         surveyShufflingQuestionsAvailable: [

@@ -1,13 +1,15 @@
 import { Meta, StoryFn } from '@storybook/react'
+import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { FEATURE_FLAGS } from '~/lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 import { PropertyFilterType, PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
@@ -83,7 +85,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04',
-        featureFlags: [FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS],
         testOptions: {
             loaderTimeout: 15000,
             waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
@@ -213,3 +214,26 @@ PlaylistNarrow.parameters = {
     },
 }
 PlaylistNarrow.tags = ['test-skip']
+
+const PlaylistCollapsedInner = (): JSX.Element => {
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+
+    useEffect(() => {
+        setPlaylistCollapsed(true)
+        return () => setPlaylistCollapsed(false)
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    return <App />
+}
+
+export const PlaylistCollapsed: StoryFn = () => {
+    router.actions.push(sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id }))
+
+    return <PlaylistCollapsedInner />
+}
+PlaylistCollapsed.parameters = {
+    testOptions: {
+        viewport: { width: 1300, height: 720 },
+    },
+}
+PlaylistCollapsed.tags = ['test-skip']

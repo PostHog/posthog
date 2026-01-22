@@ -1,0 +1,18 @@
+[package]
+name = "personhog-proto"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+prost = { workspace = true }
+tonic = { workspace = true }
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[package.metadata.cargo-shear]
+ignored = ["prost"]
+
+[lints]
+workspace = true

@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -16,17 +17,18 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
 import { workflowSceneLogic } from './workflowSceneLogic'
+import { workflowsLogic } from './workflowsLogic'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
+    editTemplateId?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -114,6 +116,7 @@ export const workflowLogic = kea<workflowLogicType>([
     key((props) => props.id || 'new'),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
+        actions: [workflowsLogic, ['archiveWorkflow']],
     })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
@@ -126,17 +129,21 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
             variables,
             scheduledAt,
         }),
-        triggerBatchWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+        triggerBatchWorkflow: (
+            variables: Record<string, any>,
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
+            scheduledAt?: string | null
+        ) => ({
             variables,
+            filters,
             scheduledAt,
         }),
         discardChanges: true,
         duplicate: true,
-        deleteWorkflow: true,
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -144,12 +151,20 @@ export const workflowLogic = kea<workflowLogicType>([
             {
                 loadWorkflow: async () => {
                     if (!props.id || props.id === 'new') {
+                        if (props.editTemplateId) {
+                            // Editing a template - load it and add a temporary status field for the editor
+                            const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
+                            return {
+                                ...templateWorkflow,
+                                status: 'draft' as const, // Temporary status for editor compatibility, won't be saved
+                            } as HogFlow
+                        }
                         if (props.templateId) {
                             const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
 
                             const newWorkflow = {
                                 ...templateWorkflow,
-                                name: `${templateWorkflow.name} (copy)`,
+                                name: templateWorkflow.name,
                                 status: 'draft' as const,
                                 version: 1,
                             }
@@ -170,7 +185,15 @@ export const workflowLogic = kea<workflowLogicType>([
                     updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                     if (!props.id || props.id === 'new') {
-                        return api.hogFlows.createHogFlow(updates)
+                        const result = await api.hogFlows.createHogFlow(updates)
+
+                        if (props.templateId) {
+                            posthog.capture('hog_flow_created_from_template', {
+                                workflow_id: result.id,
+                                template_id: props.templateId,
+                            })
+                        }
+                        return result
                     }
 
                     return api.hogFlows.updateHogFlow(props.id, updates)
@@ -223,7 +246,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
     })),
     selectors({
-        logicProps: [() => [(_, props) => props], (props): WorkflowLogicProps => props],
+        logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
@@ -248,8 +271,12 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById],
-            (workflow, hogFunctionTemplatesById): Record<string, HogFlowActionValidationResult | null> => {
+            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading],
+            (
+                workflow,
+                hogFunctionTemplatesById,
+                hogFunctionTemplatesByIdLoading
+            ): Record<string, HogFlowActionValidationResult | null> => {
                 return workflow.actions.reduce(
                     (acc, action) => {
                         const result: HogFlowActionValidationResult = {
@@ -295,7 +322,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             }
                         }
 
-                        if (isFunctionAction(action) || isTriggerFunction(action)) {
+                        if (
+                            (isFunctionAction(action) || isTriggerFunction(action)) &&
+                            !hogFunctionTemplatesByIdLoading
+                        ) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {
                                 result.valid = false
@@ -327,6 +357,13 @@ export const workflowLogic = kea<workflowLogicType>([
                                     result.valid = false
                                     result.errors = {
                                         scheduled_at: 'A scheduled time is required',
+                                    }
+                                }
+                            } else if (action.config.type === 'batch') {
+                                if (!action.config.filters.properties?.length) {
+                                    result.valid = false
+                                    result.errors = {
+                                        filters: 'At least one property filter is required for batch workflows',
                                     }
                                 }
                             }
@@ -450,39 +487,7 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },
-        deleteWorkflow: async () => {
-            const workflow = values.originalWorkflow
-            if (!workflow) {
-                return
-            }
-            LemonDialog.open({
-                title: 'Delete workflow?',
-                description: `Are you sure you want to delete "${workflow.name}"? This action cannot be undone.${
-                    workflow.status === 'active' ? ' In-progress workflows will end immediately.' : ''
-                }`,
-                primaryButton: {
-                    children: 'Delete',
-                    type: 'primary',
-                    status: 'danger',
-                    onClick: async () => {
-                        try {
-                            await api.hogFlows.deleteHogFlow(workflow.id)
-                            lemonToast.success(`Workflow "${workflow.name}" deleted`)
-                            router.actions.push(urls.workflows())
-                            deleteFromTree('hog_flow/', workflow.id)
-                        } catch (error: any) {
-                            lemonToast.error(
-                                `Failed to delete workflow: ${error.detail || error.message || 'Unknown error'}`
-                            )
-                        }
-                    },
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
-            })
-        },
-        triggerManualWorkflow: async ({ variables, scheduledAt }) => {
+        triggerManualWorkflow: async ({ variables }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -490,7 +495,8 @@ export const workflowLogic = kea<workflowLogicType>([
 
             const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
 
-            lemonToast.info(scheduledAt ? 'Scheduling workflow...' : 'Triggering workflow...')
+            const isScheduleTrigger = 'scheduled_at' in (values.workflow.trigger || {})
+            lemonToast.info(isScheduleTrigger ? 'Scheduling workflow...' : 'Triggering workflow...')
 
             try {
                 await fetch(webhookUrl, {
@@ -501,12 +507,11 @@ export const workflowLogic = kea<workflowLogicType>([
                     body: JSON.stringify({
                         user_id: values.user?.email,
                         $variables: variables,
-                        $scheduled_at: scheduledAt,
                     }),
                     credentials: 'omit',
                 })
 
-                lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                lemonToast.success(`Workflow ${isScheduleTrigger ? 'scheduled' : 'triggered'}`, {
                     button: {
                         label: 'View logs',
                         action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
@@ -517,13 +522,31 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
-        triggerBatchWorkflow: async ({}) => {
+        triggerBatchWorkflow: async ({ variables, filters, scheduledAt }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
             }
 
-            lemonToast.info('Batch workflow runs coming soon...')
+            const isScheduleTrigger = 'scheduled_at' in (values.workflow.trigger || {})
+            lemonToast.info(isScheduleTrigger ? 'Scheduling batch workflow...' : 'Triggering batch workflow...')
+
+            try {
+                await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
+                    variables,
+                    filters,
+                    scheduled_at: scheduledAt,
+                })
+                lemonToast.success(`Batch workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
+            } catch (e) {
+                lemonToast.error('Error creating batch workflow job: ' + (e as Error).message)
+                return
+            }
         },
     })),
     afterMount(({ actions }) => {

@@ -16,6 +16,7 @@ import {
     AccessControlLevel,
     Experiment,
     ExperimentMetricMathType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -631,7 +632,6 @@ describe('checkFeatureFlagEligibility', () => {
         created_at: '2021-01-01',
         updated_at: '2021-01-01',
         created_by: null,
-        is_simple_flag: false,
         is_remote_configuration: false,
         filters: {
             groups: [],
@@ -640,7 +640,6 @@ describe('checkFeatureFlagEligibility', () => {
         },
         deleted: false,
         active: true,
-        rollout_percentage: null,
         experiment_set: null,
         features: null,
         surveys: null,
@@ -654,6 +653,7 @@ describe('checkFeatureFlagEligibility', () => {
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
         evaluation_tags: [],
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }

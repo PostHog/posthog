@@ -88,9 +88,15 @@ function LimitSummary({ filters }: { filters: RecordingUniversalFilters }): JSX.
     )
 }
 
-export function RecordingsUniversalFiltersDisplay({ filters }: { filters: RecordingUniversalFilters }): JSX.Element {
+export function RecordingsUniversalFiltersDisplay({
+    filters,
+    className,
+}: {
+    filters: RecordingUniversalFilters
+    className?: string
+}): JSX.Element {
     return (
-        <div className="px-3 py-2 space-y-2">
+        <div className={className ?? 'p-2 space-y-1.5'}>
             <DateRangeSummary dateFrom={filters.date_from} dateTo={filters.date_to} />
             <DurationSummary filters={filters} />
             <FiltersSummary filters={filters} />

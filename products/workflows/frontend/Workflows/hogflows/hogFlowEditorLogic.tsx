@@ -10,7 +10,7 @@ import {
     applyNodeChanges,
     getOutgoers,
 } from '@xyflow/react'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -103,6 +103,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => ({
             dropzoneNodes,
         }),
+        showDropzones: true,
+        hideDropzones: true,
         setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
@@ -111,17 +113,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             reactFlowInstance,
         }),
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
-        onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
-        onDrop: (event: DragEvent) => ({ event }),
-        setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
+        onDrop: (event?: DragEvent) => ({ event }),
+        setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        startCopyingNode: (node: HogFlowActionNode) => ({ node }),
+        stopCopyingNode: true,
+        copyNodeToHighlightedDropzone: true,
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
+        handlePaneClick: true,
     }),
     reducers(() => ({
         mode: [
@@ -160,14 +165,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
-
-        newDraggingNode: [
-            null as CreateActionType | null,
+        isCopyingNode: [
+            false,
             {
-                setNewDraggingNode: (_, { newDraggingNode }) => newDraggingNode,
+                startCopyingNode: () => true,
+                stopCopyingNode: () => false,
             },
         ],
-
+        nodeToBeAdded: [
+            null as CreateActionType | HogFlowActionNode | null,
+            {
+                setNodeToBeAdded: (_, { nodeToBeAdded }) => nodeToBeAdded,
+                startCopyingNode: (_, { node }) => node.data,
+            },
+        ],
         reactFlowInstance: [
             null as ReactFlowInstance<Node, Edge> | null,
             {
@@ -423,7 +434,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
         },
 
-        onDragStart: () => {
+        showDropzones: () => {
             const { nodes, edges } = values
 
             const dropzoneNodes: DropzoneNode[] = []
@@ -488,21 +499,32 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.setDropzoneNodes(dropzoneNodes)
         },
 
+        hideDropzones: () => {
+            actions.setDropzoneNodes([])
+        },
+
         onDragOver: ({ event }) => {
             event.preventDefault()
             event.dataTransfer.dropEffect = 'move'
         },
 
         onDrop: ({ event }) => {
-            event.preventDefault()
+            event?.preventDefault()
             const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
 
-            if (values.newDraggingNode && dropzoneNode) {
+            if (values.nodeToBeAdded && dropzoneNode) {
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
-                const partialNewAction = values.newDraggingNode
+
+                // Check if nodeToBeAdded is a HogFlowActionNode (has 'data' property) or CreateActionType
+                const isHogFlowActionNode = 'data' in values.nodeToBeAdded
+                const partialNewAction = isHogFlowActionNode
+                    ? (values.nodeToBeAdded as HogFlowActionNode).data
+                    : (values.nodeToBeAdded as CreateActionType)
 
                 const newAction = {
-                    id: `action_${partialNewAction.type}_${uuid()}`,
+                    id: isHogFlowActionNode
+                        ? (values.nodeToBeAdded as HogFlowActionNode).id
+                        : `action_${partialNewAction.type}_${uuid()}`,
                     type: partialNewAction.type,
                     name: partialNewAction.name,
                     description: partialNewAction.description,
@@ -513,7 +535,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
 
-                const branchEdges = partialNewAction.branchEdges ?? 0
+                const branchEdges = isHogFlowActionNode ? 0 : ((partialNewAction as CreateActionType).branchEdges ?? 0)
                 const isBranchJoinDropzone = dropzoneNode?.data.isBranchJoinDropzone ?? false
 
                 if (!step) {
@@ -593,11 +615,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
 
                 actions.setWorkflowInfo({ actions: newActions, edges: newEdges })
-                actions.setNewDraggingNode(null)
+                actions.setNodeToBeAdded(null)
                 actions.setSelectedNodeId(newAction.id)
             }
             // We can clear the dropzones now
-            actions.setDropzoneNodes([])
+            actions.hideDropzones()
         },
         setReactFlowInstance: () => {
             // TRICKY: Slight race condition here where the react flow instance is not set yet
@@ -637,6 +659,24 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
                 duration: duration ?? 100,
             })
+        },
+        startCopyingNode: () => {
+            actions.showDropzones()
+        },
+        stopCopyingNode: () => {
+            actions.hideDropzones()
+        },
+        copyNodeToHighlightedDropzone: () => {
+            // Copy action, move to new spot
+            actions.onDrop()
+            // Clear moving node ID
+            actions.stopCopyingNode()
+        },
+        handlePaneClick: () => {
+            actions.setSelectedNodeId(null)
+            if (values.isCopyingNode) {
+                actions.stopCopyingNode()
+            }
         },
     })),
 
@@ -683,4 +723,24 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             [urls.workflow(':id', ':tab')]: reactToTabChange,
         }
     }),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            const handleKeyDown = (e: KeyboardEvent): void => {
+                if (e.key === 'Escape' && values.isCopyingNode) {
+                    actions.stopCopyingNode()
+                }
+            }
+
+            document.addEventListener('keydown', handleKeyDown)
+
+            // Store the handler so we can clean it up
+            ;(actions as any)._keydownHandler = handleKeyDown
+        },
+        beforeUnmount: () => {
+            const handler = (actions as any)._keydownHandler
+            if (handler) {
+                document.removeEventListener('keydown', handler)
+            }
+        },
+    })),
 ])

@@ -9,8 +9,7 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.core.mixins import AssistantContextMixin
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
-from ee.hogai.utils.types.base import NodePath
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 if TYPE_CHECKING:
     from .executables import AgentExecutable, AgentToolsExecutable
@@ -18,6 +17,7 @@ if TYPE_CHECKING:
 
 
 class AgentModeManager(AssistantContextMixin, ABC):
+    _state: AssistantState | None = None
     _node: Optional["AgentExecutable"] = None
     _tools_node: Optional["AgentToolsExecutable"] = None
 
@@ -28,16 +28,18 @@ class AgentModeManager(AssistantContextMixin, ABC):
         user: User,
         node_path: tuple[NodePath, ...],
         context_manager: AssistantContextManager,
-        mode: AgentMode | None = None,
+        state: AssistantState,
     ):
         self._team = team
         self._user = user
         self._node_path = node_path
         self._context_manager = context_manager
-        if has_agent_modes_feature_flag(team, user):
-            self._mode = mode or AgentMode.PRODUCT_ANALYTICS
-        else:
+        self._state = state
+
+        # Validate mode is in registry, fall back to default mode if not
+        if state.agent_mode and state.agent_mode not in self.mode_registry:
             self._mode = AgentMode.PRODUCT_ANALYTICS
+        self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
     @abstractmethod
