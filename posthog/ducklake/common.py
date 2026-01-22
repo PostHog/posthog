@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import duckdb
 import psycopg
 from psycopg import sql
+
+if TYPE_CHECKING:
+    from posthog.ducklake.models import DuckLakeCatalog
 
 DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_HOST": "localhost",
@@ -21,8 +24,38 @@ DEFAULTS: dict[str, str] = {
 }
 
 
-def get_config() -> dict[str, str]:
+def get_config(*, team_id: int | None = None) -> dict[str, str]:
+    """Get DuckLake configuration.
+
+    If team_id is provided, looks up team-specific DuckLakeCatalog configuration
+    from the database. Falls back to environment variables if no team-specific
+    config exists.
+
+    Args:
+        team_id: Optional team ID to look up team-specific configuration.
+
+    Returns:
+        Configuration dict with DUCKLAKE_* keys.
+    """
+    if team_id is not None:
+        catalog = get_ducklake_catalog_for_team(team_id)
+        if catalog is not None:
+            return catalog.to_config()
+
     return {key: os.environ.get(key, default) or default for key, default in DEFAULTS.items()}
+
+
+def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:
+    """Look up DuckLakeCatalog for a team.
+
+    Returns None if no team-specific catalog is configured.
+    """
+    from posthog.ducklake.models import DuckLakeCatalog
+
+    try:
+        return DuckLakeCatalog.objects.get(team_id=team_id)
+    except DuckLakeCatalog.DoesNotExist:
+        return None
 
 
 def get_ducklake_connection_string(config: dict[str, str] | None = None) -> str:
