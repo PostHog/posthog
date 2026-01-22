@@ -2,14 +2,15 @@ use error::EventError;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
+
 use serde_json::Value;
 use tracing::warn;
-
 use uuid::Uuid;
 
 pub mod app_context;
 pub mod assignment_rules;
 pub mod config;
+pub mod consumer;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
@@ -18,6 +19,8 @@ pub mod langs;
 pub mod metric_consts;
 pub mod pipeline;
 pub mod posthog_utils;
+pub mod router;
+pub mod server;
 pub mod symbol_store;
 pub mod teams;
 pub mod types;

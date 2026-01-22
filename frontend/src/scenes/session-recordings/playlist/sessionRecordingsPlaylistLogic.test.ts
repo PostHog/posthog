@@ -702,7 +702,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('convertUniversalFiltersToRecordingsQuery', () => {
-        it('expands the visited_page filter to a pageview with $current_url property', () => {
+        it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
                 filter_group: {
@@ -730,21 +730,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 console_log_filters: [],
                 date_from: '-3d',
                 date_to: null,
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        properties: [
-                            {
-                                key: '$current_url',
-                                operator: 'exact',
-                                type: 'event',
-                                value: ['https://example-url.com'],
-                            },
-                        ],
-                        type: 'events',
-                    },
-                ],
+                events: [],
                 filter_test_accounts: false,
                 having_predicates: [
                     {
@@ -758,7 +744,14 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 operand: 'AND',
                 order: 'console_error_count',
                 order_direction: 'DESC',
-                properties: [],
+                properties: [
+                    {
+                        key: 'visited_page',
+                        operator: 'exact',
+                        type: 'recording',
+                        value: ['https://example-url.com'],
+                    },
+                ],
             })
         })
 

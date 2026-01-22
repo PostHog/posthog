@@ -101,6 +101,7 @@ import {
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
@@ -109,7 +110,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -293,19 +294,24 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL]) {
+    tabs.push({
+        label: 'User feedback',
+        key: FeatureFlagsTab.FEEDBACK,
+        content: <FeedbackTab featureFlag={featureFlag} />,
+    })
+
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL]) {
         tabs.push({
             label: (
                 <div className="flex flex-row">
-                    <div>User feedback</div>
+                    <div>Experiments</div>
                     <LemonTag className="ml-2 float-right uppercase" type="primary">
-                        {' '}
                         New
                     </LemonTag>
                 </div>
             ),
-            key: FeatureFlagsTab.FEEDBACK,
-            content: <FeedbackTab featureFlag={featureFlag} />,
+            key: FeatureFlagsTab.EXPERIMENTS,
+            content: <ExperimentsTab featureFlag={featureFlag} />,
         })
     }
 
@@ -471,7 +477,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )
                                 }}
                             </LemonField>
-                            {isNewFeatureFlag && (
+                            {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX] && (
                                 <LemonField name="_should_create_usage_dashboard">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
@@ -531,7 +537,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 target="_blank"
                                                 targetBlankIcon
                                             >
-                                                Learn more about using evaluation environments
+                                                Learn more about using evaluation contexts
                                             </Link>
                                         </div>
                                         <LemonField name="evaluation_runtime">
@@ -595,17 +601,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                 <>
                                     <SceneDivider />
-                                    <SceneSection title="Tags">
+                                    <SceneSection title="Tags & Evaluation Contexts">
                                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
                                             <div className="text-secondary text-sm mb-2">
-                                                Tags provide fine-grained control over where and when your feature flags
-                                                evaluate.{' '}
+                                                Use tags to organize and filter your feature flags. Mark specific tags
+                                                as <strong>evaluation contexts</strong> to control when flags can be
+                                                evaluated – flags will only evaluate when the SDK provides matching
+                                                environment tags.{' '}
                                                 <Link
                                                     to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                                     target="_blank"
                                                     targetBlankIcon
                                                 >
-                                                    Learn more about using evaluation environments
+                                                    Learn more about evaluation contexts
                                                 </Link>
                                             </div>
                                         )}
@@ -1035,6 +1043,7 @@ function FeatureFlagRollout({
         variantErrors,
         experiment,
         experimentLoading,
+        dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1225,6 +1234,27 @@ function FeatureFlagRollout({
                                 </div>
                             </>
                         )}
+
+                        {dependentFlags.length > 0 && (
+                            <div className="mt-4">
+                                <span className="card-secondary mt-4">Dependent flags</span>
+                                <div className="flex flex-col gap-1">
+                                    {dependentFlags.map((flag: DependentFlag) => (
+                                        <div key={flag.id} className="flex gap-1 items-center">
+                                            <span className="font-normal text-sm">{flag.key}</span>
+                                            <Link
+                                                target="_blank"
+                                                className="font-semibold"
+                                                to={urls.featureFlag(flag.id)}
+                                                aria-label={`Open ${flag.key}`}
+                                            >
+                                                <IconOpenInNew fontSize="18" />
+                                            </Link>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <SceneDivider />
                     {featureFlag.filters.multivariate && (
@@ -1250,17 +1280,17 @@ function FeatureFlagRollout({
                                 />
                             </SceneSection>
 
-                            <SceneSection title="Evaluation environments">
+                            <SceneSection title="Evaluation contexts">
                                 <div className="text-secondary text-sm mb-2">
-                                    Evaluation environments provide fine-grained control over where and when your
-                                    feature flags evaluate. Combine evaluation runtime and tags to control where and
+                                    Evaluation contexts provide fine-grained control over where and when your feature
+                                    flags evaluate. Combine evaluation runtime and context tags to control where and
                                     when your feature flags evaluate.{' '}
                                     <Link
                                         to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                         target="_blank"
                                         targetBlankIcon
                                     >
-                                        Learn more about using evaluation environments
+                                        Learn more about using evaluation contexts
                                     </Link>
                                 </div>
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
@@ -1374,17 +1404,29 @@ function FeatureFlagRollout({
                                 </span>
                             ) : (
                                 <>
-                                    {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                                    {multivariateEnabled ? (
-                                        <>
-                                            <strong>a variant key</strong> according to the below distribution
-                                        </>
-                                    ) : (
-                                        <strong>
-                                            <code>true</code>
-                                        </strong>
-                                    )}{' '}
-                                    <span>if they match one or more release condition groups.</span>
+                                    <div>
+                                        {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                                        {multivariateEnabled ? (
+                                            <>
+                                                <strong>a variant key</strong> according to the below distribution
+                                            </>
+                                        ) : (
+                                            <strong>
+                                                <code>true</code>
+                                            </strong>
+                                        )}{' '}
+                                        if they match one or more release condition groups.
+                                        {multivariateEnabled && (
+                                            <>
+                                                {' '}
+                                                Otherwise, the feature flag will evaluate to{' '}
+                                                <strong>
+                                                    <code>false</code>
+                                                </strong>
+                                                .
+                                            </>
+                                        )}
+                                    </div>
                                 </>
                             )}
                         </div>
@@ -1517,7 +1559,7 @@ function FeatureFlagRollout({
                                             />
                                         </SceneSection>
 
-                                        {featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL] && onGetFeedback && (
+                                        {onGetFeedback && (
                                             <>
                                                 <SceneDivider className="md:hidden" />
                                                 <UserFeedbackSection

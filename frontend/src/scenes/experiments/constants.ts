@@ -30,8 +30,19 @@ export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
 
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
+export const CONFIDENCE_LEVEL_OPTIONS = [
+    { value: 0.9, label: '90%' },
+    { value: 0.95, label: '95%' },
+    { value: 0.99, label: '99%' },
+]
+
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
 export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
+
+// Autorefresh constants
+export const EXPERIMENT_MIN_REFRESH_INTERVAL_MINUTES = 5
+export const EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800 // 30 min
+
 export const CONCLUSION_DISPLAY_CONFIG: Record<
     ExperimentConclusion,
     { title: string; description: string; color: string }

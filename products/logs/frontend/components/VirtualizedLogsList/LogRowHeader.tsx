@@ -2,9 +2,11 @@ import { IconArrowLeft, IconArrowRight, IconEllipsis, IconTrash } from '@posthog
 import { LemonButton, LemonCheckbox, LemonMenu } from '@posthog/lemon-ui'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
 import {
     CHECKBOX_WIDTH,
+    EXPAND_WIDTH,
     MIN_ATTRIBUTE_COLUMN_WIDTH,
     RESIZER_HANDLE_WIDTH,
     ROW_GAP,
@@ -14,6 +16,7 @@ import {
     getFixedColumnsWidth,
     getMessageStyle,
 } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
+import { LogsOrderBy } from 'products/logs/frontend/types'
 
 export interface LogRowHeaderProps {
     rowWidth: number
@@ -27,6 +30,9 @@ export interface LogRowHeaderProps {
     totalCount?: number
     onSelectAll?: () => void
     onClearSelection?: () => void
+    // Sorting
+    orderBy?: LogsOrderBy
+    onChangeOrderBy?: (orderBy: LogsOrderBy) => void
 }
 
 export function LogRowHeader({
@@ -40,6 +46,8 @@ export function LogRowHeader({
     totalCount = 0,
     onSelectAll,
     onClearSelection,
+    orderBy,
+    onChangeOrderBy,
 }: LogRowHeaderProps): JSX.Element {
     const flexWidth =
         rowWidth -
@@ -64,11 +72,30 @@ export function LogRowHeader({
                         size="small"
                     />
                 </div>
+                <div style={{ width: EXPAND_WIDTH, flexShrink: 0 }} />
             </div>
 
             {/* Timestamp */}
-            <div className="flex items-center pr-3" style={{ width: TIMESTAMP_WIDTH, flexShrink: 0 }}>
+            <div
+                className="flex items-center justify-between pr-3 gap-1 h-full border-r"
+                style={{ width: TIMESTAMP_WIDTH, flexShrink: 0 }}
+            >
                 Timestamp
+                <LemonButton
+                    size="xsmall"
+                    className="h-full"
+                    icon={orderBy === 'latest' ? <IconArrowDown /> : <IconArrowUp />}
+                    tooltip={
+                        orderBy === 'latest'
+                            ? 'Showing latest first. Click to show earliest first (reloads).'
+                            : 'Showing earliest first. Click to show latest first (reloads).'
+                    }
+                    onClick={() => {
+                        const newOrderBy = orderBy === 'latest' ? 'earliest' : 'latest'
+                        onChangeOrderBy?.(newOrderBy)
+                    }}
+                    disabled={!orderBy || !onChangeOrderBy}
+                />
             </div>
 
             {/* Attribute columns */}
@@ -125,7 +152,7 @@ export function LogRowHeader({
                                         size="xsmall"
                                         noPadding
                                         icon={<IconEllipsis className="text-muted" />}
-                                        className="opacity-0 group-hover/header:opacity-100 shrink-0"
+                                        className="shrink-0"
                                     />
                                 </LemonMenu>
                             )}

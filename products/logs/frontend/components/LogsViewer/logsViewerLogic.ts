@@ -70,6 +70,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         moveCursorUp: (shiftSelect?: boolean) => ({ shiftSelect: shiftSelect ?? false }),
         requestScrollToCursor: true, // Signals React to scroll to current cursor position
 
+        // Expansion
+        toggleExpandLog: (logId: string) => ({ logId }),
+
         // Deep linking - position cursor at a specific log by ID
         setLinkToLogId: (linkToLogId: string | null) => ({ linkToLogId }),
         setCursorToLogId: (logId: string) => ({ logId }),
@@ -147,6 +150,21 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 setCursorIndex: (_, { index }) => index,
                 userSetCursorIndex: (_, { index }) => index,
                 resetCursor: () => null,
+            },
+        ],
+
+        expandedLogIds: [
+            {} as Record<string, boolean>,
+            { persist: true },
+            {
+                toggleExpandLog: (state, { logId }) => {
+                    if (state[logId]) {
+                        const { [logId]: _, ...rest } = state
+                        return rest
+                    }
+                    return { ...state, [logId]: true }
+                },
+                clearLogs: () => ({}),
             },
         ],
 
@@ -377,11 +395,29 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 posthog.capture('logs log pinned')
             }
         },
+        toggleSelectLog: ({ logId }) => {
+            if (values.selectedLogIds[logId]) {
+                posthog.capture('logs log selected')
+            } else {
+                posthog.capture('logs log unselected')
+            }
+        },
+        clearSelection: () => {
+            posthog.capture('logs clear selection', { count: values.selectedCount })
+        },
+        toggleExpandLog: ({ logId }) => {
+            const isNowExpanded = values.expandedLogIds[logId]
+            posthog.capture(isNowExpanded ? 'logs log expanded' : 'logs log collapsed')
+            actions.recomputeRowHeights([logId])
+        },
         closeLogDetails: () => {
             // Restore focus to logs viewer when modal closes
             actions.setFocused(true)
         },
         togglePrettifyLog: ({ logId }) => {
+            actions.recomputeRowHeights([logId])
+        },
+        toggleAttributeBreakdown: ({ logId }) => {
             actions.recomputeRowHeights([logId])
         },
         moveCursorDown: ({ shiftSelect }) => {
@@ -465,6 +501,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             void copyToClipboard(text, `${selectedLogs.length} log message${selectedLogs.length === 1 ? '' : 's'}`)
         },
         selectLogRange: ({ fromIndex, toIndex }) => {
+            posthog.capture('logs range selected', { count: Math.abs(toIndex - fromIndex) + 1 })
             const minIndex = Math.min(fromIndex, toIndex)
             const maxIndex = Math.max(fromIndex, toIndex)
             const newSelection: Record<string, boolean> = { ...values.selectedLogIds }
@@ -478,6 +515,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
         selectAll: ({ logsToSelect }) => {
             const logs = logsToSelect ?? values.logs
+            posthog.capture('logs select all', { count: logs.length })
             const newSelection: Record<string, boolean> = {}
             for (const log of logs) {
                 newSelection[log.uuid] = true

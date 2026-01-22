@@ -150,7 +150,7 @@ class ClickhouseCluster:
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
         get_cluster_hosts_fn = lambda client: client.execute(
             """
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            SELECT host_address as host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
             FROM clusterAllReplicas(%(name)s, system.clusters)
             WHERE name = %(name)s and is_local
             ORDER BY shard_num, replica_num

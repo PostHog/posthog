@@ -30,6 +30,17 @@
         // Add read-only toggle to loginas modal
         const reasonField = document.getElementById("loginas-reason");
         if (reasonField) {
+            const ticketParam = new URLSearchParams(window.location.search).get('ticket');
+
+            // Pre-fill reason field when modal opens (after loginas clears it)
+            if (ticketParam) {
+                document.getElementById("loginas-link")?.addEventListener("click", () => {
+                    setTimeout(() => {
+                        reasonField.value = `For ticket ${ticketParam}`;
+                    }, 0);
+                });
+            }
+
             const div = document.createElement("div");
             div.style.marginTop = "10px";
             div.innerHTML = '<label><input type="checkbox" id="loginas-read-only" checked> Read-only mode (recommended)</label>';

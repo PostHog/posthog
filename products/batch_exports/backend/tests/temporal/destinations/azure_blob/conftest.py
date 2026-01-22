@@ -41,7 +41,7 @@ def blob_prefix() -> str:
     return f"exports/{uuid.uuid4().hex[:8]}/"
 
 
-@pytest.fixture(params=[None, "gzip", "brotli", "zstd"])
+@pytest.fixture(params=[None, "gzip", "brotli", "zstd", "lz4", "snappy"])
 def compression(request) -> str | None:
     return request.param
 

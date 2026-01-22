@@ -16,7 +16,7 @@ export class MemoryRateLimiter {
         this.maxBuckets = maxBuckets
     }
 
-    private getBucket(key: string): Bucket {
+    private getBucket(key: string, now?: number): Bucket {
         let bucket = this.buckets.get(key)
         if (bucket === undefined) {
             // If we're at capacity, just remove the first key (oldest insertion)
@@ -26,7 +26,7 @@ export class MemoryRateLimiter {
                     this.buckets.delete(firstKey)
                 }
             }
-            bucket = [this.bucketCapacity, Date.now()]
+            bucket = [this.bucketCapacity, now ?? Date.now()]
             this.buckets.set(key, bucket)
         }
         return bucket
@@ -45,7 +45,7 @@ export class MemoryRateLimiter {
     }
 
     consume(key: string, tokens: number, now?: number): boolean {
-        const bucket = this.getBucket(key)
+        const bucket = this.getBucket(key, now)
         this.replenish(bucket, now)
 
         bucket[0] -= tokens

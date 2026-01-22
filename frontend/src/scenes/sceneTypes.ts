@@ -130,6 +130,7 @@ export enum Scene {
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
+    SurveyWizard = 'SurveyWizard',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
@@ -319,4 +320,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // Data warehouse sources - not included here because self-managed sources don't have access control.
+    // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.
 }
