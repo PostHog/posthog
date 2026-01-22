@@ -32,7 +32,9 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
                 properties: AnyPropertyFilter[],
                 evaluationRuntime: FeatureFlagEvaluationRuntime
             ): string | undefined => {
-                if (evaluationRuntime === FeatureFlagEvaluationRuntime.SERVER) {
+                // Local evaluation is only relevant for server-side SDKs, so only show the warning
+                // for flags that can be evaluated server-side (ALL or SERVER)
+                if (evaluationRuntime === FeatureFlagEvaluationRuntime.CLIENT) {
                     return
                 }
 
@@ -75,7 +77,7 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
 
                 const uniqueIssues = [...new Set(issues)]
 
-                return `This flag cannot be evaluated locally. Unsupported features: ${uniqueIssues.join(', ')}.`
+                return uniqueIssues.join(', ')
             },
         ],
     }),

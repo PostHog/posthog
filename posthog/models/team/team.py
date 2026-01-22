@@ -571,6 +571,14 @@ class Team(UUIDTClassicModel):
         help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
     )
 
+    default_experiment_confidence_level = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
+    )
+
     business_model = models.CharField(
         max_length=10,
         choices=BusinessModel.choices,

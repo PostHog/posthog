@@ -761,12 +761,37 @@
                 {
                     "const": "rejecting",
                     "type": "string"
+                },
+                {
+                    "const": "custom",
+                    "type": "string"
                 }
             ]
         },
         "ApprovalDecisionStatus": {
             "enum": ["pending", "approved", "rejected", "auto_rejected"],
             "type": "string"
+        },
+        "ApprovalResumePayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "enum": ["approve", "reject"],
+                    "type": "string"
+                },
+                "feedback": {
+                    "type": "string"
+                },
+                "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "proposal_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["action", "proposal_id"],
+            "type": "object"
         },
         "ArtifactContent": {
             "anyOf": [
@@ -15696,6 +15721,20 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "FormResumePayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "const": "form",
+                    "type": "string"
+                },
+                "form_answers": {
+                    "$ref": "#/definitions/MultiQuestionFormAnswers"
+                }
+            },
+            "required": ["action", "form_answers"],
+            "type": "object"
+        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -18344,7 +18383,8 @@
                 "bing-ads",
                 "vercel",
                 "azure-blob",
-                "firebase"
+                "firebase",
+                "jira"
             ],
             "type": "string"
         },
@@ -19247,7 +19287,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsAggregatedQuery",
@@ -19550,7 +19590,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsTableQuery",
@@ -21226,6 +21266,12 @@
             "required": ["questions"],
             "type": "object"
         },
+        "MultiQuestionFormAnswers": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "MultiQuestionFormQuestion": {
             "additionalProperties": false,
             "properties": {
@@ -21247,16 +21293,24 @@
                 "question": {
                     "description": "The question text to display",
                     "type": "string"
+                },
+                "title": {
+                    "description": "One word title for the question e.g. \"Use case\", \"Team size\", \"Experience\"",
+                    "type": "string"
                 }
             },
-            "required": ["id", "question", "options"],
+            "required": ["id", "title", "question", "options"],
             "type": "object"
         },
         "MultiQuestionFormQuestionOption": {
             "additionalProperties": false,
             "properties": {
+                "description": {
+                    "description": "A longer description of the option, in one short sentence",
+                    "type": "string"
+                },
                 "value": {
-                    "description": "The value to use when this option is selected",
+                    "description": "A short value to use when this option is selected, in a few words",
                     "type": "string"
                 }
             },
@@ -21499,7 +21553,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "NonIntegratedConversionsTableQuery",
@@ -27697,6 +27751,16 @@
             "required": ["assignmentBy"],
             "type": "object"
         },
+        "ResumePayload": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ApprovalResumePayload"
+                },
+                {
+                    "$ref": "#/definitions/FormResumePayload"
+                }
+            ]
+        },
         "RetentionDashboardDisplayType": {
             "enum": ["table_only", "graph_only", "all"],
             "type": "string"
@@ -32887,7 +32951,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebExternalClicksTableQuery",
@@ -33039,7 +33103,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebGoalsQuery",
@@ -33216,7 +33280,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebOverviewQuery",
@@ -33356,7 +33420,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebPageURLSearchQuery",
@@ -33540,7 +33604,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebStatsTableQuery",
@@ -33733,7 +33797,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebTrendsQuery",
@@ -33960,7 +34024,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebVitalsPathBreakdownQuery",
@@ -34146,7 +34210,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebVitalsQuery",

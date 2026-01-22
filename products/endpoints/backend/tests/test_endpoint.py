@@ -20,6 +20,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 from products.endpoints.backend.models import Endpoint
+from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 
 class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
@@ -77,7 +78,10 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Verify it was saved to database
         endpoint = Endpoint.objects.get(name="test_query", team=self.team)
-        self.assertEqual(endpoint.query, self.sample_hogql_query)
+        # Query is stored on the version, not the endpoint
+        version = endpoint.get_version()
+        assert version is not None
+        self.assertEqual(version.query, self.sample_hogql_query)
         self.assertEqual(endpoint.created_by, self.user)
         self.assertIsNone(endpoint.derived_from_insight)
 
@@ -117,7 +121,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_update_endpoint(self):
         """Test updating an existing endpoint."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="update_test",
             team=self.team,
             query=self.sample_hogql_query,
@@ -158,7 +162,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Verify database was updated
         endpoint.refresh_from_db()
-        self.assertEqual(endpoint.description, "Updated description")
+        version = endpoint.get_version()
+        self.assertIsNotNone(version)
+        self.assertEqual(version.description, "Updated description")
         self.assertFalse(endpoint.is_active)
 
         # Activity log updated with changes
@@ -175,12 +181,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("updated", log.activity)
         changes = log.detail.get("changes", [])
         changed_fields = {c.get("field") for c in changes}
-        self.assertIn("description", changed_fields)
+        # description is now stored on EndpointVersion, not tracked in Endpoint activity log
         self.assertIn("is_active", changed_fields)
 
     def test_delete_endpoint(self):
         """Test deleting a endpoint."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="delete_test",
             team=self.team,
             query=self.sample_hogql_query,
@@ -224,7 +230,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_duplicate_name_in_team(self):
         """Test that duplicate names within the same team are not allowed."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="duplicate_test",
             team=self.team,
             query=self.sample_hogql_query,
@@ -245,7 +251,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         other_user = User.objects.create_and_join(self.organization, "other@test.com", None)
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="other_team_query",
             team=other_team,
             query=self.sample_hogql_query,
@@ -258,14 +264,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_list_filter_by_is_active(self):
         """Test filtering endpoints by is_active status."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="active_query",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
         )
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="inactive_query",
             team=self.team,
             query=self.sample_hogql_query,
@@ -291,13 +297,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         """Test filtering endpoints by created_by user."""
         other_user = User.objects.create_and_join(self.organization, "other@test.com", None)
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="query_by_user1",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
         )
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="query_by_user2",
             team=self.team,
             query=self.sample_hogql_query,
@@ -322,21 +328,21 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         """Test filtering endpoints by both is_active and created_by."""
         other_user = User.objects.create_and_join(self.organization, "other@test.com", None)
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="active_query_user1",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
         )
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="inactive_query_user1",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="active_query_user2",
             team=self.team,
             query=self.sample_hogql_query,
@@ -355,14 +361,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_list_no_filters(self):
         """Test listing all endpoints without filters."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="query1",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
         )
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="query2",
             team=self.team,
             query=self.sample_hogql_query,
@@ -499,7 +505,10 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         endpoint = Endpoint.objects.get(name="comprehensive_trends_test", team=self.team)
         self.assertEqual(endpoint.created_by, self.user)
-        self.assertEqual("TrendsQuery", endpoint.query["kind"])
+        # Query is stored on the version, not the endpoint
+        version = endpoint.get_version()
+        assert version is not None
+        self.assertEqual("TrendsQuery", version.query["kind"])
 
     def test_get_last_execution_times_empty_names(self):
         """Test getting last execution times with empty names list."""
@@ -521,14 +530,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_last_execution_times_after_endpoint_execution(self):
         """Test getting last execution times with endpoint names after they have been executed."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="test_query_1",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
             is_active=True,
         )
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="test_query_2",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 2"},
@@ -600,7 +609,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_last_execution_times_of_endpoint_not_executed(self):
         """Test getting last execution times of a endpoint that has not been executed."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="test_query_1",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
@@ -675,7 +684,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
     def test_custom_cache_age_behavior(self, name, query, cache_age_seconds, time_within_cache, time_past_cache):
         """Test that custom cache_age_seconds affects cache staleness for different query types."""
         # Create endpoint with custom cache age
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name=f"custom_cache_{name}",
             team=self.team,
             query=query,
@@ -726,7 +735,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
     def test_default_cache_age_when_not_set(self):
         """Test that endpoints without cache_age_seconds use default interval-based caching."""
         # Create endpoint WITHOUT custom cache age - should use default (6 hours for day interval)
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="default_cache_age",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 2 as result"},
@@ -751,7 +760,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_update_cache_age_seconds(self):
         """Test updating cache_age_seconds on an existing endpoint."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="update_cache_test",
             team=self.team,
             query=self.sample_hogql_query,
@@ -767,8 +776,11 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["cache_age_seconds"], 600)
 
+        # cache_age_seconds is now stored on the version
         endpoint.refresh_from_db()
-        self.assertEqual(endpoint.cache_age_seconds, 600)
+        version = endpoint.get_version()
+        self.assertIsNotNone(version)
+        self.assertEqual(version.cache_age_seconds, 600)
 
         # Update to None (use defaults)
         updated_data = {"cache_age_seconds": None}
@@ -779,7 +791,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(response.json()["cache_age_seconds"])
 
         endpoint.refresh_from_db()
-        self.assertIsNone(endpoint.cache_age_seconds)
+        version = endpoint.get_version()
+        self.assertIsNotNone(version)
+        self.assertIsNone(version.cache_age_seconds)
 
     def test_create_endpoint_with_insight_reference(self):
         """Test creating an endpoint with a reference to the insight it was created from."""
@@ -826,7 +840,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
     def test_execute_endpoint(self):
         """Test executing a endpoint successfully."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="execute_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1 as result"},
@@ -844,7 +858,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
     def test_execute_inactive_query(self):
         """Test that inactive queries cannot be executed."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="inactive_test",
             team=self.team,
             query=self.sample_hogql_query,
@@ -859,7 +873,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # TODO: can we drop this one? yes after test_cant_create_endpoint_with_invalid_sql is green
     def test_execute_query_with_invalid_sql(self):
         """Test error handling when executing query with invalid SQL."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="invalid_sql_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT FROM invalid_syntax"},
@@ -890,7 +904,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             },
         }
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="query_with_variables",
             team=self.team,
             query=query_with_variables,
@@ -930,7 +944,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response_data["results"]), 3)
 
     def test_execute_insight_endpoint_with_filters_override(self):
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="trends_query",
             team=self.team,
             query=TrendsQuery(series=[EventsNode()]).model_dump(),
@@ -971,7 +985,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             "samplingFactor": 0.5,
         }
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="trends_execution_test",
             team=self.team,
             query=trends_query,
@@ -1010,7 +1024,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         """Test that executing a HogQL query with query_override raises a validation error."""
         hogql_query = {"kind": "HogQLQuery", "query": "SELECT count(1) FROM events"}
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="hogql_validation_test",
             team=self.team,
             query=hogql_query,
@@ -1056,7 +1070,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             },
         }
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="variable_filter_test",
             team=self.team,
             query=query_with_variable,
@@ -1087,7 +1101,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
     def test_openapi_spec_basic(self):
         """Test generating OpenAPI spec for a basic endpoint."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="basic-endpoint",
             team=self.team,
             query=self.sample_hogql_query,
@@ -1140,7 +1154,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
             "variables": {str(variable.id): {"variableId": str(variable.id), "code_name": "country", "value": "US"}},
         }
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="endpoint-with-vars",
             team=self.team,
             query=query_with_variables,
@@ -1170,7 +1184,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
             "series": [{"kind": "EventsNode", "event": "$pageview"}],
         }
 
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="trends-endpoint",
             team=self.team,
             query=insight_query,
@@ -1190,7 +1204,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
     def test_openapi_spec_dashboard_filter_schema(self):
         """Test that DashboardFilter schema includes date_from and date_to."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="filter-test-endpoint",
             team=self.team,
             query=self.sample_hogql_query,
@@ -1217,7 +1231,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
     def test_openapi_spec_security_scheme(self):
         """Test that the spec includes proper security scheme."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="secure-endpoint",
             team=self.team,
             query=self.sample_hogql_query,
@@ -1238,7 +1252,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
     def test_openapi_spec_version_reflects_endpoint_version(self):
         """Test that the spec version matches the endpoint's current version."""
-        Endpoint.objects.create(
+        create_endpoint_with_version(
             name="versioned-endpoint",
             team=self.team,
             query=self.sample_hogql_query,

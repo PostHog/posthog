@@ -105,6 +105,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "oauth_token_exposed": "50",
     "passkey_added": "51",
     "passkey_removed": "52",
+    "new_conversation_ticket": "53",
 }
 
 

@@ -225,13 +225,50 @@ jobs:
                   docker compose -f docker-compose.dev.yml up kafka redis clickhouse maildev -d --wait
                   bin/check_kafka_clickhouse_up
 
-            - name: Set up databases
+            - name: Check for migrations in this PR
+              id: check_migrations
+              if: github.event_name == 'pull_request'
+              run: |
+                  if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '(migrations/|rust/.*migrate)'; then
+                    echo "has_migrations=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "has_migrations=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Set up databases (fast path - restore schema)
+              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Download pre-migrated schema from CI
+                  ./bin/hogli db:download-schema
 
+                  # Create test databases
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+
+                  # Restore schema to test database
+                  echo "Restoring schema to test_posthog database..."
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+                  echo "✅ Schema restored"
+
+                  # Run Rust migrations for test databases
+                  cd nodejs && pnpm run setup:test:rust
+
+                  # Set up ClickHouse test database and schema
+                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
+
+            - name: Set up databases (slow path - run migrations)
+              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+              env:
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
               run: pnpm --filter=@posthog/nodejs setup:test
 
             - name: Test with Jest

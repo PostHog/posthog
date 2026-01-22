@@ -30,6 +30,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -727,11 +728,13 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     context.output_format = "TabSeparated"
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
@@ -773,11 +776,13 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
