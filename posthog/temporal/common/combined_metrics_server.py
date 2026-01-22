@@ -1,10 +1,15 @@
+import sys
 import threading
 import urllib.request
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FuturesTimeoutError,
+)
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from posthoganalytics import capture_exception
 from prometheus_client import CollectorRegistry, generate_latest
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger(__name__)
@@ -36,8 +41,14 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                 except Exception as e:
                     logger.warning("combined_metrics_server.temporal_fetch_failed", error=str(e))
 
-                # Get prometheus_client metrics
-                client_output = generate_latest(registry)
+                # Get prometheus_client metrics with timeout to prevent registry lock deadlock
+                try:
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(generate_latest, registry)
+                        client_output = future.result(timeout=5.0)
+                except FuturesTimeoutError:
+                    logger.warning("combined_metrics_server.registry_timeout")
+                    client_output = b"# Prometheus registry timeout\n"
 
                 # Combine both outputs, ensuring proper newline separation.
                 # Prometheus text format requires metrics to be separated by exactly one newline.
@@ -75,6 +86,28 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                 message=format % args,
                 client_address=self.client_address[0],
             )
+
+        def handle_error(self, request, client_address) -> None:  # noqa: ARG002
+            """Override to handle errors during request processing gracefully.
+
+            This provides better observability by sending exceptions to error tracking
+            and using structured logging instead of stderr. Connection errors
+            are logged at debug level to reduce noise.
+            """
+            exc_type, exc_value, _ = sys.exc_info()
+            if exc_type in (BrokenPipeError, ConnectionResetError):
+                logger.debug(
+                    "combined_metrics_server.connection_error",
+                    client_address=client_address[0] if client_address else None,
+                )
+            else:
+                logger.exception(
+                    "combined_metrics_server.request_error",
+                    client_address=client_address[0] if client_address else None,
+                )
+
+            if exc_value is not None:
+                capture_exception(exc_value)
 
     return CombinedMetricsHandler
 
