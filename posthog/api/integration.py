@@ -496,6 +496,6 @@ class IntegrationViewSet(
         serializer.is_valid(raise_exception=True)
 
         email = EmailIntegration(instance)
-        email.update_native_integration(serializer.validated_data)
+        email.update_native_integration(serializer.validated_data, instance.team_id)
 
         return Response(IntegrationSerializer(email.integration).data)
