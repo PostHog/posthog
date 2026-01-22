@@ -2221,10 +2221,11 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface EndpointVersion {
+export interface EndpointVersionType {
     id: string
     version: number
     query: HogQLQuery | InsightQueryNode
+    is_active: boolean
     created_at: string
     created_by: UserBasicType | null
     change_summary: string
