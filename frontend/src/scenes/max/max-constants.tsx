@@ -995,10 +995,19 @@ export const MODE_DEFINITIONS: Record<
         scenes: new Set([Scene.Surveys, Scene.Survey]),
     },
     [AgentMode.Flags]: {
-        name: 'Feature flags',
-        description: 'Creates and manages feature flags and A/B test experiments.',
+        name: 'Flags',
+        description: 'Creates and manages feature flags and experiments.',
         icon: iconForType('feature_flag'),
-        scenes: new Set([Scene.FeatureFlags, Scene.Experiment, Scene.Experiments]),
+        scenes: new Set([
+            Scene.FeatureFlags,
+            Scene.FeatureFlag,
+            Scene.EarlyAccessFeature,
+            Scene.EarlyAccessFeatures,
+            Scene.Experiment,
+            Scene.Experiments,
+            Scene.ExperimentsSharedMetric,
+            Scene.ExperimentsSharedMetrics,
+        ]),
     },
 }
 
