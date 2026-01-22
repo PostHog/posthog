@@ -185,7 +185,7 @@ export function generateReport(report: MemoryLeakReport): string {
 
 export function createSnapshotDirectory(): string {
     const baseDir = process.env.CI
-        ? path.join(process.cwd(), 'playwright', 'memory-leak-results')
+        ? path.join(process.cwd(), 'memory-leak-results')
         : path.join(os.tmpdir(), 'posthog-memory-leak-test')
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
