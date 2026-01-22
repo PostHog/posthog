@@ -1,8 +1,9 @@
 import json
 from datetime import datetime
-from typing import Optional, cast
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
@@ -31,8 +32,10 @@ def mocked_plugin_reload(*args, **kwargs):
 
 @mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     maxDiff = None
+    snapshot: Any
 
     @classmethod
     def setUpTestData(cls):
@@ -784,8 +787,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200)
 
         content = response.content.decode("utf-8")
-        self.assertIn("getFrontendApp", content)
-        self.assertIn("exports", content)
+
+        # Use snapshot to verify transpiled frontend.tsx output
+        self.snapshot.assert_match(content)
 
         # Check in the database
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
@@ -825,10 +829,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "console.log('hello')"
         assert plugin_source.error is None
-        # Verify the mocked transpile output structure
-        assert "(function" in plugin_source.transpiled
-        assert "return" in plugin_source.transpiled
-        assert "console.log('hello')" in plugin_source.transpiled
+
+        # Use snapshot to verify transpiled site.ts output
+        self.snapshot.assert_match(plugin_source.transpiled)
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
     def test_plugin_repository(self, mock_get, mock_reload):

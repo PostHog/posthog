@@ -18,9 +18,9 @@ from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
 
 
-def mock_transpile(code: str, transpile_type: str = "site") -> str:
+def mock_transpile(code: str, type: str = "site") -> str:
     """Mock transpile function that returns simple JavaScript without calling Node.js"""
-    if transpile_type == "site":
+    if type == "site":
         # Site functions transpilation expects an IIFE that returns { onLoad, onEvent }
         code = code.replace("export function onLoad", "function onLoad")
         code = code.replace("export function onEvent", "function onEvent")
@@ -50,7 +50,7 @@ def mock_transpile(code: str, transpile_type: str = "site") -> str:
         }}"""
             + ")"
         )
-    elif transpile_type == "frontend":
+    elif type == "frontend":
         return (
             f'"use strict";\nexport function getFrontendApp (require) {{ let exports = {{}}; {code}; return exports; }}'
         )
