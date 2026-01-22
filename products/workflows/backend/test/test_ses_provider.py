@@ -121,7 +121,7 @@ class TestSESProvider(TestCase):
             mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
             mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
 
-            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
         # Should return pending status with DNS records
         assert result == {
@@ -201,7 +201,7 @@ class TestSESProvider(TestCase):
                 "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
             }
 
-            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
             # Should return verified status with DNS records
             assert result["status"] == "success"
