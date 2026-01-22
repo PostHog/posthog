@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput
 
 from posthog.temporal.common.liveness_tracker import (
-    LivenessInterceptor,
     LivenessTracker,
     _LivenessActivityInboundInterceptor,
     _LivenessWorkflowInterceptor,
@@ -255,42 +254,3 @@ class TestLivenessWorkflowInterceptor:
 
         # Should still have recorded execution
         assert tracker.get_idle_time() < 1.0
-
-
-class TestLivenessInterceptor:
-    def test_creates_activity_interceptor(self):
-        """Test that LivenessInterceptor creates activity interceptor."""
-
-        tracker = LivenessTracker()
-        interceptor = LivenessInterceptor(tracker=tracker)
-
-        mock_next = MagicMock()
-        result = interceptor.intercept_activity(mock_next)
-
-        assert isinstance(result, _LivenessActivityInboundInterceptor)
-
-    def test_creates_workflow_interceptor_class(self):
-        """Test that LivenessInterceptor creates workflow interceptor class."""
-
-        tracker = LivenessTracker()
-        interceptor = LivenessInterceptor(tracker=tracker)
-
-        mock_input = MagicMock()
-        result = interceptor.workflow_interceptor_class(mock_input)
-
-        assert result == _LivenessWorkflowInterceptor
-
-    def test_uses_global_tracker_by_default(self):
-        """Test that interceptor uses global tracker when none provided."""
-
-        interceptor = LivenessInterceptor()
-
-        assert interceptor._tracker is get_liveness_tracker()
-
-    def test_uses_provided_tracker(self):
-        """Test that interceptor uses provided tracker."""
-
-        custom_tracker = LivenessTracker()
-        interceptor = LivenessInterceptor(tracker=custom_tracker)
-
-        assert interceptor._tracker is custom_tracker
