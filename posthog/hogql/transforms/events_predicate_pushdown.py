@@ -4,12 +4,10 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.where_clause_extractor import (
-    EventsPredicatePushdownExtractor,
-    unwrap_table_aliases,
-)
+from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 
 def apply_events_predicate_pushdown(
@@ -24,40 +22,106 @@ def apply_events_predicate_pushdown(
     return node
 
 
-class EventsFieldCollector(TraversingVisitor):
-    """Collects all field names that reference a specific table type."""
+class TableAliasPrefixRemover(CloningVisitor):
+    """
+    Clones an expression and removes table alias prefixes from field chains.
 
-    def __init__(self, target_table: ast.TableType | ast.TableAliasType):
+    When pushing predicates into a subquery, fields like ['e', 'timestamp'] need to become
+    ['timestamp'] because the inner subquery doesn't have the alias 'e' - it's just 'events'.
+    """
+
+    def __init__(self, alias_to_remove: str | None):
+        super().__init__()
+        self.alias_to_remove = alias_to_remove
+
+    def visit_field(self, node: ast.Field):
+        new_chain = node.chain.copy()
+
+        # Remove alias prefix from chain if present
+        # e.g., ['e', 'timestamp'] -> ['timestamp'] when alias is 'e'
+        if self.alias_to_remove and len(new_chain) > 1 and new_chain[0] == self.alias_to_remove:
+            new_chain = new_chain[1:]
+
+        return ast.Field(
+            chain=new_chain,
+            type=node.type,
+        )
+
+
+class EventsFieldCollector(TraversingVisitor):
+    """Collects database column names that reference direct database columns on a specific table.
+
+    Collects the actual database column names (not HogQL field names) so that the
+    inner subquery can select them without aliases. This ensures that column names
+    in the subquery match what the outer query expects.
+
+    Also tracks whether any field references non-direct fields (like FieldTraversers)
+    which would prevent safe predicate pushdown.
+    """
+
+    def __init__(self, target_table: ast.TableType | ast.TableAliasType, context: HogQLContext):
         super().__init__()
         self.target_table = target_table
-        self.fields: set[str] = set()
+        self.context = context
+        # Collect database column names, not HogQL field names
+        self.database_columns: set[str] = set()
+        self.has_non_direct_fields = False
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
-        if isinstance(node.type, ast.FieldType):
+        field_type = node.type
+
+        # Handle PropertyType which wraps a FieldType
+        if isinstance(field_type, ast.PropertyType):
+            field_type = field_type.field_type
+
+        if isinstance(field_type, ast.FieldType):
             # Check if this field references our target table
-            table_type = node.type.table_type
+            table_type = field_type.table_type
             if self._matches_target_table(table_type):
-                self.fields.add(node.type.name)
+                db_column_name = self._get_database_column_name(field_type)
+                if db_column_name:
+                    self.database_columns.add(db_column_name)
+                else:
+                    # Found a non-direct field (FieldTraverser, etc.)
+                    # This means predicate pushdown may break join conditions
+                    self.has_non_direct_fields = True
+
+    def _get_database_column_name(self, field_type: ast.FieldType) -> str | None:
+        """Get the database column name for a field, or None if not a direct database field."""
+        from posthog.hogql.database.models import DatabaseField, FieldTraverser
+
+        try:
+            resolved = field_type.resolve_database_field(self.context)
+            # FieldTraversers are not direct database fields
+            if isinstance(resolved, FieldTraverser):
+                return None
+            if isinstance(resolved, DatabaseField):
+                return resolved.name
+            return None
+        except Exception:
+            return None
 
     def _matches_target_table(self, table_type: ast.Type | None) -> bool:
         """Check if a table type matches our target table."""
         if table_type is None:
             return False
 
-        # Unwrap TableAliasType to get underlying TableType
-        if isinstance(table_type, ast.TableAliasType):
-            table_type = table_type.table_type
+        # Get the underlying TableType from both sides
+        unwrapped = table_type
+        if isinstance(unwrapped, ast.TableAliasType):
+            unwrapped = unwrapped.table_type
 
         target = self.target_table
         if isinstance(target, ast.TableAliasType):
             target = target.table_type
 
-        # Check if it's the same table
-        if isinstance(table_type, ast.TableType) and isinstance(target, ast.TableType):
-            return table_type.table is target.table
+        # Check if it's the same table (by comparing the actual Table object)
+        if isinstance(unwrapped, ast.TableType) and isinstance(target, ast.TableType):
+            return unwrapped.table is target.table
 
-        return table_type is target
+        # Identity check as fallback
+        return table_type is self.target_table or unwrapped is target
 
 
 class EventsPredicatePushdownTransform(TraversingVisitor):
@@ -109,10 +173,17 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         # Collect all columns the outer query needs from the events table
         needed_columns = self._collect_needed_columns(node, events_table_type)
 
-        # Unwrap table aliases for the inner subquery WHERE
-        inner_where = unwrap_table_aliases(inner_where)
+        # If no columns are needed, skip pushdown (can happen with aliased tables in edge cases)
+        if not needed_columns:
+            return
 
-        # Clear types since inner_where will be re-resolved in the inner subquery context
+        # Get the table alias if present (e.g., 'e' from 'FROM events AS e')
+        table_alias = node.select_from.alias
+
+        # Remove table alias prefix from field chains and clear types
+        # This converts chains like ['e', 'timestamp'] to ['timestamp'] so they can
+        # be resolved correctly in the inner subquery context
+        inner_where = TableAliasPrefixRemover(alias_to_remove=table_alias).visit(inner_where)
         inner_where = clone_expr(inner_where, clear_types=True)
 
         # Add team_id filter for security and performance
@@ -129,11 +200,14 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         )
 
         # Resolve types for the subquery - now safe because we're selecting
-        # specific columns, not SELECT * which expands to include lazy columns
+        # specific database columns, not SELECT * which expands to include lazy columns
         events_subquery = cast(
             ast.SelectQuery,
             resolve_types(events_subquery, self.context, self.dialect, []),
         )
+
+        # Also resolve lazy tables in case any of the columns trigger lazy joins
+        resolve_lazy_tables(events_subquery, self.dialect, [], self.context)
 
         # Replace the events table with the subquery
         # Preserve the original alias (e.g., "e" from "FROM events AS e")
@@ -174,9 +248,15 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
 
     def _collect_needed_columns(
         self, node: ast.SelectQuery, events_table_type: ast.TableType | ast.TableAliasType
-    ) -> set[str]:
+    ) -> set[str] | None:
         """
-        Walk the outer query and collect all field names that reference the events table.
+        Walk the outer query and collect database column names that reference the events table.
+
+        Collects actual database column names (not HogQL field names) so that the
+        inner subquery can select them without aliases.
+
+        Returns None if the query uses non-direct fields (like FieldTraversers) which
+        would break join conditions after predicate pushdown.
 
         This includes fields from:
         - SELECT clause
@@ -184,9 +264,15 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         - GROUP BY, ORDER BY, HAVING
         - JOIN constraints (e.g., $session_id for session join ON clause)
         """
-        collector = EventsFieldCollector(events_table_type)
+        collector = EventsFieldCollector(events_table_type, self.context)
         collector.visit(node)
-        return collector.fields
+
+        # If the query uses non-direct fields, we can't safely apply pushdown
+        # because join conditions may reference fields that won't exist in the subquery
+        if collector.has_non_direct_fields:
+            return None
+
+        return collector.database_columns
 
     def _build_select_fields(self, columns: set[str]) -> list[ast.Expr]:
         """Build untyped Field nodes for the needed columns."""

@@ -587,9 +587,10 @@ class JoinedTableReferenceFinder(TraversingVisitor):
                 # that may not work correctly inside a pushdown subquery
                 return True
             if isinstance(current, ast.TableAliasType):
-                # Table aliases (like `e` for events) require type unwrapping which can
-                # cause issues with how the printer handles certain fields. Don't push down.
-                return True
+                # Unwrap table aliases - the field should be pushable as long as
+                # the underlying table is the events table (not a joined table)
+                to_check.append(current.table_type)
+                continue
 
             # Unwrap type wrappers and add their inner types to the check list
             if isinstance(current, ast.PropertyType):
