@@ -1,0 +1,73 @@
+# serializer version: 1
+# name: TestExperimentSessionPropertyMetrics.test_session_duration_not_multiplied_across_events
+  '''
+  SELECT entity_metrics.variant AS variant,
+         count(entity_metrics.entity_id) AS num_users,
+         sum(entity_metrics.value) AS total_sum,
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT metric_events.entity_id AS entity_id,
+            metric_events.variant AS variant,
+            sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
+     FROM
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               accurateCastOrNull(coalesce(metric_events_by_session.session_value, 0), 'Float64') AS value,
+               metric_events_by_session.session_id AS session_id
+        FROM
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+                  max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+           GROUP BY entity_id) AS exposures
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  events.`$session_id` AS session_id,
+                  any(events__session.`$session_duration`) AS session_value,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_event_timestamp
+           FROM events
+           LEFT JOIN
+             (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+                     raw_sessions.session_id_v7 AS session_id_v7
+              FROM raw_sessions
+              WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), toIntervalDay(3))))
+              GROUP BY raw_sessions.session_id_v7,
+                       raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+           LEFT OUTER JOIN
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, '$pageview')), isNotNull(events.`$session_id`), notEquals(events.`$session_id`, ''))
+           GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                    events.`$session_id`) AS metric_events_by_session ON and(equals(exposures.entity_id, metric_events_by_session.entity_id), greaterOrEquals(metric_events_by_session.first_event_timestamp, exposures.first_exposure_time))) AS metric_events
+     GROUP BY metric_events.entity_id,
+              metric_events.variant) AS entity_metrics
+  GROUP BY entity_metrics.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---

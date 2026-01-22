@@ -1,1 +1,1 @@
-0012_remove_deprecated_endpoint_fields
+0013_add_endpointversion_is_active

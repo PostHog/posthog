@@ -249,6 +249,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        chatPanelWidth: [
+            () => [],
+            () =>
+                (desiredSize: number | null): number => {
+                    const minWidth = 300
+                    const defaultWidth = 600
+                    if (desiredSize === null) {
+                        return defaultWidth
+                    }
+                    return desiredSize < minWidth ? minWidth : desiredSize
+                },
+        ],
         chatMessages: [
             (s) => [s.messages, s.ticket],
             (messages: CommentType[], ticket: Ticket | null): ChatMessage[] =>

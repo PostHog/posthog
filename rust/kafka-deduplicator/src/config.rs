@@ -217,7 +217,7 @@ pub struct Config {
     #[envconfig(default = "24")]
     pub checkpoint_import_window_hours: u32,
 
-    //// End checkpoint config ////
+    //// End checkpoint configuration ////
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 

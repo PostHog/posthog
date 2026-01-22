@@ -241,7 +241,6 @@ export const FEATURE_FLAGS = {
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
-    COPY_WEB_ANALYTICS_DATA: 'copy-web-analytics-data', // owner: @lricoy  #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
     CUSTOM_PRODUCTS_SIDEBAR: 'custom-products-sidebar', // owner: @rafaeelaudibert #team-growth
@@ -264,7 +263,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_FF_CROSS_SELL: 'experiments-ff-cross-sell', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
-    EXPERIMENTS_EXPOSURE_CRITERIA_COLLAPSABLE: 'experiments-exposure-criteria-collapsable', // owner: #team-experiments
+    EXPERIMENTS_LEAN_CREATION_FORM: 'experiments-lean-creation-form', // owner: @mp-hog #team-experiments
     EXPERIMENTS_RELOAD_ACTION: 'experiments-reload-action', // owner: @rodrigoi #team-experiments
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX: 'feature-flag-usage-dashboard-checkbox', // owner: #team-feature-flags, globally disabled, enables opt-out of auto dashboard creation
@@ -334,7 +333,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
-    REPLAY_LINEAR_INTEGRATION: 'replay-linear-integration', // owner: @fasyy612 #team-replay, used to enable Linear issue creation from session recordings
+    REPLAY_JIRA_INTEGRATION: 'replay-jira-integration', // owner: @fasyy612 #team-replay, used to enable Jira issue creation from session recordings
     REPLAY_NEW_DETECTED_URL_COLLECTIONS: 'replay-new-detected-url-collections', // owner: @ksvat #team-replay multivariate=true
     REPLAY_WAIT_FOR_IFRAME_READY: 'replay-wait-for-full-snapshot-playback', // owner: @ksvat #team-replay
     REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
@@ -361,11 +360,9 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_HIGHER_CONCURRENCY: 'web-analytics-higher-concurrency', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
-    WEB_ANALYTICS_OPEN_AS_INSIGHT: 'web-analytics-open-as-insight', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_FILTERS_V2: 'web-analytics-filters-v2', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_SESSION_PROPERTY_CHARTS: 'web-analytics-session-property-charts', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
