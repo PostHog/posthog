@@ -127,7 +127,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     task_queue=settings.LLMA_EVALS_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
-                    task_timeout=timedelta(seconds=60),
+                    task_timeout=timedelta(minutes=2),
                 )
             )
 
