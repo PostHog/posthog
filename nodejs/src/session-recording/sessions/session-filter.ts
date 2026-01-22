@@ -86,7 +86,7 @@ export class SessionFilter {
         } catch (error) {
             // Fail open: log the error but don't throw
             // The session is still blocked locally via the cache
-            logger.warn('session_filter_block_session_redis_error', {
+            logger.error('session_filter_block_session_redis_error', {
                 teamId,
                 sessionId,
                 error: String(error),
@@ -138,7 +138,7 @@ export class SessionFilter {
             return isBlocked
         } catch (error) {
             // Fail open: if Redis is unavailable, allow the session through
-            logger.warn('session_filter_is_blocked_redis_error', {
+            logger.error('session_filter_is_blocked_redis_error', {
                 teamId,
                 sessionId,
                 error: String(error),
