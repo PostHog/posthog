@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from urllib import parse
 from uuid import uuid4
 
@@ -24,6 +24,8 @@ from posthog.temporal.delete_recordings.types import (
     BulkDeleteInput,
     BulkDeleteResult,
     LoadRecordingError,
+    PurgeDeletedMetadataInput,
+    PurgeDeletedMetadataResult,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithTeamInput,
@@ -141,6 +143,99 @@ async def load_recordings_with_query(input: RecordingsWithQueryInput) -> list[st
 
     logger.info("Finished loading sessions to be deleted", session_count=len(session_ids))
     return session_ids
+
+
+@activity.defn(name="purge-deleted-metadata")
+async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
+    """Purge metadata from ClickHouse for recordings that have been deleted (crypto shredded).
+
+    This runs nightly to clean up metadata after a grace period has passed since deletion.
+    Uses lightweight DELETE to remove rows where is_deleted=1 and sufficient time has passed.
+    """
+    from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+    started_at = datetime.now(UTC)
+    logger = LOGGER.bind()
+    logger.info(
+        "Starting metadata purge for deleted recordings",
+        grace_period_days=input.grace_period_days,
+        batch_size=input.batch_size,
+    )
+
+    rows_deleted = 0
+    batches_processed = 0
+
+    async with get_client() as client:
+        while True:
+            query_id = str(uuid4())
+
+            # Delete rows where is_deleted=1 and the deletion happened more than grace_period_days ago
+            # _timestamp is updated when the deletion event is written, so it serves as a proxy for deletion time
+            delete_query = f"""
+                DELETE FROM sharded_session_replay_events
+                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                WHERE is_deleted = 1
+                  AND _timestamp < now() - INTERVAL %(grace_period_days)s DAY
+                LIMIT %(batch_size)s
+            """
+
+            parameters = {
+                "grace_period_days": input.grace_period_days,
+                "batch_size": input.batch_size,
+            }
+
+            logger.info(f"Executing delete batch {batches_processed + 1}", query_id=query_id)
+            await client.execute_query(
+                delete_query,
+                query_parameters=parameters,
+                query_id=query_id,
+            )
+
+            # Check how many rows were affected by querying count before next batch
+            count_query = """
+                SELECT count() as cnt
+                FROM sharded_session_replay_events
+                WHERE is_deleted = 1
+                  AND _timestamp < now() - INTERVAL %(grace_period_days)s DAY
+                FORMAT JSON
+            """
+
+            count_result = await client.read_query(
+                count_query,
+                query_parameters={"grace_period_days": input.grace_period_days},
+                query_id=f"{query_id}-count",
+            )
+
+            batches_processed += 1
+            rows_deleted += input.batch_size  # Approximate, as DELETE doesn't return affected rows
+
+            # Parse the count to see if there are more rows to delete
+            try:
+                result = json.loads(count_result)
+                remaining = int(result["data"][0]["cnt"])
+                logger.info(f"Batch {batches_processed} completed", remaining_rows=remaining)
+
+                if remaining == 0:
+                    break
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                logger.warning("Could not parse count result, stopping batch loop", error=str(e))
+                break
+
+    completed_at = datetime.now(UTC)
+    logger.info(
+        "Metadata purge completed",
+        batches_processed=batches_processed,
+        rows_deleted_approx=rows_deleted,
+        duration_seconds=(completed_at - started_at).total_seconds(),
+    )
+
+    return PurgeDeletedMetadataResult(
+        started_at=started_at,
+        completed_at=completed_at,
+        rows_deleted=rows_deleted,
+        batches_processed=batches_processed,
+        grace_period_days=input.grace_period_days,
+    )
 
 
 @activity.defn(name="bulk-delete-recordings")
