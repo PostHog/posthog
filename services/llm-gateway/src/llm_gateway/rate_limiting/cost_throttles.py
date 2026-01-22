@@ -145,7 +145,8 @@ class UserCostThrottle(CostThrottle):
         return base_limit * team_mult, window
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        result = await super().allow_request(context)
         settings = get_settings()
         if settings.user_cost_limits_disabled:
             return ThrottleResult.allow()
-        return await super().allow_request(context)
+        return result

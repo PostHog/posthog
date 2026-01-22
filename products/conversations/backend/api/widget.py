@@ -26,6 +26,7 @@ from posthog.auth import WidgetAuthentication
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
+from posthog.tasks.email import send_new_ticket_notification
 
 from products.conversations.backend.api.serializers import (
     WidgetMarkReadSerializer,
@@ -108,9 +109,24 @@ class WidgetMessageView(APIView):
                 if traits:
                     ticket.anonymous_traits.update(traits)
 
+                # Update session data if provided
+                if session_id:
+                    ticket.session_id = session_id
+                if session_context:
+                    ticket.session_context.update(session_context)
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
+                ticket.save(
+                    update_fields=[
+                        "distinct_id",
+                        "anonymous_traits",
+                        "session_id",
+                        "session_context",
+                        "unread_team_count",
+                        "updated_at",
+                    ]
+                )
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
@@ -137,6 +153,16 @@ class WidgetMessageView(APIView):
             content=message_content,
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
+
+        # Send email notification for new tickets
+        if not ticket_id:
+            conversations_settings = team.conversations_settings or {}
+            if conversations_settings.get("notification_recipients"):
+                send_new_ticket_notification.delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team.id,
+                    first_message_content=message_content,
+                )
 
         return Response(
             {
