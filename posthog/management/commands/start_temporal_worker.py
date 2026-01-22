@@ -74,6 +74,8 @@ from posthog.temporal.import_recording import (
 )
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
+    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
@@ -143,6 +145,11 @@ _task_queue_specs = [
         settings.DATA_WAREHOUSE_TASK_QUEUE,
         DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
         DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
+    ),
+    (
+        settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,
+        DATA_SYNC_WORKFLOWS,
+        DATA_SYNC_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
@@ -228,6 +235,11 @@ _task_queue_specs = [
         settings.WEEKLY_DIGEST_TASK_QUEUE,
         WEEKLY_DIGEST_WORKFLOWS,
         WEEKLY_DIGEST_ACTIVITIES,
+    ),
+    (
+        settings.LLMA_EVALS_TASK_QUEUE,
+        LLM_ANALYTICS_EVAL_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES,
     ),
 ]
 

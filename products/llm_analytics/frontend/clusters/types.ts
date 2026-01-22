@@ -16,8 +16,8 @@ export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; 
         const dateStr = parts[1]
         const timeStr = parts[2]
 
-        // Parse YYYYMMDD_HHMMSS format
-        const parsed = dayjs(`${dateStr}_${timeStr}`, 'YYYYMMDD_HHmmss')
+        // Parse YYYYMMDD_HHMMSS format as UTC (backend generates run_id using workflow.now() which is UTC)
+        const parsed = dayjs.utc(`${dateStr}_${timeStr}`, 'YYYYMMDD_HHmmss')
         if (parsed.isValid()) {
             return {
                 dayStart: parsed.startOf('day').utc().format(dateFormat),
