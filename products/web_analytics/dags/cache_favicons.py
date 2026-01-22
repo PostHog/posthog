@@ -110,7 +110,7 @@ def cache_favicons(
             if data is None:
                 continue
 
-            key = f"favicons/{domain}.png"
+            key = f"favicons/{domain}"
             upload_if_missing(
                 context,
                 s3_client,
@@ -125,7 +125,7 @@ def cache_favicons(
                     "domain": domain,
                     "source_url": source_url,
                     "cached_url": f"s3://{bucket}{key}",
-                    "favicon_url": f"/static/favicons/{domain}.png",
+                    "favicon_url": f"/static/favicons/{domain}",
                 }
             )
 
