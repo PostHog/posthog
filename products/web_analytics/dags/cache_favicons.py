@@ -7,6 +7,7 @@ import dagster
 from dagster_aws.s3 import S3Resource
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dags.common import JobOwners
 
 
 def get_last_cached_domains(context: dagster.AssetExecutionContext) -> set[str]:
@@ -154,3 +155,20 @@ def cache_favicons(
             "favicons": favicons,
         }
     )
+
+
+cache_favicons_job = dagster.define_asset_job(
+    name="cache_favicons_job",
+    selection=["cache_favicons"],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+
+
+@dagster.schedule(
+    cron_schedule="0 3 * * *",  # Daily at 3 AM UTC
+    job=cache_favicons_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def cache_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
+    return dagster.RunRequest()
