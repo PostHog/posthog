@@ -37,6 +37,7 @@ members = [
     "common/geoip",
     "common/hogvm",
     "kafka-deduplicator",
+    "personhog-proto",
 ]
 
 [workspace.lints.rust]
@@ -89,6 +90,7 @@ opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
 public-suffix = "0.1.2"
+prost = "0.13"
 rand = "0.8.5"
 rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
@@ -131,6 +133,7 @@ moka = { version = "0.12.12", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
 redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async", "tls-rustls", "tls-rustls-webpki-roots", "tokio-rustls-comp"] }
 regex = "1.11.1"
+fancy-regex = "0.17"
 lz-str = "0.2.1"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
 tonic = "0.12.3"

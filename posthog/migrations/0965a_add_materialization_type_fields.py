@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "0979_survey_enable_iframe_embedding"),
+        ("posthog", "0983_alter_integration_kind"),
     ]
 
     operations = [

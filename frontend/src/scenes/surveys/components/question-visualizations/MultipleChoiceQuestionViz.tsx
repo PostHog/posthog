@@ -37,7 +37,7 @@ function toOpenQuestionFormat(responses: ChoiceQuestionResponseData[]): OpenQues
     return responses.map((r) => ({
         distinctId: r.distinctId || '',
         response: r.label,
-        personProperties: r.personProperties,
+        personDisplayName: r.personDisplayName,
         timestamp: r.timestamp,
     }))
 }
