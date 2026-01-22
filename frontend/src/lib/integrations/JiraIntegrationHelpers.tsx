@@ -18,7 +18,7 @@ export const JiraProjectPicker = ({ value, onChange, integrationId }: JiraProjec
 
     return (
         <LemonInputSelect
-            onChange={(val) => onChange?.(val[0] ?? null)}
+            onChange={(val) => onChange?.(val[0] ?? '')}
             value={value ? [value] : []}
             mode="single"
             data-attr="select-jira-project"
