@@ -28,6 +28,7 @@ export type MetricsPanelProps = {
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
     onPrevious: () => void
+    showNewExperimentFormLayout?: boolean
 }
 
 const convertSharedMetricToExperimentMetric = ({ id, query, name }: SharedMetric): ExperimentMetric =>
@@ -45,6 +46,7 @@ export const MetricsPanel = ({
     onDeleteMetric,
     onSaveSharedMetrics,
     onPrevious,
+    showNewExperimentFormLayout = false,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
@@ -60,6 +62,16 @@ export const MetricsPanel = ({
 
     return (
         <div>
+            {showNewExperimentFormLayout && (
+                <>
+                    <div className="font-semibold mb-2">Metrics</div>
+                    <div className="text-muted mb-4">
+                        Add at least one primary metric to launch an experiment. You can always add or remove metrics
+                        later.
+                    </div>
+                </>
+            )}
+
             {primaryMetrics.length > 0 ? (
                 <MetricList
                     metrics={primaryMetrics}
@@ -83,12 +95,16 @@ export const MetricsPanel = ({
                 <EmptyMetricsPanel className="mt-6" metricContext={METRIC_CONTEXTS.secondary} />
             )}
 
-            <LemonDivider className="mt-4" />
-            <div className="flex justify-end pt-4">
-                <LemonButton type="primary" size="small" onClick={onPrevious}>
-                    Previous
-                </LemonButton>
-            </div>
+            {!showNewExperimentFormLayout && (
+                <>
+                    <LemonDivider className="mt-4" />
+                    <div className="flex justify-end pt-4">
+                        <LemonButton type="primary" size="small" onClick={onPrevious}>
+                            Previous
+                        </LemonButton>
+                    </div>
+                </>
+            )}
 
             <MetricSourceModal />
             <ExperimentMetricModal

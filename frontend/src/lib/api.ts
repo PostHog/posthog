@@ -1393,10 +1393,6 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('clickup_workspaces')
     }
 
-    public integrationEmail(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('email')
-    }
-
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
     }
@@ -4574,12 +4570,6 @@ const api = {
         },
         async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
             return await new ApiRequest().integrationEmailVerify(id).create()
-        },
-        async updateEmailConfig(
-            integrationId: IntegrationType['id'],
-            data: Partial<IntegrationType> | FormData
-        ): Promise<IntegrationType> {
-            return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
     },
 
