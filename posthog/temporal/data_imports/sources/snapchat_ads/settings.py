@@ -245,6 +245,7 @@ SNAPCHAT_ADS_CONFIG: dict[str, EndpointConfig] = {
     ),
     "ad_squad_stats_daily": EndpointConfig(
         resource={
+            # Docs: https://developers.snap.com/api/marketing-api/Ads-API/measurement
             "name": "ad_squad_stats_daily",
             "table_name": "ad_squad_stats_daily",
             "primary_key": ["id", "start_time"],
@@ -285,6 +286,7 @@ SNAPCHAT_ADS_CONFIG: dict[str, EndpointConfig] = {
     ),
     "ad_stats_daily": EndpointConfig(
         resource={
+            # Docs: https://developers.snap.com/api/marketing-api/Ads-API/measurement
             "name": "ad_stats_daily",
             "table_name": "ad_stats_daily",
             "primary_key": ["id", "start_time"],
