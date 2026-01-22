@@ -301,13 +301,11 @@ const createTableNode = (
     }
 
     const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
-    const isPostHogTable = 'type' in table && table.type === 'posthog'
-
     return {
         id: tableId,
         name: table.name,
         type: 'node',
-        icon: isPostHogTable ? <IconDocument /> : <IconDatabase />,
+        icon: <IconDatabase />,
         record: {
             type: 'table',
             table: table,
