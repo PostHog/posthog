@@ -1034,6 +1034,8 @@ export interface HeatmapSettings {
     xAxisLabel?: string
     yAxisLabel?: string
     gradient?: HeatmapGradientStop[]
+    gradientPreset?: string
+    gradientScaleMode?: 'absolute' | 'relative'
 }
 
 export interface YAxisSettings {

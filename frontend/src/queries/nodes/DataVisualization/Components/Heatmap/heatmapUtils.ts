@@ -8,6 +8,80 @@ const DEFAULT_GRADIENT_STOPS: HeatmapGradientStop[] = [
     { value: 1, color: DEFAULT_GRADIENT_COLORS[1] },
 ]
 
+const buildGradientStops = (colors: string[]): HeatmapGradientStop[] => {
+    if (colors.length === 1) {
+        return [{ value: 0, color: colors[0] }]
+    }
+
+    return colors.map((color, index) => ({
+        value: index / (colors.length - 1),
+        color,
+    }))
+}
+
+export const HEATMAP_GRADIENT_PRESETS = [
+    {
+        value: 'viridis',
+        label: 'Viridis',
+        stops: buildGradientStops(['#440154', '#3B528B', '#21918C', '#5DC863', '#FDE725']),
+    },
+    {
+        value: 'plasma',
+        label: 'Plasma',
+        stops: buildGradientStops(['#0D0887', '#7E03A8', '#CC4778', '#F89441', '#F0F921']),
+    },
+    {
+        value: 'inferno',
+        label: 'Inferno',
+        stops: buildGradientStops(['#000004', '#420A68', '#932667', '#DD513A', '#FDE724']),
+    },
+    {
+        value: 'magma',
+        label: 'Magma',
+        stops: buildGradientStops(['#000004', '#3B0F70', '#8C2981', '#DE4968', '#FE9F6D', '#FCFDBF']),
+    },
+    {
+        value: 'cividis',
+        label: 'Cividis',
+        stops: buildGradientStops(['#00204C', '#2E4A7D', '#7E8F6A', '#C6BE5E', '#FDE945']),
+    },
+    {
+        value: 'turbo',
+        label: 'Turbo',
+        stops: buildGradientStops(['#30123B', '#4145AB', '#2FB47C', '#FDE725']),
+    },
+    {
+        value: 'blues',
+        label: 'Blues',
+        stops: buildGradientStops(['#F7FBFF', '#DEEBF7', '#9ECAE1', '#4292C6', '#08519C']),
+    },
+    {
+        value: 'greens',
+        label: 'Greens',
+        stops: buildGradientStops(['#F7FCF5', '#E5F5E0', '#A1D99B', '#41AB5D', '#005A32']),
+    },
+    {
+        value: 'reds',
+        label: 'Reds',
+        stops: buildGradientStops(['#FFF5F0', '#FEE0D2', '#FC9272', '#DE2D26', '#A50F15']),
+    },
+    {
+        value: 'purples',
+        label: 'Purples',
+        stops: buildGradientStops(['#FCFBFD', '#E7E1EF', '#C994C7', '#9E9AC8', '#4A1486']),
+    },
+    {
+        value: 'greys',
+        label: 'Greys',
+        stops: buildGradientStops(['#FFFFFF', '#F0F0F0', '#BDBDBD', '#636363', '#252525']),
+    },
+    {
+        value: 'spectral',
+        label: 'Spectral',
+        stops: buildGradientStops(['#9E0142', '#D53E4F', '#F46D43', '#FEE08B', '#E6F598', '#66C2A5', '#3288BD']),
+    },
+] as const
+
 const toHex = (value: number): string => value.toString(16).padStart(2, '0')
 
 export const sortGradientStops = (stops: HeatmapGradientStop[]): HeatmapGradientStop[] => {
@@ -43,6 +117,32 @@ export const buildFallbackGradientStops = (values: number[]): HeatmapGradientSto
         { value: minValue, color: DEFAULT_GRADIENT_COLORS[0] },
         { value: maxValue, color: DEFAULT_GRADIENT_COLORS[1] },
     ]
+}
+
+export const stretchGradientStopsToValues = (stops: HeatmapGradientStop[], values: number[]): HeatmapGradientStop[] => {
+    if (values.length === 0) {
+        return stops
+    }
+
+    const minValue = Math.min(...values)
+    const maxValue = Math.max(...values)
+
+    if (minValue === maxValue) {
+        return sortGradientStops(stops).map((stop) => ({ ...stop, value: minValue }))
+    }
+
+    const sortedStops = sortGradientStops(stops)
+    const minStop = sortedStops[0]?.value ?? 0
+    const maxStop = sortedStops[sortedStops.length - 1]?.value ?? 1
+
+    if (minStop === maxStop) {
+        return sortedStops.map((stop) => ({ ...stop, value: minValue }))
+    }
+
+    return sortedStops.map((stop) => ({
+        ...stop,
+        value: minValue + ((stop.value - minStop) / (maxStop - minStop)) * (maxValue - minValue),
+    }))
 }
 
 export const interpolateHeatmapColor = (value: number, stops: HeatmapGradientStop[]): string => {

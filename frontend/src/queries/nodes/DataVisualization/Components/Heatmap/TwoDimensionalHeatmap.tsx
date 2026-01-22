@@ -12,6 +12,7 @@ import {
     getHeatmapTextClassName,
     interpolateHeatmapColor,
     resolveGradientStops,
+    stretchGradientStopsToValues,
 } from './heatmapUtils'
 
 const formatCategoryValue = (value: unknown): string => {
@@ -134,6 +135,10 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
         chartSettings.heatmap?.gradient,
         buildFallbackGradientStops(heatmapData.numericValues)
     )
+    const scaledGradientStops =
+        heatmapSettings.gradientScaleMode === 'relative'
+            ? stretchGradientStopsToValues(gradientStops, heatmapData.numericValues)
+            : gradientStops
     const xAxisLabel = heatmapSettings.xAxisLabel || heatmapSettings.xAxisColumn || 'X-axis'
     const yAxisLabel = heatmapSettings.yAxisLabel || heatmapSettings.yAxisColumn || 'Y-axis'
 
@@ -184,7 +189,7 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
                                     const cellColor =
                                         cellValue === null
                                             ? 'transparent'
-                                            : interpolateHeatmapColor(cellValue, gradientStops)
+                                            : interpolateHeatmapColor(cellValue, scaledGradientStops)
                                     const formattedValue = formatDataWithSettings(cellValue, undefined)
 
                                     return (

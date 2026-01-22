@@ -1,14 +1,22 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonColorPicker, LemonInput, LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonColorPicker,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { getSeriesColorPalette } from 'lib/colors'
 
 import { HeatmapGradientStop, HeatmapSettings } from '~/queries/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
-import { resolveGradientStops, sortGradientStops } from './heatmapUtils'
+import { HEATMAP_GRADIENT_PRESETS, resolveGradientStops, sortGradientStops } from './heatmapUtils'
 
 const defaultGradientStops = resolveGradientStops(undefined)
 
@@ -44,7 +52,7 @@ export const HeatmapSeriesTab = (): JSX.Element => {
     }
 
     const updateGradientStops = (stops: HeatmapGradientStop[]): void => {
-        updateHeatmapSettings({ gradient: sortGradientStops(stops) })
+        updateHeatmapSettings({ gradient: sortGradientStops(stops), gradientPreset: 'custom' })
     }
 
     const columnOptions = columns.map(({ name, type }) => ({
@@ -119,7 +127,44 @@ export const HeatmapSeriesTab = (): JSX.Element => {
             </div>
 
             <div>
-                <LemonLabel className="mb-2">Gradient</LemonLabel>
+                <LemonLabel className="mb-1">Gradient preset</LemonLabel>
+                <LemonSelect
+                    className="w-full"
+                    value={heatmapSettings.gradientPreset ?? 'custom'}
+                    options={[
+                        { value: 'custom', label: 'Custom' },
+                        ...HEATMAP_GRADIENT_PRESETS.map((preset) => ({
+                            value: preset.value,
+                            label: preset.label,
+                        })),
+                    ]}
+                    onChange={(value) => {
+                        if (!value || value === 'custom') {
+                            updateHeatmapSettings({ gradientPreset: 'custom' })
+                            return
+                        }
+
+                        const preset = HEATMAP_GRADIENT_PRESETS.find((entry) => entry.value === value)
+                        if (!preset) {
+                            return
+                        }
+
+                        updateHeatmapSettings({
+                            gradient: preset.stops.map((stop) => ({ ...stop })),
+                            gradientPreset: preset.value,
+                            gradientScaleMode: 'relative',
+                        })
+                    }}
+                />
+                <LemonCheckbox
+                    className="mt-2"
+                    label="Scale gradient to data range"
+                    checked={heatmapSettings.gradientScaleMode === 'relative'}
+                    onChange={(checked) =>
+                        updateHeatmapSettings({ gradientScaleMode: checked ? 'relative' : 'absolute' })
+                    }
+                />
+                <LemonLabel className="mt-4 mb-2">Gradient</LemonLabel>
                 <div className="flex flex-col gap-2">
                     {gradientStops.map((stop, index) => (
                         <div key={`${stop.color}-${index}`} className="flex items-center gap-2">

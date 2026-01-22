@@ -29,6 +29,7 @@ import {
     ChartSettingsFormatting,
     ConditionalFormattingRule,
     DataVisualizationNode,
+    HeatmapSettings,
     HogQLVariable,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -234,6 +235,27 @@ const isNumericalType = (type: ColumnScalar): boolean => {
     }
 
     return false
+}
+
+const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSettings): Partial<HeatmapSettings> => {
+    const stringColumns = columns.filter((column) => column.type.name === 'STRING')
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    const nextSettings: Partial<HeatmapSettings> = {}
+
+    if (!heatmapSettings.xAxisColumn && stringColumns[0]) {
+        nextSettings.xAxisColumn = stringColumns[0].name
+    }
+
+    if (!heatmapSettings.yAxisColumn && stringColumns[1]) {
+        nextSettings.yAxisColumn = stringColumns[1].name
+    }
+
+    if (!heatmapSettings.valueColumn && numericalColumns[0]) {
+        nextSettings.valueColumn = numericalColumns[0].name
+    }
+
+    return nextSettings
 }
 
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
@@ -960,6 +982,30 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 display: visualizationType,
             }))
         },
+        toggleChartSettingsPanel: ({ open }, breakpoint) => {
+            const shouldOpen = open ?? !breakpoint.values.isChartSettingsPanelOpen
+            if (!shouldOpen) {
+                return
+            }
+
+            if (breakpoint.values.visualizationType !== ChartDisplayType.TwoDimensionalHeatmap) {
+                return
+            }
+
+            const heatmapSettings = breakpoint.values.chartSettings.heatmap ?? {}
+            const autoSettings = getHeatmapAutoSettings(breakpoint.values.columns, heatmapSettings)
+
+            if (Object.keys(autoSettings).length === 0) {
+                return
+            }
+
+            actions.updateChartSettings({
+                heatmap: {
+                    ...heatmapSettings,
+                    ...autoSettings,
+                },
+            })
+        },
         clearAxis: [sharedListeners.axesChanged],
         updateXSeries: [sharedListeners.axesChanged],
         addYSeries: [sharedListeners.axesChanged],
@@ -1019,6 +1065,23 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 if (xAxisTypes) {
                     actions.updateXSeries(xAxisTypes.name)
+                }
+            }
+
+            if (
+                values.isChartSettingsPanelOpen &&
+                values.visualizationType === ChartDisplayType.TwoDimensionalHeatmap
+            ) {
+                const heatmapSettings = values.chartSettings.heatmap ?? {}
+                const autoSettings = getHeatmapAutoSettings(value, heatmapSettings)
+
+                if (Object.keys(autoSettings).length > 0) {
+                    actions.updateChartSettings({
+                        heatmap: {
+                            ...heatmapSettings,
+                            ...autoSettings,
+                        },
+                    })
                 }
             }
         },
