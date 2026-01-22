@@ -221,7 +221,7 @@ export const QueryDatabase = (): JSX.Element => {
                                     </span>
                                 )}
                                 {isColumn && columnType ? (
-                                    <span className="shrink-1 rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
                                         {columnType}
                                     </span>
                                 ) : null}
