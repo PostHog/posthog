@@ -54,8 +54,7 @@ from posthog.dags.postgres_to_clickhouse_etl import (
 
 # Skip all tests in this file due to database separation architecture issues
 pytestmark = pytest.mark.skip(
-    reason="Tests need to be updated for database separation architecture. "
-    "See docstring for details."
+    reason="Tests need to be updated for database separation architecture. See docstring for details."
 )
 
 
