@@ -790,9 +790,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         })
 
         // Notify parent of initial expanded item IDs after mount
-        const initialExpandedIdsRef = useRef(expandedItemIdsState)
         useEffect(() => {
-            onSetExpandedItemIds?.(initialExpandedIdsRef.current)
+            onSetExpandedItemIds?.(expandedItemIdsState)
             // Only run once on mount
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [])
