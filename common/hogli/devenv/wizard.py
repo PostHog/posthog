@@ -93,7 +93,7 @@ def run_setup_wizard(intent_map: IntentMap) -> DevenvConfig | None:
     click.echo(click.style("✓ Config saved!", fg="green"))
     click.echo(f"  Location: {output_path}")
     click.echo("")
-    click.echo("Run 'hogli dev:start' or 'hogli start' to start.")
+    click.echo("Run 'hogli start' to start.")
 
     return config
 

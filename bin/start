@@ -125,10 +125,14 @@ if [[ "$*" == *"--custom"* ]]; then
 elif [[ "$*" == *"--minimal"* ]]; then
     exec mprocs --config bin/mprocs-minimal.yaml
 else
-    # Check for profile-generated config (created by hogli dev:setup + dev:start)
+    # Check for profile-generated config (created by hogli dev:setup)
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
     if [[ -f "$GENERATED_CONFIG" ]]; then
-        echo "📋 Using profile-based config (run 'hogli dev:edit' to change)"
+        # Regenerate config from saved settings to pick up intent-map.yaml changes
+        if command -v hogli &>/dev/null; then
+            hogli dev:generate 2>/dev/null || true
+        fi
+        echo "📋 Using profile-based config (run 'hogli dev:setup' to change)"
         exec mprocs --config "$GENERATED_CONFIG"
     else
         exec mprocs --config bin/mprocs.yaml

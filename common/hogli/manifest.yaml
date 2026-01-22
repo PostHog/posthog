@@ -86,7 +86,7 @@ metadata:
                 output and easy process management.
 devenv:
     dev:setup:
-    dev:start:
+    dev:generate:
     dev:explain:
     dev:intents:
     dev:presets:

@@ -5,24 +5,12 @@ Provides hogli dev:* commands for managing the development environment.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import click
 from hogli.core.cli import cli
 
 from .generator import DevenvConfig, MprocsGenerator, get_generated_mprocs_path, load_devenv_config
 from .registry import create_mprocs_registry
 from .resolver import IntentResolver, load_intent_map
-
-
-def _get_repo_root() -> Path:
-    """Get repository root path."""
-    current = Path.cwd().resolve()
-    for parent in [current, *current.parents]:
-        if (parent / ".git").exists():
-            return parent
-    return current
 
 
 def _create_resolver() -> IntentResolver:
@@ -64,37 +52,32 @@ def _resolve_from_config(resolver: IntentResolver, config: DevenvConfig) -> tupl
     return resolved, intents
 
 
-@cli.command(name="dev:start", help="Start dev environment based on your config")
+@cli.command(name="dev:generate", help="Regenerate mprocs config from saved settings")
 @click.option(
     "--with",
     "with_intents",
     multiple=True,
-    help="Temporarily add intent(s) to this run",
+    help="Temporarily add intent(s) for this generation",
 )
 @click.option(
     "--without",
     "without_units",
     multiple=True,
-    help="Temporarily exclude unit(s) from this run (e.g., --without typegen)",
+    help="Temporarily exclude unit(s) for this generation (e.g., --without typegen)",
 )
 @click.option(
     "--preset",
     help="Use a preset instead of saved config (minimal, backend, replay, ai, full)",
 )
-@click.option(
-    "--explain",
-    is_flag=True,
-    help="Show what would be started without actually starting",
-)
-def dev_start(
+def dev_generate(
     with_intents: tuple[str, ...],
     without_units: tuple[str, ...],
     preset: str | None,
-    explain: bool,
 ) -> None:
-    """Start development environment based on saved config or preset.
+    """Regenerate mprocs config from saved settings.
 
-    Uses config from .posthog/.generated/mprocs.yaml or prompts to create one.
+    Picks up changes from intent-map.yaml without starting mprocs.
+    Run 'hogli start' to start the dev environment.
     """
     try:
         resolver = _create_resolver()
@@ -196,11 +179,6 @@ def dev_start(
 
         intents_source = "saved config"
 
-    if explain:
-        # Just show what would happen
-        click.echo(resolver.explain_resolution(resolved))
-        return
-
     # Generate mprocs config
     registry = create_mprocs_registry()
     generator = MprocsGenerator(registry)
@@ -213,14 +191,7 @@ def dev_start(
     click.echo(f"  Units: {len(resolved.units)} processes")
     click.echo(f"  Config: {output_path}")
     click.echo("")
-
-    # Start mprocs with the generated config
-    repo_root = _get_repo_root()
-    mprocs_cmd = ["mprocs", "--config", str(output_path)]
-
-    click.echo("Starting mprocs...")
-    os.chdir(repo_root)
-    os.execvp("mprocs", mprocs_cmd)
+    click.echo("Run 'hogli start' to start the dev environment.")
 
 
 @cli.command(name="dev:explain", help="Show what services would be started for intents")
