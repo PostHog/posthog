@@ -3586,10 +3586,59 @@ email@example.org,
         assert response.status_code == 404
         assert "Person with this UUID does not exist" in response.json()["detail"]
 
-    def test_remove_person_from_static_cohort_person_not_in_pg(self):
+    def test_remove_person_from_static_cohort_person_in_ch_but_not_pg(self):
         """
-        Test that removal succeeds even if person exists but is not in PostgreSQL CohortPeople.
-        This handles cases where data exists in ClickHouse but not PostgreSQL due to past sync issues.
+        Test that removal succeeds when person exists in ClickHouse but not PostgreSQL.
+        This simulates the CH/PG sync issue where data exists in CH but not PG.
+        """
+        from posthog.models.cohort.util import insert_static_cohort
+        from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+        )
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["test-person-ch-only"],
+            properties={"email": "chonly@example.com"},
+        )
+        flush_persons_and_events()
+
+        # Insert directly into ClickHouse WITHOUT inserting into PostgreSQL CohortPeople
+        # This simulates the sync issue where CH has data but PG doesn't
+        insert_static_cohort([person.uuid], static_cohort.id, team_id=self.team.pk)
+
+        # Verify person is in CH
+        ch_count_before = sync_execute(
+            f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s",
+            {"person_id": str(person.uuid), "cohort_id": static_cohort.id, "team_id": self.team.pk},
+        )[0][0]
+        assert ch_count_before >= 1, "Person should be in ClickHouse before removal"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": str(person.uuid)},
+            format="json",
+        )
+
+        # Removal succeeds even though person wasn't in PG
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+        # Verify person was actually removed from ClickHouse
+        # Note: CH DELETE is async (mutations_sync=0), so we may need to wait or use FINAL
+        ch_count_after = sync_execute(
+            f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} FINAL WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s",
+            {"person_id": str(person.uuid), "cohort_id": static_cohort.id, "team_id": self.team.pk},
+        )[0][0]
+        assert ch_count_after == 0, "Person should be removed from ClickHouse after removal"
+
+    def test_remove_person_from_static_cohort_person_not_in_either(self):
+        """
+        Test that removal succeeds when person exists but is not in either CH or PG.
+        This tests the idempotent behavior - removal is a no-op but still succeeds.
         """
         static_cohort = Cohort.objects.create(
             team=self.team,
@@ -3597,7 +3646,6 @@ email@example.org,
             is_static=True,
         )
         # Person exists but is not in the cohort (not in PG CohortPeople, and not in CH either)
-        # Removal should still succeed - CH delete is idempotent
         person = _create_person(
             team_id=self.team.pk,
             distinct_ids=["test-person-not-in-cohort"],
@@ -3611,7 +3659,7 @@ email@example.org,
             format="json",
         )
 
-        # Removal succeeds even though person wasn't in cohort - handles CH/PG inconsistency gracefully
+        # Removal succeeds - idempotent operation
         assert response.status_code == 200
         assert response.json()["success"] is True
 

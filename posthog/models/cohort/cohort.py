@@ -648,21 +648,22 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 person_id=person.id,
             ).first()
 
-            # Always attempt to remove from ClickHouse, regardless of PostgreSQL state.
-            # This handles cases where data exists in CH but not PG due to past sync issues.
-            remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
-
+            # Delete from PostgreSQL first (source of truth), then ClickHouse.
+            # This order ensures if PG delete fails, we don't create inverse inconsistency.
             if cohort_person:
-                # Remove from PostgreSQL if record exists
                 cohort_person.delete()
             else:
-                # Log when person not found in PostgreSQL (may or may not have existed in ClickHouse)
-                logger.warning(
-                    "Person not in PostgreSQL CohortPeople table (may or may not have existed in ClickHouse)",
+                # Person not in PG - this is expected when handling CH/PG sync issues
+                logger.info(
+                    "Removing person from cohort: not in PostgreSQL CohortPeople table",
                     cohort_id=self.id,
                     team_id=team_id,
                     user_uuid=user_uuid,
                 )
+
+            # Always attempt CH delete - it's idempotent and handles cases where
+            # data exists in CH but not PG due to past sync issues
+            remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
 
             # Update count - use write database to avoid replication lag after delete
             try:
