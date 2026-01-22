@@ -2,14 +2,28 @@
 
 from django.db import migrations
 
+BATCH_SIZE = 1000
+
 
 def clear_temporary_tokens(apps, schema_editor):
-    """Clear all existing temporary_token values."""
+    """
+    Clear all existing temporary_token values.
+
+    Uses batched updates to avoid locking the entire users table.
+    """
     User = apps.get_model("posthog", "User")
-    User.objects.exclude(temporary_token=None).update(temporary_token=None)
+
+    while True:
+        user_ids = list(User.objects.filter(temporary_token__isnull=False).values_list("id", flat=True)[:BATCH_SIZE])
+        if not user_ids:
+            break
+        User.objects.filter(id__in=user_ids).update(temporary_token=None)
 
 
 class Migration(migrations.Migration):
+    # we run in batches
+    atomic = False
+
     dependencies = [
         ("posthog", "0983_alter_integration_kind"),
     ]
