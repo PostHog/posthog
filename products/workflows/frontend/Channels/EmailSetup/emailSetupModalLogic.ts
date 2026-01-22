@@ -171,10 +171,6 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        submitEmailSenderSuccess: () => {
-            // After creating the integration, verify the domain
-            actions.verifyDomain()
-        },
         verifyDomainSuccess: ({ verification }) => {
             if (verification?.status === 'success') {
                 actions.loadIntegrations()
