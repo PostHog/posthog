@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
-from posthog.models.utils import UUIDTModel, sane_repr
+from posthog.models.utils import UUIDTModel
 
 
 class DuckLakeCatalog(UUIDTModel):
@@ -39,11 +39,6 @@ class DuckLakeCatalog(UUIDTModel):
         db_table = "posthog_ducklakecatalog"
         verbose_name = "DuckLake catalog"
         verbose_name_plural = "DuckLake catalogs"
-
-    __repr__ = sane_repr("team_id", "rds_host", "bucket")
-
-    def __str__(self) -> str:
-        return f"DuckLakeCatalog(team_id={self.team_id}, host={self.rds_host}, bucket={self.bucket})"
 
     def to_config(self) -> dict[str, str]:
         """Convert to a config dict compatible with get_config()."""
