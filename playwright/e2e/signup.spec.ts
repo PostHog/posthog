@@ -7,30 +7,25 @@ const VALID_PASSWORD = 'hedgE-hog-123%'
 const startSignupFlow = async (page: Page, email: string, password: string): Promise<void> => {
     await page.locator('[data-attr=signup-email]').fill(email)
     await expect(page.locator('[data-attr=signup-email]')).toHaveValue(email)
-
-    const initialPasswordField = page.locator('[data-attr=password]')
-    if (await initialPasswordField.isVisible()) {
-        await initialPasswordField.fill(password)
-        await expect(initialPasswordField).toHaveValue(password)
-    }
-
+    await page.locator('[data-attr=password]').fill(password)
+    await expect(page.locator('[data-attr=password]')).toHaveValue(password)
     await page.locator('[data-attr=signup-start]').click()
-
-    const authContinue = page.locator('[data-attr=signup-auth-continue]')
-    const hasAuthPanel = await authContinue
-        .waitFor({ state: 'visible', timeout: 1000 })
-        .then(() => true)
-        .catch(() => false)
-
-    if (hasAuthPanel) {
-        await page.locator('[data-attr=password]').fill(password)
-        await expect(page.locator('[data-attr=password]')).toHaveValue(password)
-        await authContinue.click()
-    }
 }
 
 test.describe('Signup', () => {
     test.beforeEach(async ({ page }) => {
+        await page.route('**/flags/*', async (route) => {
+            const response = {
+                config: {
+                    enable_collect_everything: true,
+                },
+                featureFlags: {
+                    'passkey-signup-enabled': false,
+                },
+                isAuthenticated: false,
+            }
+            await route.fulfill({ json: response })
+        })
         await page.locator('[data-attr=menu-item-me]').click()
         await page.locator('[data-attr=top-menu-item-logout]').click()
         await expect(page).toHaveURL(/.*\/login/)
@@ -47,40 +42,18 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-start]').click()
 
         await expect(page.getByText('Please enter your email to continue')).toBeVisible()
-        if (await page.locator('[data-attr=password]').isVisible()) {
-            await expect(page.getByText('Please enter your password to continue')).toBeVisible()
-        }
+        await expect(page.getByText('Please enter your password to continue')).toBeVisible()
     })
 
     test('Cannot signup with invalid attributes', async ({ page }) => {
         const initialPasswordField = page.locator('[data-attr=password]')
-
-        if (await initialPasswordField.isVisible()) {
-            await initialPasswordField.fill('123')
-            await expect(initialPasswordField).toHaveValue('123')
-            await expect(page.locator('.text-danger')).not.toBeVisible()
-            await page.locator('[data-attr=signup-start]').click()
-            await expect(page.getByText('Please enter your email to continue')).toBeVisible()
-            await expect(page.getByText('Add another word or two')).toBeVisible()
-
-            await initialPasswordField.fill('123 abc def')
-            await expect(page.getByText('Add another word or two')).not.toBeVisible()
-            return
-        }
-
+        await initialPasswordField.fill('123')
+        await expect(initialPasswordField).toHaveValue('123')
+        await expect(page.locator('.text-danger')).not.toBeVisible()
         await page.locator('[data-attr=signup-start]').click()
         await expect(page.getByText('Please enter your email to continue')).toBeVisible()
-
-        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
-        await page.locator('[data-attr=signup-email]').fill(email)
-        await expect(page.locator('[data-attr=signup-email]')).toHaveValue(email)
-        await page.locator('[data-attr=signup-start]').click()
-
-        await page.locator('[data-attr=signup-auth-continue]').waitFor({ state: 'visible' })
-        await page.locator('[data-attr=password]').fill('123')
         await expect(page.getByText('Add another word or two')).toBeVisible()
-
-        await page.locator('[data-attr=password]').fill('123 abc def')
+        await initialPasswordField.fill('123 abc def')
         await expect(page.getByText('Add another word or two')).not.toBeVisible()
     })
 
@@ -146,6 +119,8 @@ test.describe('Signup', () => {
         // Update email to generic email and retry
         const newEmail = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
         await startSignupFlow(page, newEmail, VALID_PASSWORD)
+        await page.locator('[data-attr=signup-name]').fill('Alice Bob')
+        await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
         await page.locator('[data-attr=signup-role-at-organization]').click()
