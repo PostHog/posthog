@@ -96,6 +96,11 @@ if [[ "$*" == *"--custom"* ]] && ([[ "$*" == *"--minimal"* ]] || [[ "$*" == *"--
     exit 1
 fi
 
+# Advertise intent-based dev environment
+echo ""
+echo "💡 New: 'hogli dev:setup' lets you configure which services to start"
+echo ""
+
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
 # Ensure to provide config path after --custom flag
 if [[ "$*" == *"--custom"* ]]; then
