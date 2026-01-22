@@ -1,4 +1,5 @@
 use common_types::CapturedEventHeaders;
+use metrics::counter;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use std::future::Future;
@@ -111,7 +112,8 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
                     ))
                 }
                 _ => {
-                    report_dropped_events("kafka_write_error", 1);
+                    // Use error counter, not dropped counter - this is retryable
+                    counter!("capture_kafka_produce_errors_total").increment(1);
                     error!("failed to produce event: {e}");
                     Err(CaptureError::RetryableSinkError)
                 }
