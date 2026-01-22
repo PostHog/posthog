@@ -184,6 +184,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
     const { validatedDomainFilter, hasHostFilter, authorizedDomains, showProposedURLForm } =
         useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <LemonSelect
@@ -208,7 +209,23 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                                   },
                               ]
                             : []),
-                        ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
+                        ...authorizedDomains.map((domain) => ({
+                            label: domain,
+                            value: domain,
+                            ...(featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
+                                ? {
+                                      icon: (
+                                          <img
+                                              src={`${window.JS_URL}/favicons/${domain}.png`}
+                                              width={16}
+                                              height={16}
+                                              alt=""
+                                              onError={(e) => (e.currentTarget.style.display = 'none')}
+                                          />
+                                      ),
+                                  }
+                                : {}),
+                        })),
                     ],
                     footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggestedAuthorizedUrlList />,
                 },
