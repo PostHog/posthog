@@ -518,7 +518,9 @@ export const WebStatsTrendTile = ({
         hasCountryFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const showComparisonLabels = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS]
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -564,16 +566,20 @@ export const WebStatsTrendTile = ({
                 query,
             },
             compareFilter,
-            formatCompareLabel: (label: string) => {
-                const lowerLabel = label.toLowerCase()
-                if (lowerLabel === 'previous') {
-                    return `Previous period${formatComparisonDates(true)}`
-                }
-                if (lowerLabel === 'current') {
-                    return `Current period${formatComparisonDates(false)}`
-                }
-                return capitalizeFirstLetter(label)
-            },
+            ...(showComparisonLabels
+                ? {
+                      formatCompareLabel: (label: string) => {
+                          const lowerLabel = label.toLowerCase()
+                          if (lowerLabel === 'previous') {
+                              return `Previous period${formatComparisonDates(true)}`
+                          }
+                          if (lowerLabel === 'current') {
+                              return `Current period${formatComparisonDates(false)}`
+                          }
+                          return capitalizeFirstLetter(label)
+                      },
+                  }
+                : {}),
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -593,7 +599,7 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, insightProps, query])
+    }, [onWorldMapClick, insightProps, query, showComparisonLabels])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
