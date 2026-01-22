@@ -77,8 +77,9 @@ const toKey = (log: LogEntry): string => {
     return `${log.instanceId}-${log.level}-${log.timestamp.toISOString()}`
 }
 
-const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
-    // TRICKY: CH query is timezone aware so we dont send iso
+export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
+    // TRICKY: CH query is timezone aware so we dont send iso, and we need to convert to UTC
+    // See https://github.com/PostHog/posthog/pull/45651
     return timestamp.tz('UTC').format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
