@@ -334,6 +334,7 @@ class AssistantTool(StrEnum):
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
