@@ -289,15 +289,13 @@
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.00000125,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 3e-7,
-                "image": 0.0004
+                "cache_write_token": 3e-7
             },
             "anthropic": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.00000125,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 3e-7,
-                "image": 0.0004
+                "cache_write_token": 3e-7
             },
             "google-vertex": {
                 "prompt_token": 2.5e-7,
@@ -373,7 +371,7 @@
                 "completion_token": 0.000015,
                 "cache_read_token": 3e-7,
                 "cache_write_token": 0.00000375,
-                "image": 0.0048
+                "web_search": 0.01
             },
             "google-vertex-europe": {
                 "prompt_token": 0.000003,
@@ -413,8 +411,7 @@
                 "completion_token": 0.000015,
                 "cache_read_token": 3e-7,
                 "cache_write_token": 0.00000375,
-                "web_search": 0.01,
-                "image": 0.0048
+                "web_search": 0.01
             },
             "google-vertex": {
                 "prompt_token": 0.000003,
@@ -432,7 +429,8 @@
                 "prompt_token": 0.000001,
                 "completion_token": 0.000005,
                 "cache_read_token": 1e-7,
-                "cache_write_token": 0.00000125
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
             },
             "amazon-bedrock": {
                 "prompt_token": 0.000001,
@@ -444,7 +442,8 @@
                 "prompt_token": 0.000001,
                 "completion_token": 0.000005,
                 "cache_read_token": 1e-7,
-                "cache_write_token": 0.00000125
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
             },
             "google-vertex": {
                 "prompt_token": 0.000001,
@@ -476,8 +475,7 @@
                 "completion_token": 0.000075,
                 "cache_read_token": 0.0000015,
                 "cache_write_token": 0.00001875,
-                "web_search": 0.01,
-                "image": 0.024
+                "web_search": 0.01
             },
             "google-vertex": {
                 "prompt_token": 0.000015,
@@ -517,8 +515,7 @@
                 "completion_token": 0.000075,
                 "cache_read_token": 0.0000015,
                 "cache_write_token": 0.00001875,
-                "web_search": 0.01,
-                "image": 0.024
+                "web_search": 0.01
             },
             "google-vertex": {
                 "prompt_token": 0.000015,
@@ -598,8 +595,7 @@
                 "completion_token": 0.000015,
                 "cache_read_token": 3e-7,
                 "cache_write_token": 0.00000375,
-                "web_search": 0.01,
-                "image": 0.0048
+                "web_search": 0.01
             },
             "google-vertex": {
                 "prompt_token": 0.000003,
@@ -632,7 +628,7 @@
                 "completion_token": 0.000015,
                 "cache_read_token": 3e-7,
                 "cache_write_token": 0.00000375,
-                "image": 0.0048
+                "web_search": 0.01
             },
             "amazon-bedrock": {
                 "prompt_token": 0.000003,
@@ -646,7 +642,7 @@
                 "completion_token": 0.000015,
                 "cache_read_token": 3e-7,
                 "cache_write_token": 0.00000375,
-                "image": 0.0048
+                "web_search": 0.01
             },
             "google-vertex": {
                 "prompt_token": 0.000003,
@@ -821,7 +817,7 @@
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.000002
             },
-            "seed": {
+            "seed-fp8": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.000002
             }
@@ -834,7 +830,7 @@
                 "prompt_token": 7.5e-8,
                 "completion_token": 3e-7
             },
-            "seed": {
+            "seed-fp8": {
                 "prompt_token": 7.5e-8,
                 "completion_token": 3e-7
             }
@@ -1316,10 +1312,6 @@
                 "prompt_token": 2.6e-7,
                 "completion_token": 3.8e-7
             },
-            "baseten-fp4": {
-                "prompt_token": 3e-7,
-                "completion_token": 4.5e-7
-            },
             "chutes-fp8": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 3.8e-7
@@ -1432,7 +1424,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_write_token": 8.333333333333334e-8,
                 "image": 0.0000258,
                 "audio": 7e-7
             },
@@ -1440,7 +1432,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_write_token": 8.333333333333334e-8,
                 "image": 0.0000258,
                 "audio": 7e-7,
                 "input_audio_cache": 1.75e-7
@@ -1449,7 +1441,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_write_token": 8.333333333333334e-8,
                 "image": 0.0000258,
                 "audio": 7e-7,
                 "input_audio_cache": 1.75e-7
@@ -1560,21 +1552,24 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.33e-8
+                "cache_write_token": 8.333333333333334e-8,
+                "audio": 3e-7
             },
             "google-ai-studio": {
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_write_token": 8.333333333333334e-8,
                 "audio": 3e-7,
-                "input_audio_cache": 1.25e-7
+                "input_audio_cache": 3e-8
             },
             "google-vertex": {
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.33e-8
+                "cache_write_token": 8.333333333333334e-8,
+                "audio": 3e-7,
+                "input_audio_cache": 3e-8
             }
         }
     },
@@ -1585,20 +1580,23 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.33e-8
+                "cache_write_token": 8.333333333333334e-8,
+                "audio": 3e-7
             },
             "google-ai-studio": {
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_write_token": 8.333333333333334e-8,
+                "audio": 3e-7,
                 "input_audio_cache": 3e-8
             },
             "google-vertex": {
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_write_token": 8.333333333333334e-8,
+                "audio": 3e-7,
                 "input_audio_cache": 3e-8
             }
         }
@@ -1609,16 +1607,16 @@
             "default": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
-                "cache_read_token": 7.5e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_read_token": 3e-8,
+                "cache_write_token": 8.333333333333334e-8,
                 "image": 0.001238,
                 "audio": 0.000001
             },
             "google-ai-studio": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
-                "cache_read_token": 7.5e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_read_token": 3e-8,
+                "cache_write_token": 8.333333333333334e-8,
                 "image": 0.001238,
                 "audio": 0.000001,
                 "input_audio_cache": 1e-7
@@ -1626,8 +1624,8 @@
             "google-vertex-global": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
-                "cache_read_token": 7.5e-8,
-                "cache_write_token": 8.33e-8,
+                "cache_read_token": 3e-8,
+                "cache_write_token": 8.333333333333334e-8,
                 "image": 0.001238,
                 "audio": 0.000001,
                 "input_audio_cache": 1e-7
@@ -1650,7 +1648,7 @@
                 "cache_read_token": 1.25e-7,
                 "cache_write_token": 3.75e-7,
                 "image": 0.00516,
-                "audio": 0.0000025
+                "audio": 0.00000125
             },
             "google-vertex-global": {
                 "prompt_token": 0.00000125,
@@ -1684,7 +1682,7 @@
                 "cache_read_token": 1.25e-7,
                 "cache_write_token": 3.75e-7,
                 "image": 0.00516,
-                "audio": 0.0000025
+                "audio": 0.00000125
             },
             "google-vertex-global": {
                 "prompt_token": 0.00000125,
@@ -1718,7 +1716,7 @@
                 "cache_read_token": 1.25e-7,
                 "cache_write_token": 3.75e-7,
                 "image": 0.00516,
-                "audio": 0.0000025
+                "audio": 0.00000125
             },
             "google-vertex-global": {
                 "prompt_token": 0.00000125,
@@ -2131,6 +2129,32 @@
         }
     },
     {
+        "model": "liquid/lfm-2.5-1.2b-instruct:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "liquid": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
+        "model": "liquid/lfm-2.5-1.2b-thinking:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "liquid": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
         "model": "liquid/lfm2-8b-a1b",
         "cost": {
             "default": {
@@ -2523,10 +2547,6 @@
                 "completion_token": 6e-7,
                 "image": 0.0006684
             },
-            "fireworks": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 8.8e-7
-            },
             "google-vertex": {
                 "prompt_token": 3.5e-7,
                 "completion_token": 0.00000115
@@ -2797,6 +2817,10 @@
                 "completion_token": 0.0000012,
                 "cache_read_token": 3e-8,
                 "cache_write_token": 3.75e-7
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 2.9e-7,
+                "completion_token": 0.0000012
             }
         }
     },
@@ -3076,6 +3100,10 @@
                 "completion_token": 3e-7
             },
             "chutes-bf16": {
+                "prompt_token": 2e-8,
+                "completion_token": 4e-8
+            },
+            "deepinfra-fp8": {
                 "prompt_token": 2e-8,
                 "completion_token": 4e-8
             },
@@ -3571,12 +3599,8 @@
         "model": "nousresearch/hermes-2-pro-llama-3-8b",
         "cost": {
             "default": {
-                "prompt_token": 2.5e-8,
-                "completion_token": 8e-8
-            },
-            "nextbit-int4": {
-                "prompt_token": 2.5e-8,
-                "completion_token": 8e-8
+                "prompt_token": 1.4e-7,
+                "completion_token": 1.4e-7
             },
             "novita-fp16": {
                 "prompt_token": 1.4e-7,
@@ -5392,8 +5416,8 @@
                 "completion_token": 0.000001
             },
             "hyperbolic": {
-                "prompt_token": 0.000002,
-                "completion_token": 0.000002
+                "prompt_token": 2.5e-7,
+                "completion_token": 2.5e-7
             },
             "nebius-fp8": {
                 "prompt_token": 2e-7,
@@ -5472,10 +5496,6 @@
             "deepinfra-fp8": {
                 "prompt_token": 8e-8,
                 "completion_token": 2.9e-7
-            },
-            "fireworks": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 6e-7
             },
             "friendli": {
                 "prompt_token": 1.5e-7,
@@ -5958,12 +5978,16 @@
         "model": "qwen/qwen3-vl-235b-a22b-thinking",
         "cost": {
             "default": {
-                "prompt_token": 9.8e-7,
-                "completion_token": 0.00000395
+                "prompt_token": 4.5e-7,
+                "completion_token": 0.0000035
             },
             "novita-bf16": {
                 "prompt_token": 9.8e-7,
                 "completion_token": 0.00000395
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 4.5e-7,
+                "completion_token": 0.0000035
             }
         }
     },
@@ -6072,8 +6096,8 @@
                 "completion_token": 4e-7
             },
             "hyperbolic-bf16": {
-                "prompt_token": 4e-7,
-                "completion_token": 4e-7
+                "prompt_token": 2.5e-7,
+                "completion_token": 2.5e-7
             },
             "nextbit-int4": {
                 "prompt_token": 1.5e-7,
@@ -6400,6 +6424,19 @@
         }
     },
     {
+        "model": "writer/palmyra-x5",
+        "cost": {
+            "default": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.000006
+            },
+            "amazon-bedrock": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.000006
+            }
+        }
+    },
+    {
         "model": "x-ai/grok-3",
         "cost": {
             "default": {
@@ -6715,7 +6752,7 @@
                 "completion_token": 0.0000022
             },
             "mancer-fp8": {
-                "prompt_token": 4.375e-7,
+                "prompt_token": 4.75e-7,
                 "completion_token": 0.000002
             },
             "novita-bf16": {
@@ -6815,10 +6852,6 @@
                 "completion_token": 0.00000175,
                 "cache_read_token": 7.99999993e-8
             },
-            "gmicloud-fp8": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.000002
-            },
             "mancer-fp8": {
                 "prompt_token": 4.75e-7,
                 "completion_token": 0.000002
@@ -6835,6 +6868,10 @@
             "siliconflow-fp8": {
                 "prompt_token": 4.2e-7,
                 "completion_token": 0.0000022
+            },
+            "together": {
+                "prompt_token": 4.5e-7,
+                "completion_token": 0.000002
             },
             "z-ai": {
                 "prompt_token": 6e-7,
@@ -6853,8 +6890,12 @@
             },
             "novita-bf16": {
                 "prompt_token": 7e-8,
-                "completion_token": 4.3e-7,
-                "cache_read_token": 6e-9
+                "completion_token": 4e-7,
+                "cache_read_token": 1e-8
+            },
+            "phala": {
+                "prompt_token": 1e-7,
+                "completion_token": 4.3e-7
             },
             "z-ai": {
                 "prompt_token": 7e-8,

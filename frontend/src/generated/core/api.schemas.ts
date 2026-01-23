@@ -483,11 +483,12 @@ export interface CreateGroupApi {
  * `databricks` - Databricks
  * `azure-blob` - Azure Blob
  * `firebase` - Firebase
+ * `jira` - Jira
  */
-export type Kind9f6EnumApi = (typeof Kind9f6EnumApi)[keyof typeof Kind9f6EnumApi]
+export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Kind9f6EnumApi = {
+export const KindCf2EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -512,6 +513,7 @@ export const Kind9f6EnumApi = {
     databricks: 'databricks',
     'azure-blob': 'azure-blob',
     firebase: 'firebase',
+    jira: 'jira',
 } as const
 
 /**
@@ -519,7 +521,7 @@ export const Kind9f6EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: Kind9f6EnumApi
+    kind: KindCf2EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -3275,6 +3277,11 @@ export interface UserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export interface PaginatedUserListApi {
@@ -3341,6 +3348,11 @@ export interface PatchedUserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export type EnvironmentsDashboardsListParams = {

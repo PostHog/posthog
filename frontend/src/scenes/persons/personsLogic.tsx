@@ -479,9 +479,16 @@ export const personsLogic = kea<personsLogicType>([
                 router.values.location.pathname.indexOf('/person') > -1 &&
                 router.values.hashParams.activeTab !== values.activeTab
             ) {
+                // When navigating away from recordings tab, clear sessionRecordingId from search params
+                // to prevent urlToAction from forcing back to recordings tab
+                let searchParams = router.values.searchParams
+                if (values.activeTab !== PersonsTabType.SESSION_RECORDINGS && searchParams.sessionRecordingId) {
+                    const { sessionRecordingId: _, ...restSearchParams } = searchParams
+                    searchParams = restSearchParams
+                }
                 return [
                     router.values.location.pathname,
-                    router.values.location.search,
+                    searchParams,
                     {
                         ...router.values.hashParams,
                         activeTab: values.activeTab,

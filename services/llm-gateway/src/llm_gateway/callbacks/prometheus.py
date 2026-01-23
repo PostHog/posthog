@@ -9,7 +9,6 @@ from llm_gateway.metrics.prometheus import (
     COST_USD,
     LLM_REQUESTS,
     LLM_RESPONSE_TIME,
-    LLM_TIME_TO_FIRST_TOKEN,
     TOKENS_CACHE_CREATION,
     TOKENS_CACHE_READ,
     TOKENS_INPUT,
@@ -50,8 +49,6 @@ class PrometheusCallback(InstrumentedCallback):
         saved_cache_cost = standard_logging_object.get("saved_cache_cost")
 
         response_time = standard_logging_object.get("response_time")
-        start_ts = standard_logging_object.get("startTime")
-        completion_start_ts = standard_logging_object.get("completionStartTime")
 
         auth_user = get_auth_user()
         team_id = str(auth_user.team_id) if auth_user and auth_user.team_id else None
@@ -81,7 +78,3 @@ class PrometheusCallback(InstrumentedCallback):
 
         if response_time is not None and response_time > 0:
             LLM_RESPONSE_TIME.labels(provider=provider, model=model, product=product).observe(response_time)
-
-        if start_ts and completion_start_ts and completion_start_ts > start_ts:
-            ttft = completion_start_ts - start_ts
-            LLM_TIME_TO_FIRST_TOKEN.labels(provider=provider, model=model, product=product).observe(ttft)
