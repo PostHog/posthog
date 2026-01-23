@@ -505,13 +505,6 @@ def clickhouse_clear_removed_data() -> None:
         COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
 
 
-@shared_task(ignore_result=True)
-def clear_clickhouse_deleted_person() -> None:
-    from posthog.models.async_deletion.delete_person import remove_deleted_person_data
-
-    remove_deleted_person_data()
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
 def redis_celery_queue_depth() -> None:
     try:
