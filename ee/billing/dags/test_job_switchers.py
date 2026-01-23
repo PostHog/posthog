@@ -341,7 +341,6 @@ class TestClayWebhookResource:
             resource = ClayWebhookResource(
                 webhook_url="https://api.clay.com/webhook/123",
                 api_key="test-key",
-                batch_size=100,
             )
             data = [{"domain": f"{i}.com"} for i in range(50)]
 
@@ -359,22 +358,19 @@ class TestClayWebhookResource:
             mock_response.status_code = 200
             mock_session.post.return_value = mock_response
 
+            # Use a small max_batch_bytes to trigger multiple batches
             resource = ClayWebhookResource(
                 webhook_url="https://api.clay.com/webhook/123",
                 api_key="test-key",
-                batch_size=100,
+                max_batch_bytes=100,  # Very small limit to force splitting
             )
-            data = [{"domain": f"{i}.com"} for i in range(250)]
+            # Each record is ~20 bytes, so ~5 records per batch
+            data = [{"domain": f"{i}.com"} for i in range(12)]
 
             responses = resource.send_batched(data)
 
             assert len(responses) == 3
             assert mock_session.post.call_count == 3
-            # Verify batch sizes
-            calls = mock_session.post.call_args_list
-            assert len(calls[0].kwargs["json"]) == 100
-            assert len(calls[1].kwargs["json"]) == 100
-            assert len(calls[2].kwargs["json"]) == 50
 
     def test_retry_on_transient_failure_recovers(self):
         """Transient 503 that recovers after retry should succeed."""
