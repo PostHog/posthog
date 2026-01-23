@@ -58,10 +58,12 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event properties
 EVENT_NAME = "$ai_trace_clusters"
+EVENT_NAME_GENERATION = "$ai_generation_clusters"  # For generation-level clustering
 
 # Document type for LLM trace summaries (clustering uses detailed mode only)
 # New format includes mode suffix
 LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary-detailed"
+LLMA_GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level clustering
 # Legacy format (before mode suffix was added) - used with rendering filter
 LLMA_TRACE_DOCUMENT_TYPE_LEGACY = "llm-trace-summary"
 # Legacy rendering value for detailed summaries
