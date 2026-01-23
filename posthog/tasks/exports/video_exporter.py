@@ -1,4 +1,5 @@
 import os
+import abc
 import json
 import time
 import uuid
@@ -24,14 +25,11 @@ from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
-# Path to Node.js scripts directory (relative to project root)
-NODEJS_SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "nodejs", "scripts")
-
 HEIGHT_OFFSET = 85
 
 
 @dataclass(frozen=True)
-class NodejsRecordingResult:
+class RecordingResult:
     """Result from the Node.js recording script."""
 
     video_path: str
@@ -42,119 +40,129 @@ class NodejsRecordingResult:
     segment_start_timestamps: dict[int, float]
 
 
-def run_nodejs_recorder(
-    output_path: str,
-    url_to_render: str,
-    wait_for_css_selector: str,
-    recording_duration: int,
-    screenshot_width: Optional[int] = None,
-    screenshot_height: Optional[int] = None,
-    playback_speed: int = 1,
-) -> NodejsRecordingResult:
-    """
-    Run the Node.js puppeteer-screen-recorder script and parse its output.
-    """
-    script_path = os.path.join(NODEJS_SCRIPTS_DIR, "record-replay.js")
+class _ReplayVideoRecorder(abc.ABC):
+    """Base class for recording a replay to a file."""
 
-    if not os.path.exists(script_path):
-        logger.exception("video_exporter.nodejs_recorder_not_found", script_path=script_path)
-        raise FileNotFoundError(f"Node.js recorder script not found: {script_path}")
+    RECORDING_BUFFER_SECONDS = 120  # How long we expect it would take for recording to start playing
 
-    # Build options JSON
-    options = {
-        "url_to_render": url_to_render,
-        "output_path": output_path,
-        "wait_for_css_selector": wait_for_css_selector,
-        "recording_duration": recording_duration,
-        "playback_speed": playback_speed,
-        "headless": os.getenv("EXPORTER_HEADLESS", "1") != "0",
-    }
-    if screenshot_width is not None:
-        options["screenshot_width"] = screenshot_width
-    if screenshot_height is not None:
-        options["screenshot_height"] = screenshot_height
+    def __init__(
+        self,
+        output_path: str,
+        url_to_render: str,
+        wait_for_css_selector: str,
+        recording_duration: int,
+        playback_speed: int,
+        screenshot_width: Optional[int] = None,
+        screenshot_height: Optional[int] = None,
+    ):
+        self.output_path = output_path
+        self.url_to_render = url_to_render
+        self.wait_for_css_selector = wait_for_css_selector
+        self.recording_duration = recording_duration
+        self.playback_speed = playback_speed
+        self.screenshot_width = screenshot_width
+        self.screenshot_height = screenshot_height
 
-    options_json = json.dumps(options)
-    with open("node_script_options.json", "w") as f:
-        json.dump(options, f)
+    @abc.abstractmethod
+    def record(self) -> RecordingResult:
+        """Record a replay to a file."""
+        raise NotImplementedError
 
-    # Build node command with optional debugging
-    node_args = ["node"]
-    if os.getenv("NODEJS_DEBUG") == "1":
-        node_args.append("--inspect-brk")
-        logger.info("video_exporter.nodejs_debug_enabled", port=9229)
 
-    # Calculate timeout: base + recording time + buffer
-    # Recording runs at playback_speed, so actual time is recording_duration / playback_speed
-    timeout_seconds = 120 + (recording_duration // max(playback_speed, 1)) + 60
-    if os.getenv("NODEJS_DEBUG") == "1":
-        timeout_seconds = 3600  # 1 hour for debugging
+class PuppeteerRecorder(_ReplayVideoRecorder):
+    """Record a replay to a file using Puppeteer."""
 
-    logger.info(
-        "video_exporter.nodejs_recorder_starting",
-        script_path=script_path,
-        timeout=timeout_seconds,
-        options=options,
-    )
+    # Path to Node.js scripts directory (relative to project root)
+    # TODO: Find a better way to do this
+    NODEJS_SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "nodejs", "scripts")
+    SCRIPT_NAME = "record-replay-session-to-video-puppeteer.js"
 
-    try:
-        result = subprocess.run(
-            [*node_args, script_path, options_json],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,  # Don't raise on non-zero exit, we'll check the JSON output
-        )
-
-        # Log stderr (Node.js logs go there)
-        if result.stderr:
-            for line in result.stderr.strip().split("\n"):
-                logger.debug("video_exporter.nodejs_log", message=line)
-
-        # Parse JSON output from stdout
-        if not result.stdout.strip():
-            raise RuntimeError(f"Node.js recorder produced no output. Exit code: {result.returncode}")
-
-        try:
-            output = json.loads(result.stdout.strip())
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse Node.js output: {e}. Output: {result.stdout[:500]}") from e
-
-        if not output.get("success"):
-            error_msg = output.get("error", "Unknown error")
-            raise RuntimeError(f"Node.js recorder failed: {error_msg}")
-
-        # Parse inactivity periods
-        inactivity_periods = None
-        if output.get("inactivity_periods"):
-            inactivity_periods = [
-                ReplayInactivityPeriod.model_validate(period) for period in output["inactivity_periods"]
-            ]
-
-        # Parse segment timestamps (convert string keys to int)
-        segment_start_timestamps = {}
-        if output.get("segment_start_timestamps"):
-            segment_start_timestamps = {int(k): float(v) for k, v in output["segment_start_timestamps"].items()}
-
+    def record(self) -> RecordingResult:
+        # Load the script
+        script_path = os.path.join(self.NODEJS_SCRIPTS_DIR, self.SCRIPT_NAME)
+        if not os.path.exists(script_path):
+            logger.exception("video_exporter.puppeteer_recorder_not_found", script_path=script_path)
+            raise FileNotFoundError(f"Puppeteer recorder script not found: {script_path}")
+        # Build input
+        options = {
+            "url_to_render": self.url_to_render,
+            "output_path": self.output_path,
+            "wait_for_css_selector": self.wait_for_css_selector,
+            "recording_duration": self.recording_duration,
+            "playback_speed": self.playback_speed,
+            "headless": os.getenv("EXPORTER_HEADLESS", "1") != "0",
+        }
+        if self.screenshot_width is not None:
+            options["screenshot_width"] = self.screenshot_width
+        if self.screenshot_height is not None:
+            options["screenshot_height"] = self.screenshot_height
+        options_json = json.dumps(options)
+        # TODO: Remove after testing
+        with open("node_script_options.json", "w") as f:
+            json.dump(options, f)
+        # Calculate how long we wait for the recording to complete: buffer + recording time (adjusted by playback speed)
+        max_wait_s = self.RECORDING_BUFFER_SECONDS + (self.recording_duration // max(self.playback_speed, 1))
         logger.info(
-            "video_exporter.nodejs_recorder_success",
-            video_path=output["video_path"],
-            pre_roll=output["pre_roll"],
-            playback_speed=output["playback_speed"],
+            "video_exporter.puppeteer_recorder_starting",
+            script_path=script_path,
+            timeout=max_wait_s,
+            options=options,
         )
-
-        return NodejsRecordingResult(
-            video_path=output["video_path"],
-            pre_roll=output["pre_roll"],
-            playback_speed=output["playback_speed"],
-            measured_width=output.get("measured_width"),
-            inactivity_periods=inactivity_periods,
-            segment_start_timestamps=segment_start_timestamps,
-        )
-
-    except subprocess.TimeoutExpired as e:
-        logger.exception("video_exporter.nodejs_recorder_timeout", timeout=timeout_seconds)
-        raise RuntimeError(f"Node.js recorder timed out after {timeout_seconds}s") from e
+        # Record the video
+        try:
+            result = subprocess.run(
+                ["node", script_path, options_json],
+                capture_output=True,
+                text=True,
+                timeout=max_wait_s,
+                check=False,  # Don't raise on non-zero exit, we'll check the JSON output
+            )
+            # Log stderr (Node.js logs go there)
+            if result.stderr:
+                for line in result.stderr.strip().split("\n"):
+                    logger.debug("video_exporter.puppeteer_log", message=line)
+            # Parse JSON output from stdout
+            if not result.stdout.strip():
+                raise RuntimeError(
+                    f"Puppeteer recorder produced no output when recording the session. Exit code: {result.returncode}"
+                )
+            try:
+                output = json.loads(result.stdout.strip())
+            except json.JSONDecodeError as e:
+                raise RuntimeError(
+                    f"Failed to parse Puppeteer output, when recording the session: {e}. Output: {result.stdout[:500]}"
+                ) from e
+            if not output.get("success"):
+                error_msg = output.get("error", "Unknown error")
+                raise RuntimeError(f"Puppeteer recorder failed, when recording the session: {error_msg}")
+            # Parse inactivity periods
+            inactivity_periods = None
+            if output.get("inactivity_periods"):
+                inactivity_periods = [
+                    ReplayInactivityPeriod.model_validate(period) for period in output["inactivity_periods"]
+                ]
+            # Parse segment timestamps
+            segment_start_timestamps = {}
+            if output.get("segment_start_timestamps"):
+                segment_start_timestamps = {int(k): float(v) for k, v in output["segment_start_timestamps"].items()}
+            # Return the result
+            logger.info(
+                "video_exporter.puppeteer_recorder_success",
+                video_path=output["video_path"],
+                pre_roll=output["pre_roll"],
+                playback_speed=output["playback_speed"],
+            )
+            return RecordingResult(
+                video_path=output["video_path"],
+                pre_roll=output["pre_roll"],
+                playback_speed=output["playback_speed"],
+                measured_width=output.get("measured_width"),
+                inactivity_periods=inactivity_periods,
+                segment_start_timestamps=segment_start_timestamps,
+            )
+        except subprocess.TimeoutExpired as e:
+            logger.exception("video_exporter.puppeteer_recorder_timeout", timeout=max_wait_s)
+            raise RuntimeError(f"Puppeteer recorder timed out after {max_wait_s}s when recording the session") from e
 
 
 PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
@@ -542,7 +550,6 @@ def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
 def record_replay_to_file(
     opts: RecordReplayToFileOptions,
 ) -> list[ReplayInactivityPeriod] | None:
-
     # Check if ffmpeg is available for video conversion
     ext = os.path.splitext(opts.image_path)[1].lower()
     if ext in [".mp4", ".gif"] and not shutil.which("ffmpeg"):
@@ -564,15 +571,15 @@ def record_replay_to_file(
         if use_nodejs:
             # ============ Node.js + Puppeteer recording ============
             logger.info("video_exporter.using_nodejs_recorder")
-            result = run_nodejs_recorder(
+            result = PuppeteerRecorder(
                 output_path=tmp_webm,
                 url_to_render=opts.url_to_render,
                 wait_for_css_selector=opts.wait_for_css_selector,
                 recording_duration=opts.recording_duration,
+                playback_speed=opts.playback_speed,
                 screenshot_width=opts.screenshot_width,
                 screenshot_height=opts.screenshot_height,
-                playback_speed=opts.playback_speed,
-            )
+            ).record()
 
             pre_roll = result.pre_roll
             playback_speed = result.playback_speed
