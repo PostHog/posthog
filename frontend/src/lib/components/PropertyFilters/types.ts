@@ -64,6 +64,4 @@ export interface PropertyFilterInternalProps {
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
-    /** Allow users to type custom property keys (e.g., metadata.revenue_source) that aren't in the predefined list */
-    allowCustomProperties?: boolean
 }

@@ -47,7 +47,6 @@ export function TaxonomicFilter({
     maxContextOptions,
     useVerticalLayout,
     allowNonCapturedEvents = false,
-    allowCustomProperties = false,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -80,7 +79,6 @@ export function TaxonomicFilter({
         useVerticalLayout,
         autoSelectItem: true,
         allowNonCapturedEvents,
-        allowCustomProperties,
         maxContextOptions,
     }
 

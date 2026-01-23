@@ -66,8 +66,6 @@ export interface TaxonomicFilterProps {
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
-    /** Allow users to type custom property keys (e.g., metadata.revenue_source) that aren't in the predefined list (default: false) */
-    allowCustomProperties?: boolean
 }
 
 export interface DataWarehousePopoverField {

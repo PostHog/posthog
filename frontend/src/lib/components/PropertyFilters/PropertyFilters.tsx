@@ -54,8 +54,6 @@ export interface PropertyFiltersProps {
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
-    /** Allow users to type custom property keys (e.g., metadata.revenue_source) that aren't in the predefined list */
-    allowCustomProperties?: boolean
 }
 
 export function PropertyFilters({
@@ -91,7 +89,6 @@ export function PropertyFilters({
     hideBehavioralCohorts,
     addFilterDocLink,
     operatorAllowlist,
-    allowCustomProperties,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -163,7 +160,6 @@ export function PropertyFilters({
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
                                             operatorAllowlist={operatorAllowlist}
-                                            allowCustomProperties={allowCustomProperties}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}
