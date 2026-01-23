@@ -29,6 +29,13 @@ TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional
 
 TEMPORAL_HEALTH_PORT: int = get_from_env("TEMPORAL_HEALTH_PORT", 8011, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float = get_from_env("TEMPORAL_HEALTH_MAX_IDLE_SECONDS", 300.0, type_cast=float)
+TEMPORAL_METRICS_SERVER_ENABLED: bool = get_from_env("TEMPORAL_METRICS_SERVER_ENABLED", "1").lower() in [
+    "1",
+    "true",
+    "t",
+    "y",
+    "yes",
+]
 
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 

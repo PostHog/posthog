@@ -44,10 +44,11 @@ class ManagedWorker:
     """A Temporal worker bundled with its associated resources for unified lifecycle management."""
 
     worker: Worker
-    metrics_server: CombinedMetricsServer
+    metrics_server: CombinedMetricsServer | None = None
 
     async def run(self) -> None:
-        await self.metrics_server.start()
+        if self.metrics_server:
+            await self.metrics_server.start()
         await self.worker.run()
 
     def is_shutdown(self) -> bool:
@@ -55,7 +56,8 @@ class ManagedWorker:
 
     async def shutdown(self) -> None:
         await self.worker.shutdown()
-        await self.metrics_server.stop()
+        if self.metrics_server:
+            await self.metrics_server.stop()
 
 
 async def create_worker(
@@ -76,6 +78,7 @@ async def create_worker(
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
+    enable_metrics_server: bool = True,
 ) -> ManagedWorker:
     """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
@@ -104,44 +107,56 @@ async def create_worker(
             If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
         target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
+        enable_metrics_server: Whether to start the combined metrics server. Defaults to True.
+            Set to False to disable the metrics server (useful when it causes GIL contention issues).
     """
 
-    temporal_metrics_port = get_free_port()
-    temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
+    metrics_server: CombinedMetricsServer | None = None
 
-    # Use PrometheusConfig to expose Temporal SDK metrics on an internal port.
-    # The combined metrics server fetches from this endpoint and merges with
-    # prometheus_client metrics on the main metrics port.
-    runtime = Runtime(
-        telemetry=TelemetryConfig(
-            metric_prefix=metric_prefix,
-            metrics=PrometheusConfig(
-                bind_address=temporal_metrics_bind_address,
-                durations_as_seconds=False,
-                # Units are u64 milliseconds in sdk-core,
-                # given that the `duration_as_seconds` is `False`.
-                # But in Python we still need to pass floats due to type hints.
-                histogram_bucket_overrides=dict(
-                    zip(
-                        BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+    if enable_metrics_server:
+        temporal_metrics_port = get_free_port()
+        temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
+
+        # Use PrometheusConfig to expose Temporal SDK metrics on an internal port.
+        # The combined metrics server fetches from this endpoint and merges with
+        # prometheus_client metrics on the main metrics port.
+        runtime = Runtime(
+            telemetry=TelemetryConfig(
+                metric_prefix=metric_prefix,
+                metrics=PrometheusConfig(
+                    bind_address=temporal_metrics_bind_address,
+                    durations_as_seconds=False,
+                    # Units are u64 milliseconds in sdk-core,
+                    # given that the `duration_as_seconds` is `False`.
+                    # But in Python we still need to pass floats due to type hints.
+                    histogram_bucket_overrides=dict(
+                        zip(
+                            BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
+                            itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+                        )
                     )
-                )
-                | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
-            ),
+                    | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
+                ),
+            )
         )
-    )
 
-    # Create a separate CollectorRegistry for the metrics server to avoid lock contention
-    # with any other parts of the application that might use the global REGISTRY.
-    # This ensures the metrics server thread cannot deadlock with other threads.
-    metrics_server_registry = CollectorRegistry()
+        # Create a separate CollectorRegistry for the metrics server to avoid lock contention
+        # with any other parts of the application that might use the global REGISTRY.
+        # This ensures the metrics server thread cannot deadlock with other threads.
+        metrics_server_registry = CollectorRegistry()
 
-    metrics_server = CombinedMetricsServer(
-        port=metrics_port,
-        temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
-        registry=metrics_server_registry,
-    )
+        metrics_server = CombinedMetricsServer(
+            port=metrics_port,
+            temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
+            registry=metrics_server_registry,
+        )
+    else:
+        logger.info("Metrics server disabled")
+        runtime = Runtime(
+            telemetry=TelemetryConfig(
+                metric_prefix=metric_prefix,
+            )
+        )
     client = await connect(
         host,
         port,
