@@ -859,11 +859,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         },
         setFilters: ({ pushToHistory }) => {
             if (values.hasRunQuery) {
-                posthog.capture('logs filter changed', { filter_type: 'bulk' })
-                actions.addProductIntent({
-                    product_type: ProductKey.LOGS,
-                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
-                })
                 if (pushToHistory) {
                     actions.pushToFilterHistory(values.filters)
                 }
