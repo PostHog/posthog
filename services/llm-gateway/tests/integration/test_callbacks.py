@@ -115,7 +115,7 @@ class TestCallbacksReceiveCorrectData:
     def test_callback_receives_token_counts(self, anthropic_client: Anthropic) -> None:
         received_data = {}
 
-        async def capture_on_success(self, kwargs, response_obj, start_time, end_time):
+        async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
             standard_logging_object = kwargs.get("standard_logging_object", {})
             received_data["prompt_tokens"] = standard_logging_object.get("prompt_tokens")
             received_data["completion_tokens"] = standard_logging_object.get("completion_tokens")
@@ -143,7 +143,7 @@ class TestCallbacksReceiveCorrectData:
     def test_callback_receives_streaming_token_counts(self, anthropic_client: Anthropic) -> None:
         received_data = {}
 
-        async def capture_on_success(self, kwargs, response_obj, start_time, end_time):
+        async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
             standard_logging_object = kwargs.get("standard_logging_object", {})
             received_data["prompt_tokens"] = standard_logging_object.get("prompt_tokens")
             received_data["completion_tokens"] = standard_logging_object.get("completion_tokens")
