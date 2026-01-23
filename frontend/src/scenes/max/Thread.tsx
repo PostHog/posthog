@@ -65,7 +65,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { Region } from '~/types'
+import { PendingApproval, Region } from '~/types'
 
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
@@ -80,7 +80,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
-import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
+import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
@@ -305,21 +305,31 @@ interface MessageProps {
 function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading, isSharedThread, pendingApprovalsData } = useValues(maxThreadLogic)
+    const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
+    const { isDev } = useValues(preflightLogic)
+    const [showUiPayloadJson, setShowUiPayloadJson] = useState(false)
+    const [showToolCallResultJson, setShowToolCallResultJson] = useState(false)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
 
-    // Compute pending approval cards that match this message's tool_calls
+    // Compute resolved approval cards that match this message's tool_calls
+    // Pending approvals are now shown in the input area, so we only show resolved ones here
     // Must be at component level (not inside conditional) to satisfy React hooks rules
     const approvalCardElements = useMemo(() => {
         if (!conversationId || !isAssistantMessage(message) || !message.tool_calls?.length) {
             return null
         }
         const toolCallIds = new Set(message.tool_calls.map((tc) => tc.id).filter(Boolean))
-        const matchingApprovals = Object.values(pendingApprovalsData).filter(
-            (approval) => approval.original_tool_call_id && toolCallIds.has(approval.original_tool_call_id)
+        // Show approvals that are resolved either by backend OR frontend
+        // Backend: decision_status !== 'pending'
+        // Frontend: resolvedApprovalStatuses[id] exists (for approvals resolved during this session)
+        const matchingApprovals = (Object.values(pendingApprovalsData) as PendingApproval[]).filter(
+            (approval) =>
+                approval.original_tool_call_id &&
+                toolCallIds.has(approval.original_tool_call_id) &&
+                (approval.decision_status !== 'pending' || resolvedApprovalStatuses[approval.proposal_id])
         )
         if (matchingApprovals.length === 0) {
             return null
@@ -336,7 +346,7 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                 }}
             />
         ))
-    }, [conversationId, message, pendingApprovalsData])
+    }, [conversationId, message, pendingApprovalsData, resolvedApprovalStatuses])
 
     return (
         <MessageContainer groupType={groupType}>
@@ -459,10 +469,16 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                         // Compute actions separately to render after tool calls
                         const retriable = !!(isLastInGroup && isFinal)
                         // Check if message has a multi-question form
+                        // When isFinal is true, the form is shown in the input area, so don't render here
                         const multiQuestionFormElement = isMultiQuestionFormMessage(message)
                             ? (() => {
                                   if (message.status !== 'completed') {
                                       // Don't show streaming forms
+                                      return null
+                                  }
+                                  // Don't show the form in the thread when it's the final pending form
+                                  // because it's now displayed in the input area
+                                  if (isFinal) {
                                       return null
                                   }
                                   const formArgs = message.tool_calls?.find(
@@ -480,10 +496,9 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                           ? (nextMessage.ui_payload.create_form.answers as Record<string, string>)
                                           : undefined
                                   return (
-                                      <MultiQuestionFormComponent
+                                      <MultiQuestionFormRecap
                                           key={`${key}-multi-form`}
                                           form={form}
-                                          isFinal={isFinal}
                                           savedAnswers={savedAnswers}
                                       />
                                   )
@@ -502,7 +517,9 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                             }
 
                             if (isLastInGroup) {
-                                if (isMultiQuestionFormMessage(message)) {
+                                // When multi-question form is not final, hide actions (form is shown inline)
+                                // When it IS final, the form is shown in the input area, so show actions here
+                                if (isMultiQuestionFormMessage(message) && !isFinal) {
                                     return null
                                 }
                                 // Message has been interrupted with quick replies
@@ -547,21 +564,65 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                     ) {
                         const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
                         return (
-                            <UIPayloadAnswer
-                                key={key}
-                                toolCallId={message.tool_call_id}
-                                toolName={toolName}
-                                toolPayload={toolPayload}
-                            />
+                            <>
+                                <UIPayloadAnswer
+                                    key={key}
+                                    toolCallId={message.tool_call_id}
+                                    toolName={toolName}
+                                    toolPayload={toolPayload}
+                                />
+                                {isDev && (
+                                    <div className="ml-5 flex flex-col gap-1">
+                                        <LemonButton
+                                            size="xxsmall"
+                                            type="secondary"
+                                            icon={<IconBug />}
+                                            onClick={() => setShowUiPayloadJson(!showUiPayloadJson)}
+                                            tooltip="Development-only. Note: The JSON here is prettified"
+                                            tooltipPlacement="top-start"
+                                            className="w-fit"
+                                        >
+                                            {showUiPayloadJson ? 'Hide' : 'Show'} above tool call result as JSON
+                                        </LemonButton>
+                                        {showUiPayloadJson && (
+                                            <CodeSnippet language={Language.JSON}>
+                                                {JSON.stringify(message, null, 2)}
+                                            </CodeSnippet>
+                                        )}
+                                    </div>
+                                )}
+                            </>
                         )
                     } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
-                            <TextAnswer
-                                key={key}
-                                message={message}
-                                interactable={!isSharedThread && isLastInGroup}
-                                isFinalGroup={isFinal}
-                            />
+                            <>
+                                <TextAnswer
+                                    key={key}
+                                    message={message}
+                                    interactable={!isSharedThread && isLastInGroup}
+                                    isFinalGroup={isFinal}
+                                />
+                                {isDev && isAssistantToolCallMessage(message) && (
+                                    <div className="ml-5 flex flex-col gap-1">
+                                        <LemonButton
+                                            size="xxsmall"
+                                            type="secondary"
+                                            icon={<IconBug />}
+                                            onClick={() => setShowToolCallResultJson(!showToolCallResultJson)}
+                                            tooltip="Development-only. Note: The JSON here is prettified"
+                                            tooltipPlacement="top-start"
+                                            className="w-fit"
+                                        >
+                                            {showToolCallResultJson ? 'Hide' : 'Show'} above tool call result as JSON
+                                        </LemonButton>
+                                        {showToolCallResultJson && (
+                                            <CodeSnippet language={Language.JSON}>
+                                                {JSON.stringify(message, null, 2)}
+                                            </CodeSnippet>
+                                        )}
+                                    </div>
+                                )}
+                            </>
                         )
                     } else if (isArtifactMessage(message)) {
                         if (isVisualizationArtifactContent(message.content)) {

@@ -940,8 +940,8 @@ mod tests {
             ..Default::default()
         };
 
-        // Set rebalancing BEFORE starting checkpoint manager
-        store_manager.set_rebalancing(true);
+        // Start rebalancing BEFORE starting checkpoint manager
+        store_manager.start_rebalancing();
 
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
         manager.start();
@@ -1035,14 +1035,14 @@ mod tests {
         // Wait for the first checkpoint cycle to potentially start
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Set rebalancing mid-flight
-        store_manager.set_rebalancing(true);
+        // Start rebalancing mid-flight
+        store_manager.start_rebalancing();
 
         // Let the manager process - workers should skip due to rebalancing
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        // Clear rebalancing to allow clean shutdown
-        store_manager.set_rebalancing(false);
+        // Finish rebalancing to allow clean shutdown
+        store_manager.finish_rebalancing();
 
         manager.stop().await;
 

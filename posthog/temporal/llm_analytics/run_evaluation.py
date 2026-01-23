@@ -18,6 +18,14 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 
+from products.llm_analytics.backend.llm import Client, CompletionRequest
+from products.llm_analytics.backend.llm.errors import (
+    AuthenticationError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    QuotaExceededError,
+    RateLimitError,
+)
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
@@ -157,8 +165,6 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     """
     from django.utils import timezone
 
-    import openai
-
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
             f"Unsupported evaluation type: {evaluation['evaluation_type']}",
@@ -180,10 +186,10 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     output_config = evaluation.get("output_config", {})
     allows_na = output_config.get("allows_na", False)
 
-    # Fetch API key configuration (BYOK or trial)
+    # Fetch provider key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
 
-    def _get_llm_config():
+    def _get_provider_key() -> LLMProviderKey | None:
         config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
 
         # Check if team has active BYOK key
@@ -192,57 +198,34 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
             if key.state == LLMProviderKey.State.OK:
                 key.last_used_at = timezone.now()
                 key.save(update_fields=["last_used_at"])
-                return {
-                    "api_key": key.encrypted_config.get("api_key"),
-                    "key_id": str(key.id),
-                    "is_byok": True,
-                }
-            else:
-                # Active key exists but is invalid - fail, don't fall back to trial
-                return {
-                    "error": "key_invalid",
-                    "message": f"Your API key is {key.state}. Please fix or replace it.",
-                    "key_id": str(key.id),
-                    "key_state": key.state,
-                }
+                return key
+            # Active key exists but is invalid - fail, don't fall back to trial
+            raise ApplicationError(
+                f"Your API key is {key.state}. Please fix or replace it.",
+                {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
+                non_retryable=True,
+            )
 
         # No active key - check trial quota
         if config.trial_evals_used >= config.trial_eval_limit:
-            return {
-                "error": "trial_limit_reached",
-                "message": f"Trial evaluation limit ({config.trial_eval_limit}) reached. "
-                f"Add your own OpenAI API key to continue.",
-            }
+            raise ApplicationError(
+                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own OpenAI API key to continue.",
+                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
+                non_retryable=True,
+            )
 
-        return {
-            "api_key": None,  # Will use settings.OPENAI_API_KEY
-            "is_byok": False,
-        }
+        # Trial mode - no provider key, use PostHog defaults
+        return None
 
-    llm_config = await database_sync_to_async(_get_llm_config)()
-
-    # Check for config errors
-    if llm_config.get("error") == "trial_limit_reached":
-        raise ApplicationError(
-            llm_config["message"],
-            {"error_type": "trial_limit_reached"},
-            non_retryable=True,
-        )
-
-    if llm_config.get("error") == "key_invalid":
-        raise ApplicationError(
-            llm_config["message"],
-            {
-                "error_type": "key_invalid",
-                "key_id": llm_config.get("key_id"),
-                "key_state": llm_config.get("key_state"),
-            },
-            non_retryable=True,
-        )
+    provider_key = await database_sync_to_async(_get_provider_key)()
+    is_byok = provider_key is not None
+    key_id = str(provider_key.id) if provider_key else None
 
     # Build context from event
     event_type = event_data["event"]
     properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
 
     # Extract input/output based on event type
     if event_type == "$ai_generation":
@@ -272,26 +255,26 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
 
 Output: {output_data}"""
 
-    # Determine which API key to use
-    if llm_config.get("api_key"):
-        api_key = llm_config["api_key"]
-        is_byok = True
-        key_id = llm_config.get("key_id")
-    else:
-        api_key = settings.OPENAI_API_KEY
-        is_byok = False
-        key_id = None
-
-    # Call OpenAI
-    client = openai.OpenAI(api_key=api_key)
+    # Create unified Client with analytics disabled to prevent eval loops
+    client = Client(
+        provider_key=provider_key,
+        capture_analytics=False,
+    )
 
     try:
-        response = client.beta.chat.completions.parse(
-            model=DEFAULT_JUDGE_MODEL,
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            response_format=response_format,
+        # Signal that we're about to make a potentially long-running LLM call
+        if temporalio.activity.in_activity():
+            temporalio.activity.heartbeat("starting LLM judge call")
+        response = client.complete(
+            CompletionRequest(
+                model=DEFAULT_JUDGE_MODEL,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                provider="openai",
+                response_format=response_format,
+            )
         )
-    except openai.AuthenticationError:
+    except AuthenticationError:
         if is_byok:
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
@@ -299,7 +282,7 @@ Output: {output_data}"""
                 non_retryable=True,
             )
         raise
-    except openai.PermissionDeniedError:
+    except ModelPermissionError:
         if is_byok:
             raise ApplicationError(
                 "API key doesn't have access to this model.",
@@ -307,29 +290,25 @@ Output: {output_data}"""
                 non_retryable=True,
             )
         raise
-    except openai.RateLimitError as e:
-        # Check if this is quota exceeded vs rate limit
-        error_body = getattr(e, "body", {}) or {}
-        error_code = error_body.get("error", {}).get("code", "")
-
-        if error_code == "insufficient_quota":
-            if is_byok:
-                raise ApplicationError(
-                    "API key has exceeded its quota.",
-                    {"error_type": "quota_error", "key_id": key_id},
-                    non_retryable=True,
-                )
-            raise
+    except QuotaExceededError:
+        if is_byok:
+            raise ApplicationError(
+                "API key has exceeded its quota.",
+                {"error_type": "quota_error", "key_id": key_id},
+                non_retryable=True,
+            )
+        raise
+    except RateLimitError:
         # Regular rate limit - let it retry (default behavior)
         raise
-    except openai.NotFoundError:
+    except ModelNotFoundError:
         raise ApplicationError(
             f"Model '{DEFAULT_JUDGE_MODEL}' not found.",
             non_retryable=True,
         )
 
     # Parse structured output
-    result = response.choices[0].message.parsed
+    result = response.parsed
     if result is None:
         logger.exception("LLM judge returned empty structured response", evaluation_id=evaluation["id"])
         raise ValueError(f"LLM judge returned empty structured response for evaluation {evaluation['id']}")
@@ -344,8 +323,8 @@ Output: {output_data}"""
     result_dict: dict[str, Any] = {
         "verdict": result.verdict,
         "reasoning": result.reasoning,
-        "input_tokens": usage.prompt_tokens if usage else 0,
-        "output_tokens": usage.completion_tokens if usage else 0,
+        "input_tokens": usage.input_tokens if usage else 0,
+        "output_tokens": usage.output_tokens if usage else 0,
         "total_tokens": usage.total_tokens if usage else 0,
         "is_byok": is_byok,
         "key_id": key_id,
@@ -390,7 +369,11 @@ async def emit_evaluation_event_activity(
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
-            "$ai_trace_id": event_data["properties"].get("$ai_trace_id"),
+            "$ai_trace_id": (
+                json.loads(event_data["properties"])
+                if isinstance(event_data["properties"], str)
+                else event_data["properties"]
+            ).get("$ai_trace_id"),
             "$ai_evaluation_key_type": "byok" if result.get("is_byok") else "posthog",
             "$ai_evaluation_key_id": result.get("key_id"),
         }
@@ -477,26 +460,31 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # Normalize event_data: ensure properties is a dict, not a string
-        event_data = inputs.event_data.copy()
-        if isinstance(event_data.get("properties"), str):
-            event_data["properties"] = json.loads(event_data["properties"])
-
         # Activity 2: Execute LLM judge (fetches API key internally)
         try:
             result = await temporalio.workflow.execute_activity(
                 execute_llm_judge_activity,
-                args=[evaluation, event_data],
+                args=[evaluation, inputs.event_data],
                 schedule_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, ApplicationError) and e.cause.details:
                 details = e.cause.details[0]
-                key_id = details.get("key_id")
                 error_type = details.get("error_type")
 
-                # Only update key state for errors related to the key itself
+                # Handle skippable errors - return success with skip info
+                if error_type in ("trial_limit_reached", "key_invalid"):
+                    return {
+                        "verdict": None,
+                        "skipped": True,
+                        "skip_reason": error_type,
+                        "message": e.cause.message,
+                        "evaluation_id": evaluation["id"],
+                    }
+
+                # Update key state for API-related errors
+                key_id = details.get("key_id")
                 if key_id and error_type in ("auth_error", "permission_error", "quota_error"):
                     new_state = (
                         LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
@@ -522,7 +510,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # Activity 4: Emit evaluation event
         await temporalio.workflow.execute_activity(
             emit_evaluation_event_activity,
-            args=[evaluation, event_data, result, start_time],
+            args=[evaluation, inputs.event_data, result, start_time],
             schedule_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -530,7 +518,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # Activity 5: Emit internal telemetry (fire-and-forget)
         await temporalio.workflow.execute_activity(
             emit_internal_telemetry_activity,
-            args=[evaluation, event_data["team_id"], result],
+            args=[evaluation, evaluation["team_id"], result],
             schedule_to_close_timeout=timedelta(seconds=30),
         )
 

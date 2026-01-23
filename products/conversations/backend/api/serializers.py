@@ -87,6 +87,7 @@ class WidgetMessagesQuerySerializer(serializers.Serializer):
 
     widget_session_id = serializers.UUIDField(required=True)
     after = serializers.DateTimeField(required=False, allow_null=True)
+    limit = serializers.IntegerField(required=False, default=500, min_value=1, max_value=500)
 
 
 class WidgetTicketsQuerySerializer(serializers.Serializer):

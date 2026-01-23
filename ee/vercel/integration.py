@@ -399,14 +399,12 @@ class VercelIntegration:
         logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
         installation.delete()
-        is_dev = settings.DEBUG
         logger.info(
             "Successfully deleted Vercel installation",
             installation_id=installation_id,
-            finalized=is_dev,
             integration="vercel",
         )
-        return {"finalized": is_dev}  # Immediately finalize in dev mode for testing purposes
+        return {"finalized": True}
 
     @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:

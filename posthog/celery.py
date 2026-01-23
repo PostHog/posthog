@@ -83,6 +83,37 @@ app.steps["worker"].add(DjangoStructLogInitStep)
 task_timings: dict[str, float] = {}
 
 
+def _initialize_worker_metrics() -> None:
+    """Initialize metrics that need to survive pod restarts."""
+    # Only initialize cohort metrics on long-running workers that handle cohort calculations
+    if not _is_longrunning_worker():
+        return
+
+    try:
+        # Initialize cohort backlog metric from database state
+        from posthog.tasks.calculate_cohort import (
+            COHORT_RECALCULATIONS_BACKLOG_GAUGE,
+            get_cohort_calculation_candidates_queryset,
+        )
+
+        backlog = get_cohort_calculation_candidates_queryset().count()
+        COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+
+        logger.info("worker_metrics_initialized", cohort_backlog=backlog)
+    except Exception as e:
+        # Don't let metric initialization break worker startup
+        logger.warning("failed_to_initialize_worker_metrics", error=str(e))
+
+
+def _is_longrunning_worker() -> bool:
+    """Check if this is a long-running worker that handles cohort calculations."""
+    from posthog.tasks.utils import CeleryQueue
+
+    # Check if LONG_RUNNING queue is in the worker's queue list
+    worker_queues = os.environ.get("CELERY_WORKER_QUEUES", "").split(",")
+    return CeleryQueue.LONG_RUNNING.value in worker_queues
+
+
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
     from logging import config as logging_config
@@ -108,6 +139,9 @@ def on_worker_start(**kwargs) -> None:
 
     setup()  # makes sure things like exception autocapture are initialised
     start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
+
+    # Initialize metrics that need to survive pod restarts
+    _initialize_worker_metrics()
 
 
 # Set up clickhouse query instrumentation
