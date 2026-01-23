@@ -22,6 +22,7 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
+from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
 
 # list of all event properties defined in the taxonomy, that don't start with $
@@ -564,10 +565,8 @@ class PropertyDefinitionViewSet(
             ]
         )
 
-        use_enterprise_taxonomy = False
         order_by_verified = False
-        try:
-            # noinspection PyUnresolvedReferences
+        if EE_AVAILABLE:
             from ee.models.property_definition import EnterprisePropertyDefinition
 
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
@@ -582,9 +581,6 @@ class PropertyDefinitionViewSet(
             queryset = EnterprisePropertyDefinition.objects
 
             order_by_verified = True
-            use_enterprise_taxonomy = True
-        except ImportError:
-            pass
 
         assert isinstance(self.paginator, NotCountingLimitOffsetPaginator)
         limit = self.paginator.get_limit(self.request)
@@ -606,7 +602,7 @@ class PropertyDefinitionViewSet(
                 project_id=self.project_id,
                 table=(
                     "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
-                    if use_enterprise_taxonomy
+                    if EE_AVAILABLE
                     else "posthog_propertydefinition"
                 ),
                 property_definition_fields=property_definition_fields,
@@ -631,9 +627,7 @@ class PropertyDefinitionViewSet(
                 query.validated_data.get("exclude_core_properties", False),
                 type=query.validated_data.get("type"),
             )
-            .with_hidden_filter(
-                query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=use_enterprise_taxonomy
-            )
+            .with_hidden_filter(query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=EE_AVAILABLE)
         )
 
         with connection.cursor() as cursor:
@@ -647,12 +641,10 @@ class PropertyDefinitionViewSet(
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class: type[serializers.ModelSerializer] = self.serializer_class
-        try:
+        if EE_AVAILABLE:
             from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
 
             serializer_class = EnterprisePropertyDefinitionSerializer
-        except ImportError:
-            pass
         return serializer_class
 
     def safely_get_object(self, queryset):
@@ -664,8 +656,7 @@ class PropertyDefinitionViewSet(
             id=id,
             effective_project_id=self.project_id,
         )
-        try:
-            # noinspection PyUnresolvedReferences
+        if EE_AVAILABLE:
             from ee.models.property_definition import EnterprisePropertyDefinition
 
             enterprise_property = (
@@ -684,8 +675,6 @@ class PropertyDefinitionViewSet(
             new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
             new_enterprise_property.save()
             return new_enterprise_property
-        except ImportError:
-            pass
         return non_enterprise_property
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
