@@ -176,11 +176,18 @@ jobs:
 
             - name: Run Dagster tests
               run: |
-                  pytest posthog/dags
+                  pytest posthog/dags --junitxml=junit-dagster.xml
 
             - name: Run products Dagster tests
               run: |
-                  pytest products/**/dags
+                  pytest products/**/dags --junitxml=junit-products.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-dagster
+                  path: junit-*.xml
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:
