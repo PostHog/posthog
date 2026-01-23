@@ -63,6 +63,9 @@ def get_policy_config(
         .values()
         .first()
     )
-    if result and result.get("sample_rate") is not None:
-        result["sample_rate"] = float(result["sample_rate"])
+    if result:
+        if result.get("sample_rate") is not None:
+            result["sample_rate"] = float(result["sample_rate"])
+        if result.get("id") is not None:
+            result["id"] = str(result["id"])
     return result
