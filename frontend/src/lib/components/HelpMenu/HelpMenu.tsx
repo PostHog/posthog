@@ -257,7 +257,7 @@ export function HelpMenu(): JSX.Element {
                                         Zen mode
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
-                                <ThemeMenu alignOffset={-4} />
+                                <ThemeMenu />
                             </DropdownMenuGroup>
                         </DropdownMenuSubContent>
                     </DropdownMenuSub>
