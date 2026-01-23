@@ -35,6 +35,10 @@ inputs:
         required: false
         default: 'false'
         description: Skip building plugin transpiler (avoids esbuild, useful for tests that don't need it)
+    skip-snapshot-update:
+        required: false
+        default: 'false'
+        description: Skip --snapshot-update flag (useful for compat tests that should not modify snapshots)
 
 runs:
     using: 'composite'
@@ -194,7 +198,8 @@ runs:
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
           # runs, as we want to ignore snapshots diverging there
-          if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'
+          # Also skip for compat tests which should not modify snapshots
+          if: (github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true') && inputs.skip-snapshot-update != 'true'
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 

@@ -1045,6 +1045,8 @@ jobs:
                   oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
                   skip-plugin-transpiler: 'true'
+                  # Skip snapshot updates - compat tests verify queries work, they shouldn't modify snapshots
+                  skip-snapshot-update: 'true'
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
