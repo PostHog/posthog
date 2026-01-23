@@ -202,7 +202,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     )
 
     useOutsideClickHandler(
-        [floatingRef, referenceRef, ...additionalRefs],
+        visible ? [floatingRef, referenceRef, ...additionalRefs] : [],
         (event) => {
             // Delay by a tick to allow other Popovers to detect inside clicks.
             // If a nested popover has handled the click, don't do anything
