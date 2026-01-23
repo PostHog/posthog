@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -13,7 +13,7 @@ import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
-import { Cluster, ClusteringParams } from './types'
+import { Cluster, ClusteringLevel, ClusteringParams } from './types'
 
 function ClusteringParamsTooltip({ params }: { params: ClusteringParams }): JSX.Element {
     const formatMethodParams = (methodParams: Record<string, unknown>): string => {
@@ -66,6 +66,7 @@ function ClusteringParamsTooltip({ params }: { params: ClusteringParams }): JSX.
 
 export function ClustersView(): JSX.Element {
     const {
+        clusteringLevel,
         clusteringRuns,
         clusteringRunsLoading,
         currentRun,
@@ -77,8 +78,13 @@ export function ClustersView(): JSX.Element {
         traceSummariesLoading,
         isScatterPlotExpanded,
     } = useValues(clustersLogic)
-    const { setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded, loadClusteringRuns } =
-        useActions(clustersLogic)
+    const {
+        setClusteringLevel,
+        setSelectedRunId,
+        toggleClusterExpanded,
+        toggleScatterPlotExpanded,
+        loadClusteringRuns,
+    } = useActions(clustersLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(clustersAdminLogic)
 
@@ -109,6 +115,16 @@ export function ClustersView(): JSX.Element {
             {/* Run Selector Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
+                    <LemonSegmentedButton
+                        value={clusteringLevel}
+                        onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
+                        options={[
+                            { value: 'trace', label: 'Traces' },
+                            { value: 'generation', label: 'Generations' },
+                        ]}
+                        size="small"
+                    />
+                    <span className="text-muted">|</span>
                     <label className="font-medium">Clustering run:</label>
                     <LemonSelect
                         value={effectiveRunId || undefined}
@@ -131,7 +147,10 @@ export function ClustersView(): JSX.Element {
                 <div className="flex items-center gap-4">
                     {currentRun && (
                         <div className="flex items-center gap-2 text-muted text-sm">
-                            <span>{currentRun.totalTracesAnalyzed} traces analyzed</span>
+                            <span>
+                                {currentRun.totalItemsAnalyzed}{' '}
+                                {clusteringLevel === 'generation' ? 'generations' : 'traces'} analyzed
+                            </span>
                             <span>|</span>
                             <span>
                                 {(() => {
@@ -221,12 +240,13 @@ export function ClustersView(): JSX.Element {
                         <ClusterCard
                             key={cluster.cluster_id}
                             cluster={cluster}
-                            totalTraces={currentRun?.totalTracesAnalyzed || 0}
+                            totalTraces={currentRun?.totalItemsAnalyzed || 0}
                             isExpanded={expandedClusterIds.has(cluster.cluster_id)}
                             onToggleExpand={() => toggleClusterExpanded(cluster.cluster_id)}
                             traceSummaries={traceSummaries}
                             loadingTraces={traceSummariesLoading}
                             runId={effectiveRunId || ''}
+                            clusteringLevel={clusteringLevel}
                         />
                     ))}
                 </div>

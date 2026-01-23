@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { ClusterDescription } from './ClusterDescriptionComponents'
 import { ClusterTraceList } from './ClusterTraceList'
 import { NOISE_CLUSTER_ID } from './constants'
-import { Cluster, TraceSummary } from './types'
+import { Cluster, ClusteringLevel, TraceSummary } from './types'
 
 interface ClusterCardProps {
     cluster: Cluster
@@ -16,6 +16,7 @@ interface ClusterCardProps {
     traceSummaries: Record<string, TraceSummary>
     loadingTraces: boolean
     runId: string
+    clusteringLevel?: ClusteringLevel
 }
 
 export function ClusterCard({
@@ -26,9 +27,11 @@ export function ClusterCard({
     traceSummaries,
     loadingTraces,
     runId,
+    clusteringLevel = 'trace',
 }: ClusterCardProps): JSX.Element {
     const percentage = totalTraces > 0 ? Math.round((cluster.size / totalTraces) * 100) : 0
     const isOutlierCluster = cluster.cluster_id === NOISE_CLUSTER_ID
+    const itemLabel = clusteringLevel === 'generation' ? 'generations' : 'traces'
 
     return (
         <div
@@ -43,7 +46,7 @@ export function ClusterCard({
                         <div className="flex items-baseline gap-2 mb-2">
                             <h3 className="font-semibold text-base truncate">{cluster.title}</h3>
                             <LemonTag type={isOutlierCluster ? 'caution' : 'muted'}>
-                                {cluster.size} traces ({percentage}%)
+                                {cluster.size} {itemLabel} ({percentage}%)
                             </LemonTag>
                         </div>
                         <ClusterDescription description={cluster.description} />
@@ -69,7 +72,7 @@ export function ClusterCard({
                             to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}
                             className="text-link hover:underline text-sm font-medium"
                         >
-                            View all {Object.keys(cluster.traces).length} traces →
+                            View all {Object.keys(cluster.traces).length} {itemLabel} →
                         </Link>
                     </div>
                 </div>

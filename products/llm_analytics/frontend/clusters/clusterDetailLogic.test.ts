@@ -15,9 +15,30 @@ describe('clusterDetailLogic', () => {
         title: 'Test Cluster',
         description: 'Test cluster description',
         traces: {
-            'trace-1': { distance_to_centroid: 0.1, rank: 0, x: 0.0, y: 0.0, timestamp: '2025-01-05T10:00:00Z' },
-            'trace-2': { distance_to_centroid: 0.2, rank: 1, x: 0.1, y: 0.1, timestamp: '2025-01-05T11:00:00Z' },
-            'trace-3': { distance_to_centroid: 0.3, rank: 2, x: 0.2, y: 0.2, timestamp: '2025-01-05T12:00:00Z' },
+            'trace-1': {
+                distance_to_centroid: 0.1,
+                rank: 0,
+                x: 0.0,
+                y: 0.0,
+                timestamp: '2025-01-05T10:00:00Z',
+                trace_id: 'trace-1',
+            },
+            'trace-2': {
+                distance_to_centroid: 0.2,
+                rank: 1,
+                x: 0.1,
+                y: 0.1,
+                timestamp: '2025-01-05T11:00:00Z',
+                trace_id: 'trace-2',
+            },
+            'trace-3': {
+                distance_to_centroid: 0.3,
+                rank: 2,
+                x: 0.2,
+                y: 0.2,
+                timestamp: '2025-01-05T12:00:00Z',
+                trace_id: 'trace-3',
+            },
         },
         centroid: [1.0],
         centroid_x: 0.1,
@@ -258,7 +279,7 @@ describe('clusterDetailLogic', () => {
                     traces: Object.fromEntries(
                         Array.from({ length: 120 }, (_, i) => [
                             `trace-${i}`,
-                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '' },
+                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '', trace_id: `trace-${i}` },
                         ])
                     ),
                 }
@@ -281,7 +302,7 @@ describe('clusterDetailLogic', () => {
                     traces: Object.fromEntries(
                         Array.from({ length: 100 }, (_, i) => [
                             `trace-${i}`,
-                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '' },
+                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '', trace_id: `trace-${i}` },
                         ])
                     ),
                 }
@@ -303,7 +324,7 @@ describe('clusterDetailLogic', () => {
                     traces: Object.fromEntries(
                         Array.from({ length: 100 }, (_, i) => [
                             `trace-${i}`,
-                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '' },
+                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '', trace_id: `trace-${i}` },
                         ])
                     ),
                 }
