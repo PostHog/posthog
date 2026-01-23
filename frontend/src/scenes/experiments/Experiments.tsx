@@ -137,7 +137,7 @@ const ExperimentsTableFilters = ({
                             [
                                 { label: 'All', value: 'all' },
                                 { label: 'Draft', value: ProgressStatus.Draft },
-                                { label: 'Running', value: ProgressStatus.Running },
+                                { label: 'Running / Paused', value: ProgressStatus.Running },
                                 { label: 'Complete', value: ProgressStatus.Complete },
                             ] as { label: string; value: string }[]
                         }

@@ -75,6 +75,11 @@ export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
         return ProgressStatus.Draft
     } else if (!experiment.end_date) {
+        // When the feature flag is disabled, we show "Paused" to the user for better UX.
+        // This is just a virtual status, the backend still considers the experiment "running".
+        if (experiment.feature_flag && !experiment.feature_flag.active) {
+            return ProgressStatus.Paused
+        }
         return ProgressStatus.Running
     }
     return ProgressStatus.Complete
@@ -109,6 +114,8 @@ export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
             return 'default'
         case ProgressStatus.Running:
             return 'success'
+        case ProgressStatus.Paused:
+            return 'warning'
         case ProgressStatus.Complete:
             return 'completion'
     }

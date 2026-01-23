@@ -146,10 +146,10 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                             <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
-                                    {status === ProgressStatus.Running && !experiment.feature_flag.active && (
+                                    {status === ProgressStatus.Paused && (
                                         <Tooltip
                                             placement="bottom"
-                                            title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                            title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                         >
                                             <IconWarning
                                                 style={{ transform: 'translateY(2px)' }}
