@@ -4,11 +4,8 @@ import { StepDefinition, StepModifier } from '../steps'
 export const getAngularSteps = (
     CodeBlock: any,
     Markdown: any,
-    CalloutBox: any,
-    Tab: any,
     dedent: any,
     snippets: any,
-    options?: StepModifier
 ): StepDefinition[] => {
     const JSEventCapture = snippets?.JSEventCapture
 
@@ -91,8 +88,8 @@ export const getAngularSteps = (
 }
 
 export const AngularInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-    const steps = getAngularSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets, { modifySteps })
+    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
+    const steps = getAngularSteps(CodeBlock, Markdown, dedent, snippets)
 
     return (
         <Steps>
