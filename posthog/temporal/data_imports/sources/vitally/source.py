@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -44,7 +44,9 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             for endpoint in VITALLY_ENDPOINTS
         ]
 
-    def validate_credentials(self, config: VitallySourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: VitallySourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if config.region.selection == "US" and not subdomain_regex.match(config.region.subdomain):
             return False, "Vitally subdomain is incorrect"

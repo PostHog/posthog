@@ -3,7 +3,6 @@ pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_tot
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
 pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
-pub const TEAM_CACHE_ERRORS_COUNTER: &str = "flags_team_cache_errors_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
@@ -57,6 +56,11 @@ pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
 // - status="eligible": lookup could be skipped but wasn't (optimization feature is disabled)
 pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
     "flags_experience_continuity_optimized_total";
+
+// Hash key override query result metric
+// Tracks the result of hash key override queries to understand cache optimization potential
+// Labels: result="empty" (no overrides found) | result="has_overrides" (overrides exist)
+pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
 
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";

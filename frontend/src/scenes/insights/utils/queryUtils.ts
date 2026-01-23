@@ -117,6 +117,8 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
+
+    [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.TwoDimensionalHeatmap,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
@@ -171,16 +173,10 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             detailedResultsAggregationType: undefined,
             showFullUrls: undefined,
             selectedInterval: undefined,
+            funnelStepReference: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined
-
-        if (isInsightQueryWithSeries(cleanedQuery)) {
-            cleanedQuery.series = cleanedQuery.series.map((entity) => {
-                const { custom_name, ...cleanedEntity } = entity
-                return cleanedEntity
-            })
-        }
 
         if (isInsightQueryWithDisplay(cleanedQuery)) {
             cleanedQuery[insightFilterKey].display =

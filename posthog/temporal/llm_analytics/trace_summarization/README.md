@@ -97,7 +97,7 @@ temporal workflow start \
 
 ### Scheduled Execution
 
-The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `batch-trace-summarization-schedule`.
+The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
 ### Team Allowlist
 
@@ -110,7 +110,7 @@ Key constants in `constants.py`:
 | Constant                             | Default    | Description                 |
 | ------------------------------------ | ---------- | --------------------------- |
 | `DEFAULT_MAX_TRACES_PER_WINDOW`      | 100        | Max traces per window       |
-| `DEFAULT_BATCH_SIZE`                 | 5          | Concurrent trace processing |
+| `DEFAULT_BATCH_SIZE`                 | 3          | Concurrent trace processing |
 | `DEFAULT_MODE`                       | "detailed" | Summary detail level        |
 | `DEFAULT_WINDOW_MINUTES`             | 60         | Time window to query        |
 | `WORKFLOW_EXECUTION_TIMEOUT_MINUTES` | 120        | Max workflow duration       |

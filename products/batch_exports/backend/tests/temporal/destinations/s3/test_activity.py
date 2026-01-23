@@ -413,3 +413,44 @@ async def test_insert_into_s3_activity_fails_on_invalid_file_format(
     assert result.error.message == "'invalid' is not a supported format for S3 batch exports."
     assert result.error_repr is not None
     assert result.error_repr == "UnsupportedFileFormatError: 'invalid' is not a supported format for S3 batch exports."
+
+
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("compression", ["invalid"])
+async def test_insert_into_s3_activity_fails_on_invalid_compression(
+    clickhouse_client,
+    bucket_name,
+    minio_client,
+    activity_environment,
+    compression,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel,
+    ateam,
+):
+    """Test the insert_into_s3_activity_from_stage activity returns an error when an invalid compression is requested."""
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix="any",
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        compression=compression,
+        exclude_events=exclude_events,
+        file_format="JSONLines",
+        batch_export_schema=None,
+        batch_export_model=model,
+        batch_export_id=str(uuid.uuid4()),
+        destination_default_fields=s3_default_fields(),
+    )
+
+    result = await run_activity(activity_environment, insert_inputs)
+    assert result.error is not None
+    assert result.error.type == "UnsupportedCompressionError"
+    assert result.error.message == "'invalid' is not a supported compression for S3 batch exports."

@@ -1,11 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconGear, IconPlus } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -29,43 +25,10 @@ interface ProjectNoticeBlueprint {
     closeable?: boolean
 }
 
-function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
-    const [now, setNow] = useState(dayjs())
-    const { isVisible: isPageVisible } = usePageVisibility()
-
-    const duration = dayjs.duration(datetime.diff(now))
-    const pastCountdown = duration.seconds() < 0
-
-    const countdown = pastCountdown
-        ? 'Expired'
-        : duration.hours() > 0
-          ? duration.format('HH:mm:ss')
-          : duration.format('mm:ss')
-
-    useEffect(() => {
-        if (!isPageVisible) {
-            return
-        }
-
-        setNow(dayjs())
-        const interval = setInterval(() => setNow(dayjs()), 1000)
-        return () => clearInterval(interval)
-    }, [isPageVisible])
-
-    useEffect(() => {
-        if (pastCountdown) {
-            callback?.() // oxlint-disable-line react-hooks/exhaustive-deps
-        }
-    }, [pastCountdown])
-
-    return <>{countdown}</>
-}
-
 export function ProjectNotice({ className }: { className?: string }): JSX.Element | null {
     const { projectNoticeVariant } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { logout, loadUser } = useActions(userLogic)
-    const { user, userLoading } = useValues(userLogic)
+    const { user } = useValues(userLogic)
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
@@ -148,31 +111,6 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                 children: 'Send verification email',
             },
             type: 'warning',
-        },
-        is_impersonated: {
-            message: (
-                <>
-                    You are currently logged in as a customer.{' '}
-                    {user?.is_impersonated_until && (
-                        <>
-                            Expires in <CountDown datetime={dayjs(user.is_impersonated_until)} callback={loadUser} />
-                            {userLoading ? (
-                                <Spinner />
-                            ) : (
-                                <Link className="ml-2" onClick={() => loadUser()}>
-                                    Refresh
-                                </Link>
-                            )}
-                        </>
-                    )}
-                </>
-            ),
-            type: 'warning',
-            action: {
-                'data-attr': 'stop-impersonation-cta',
-                onClick: () => logout(),
-                children: 'Log out',
-            },
         },
         internet_connection_issue: {
             message: 'PostHog is having trouble connecting to the server. Please check your connection.',

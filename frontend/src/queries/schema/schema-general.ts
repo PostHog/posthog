@@ -412,6 +412,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[]
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1020,6 +1022,22 @@ export interface ChartSettingsDisplay {
     displayType?: 'auto' | 'line' | 'bar'
 }
 
+export interface HeatmapGradientStop {
+    value: number
+    color: string
+}
+
+export interface HeatmapSettings {
+    xAxisColumn?: string
+    yAxisColumn?: string
+    valueColumn?: string
+    xAxisLabel?: string
+    yAxisLabel?: string
+    gradient?: HeatmapGradientStop[]
+    gradientPreset?: string
+    gradientScaleMode?: 'absolute' | 'relative'
+}
+
 export interface YAxisSettings {
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
@@ -1044,6 +1062,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    heatmap?: HeatmapSettings
 }
 
 export interface ConditionalFormattingRule {
@@ -1112,6 +1131,8 @@ interface DataTableNodeViewProps {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
+    /** Show count of total and filtered results */
+    showCount?: boolean
     /** Show the time it takes to run a query */
     showElapsedTime?: boolean
     /** Show a detailed query timing breakdown */
@@ -2051,7 +2072,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
-    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalType
     /** Groups aggregation - not used in Web Analytics but required for type compatibility */
     aggregation_group_type_index?: integer | null
@@ -2851,7 +2872,6 @@ export type FileSystemIconType =
     | 'insight/stickiness'
     | 'insight/hog'
     | 'team_activity'
-    | 'feed'
     | 'home'
     | 'apps'
     | 'live'
@@ -2860,6 +2880,7 @@ export type FileSystemIconType =
     | 'folder'
     | 'folder_open'
     | 'conversations'
+    | 'toolbar'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -2947,6 +2968,7 @@ export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
     credible_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
@@ -2954,11 +2976,13 @@ export interface MaxExperimentVariantResultFrequentist {
     key: string
     p_value: number | null
     confidence_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
 export interface MaxExperimentMetricResult {
     name: string
+    goal: 'increase' | 'decrease' | null
     variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
 }
 
@@ -4550,20 +4574,9 @@ export interface CampaignFieldPreference {
     match_field: MatchField
 }
 
-/** Maps a CoreEvent to marketing analytics with optional UTM field mappings */
-export interface MarketingConversionGoalMapping {
-    /** Reference to the CoreEvent.id */
-    core_event_id: string
-    /** UTM field mappings - required for DataWarehouseNode, optional otherwise */
-    schema_map?: SchemaMap
-}
-
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
-    /** @deprecated Use conversion_goal_mappings instead. Kept for backwards compatibility. */
     conversion_goals?: ConversionGoalFilter[]
-    /** Mappings to team-level conversion goals with optional schema_map for DW goals */
-    conversion_goal_mappings?: MarketingConversionGoalMapping[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
     campaign_name_mappings?: Record<string, Record<string, string[]>>
@@ -5160,17 +5173,21 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MOBILE_REPLAY = 'mobile_replay',
+    NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     PRODUCT_ANALYTICS = 'product_analytics',
+    PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
     SURVEYS = 'surveys',
-    USER_INTERVIEWS = 'user_interviews',
+    TASKS = 'tasks',
     TEAMS = 'teams',
+    TOOLBAR = 'toolbar',
+    USER_INTERVIEWS = 'user_interviews',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
 }
@@ -5282,6 +5299,21 @@ export enum ProductIntentContext {
 
     // Workflows
     WORKFLOW_CREATED = 'workflow_created',
+
+    // Data Pipelines
+    DATA_PIPELINE_CREATED = 'data_pipeline_created',
+
+    // Notebooks
+    NOTEBOOK_CREATED = 'notebook_created',
+
+    // Product Tours
+    PRODUCT_TOUR_CREATED = 'product_tour_created',
+
+    // Tasks
+    TASK_CREATED = 'task_created',
+
+    // Toolbar
+    TOOLBAR_LAUNCHED = 'toolbar_launched',
 
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',

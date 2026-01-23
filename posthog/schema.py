@@ -39,6 +39,8 @@ class AgentMode(StrEnum):
     SQL = "sql"
     SESSION_REPLAY = "session_replay"
     ERROR_TRACKING = "error_tracking"
+    PLAN = "plan"
+    EXECUTION = "execution"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -68,6 +70,28 @@ class AlertState(StrEnum):
     NOT_FIRING = "Not firing"
     ERRORED = "Errored"
     SNOOZED = "Snoozed"
+
+
+class ApprovalDecisionStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    AUTO_REJECTED = "auto_rejected"
+
+
+class Action(StrEnum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class ApprovalResumePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Action
+    feedback: str | None = None
+    payload: dict[str, Any] | None = None
+    proposal_id: str
 
 
 class ArtifactContentType(StrEnum):
@@ -137,6 +161,7 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
     NOTEBOOK = "notebook"
     UPDATE = "update"
+    APPROVAL = "approval"
 
 
 class AssistantFormOption(BaseModel):
@@ -324,6 +349,10 @@ class AssistantTool(StrEnum):
     CREATE_FORM = "create_form"
     TASK = "task"
     UPSERT_DASHBOARD = "upsert_dashboard"
+    MANAGE_MEMORIES = "manage_memories"
+    CREATE_NOTEBOOK = "create_notebook"
+    LIST_DATA = "list_data"
+    FINALIZE_PLAN = "finalize_plan"
 
 
 class AssistantToolCall(BaseModel):
@@ -372,6 +401,7 @@ class Display(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
+    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
 
 
 class YAxisScaleType(StrEnum):
@@ -630,6 +660,7 @@ class ChartDisplayType(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
+    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
 
 
 class DisplayType(StrEnum):
@@ -908,6 +939,17 @@ class CustomEventConversionGoal(BaseModel):
         extra="forbid",
     )
     customEventName: str
+
+
+class DangerousOperationResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    payload: dict[str, Any]
+    preview: str
+    proposalId: str
+    status: Literal["pending_approval"] = "pending_approval"
+    toolName: str
 
 
 class DataColorToken(StrEnum):
@@ -1646,7 +1688,6 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
-    FEED = "feed"
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
@@ -1655,6 +1696,7 @@ class FileSystemIconType(StrEnum):
     FOLDER = "folder"
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
+    TOOLBAR = "toolbar"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -1798,6 +1840,33 @@ class GoogleAdsTableExclusions(StrEnum):
 
 class GoogleAdsTableKeywords(StrEnum):
     CAMPAIGN = "campaign"
+
+
+class HeatmapGradientStop(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: str
+    value: float
+
+
+class GradientScaleMode(StrEnum):
+    ABSOLUTE = "absolute"
+    RELATIVE = "relative"
+
+
+class HeatmapSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    gradient: list[HeatmapGradientStop] | None = None
+    gradientPreset: str | None = None
+    gradientScaleMode: GradientScaleMode | None = None
+    valueColumn: str | None = None
+    xAxisColumn: str | None = None
+    xAxisLabel: str | None = None
+    yAxisColumn: str | None = None
+    yAxisLabel: str | None = None
 
 
 class HedgehogColorOptions(StrEnum):
@@ -1987,6 +2056,10 @@ class IntegrationKind(StrEnum):
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
     BING_ADS = "bing-ads"
+    VERCEL = "vercel"
+    AZURE_BLOB = "azure-blob"
+    FIREBASE = "firebase"
+    JIRA = "jira"
 
 
 class IntervalType(StrEnum):
@@ -2352,6 +2425,40 @@ class MaxErrorTrackingIssueContext(BaseModel):
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
 
 
+class MaxErrorTrackingIssuePreview(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = Field(..., description="Issue description or exception message")
+    first_seen: str | None = Field(..., description="When the issue was first seen")
+    id: str = Field(..., description="Issue ID")
+    last_seen: str | None = Field(..., description="When the issue was last seen")
+    library: str | None = Field(..., description="Library/runtime that generated the error")
+    name: str | None = Field(..., description="Issue name/title")
+    occurrences: float = Field(..., description="Total number of occurrences")
+    sessions: float = Field(..., description="Number of affected sessions")
+    status: str = Field(..., description="Issue status (active, resolved, etc.)")
+    users: float = Field(..., description="Number of affected users")
+
+
+class MaxErrorTrackingSearchResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str | None = Field(default=None, description="Start of date range")
+    date_to: str | None = Field(default=None, description="End of date range")
+    has_more: bool | None = Field(default=None, description="Whether there are more results available")
+    issues: list[MaxErrorTrackingIssuePreview] | None = Field(
+        default=None, description="Preview of issues found matching the filters"
+    )
+    limit: float | None = Field(default=None, description="Number of results to return")
+    next_cursor: str | None = Field(default=None, description="Cursor for pagination")
+    order_by: str | None = Field(default=None, description="Field to order by")
+    order_direction: str | None = Field(default=None, description="Order direction (ASC or DESC)")
+    search_query: str | None = Field(default=None, description="Free text search query")
+    status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
+
+
 class MaxEventContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2362,12 +2469,19 @@ class MaxEventContext(BaseModel):
     type: Literal["event"] = "event"
 
 
+class Goal(Enum):
+    INCREASE = "increase"
+    DECREASE = "decrease"
+    NONE_TYPE_NONE = None
+
+
 class MaxExperimentVariantResultBayesian(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     chance_to_win: float | None = None
     credible_interval: list[float] | None = None
+    delta: float | None = None
     key: str
     significant: bool
 
@@ -2377,6 +2491,7 @@ class MaxExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: list[float] | None = None
+    delta: float | None = None
     key: str
     p_value: float | None = None
     significant: bool
@@ -2443,7 +2558,10 @@ class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    value: str = Field(..., description="The value to use when this option is selected")
+    description: str | None = Field(
+        default=None, description="A longer description of the option, in one short sentence"
+    )
+    value: str = Field(..., description="A short value to use when this option is selected, in a few words")
 
 
 class MultipleBreakdownType(StrEnum):
@@ -2726,6 +2844,11 @@ class ProductIntentContext(StrEnum):
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     WORKFLOW_CREATED = "workflow_created"
+    DATA_PIPELINE_CREATED = "data_pipeline_created"
+    NOTEBOOK_CREATED = "notebook_created"
+    PRODUCT_TOUR_CREATED = "product_tour_created"
+    TASK_CREATED = "task_created"
+    TOOLBAR_LAUNCHED = "toolbar_launched"
     VERCEL_INTEGRATION = "vercel_integration"
 
 
@@ -2756,17 +2879,21 @@ class ProductKey(StrEnum):
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
     MOBILE_REPLAY = "mobile_replay"
+    NOTEBOOKS = "notebooks"
     PERSONS = "persons"
     PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
+    PRODUCT_TOURS = "product_tours"
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
     SURVEYS = "surveys"
-    USER_INTERVIEWS = "user_interviews"
+    TASKS = "tasks"
     TEAMS = "teams"
+    TOOLBAR = "toolbar"
+    USER_INTERVIEWS = "user_interviews"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
@@ -2833,6 +2960,15 @@ class PropertyOperator(StrEnum):
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
+    SEMVER_EQ = "semver_eq"
+    SEMVER_NEQ = "semver_neq"
+    SEMVER_GT = "semver_gt"
+    SEMVER_GTE = "semver_gte"
+    SEMVER_LT = "semver_lt"
+    SEMVER_LTE = "semver_lte"
+    SEMVER_TILDE = "semver_tilde"
+    SEMVER_CARET = "semver_caret"
+    SEMVER_WILDCARD = "semver_wildcard"
 
 
 class Mark(BaseModel):
@@ -3194,6 +3330,7 @@ class SessionRecordingExternalReference(BaseModel):
     id: str
     integration: Integration
     issue_id: str
+    metadata: dict[str, str] | None = None
     title: str
 
 
@@ -3871,6 +4008,10 @@ class AlertCondition(BaseModel):
     type: AlertConditionType
 
 
+class ApprovalCardUIStatus(RootModel[ApprovalDecisionStatus | str]):
+    root: ApprovalDecisionStatus | str
+
+
 class AssistantArrayPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4400,6 +4541,7 @@ class ChartSettings(BaseModel):
         extra="forbid",
     )
     goalLines: list[GoalLine] | None = None
+    heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
@@ -4864,6 +5006,14 @@ class FileSystemImport(BaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
+class FormResumePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["form"] = "form"
+    form_answers: dict[str, str]
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4953,6 +5103,9 @@ class HogQLQueryModifiers(BaseModel):
     customChannelTypeRules: list[CustomChannelRule] | None = None
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
     debug: bool | None = None
+    forceClickhouseDataSkippingIndexes: list[str] | None = Field(
+        default=None, description="If these are provided, the query will fail if these skip indexes are not used"
+    )
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
     materializationMode: MaterializationMode | None = None
@@ -5111,16 +5264,6 @@ class MarketingAnalyticsSchemaField(BaseModel):
     type: list[MarketingAnalyticsSchemaFieldTypes]
 
 
-class MarketingConversionGoalMapping(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    core_event_id: str = Field(..., description="Reference to the CoreEvent.id")
-    schema_map: dict[str, str | Any] | None = Field(
-        default=None, description="UTM field mappings - required for DataWarehouseNode, optional otherwise"
-    )
-
-
 class MarketingIntegrationConfigType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5157,6 +5300,7 @@ class MaxExperimentMetricResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    goal: Goal | None
     name: str
     variant_results: list[MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist]
 
@@ -5209,6 +5353,7 @@ class MultiQuestionFormQuestion(BaseModel):
     id: str = Field(..., description="Unique identifier for this question")
     options: list[MultiQuestionFormQuestionOption] = Field(..., description="Available answer options")
     question: str = Field(..., description="The question text to display")
+    title: str = Field(..., description='One word title for the question e.g. "Use case", "Team size", "Experience"')
 
 
 class NotebookInfo(RootModel[DeepResearchNotebook]):
@@ -5382,6 +5527,10 @@ class QueryStatusResponse(BaseModel):
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
     root: ResultCustomizationByValue | ResultCustomizationByPosition
+
+
+class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload]):
+    root: ApprovalResumePayload | FormResumePayload
 
 
 class RetentionValue(BaseModel):
@@ -5666,6 +5815,7 @@ class SavedInsightNode(BaseModel):
         default=None, description="Show a button to configure the table's columns if possible"
     )
     showCorrelationTable: bool | None = None
+    showCount: bool | None = Field(default=None, description="Show count of total and filtered results")
     showDateRange: bool | None = Field(default=None, description="Show date range selector")
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
@@ -5819,6 +5969,7 @@ class SessionRecordingType(BaseModel):
         default=None, description="Number of whole days left until the recording expires."
     )
     retention_period_days: float | None = Field(default=None, description="retention period for this recording")
+    snapshot_library: str | None = None
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
@@ -10666,9 +10817,6 @@ class MarketingAnalyticsConfig(BaseModel):
     attribution_window_days: float | None = None
     campaign_field_preferences: dict[str, CampaignFieldPreference] | None = None
     campaign_name_mappings: dict[str, dict[str, list[str]]] | None = None
-    conversion_goal_mappings: list[MarketingConversionGoalMapping] | None = Field(
-        default=None, description="Mappings to team-level conversion goals with optional schema_map for DW goals"
-    )
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
     sources_map: dict[str, SourceMap] | None = None
@@ -13030,7 +13178,7 @@ class WebExternalClicksTableQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
     limit: int | None = None
@@ -13067,7 +13215,7 @@ class WebGoalsQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
     limit: int | None = None
@@ -13103,7 +13251,7 @@ class WebOverviewQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -13138,7 +13286,7 @@ class WebPageURLSearchQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
     limit: int | None = None
@@ -13180,7 +13328,7 @@ class WebStatsTableQuery(BaseModel):
     includeScrollDepth: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: int | None = None
@@ -14248,7 +14396,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -14289,7 +14437,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
@@ -14392,7 +14540,7 @@ class NonIntegratedConversionsTableQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["NonIntegratedConversionsTableQuery"] = "NonIntegratedConversionsTableQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
@@ -14738,7 +14886,7 @@ class WebTrendsQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     interval: IntervalType = Field(
-        ..., description="For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+        ..., description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
     )
     kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
     limit: int | None = None
@@ -14776,7 +14924,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
     metric: WebVitalsMetric
@@ -16568,7 +16716,7 @@ class WebVitalsQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebVitalsQuery"] = "WebVitalsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -16977,6 +17125,7 @@ class DataTableNode(BaseModel):
     showColumnConfigurator: bool | None = Field(
         default=None, description="Show a button to configure the table's columns if possible"
     )
+    showCount: bool | None = Field(default=None, description="Show count of total and filtered results")
     showDateRange: bool | None = Field(default=None, description="Show date range selector")
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(

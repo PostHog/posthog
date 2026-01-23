@@ -135,6 +135,22 @@ SurveyStats = TypedDict(
 )
 
 
+def get_survey_conditions_with_actions(
+    survey: "Survey", action_serializer_class: type[serializers.Serializer] | None = None
+) -> dict | None:
+    if action_serializer_class is None:
+        action_serializer_class = ActionSerializer
+    conditions = survey.conditions
+    actions = survey.actions.all()
+    if len(actions) > 0:
+        if conditions is None:
+            conditions = {}
+        else:
+            conditions = dict(conditions)
+        conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
+    return conditions
+
+
 class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -150,6 +166,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
     )
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
+    enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -199,18 +216,13 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "enable_iframe_embedding",
             "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
     def get_conditions(self, survey: Survey):
-        actions = survey.actions.all()
-        if len(actions) > 0:
-            # actionNames can change between when the survey is created and when its retrieved.
-            # update the actionNames in the response from the real names of the actions as defined
-            # in data management.
-            survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
-        return survey.conditions
+        return get_survey_conditions_with_actions(survey)
 
 
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
@@ -229,6 +241,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     )
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
+    enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -267,9 +280,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "enable_iframe_embedding",
             "_create_in_folder",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["conditions"] = get_survey_conditions_with_actions(instance)
+        return data
 
     def validate_appearance(self, value):
         if value is None:
@@ -314,29 +333,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
-
-        actions = value.get("actions", None)
-
-        if actions is None:
-            return value
-
-        values = actions.get("values", None)
-        if values is None or len(values) == 0:
-            return value
-
-        action_ids = [value.get("id") for value in values if isinstance(value, dict) and "id" in value]
-
-        if len(action_ids) == 0:
-            return value
-
-        project_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
-
-        for project_action in project_actions:
-            for step in project_action.steps:
-                if step.properties is not None and len(step.properties) > 0:
-                    raise serializers.ValidationError(
-                        "Survey cannot be activated by an Action with property filters defined on it."
-                    )
 
         return value
 
@@ -412,7 +408,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         linked_flag = None
         if linked_flag_id:
             try:
-                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id)
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
@@ -1932,16 +1928,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_conditions(self, survey: Survey):
-        actions = survey.actions.all()
-        if len(actions) > 0:
-            # action names can change between when the survey is created and when its retrieved.
-            # update the actionNames in the response from the real names of the actions as defined
-            # in data management.
-            if survey.conditions is None:
-                survey.conditions = {}
-
-            survey.conditions["actions"] = {"values": SurveyAPIActionSerializer(actions, many=True).data}
-        return survey.conditions
+        return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
 
 
 def get_surveys_opt_in(team: Team) -> bool:
@@ -2140,16 +2127,22 @@ def public_survey_page(request, survey_id: str):
     survey_data = serializer.data
     context = {
         "name": survey.name,
+        "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
         "debug": settings.DEBUG,
+        "embed_mode": request.GET.get("embed") == "true",
     }
 
     logger.info("survey_page_rendered", survey_id=survey_id, team_id=survey.team.id)
 
     response = render(request, "surveys/public_survey.html", context)
 
-    response["X-Frame-Options"] = "DENY"  # Override global SAMEORIGIN to prevent iframe embedding
+    if survey.enable_iframe_embedding:
+        response.xframe_options_exempt = True
+    else:
+        response["X-Frame-Options"] = "DENY"
+
     # Cache headers
     response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
     response["Vary"] = "Accept-Encoding"  # Enable compression caching

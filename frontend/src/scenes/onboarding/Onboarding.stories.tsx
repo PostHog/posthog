@@ -314,23 +314,6 @@ export const ReverseProxy = (): JSX.Element => {
     return <App />
 }
 
-export const AIConsent = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.AI_CONSENT })
-        )
-    })
-
-    return <App />
-}
-AIConsent.parameters = {
-    featureFlags: [FEATURE_FLAGS.ONBOARDING_AI_CONSENT_STEP],
-}
-
 export const TellUsMore = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
     const { setProduct } = useActions(onboardingLogic)

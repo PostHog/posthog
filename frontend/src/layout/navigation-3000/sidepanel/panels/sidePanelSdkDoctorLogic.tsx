@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { SemanticVersion, diffVersions, parseVersion, versionToString } from 'lib/utils/semver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -63,10 +64,12 @@ export type AugmentedTeamSdkVersionsInfoRelease = {
     count: number
     latestVersion: string
     releaseDate: string | undefined
+    releasedAgo: string | undefined
     daysSinceRelease: number | undefined
     isOutdated: boolean
     isOld: boolean
     needsUpdating: boolean
+    isCurrentOrNewer: boolean
 }
 
 /**
@@ -157,11 +160,13 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                 return Object.fromEntries(
                     Object.entries(rawData).map(([sdkType, teamSdkUsage]) => {
+                        const isSingleVersion = teamSdkUsage.usage.length === 1
                         const releasesInfo = teamSdkUsage.usage.map((usageEntry) =>
                             computeAugmentedInfoRelease(
                                 sdkType as SdkType,
                                 usageEntry,
-                                parseVersion(teamSdkUsage.latest_version)
+                                parseVersion(teamSdkUsage.latest_version),
+                                isSingleVersion
                             )
                         )
 
@@ -299,7 +304,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 function computeAugmentedInfoRelease(
     type: SdkType,
     usageEntry: TeamSdkUsageEntry,
-    latestVersion: SemanticVersion
+    latestVersion: SemanticVersion,
+    isSingleVersion: boolean = false
 ): AugmentedTeamSdkVersionsInfoRelease {
     try {
         // Parse versions for comparison
@@ -307,6 +313,11 @@ function computeAugmentedInfoRelease(
 
         // Check if versions differ
         const diff = diffVersions(latestVersion, currentVersion)
+
+        // Check if current version is equal to or newer than cached latest
+        // This handles the case where events show a newer version than what's cached from GitHub
+        // diff === null means versions are equal; diff.diff <= 0 means current >= latest
+        const isCurrentOrNewer = diff === null || diff.diff <= 0
 
         // Count number of versions behind by estimating based on semantic version difference
         let releasesBehind = 0
@@ -355,8 +366,15 @@ function computeAugmentedInfoRelease(
         // Smart version detection based on semver difference
         let isOutdated = false
 
-        // Apply grace period first - don't flag anything <7 days old
-        if (isRecentRelease) {
+        // Single version case: only warn if >30 days old to avoid false positives after upgrades
+        // When a user upgrades, old events from the previous version are still in the 7-day window
+        // but no new events with the new version exist yet, causing confusing "Outdated" warnings
+        const SINGLE_VERSION_GRACE_PERIOD_DAYS = 30
+
+        if (isSingleVersion && diff && diff.kind !== 'patch') {
+            isOutdated = daysSinceRelease !== undefined && daysSinceRelease > SINGLE_VERSION_GRACE_PERIOD_DAYS
+        } else if (isRecentRelease) {
+            // Apply grace period - don't flag anything <7 days old
             isOutdated = false
         } else if (diff) {
             switch (diff.kind) {
@@ -386,7 +404,9 @@ function computeAugmentedInfoRelease(
             isOutdated,
             isOld, // Returned separately for "Old" badge in UI
             needsUpdating: isOutdated || isOld,
+            isCurrentOrNewer,
             releaseDate: usageEntry.release_date,
+            releasedAgo: usageEntry.release_date ? dayjs(usageEntry.release_date).fromNow() : undefined,
             daysSinceRelease,
             latestVersion: versionToString(latestVersion),
         }
@@ -400,7 +420,9 @@ function computeAugmentedInfoRelease(
             isOutdated: false,
             isOld: false,
             needsUpdating: false,
+            isCurrentOrNewer: false,
             releaseDate: undefined,
+            releasedAgo: undefined,
             daysSinceRelease: undefined,
             latestVersion: versionToString(latestVersion),
         }

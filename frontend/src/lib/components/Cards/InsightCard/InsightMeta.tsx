@@ -161,9 +161,7 @@ export function InsightMeta({
         ) : null
 
     const surveyOpportunityButton =
-        surveyOpportunity &&
-        featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
-        isSurveyableFunnelInsight(insight) ? (
+        surveyOpportunity && isSurveyableFunnelInsight(insight) ? (
             <SurveyOpportunityButton
                 insight={insight}
                 disableAutoPromptSubmit={true}
@@ -471,7 +469,11 @@ export function InsightMetaContent({
         </h4>
     )
     if (link) {
-        titleEl = <Link to={link}>{titleEl}</Link>
+        titleEl = (
+            <Link to={link} className="max-w-full truncate">
+                {titleEl}
+            </Link>
+        )
     }
 
     return (

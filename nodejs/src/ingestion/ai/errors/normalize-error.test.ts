@@ -296,14 +296,36 @@ describe('processAiErrorNormalization', () => {
         expect(result.properties!['$ai_error_normalized']).toBeUndefined()
     })
 
-    it('does not add $ai_error_normalized when $ai_error is missing', () => {
+    it('sets fallback when $ai_error is missing', () => {
         const event = createEvent({
             $ai_is_error: true,
         })
 
         const result = processAiErrorNormalization(event)
 
-        expect(result.properties!['$ai_error_normalized']).toBeUndefined()
+        expect(result.properties!['$ai_error_normalized']).toBe('Unknown error')
+    })
+
+    it('sets fallback when $ai_error is null', () => {
+        const event = createEvent({
+            $ai_is_error: true,
+            $ai_error: null,
+        })
+
+        const result = processAiErrorNormalization(event)
+
+        expect(result.properties!['$ai_error_normalized']).toBe('Unknown error')
+    })
+
+    it('sets fallback when $ai_error normalizes to empty string', () => {
+        const event = createEvent({
+            $ai_is_error: true,
+            $ai_error: '   ',
+        })
+
+        const result = processAiErrorNormalization(event)
+
+        expect(result.properties!['$ai_error_normalized']).toBe('Unknown error')
     })
 
     it('handles events without properties', () => {

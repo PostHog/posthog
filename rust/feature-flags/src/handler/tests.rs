@@ -21,7 +21,7 @@ use crate::{
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     utils::test_utils::{
         insert_flags_for_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
-        setup_pg_writer_client, setup_redis_client, TestContext,
+        setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
     },
 };
 use axum::http::HeaderMap;
@@ -1161,11 +1161,12 @@ fn test_decode_request_content_types() {
 async fn test_fetch_and_filter_flags() {
     let redis_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
     let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
     let flag_service = FlagService::new(
         redis_client.clone(),
         reader.clone(),
-        432000, // team_cache_ttl_seconds
+        team_hypercache_reader,
         hypercache_reader,
     );
     let context = TestContext::new(None).await;
@@ -1369,4 +1370,42 @@ fn test_disable_flags_request_parsing() {
         !request.is_flags_disabled(),
         "Default should be flags enabled"
     );
+}
+
+#[test]
+fn test_logs_config_serialization_enabled() {
+    use crate::api::types::ConfigResponse;
+
+    let mut config = ConfigResponse::new();
+    config.set("logs", serde_json::json!({"captureConsoleLogs": true}));
+
+    let serialized = serde_json::to_string(&config).expect("Failed to serialize");
+    assert!(serialized.contains("\"logs\""));
+    assert!(serialized.contains("\"captureConsoleLogs\":true"));
+}
+
+#[test]
+fn test_logs_config_serialization_disabled() {
+    use crate::api::types::ConfigResponse;
+
+    let config = ConfigResponse::default();
+
+    let serialized = serde_json::to_string(&config).expect("Failed to serialize");
+    // Empty config should serialize to empty object
+    assert_eq!(serialized, "{}");
+}
+
+#[test]
+fn test_flags_response_with_logs_config() {
+    use crate::api::types::FlagsResponse;
+    use std::collections::HashMap;
+
+    let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+
+    response
+        .config
+        .set("logs", serde_json::json!({"captureConsoleLogs": true}));
+
+    let serialized = serde_json::to_string(&response).expect("Failed to serialize");
+    assert!(serialized.contains("\"logs\":{\"captureConsoleLogs\":true}"));
 }

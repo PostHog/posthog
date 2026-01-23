@@ -123,6 +123,7 @@ function JsonConfigField(props: {
 }): JSX.Element {
     const key = useMemo(() => `json_field_${uuid()}`, [])
     const templatingKind = props.input.templating ?? 'hog'
+    const [isExpanded, setIsExpanded] = useState(true)
 
     // Set up validation logic for this JSON field
     const logic = cyclotronJobInputLogic({
@@ -140,7 +141,7 @@ function JsonConfigField(props: {
     const panels = [
         {
             key: 1,
-            header: 'Click to edit',
+            header: isExpanded ? 'Click to collapse' : 'Click to expand',
             content: (
                 <LemonField.Pure error={error}>
                     <span className={clsx('group relative', props.className)}>
@@ -183,7 +184,15 @@ function JsonConfigField(props: {
         },
     ]
 
-    return <LemonCollapse embedded={false} panels={panels} size="xsmall" />
+    return (
+        <LemonCollapse
+            embedded={false}
+            panels={panels}
+            size="xsmall"
+            activeKey={isExpanded ? 1 : undefined}
+            onChange={(key) => setIsExpanded(key === 1)}
+        />
+    )
 }
 
 function EmailTemplateField({

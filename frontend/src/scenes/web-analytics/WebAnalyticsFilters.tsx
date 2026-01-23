@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { useState } from 'react'
 
 import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
@@ -29,6 +29,7 @@ import { PropertyMathType } from '~/types'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
+import { WebAnalyticsFiltersV2MigrationBanner } from './WebAnalyticsFiltersV2MigrationBanner'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
     WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
@@ -40,35 +41,39 @@ import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const {
         dateFilter: { dateTo, dateFrom },
         isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <FilterBar
-            top={tabs}
-            left={
-                <>
-                    <ReloadAll iconOnly />
-                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                    <WebAnalyticsCompareFilter />
-                </>
-            }
-            right={
-                <>
-                    <ShareButton />
-                    <WebVitalsPercentileToggle />
-                    {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTER_PRESETS] && <FilterPresetsDropdown />}
-                    <FiltersPopover />
-                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
-                    <WebAnalyticsDomainSelector />
-                    <TableSortingIndicator />
-                </>
-            }
-        />
+        <>
+            <WebAnalyticsFiltersV2MigrationBanner />
+            <IncompatibleFiltersWarning />
+            <FilterBar
+                top={tabs}
+                left={
+                    <>
+                        <ReloadAll iconOnly />
+                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                        <WebAnalyticsCompareFilter />
+                    </>
+                }
+                right={
+                    <>
+                        <ShareButton />
+                        <WebVitalsPercentileToggle />
+                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && <FilterPresetsDropdown />}
+                        <FiltersPopover />
+                        <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+                        <WebAnalyticsDomainSelector />
+                        <TableSortingIndicator />
+                    </>
+                }
+            />
+        </>
     )
 }
 
@@ -81,43 +86,45 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
         return <CondensedWebAnalyticsFilterBar tabs={tabs} />
     }
 
     return (
-        <FilterBar
-            top={tabs}
-            left={
-                <>
-                    <ReloadAll iconOnly />
-                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+        <>
+            <IncompatibleFiltersWarning />
+            <FilterBar
+                top={tabs}
+                left={
+                    <>
+                        <ReloadAll iconOnly />
+                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
-                    <WebAnalyticsDomainSelector />
-                    <WebAnalyticsDeviceToggle />
-                    <LiveUserCount
-                        docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
-                        dataAttr="web-analytics-live-user-count"
-                    />
-                </>
-            }
-            right={
-                <>
-                    {featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && <ShareButton />}
-                    <WebAnalyticsCompareFilter />
+                        <WebAnalyticsDomainSelector />
+                        <WebAnalyticsDeviceToggle />
+                        <LiveUserCount
+                            docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+                            dataAttr="web-analytics-live-user-count"
+                        />
+                    </>
+                }
+                right={
+                    <>
+                        <WebAnalyticsCompareFilter />
 
-                    <WebConversionGoal />
-                    <TableSortingIndicator />
+                        <WebConversionGoal />
+                        <TableSortingIndicator />
 
-                    <WebVitalsPercentileToggle />
-                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+                        <WebVitalsPercentileToggle />
+                        <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
 
-                    <WebAnalyticsAIFilters>
-                        <WebPropertyFilters />
-                    </WebAnalyticsAIFilters>
-                </>
-            }
-        />
+                        <WebAnalyticsAIFilters>
+                            <WebPropertyFilters />
+                        </WebAnalyticsAIFilters>
+                    </>
+                }
+            />
+        </>
     )
 }
 
@@ -130,11 +137,6 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     } = useValues(webAnalyticsLogic)
     const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
         useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_POSTHOG_AI]) {
-        return children
-    }
 
     return (
         <MaxTool
@@ -238,7 +240,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
         scope: Scene.WebAnalytics,
     })
 
-    if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
         return (
             <LemonSelect
                 size="small"
@@ -507,5 +509,33 @@ const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
                 Add authorized URL
             </LemonButton>
         </div>
+    )
+}
+
+const IncompatibleFiltersWarning = (): JSX.Element | null => {
+    const { hasIncompatibleFilters, incompatibleFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
+    const { removeIncompatibleFilters } = useActions(webAnalyticsLogic)
+
+    if (!preAggregatedEnabled || !hasIncompatibleFilters) {
+        return null
+    }
+
+    const filterNames = incompatibleFilters.map((filter) => filter.key).join(', ')
+
+    return (
+        <LemonBanner type="warning" className="mb-2">
+            <div className="flex items-center justify-between w-full">
+                <div>
+                    <div className="font-semibold">Some filters are slowing down your queries</div>
+                    <div className="text-sm mt-0.5">
+                        The following filters are not supported by the new query engine and are causing your queries to
+                        slow down: <strong>{filterNames}</strong>
+                    </div>
+                </div>
+                <LemonButton type="primary" size="small" onClick={removeIncompatibleFilters}>
+                    Remove unsupported filters
+                </LemonButton>
+            </div>
+        </LemonBanner>
     )
 }

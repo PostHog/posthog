@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconCheck, IconCheckCircle, IconWarning } from '@posthog/icons'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -46,6 +47,9 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectDomain,
         requiredAccessLevel,
         authorizationComplete,
+        scopesWereDefaulted,
+        isMcpResource,
+        resourceScopesLoading,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -71,17 +75,36 @@ export const OAuthAuthorize = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col items-center justify-center h-full">
-            <div className="max-w-2xl mx-auto py-12 px-6">
-                <div className="text-center mb-8">
-                    <h2 className="text-2xl font-semibold">
+        <div className="min-h-full overflow-y-auto">
+            <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
+                <div className="text-center mb-4 sm:mb-8">
+                    <h2 className="text-xl sm:text-2xl font-semibold">
                         Authorize <strong>{oauthApplication.name}</strong>
                     </h2>
-                    <p className="text-muted mt-2">{oauthApplication.name} is requesting access to your data.</p>
+                    <p className="text-muted mt-2 text-sm sm:text-base">
+                        {oauthApplication.name} is requesting access to your data.
+                    </p>
                 </div>
 
+                {!oauthApplication.is_verified && (
+                    <div className="flex items-center gap-2 p-3 mb-4 bg-warning-highlight border border-warning rounded text-sm">
+                        <IconWarning className="text-warning shrink-0" />
+                        <span>
+                            <strong>Unverified application.</strong> This application has not been verified by PostHog.
+                            Only authorize if you trust the developer.
+                        </span>
+                    </div>
+                )}
+
+                {scopesWereDefaulted && isMcpResource && (
+                    <LemonBanner type="info" className="mb-4">
+                        <strong>No permissions requested.</strong> This application didn't request specific permissions.
+                        Showing all permissions supported by this resource.
+                    </LemonBanner>
+                )}
+
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
-                    <div className="flex flex-col gap-6 bg-bg-light border border-border rounded p-6 shadow">
+                    <div className="flex flex-col gap-4 sm:gap-6 bg-bg-light border border-border rounded p-4 sm:p-6 shadow">
                         <ScopeAccessSelector
                             accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
@@ -91,14 +114,21 @@ export const OAuthAuthorize = (): JSX.Element => {
                         />
                         <div>
                             <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
-                            <ul className="space-y-2">
-                                {scopeDescriptions.map((scopeDescription, idx) => (
-                                    <li key={idx} className="flex items-center space-x-2 text-large">
-                                        <IconCheck color="var(--success)" />
-                                        <span className="font-medium">{scopeDescription}</span>
-                                    </li>
-                                ))}
-                            </ul>
+                            {resourceScopesLoading ? (
+                                <div className="flex items-center gap-2 py-2">
+                                    <Spinner className="text-muted" />
+                                    <span className="text-muted">Loading permissions...</span>
+                                </div>
+                            ) : (
+                                <ul className="space-y-2">
+                                    {scopeDescriptions.map((scopeDescription, idx) => (
+                                        <li key={idx} className="flex items-center space-x-2 text-large">
+                                            <IconCheck color="var(--success)" />
+                                            <span className="font-medium">{scopeDescription}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
 
                         {redirectDomain && (
@@ -113,7 +143,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                             </div>
                         )}
 
-                        <div className="flex justify-end space-x-2 pt-4">
+                        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4">
                             <LemonButton
                                 type="tertiary"
                                 status="alt"
@@ -142,7 +172,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         ? 'Authorizing...'
                                         : isCanceling
                                           ? 'Processing...'
-                                          : undefined
+                                          : resourceScopesLoading
+                                            ? 'Loading permissions...'
+                                            : undefined
                                 }
                                 onClick={() => submitOauthAuthorization()}
                             >

@@ -104,13 +104,17 @@ export interface AssistantForm {
 }
 
 export interface MultiQuestionFormQuestionOption {
-    /** The value to use when this option is selected */
+    /** A short value to use when this option is selected, in a few words */
     value: string
+    /** A longer description of the option, in one short sentence */
+    description?: string
 }
 
 export interface MultiQuestionFormQuestion {
     /** Unique identifier for this question */
     id: string
+    /** One word title for the question e.g. "Use case", "Team size", "Experience" */
+    title: string
     /** The question text to display */
     question: string
     /** Available answer options */
@@ -119,10 +123,28 @@ export interface MultiQuestionFormQuestion {
     allow_custom_answer?: boolean
 }
 
+export interface MultiQuestionFormAnswers {
+    [questionId: string]: string
+}
+
 export interface MultiQuestionForm {
     /** The questions to ask */
     questions: MultiQuestionFormQuestion[]
 }
+
+export interface ApprovalResumePayload {
+    action: 'approve' | 'reject'
+    proposal_id: string
+    feedback?: string
+    payload?: Record<string, unknown>
+}
+
+export interface FormResumePayload {
+    action: 'form'
+    form_answers: MultiQuestionFormAnswers
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
@@ -320,6 +342,7 @@ export enum AssistantEventType {
     Conversation = 'conversation',
     Notebook = 'notebook',
     Update = 'update',
+    Approval = 'approval',
 }
 
 export interface AssistantUpdateEvent {
@@ -353,6 +376,22 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     content: string
     tool_call_id: string
 }
+
+/** Status value indicating an operation requires user approval before execution */
+export const PENDING_APPROVAL_STATUS = 'pending_approval' as const
+
+/** Response returned when a tool operation requires user approval */
+export interface DangerousOperationResponse {
+    status: typeof PENDING_APPROVAL_STATUS
+    proposalId: string
+    toolName: string
+    preview: string
+    payload: Record<string, any>
+}
+
+export type ApprovalDecisionStatus = 'pending' | 'approved' | 'rejected' | 'auto_rejected'
+
+export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejecting' | 'custom'
 
 export type AssistantTool =
     | 'search_session_recordings'
@@ -394,12 +433,18 @@ export type AssistantTool =
     | 'create_form'
     | 'task'
     | 'upsert_dashboard'
+    | 'manage_memories'
+    | 'create_notebook'
+    | 'list_data'
+    | 'finalize_plan'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
     ErrorTracking = 'error_tracking',
+    Plan = 'plan',
+    Execution = 'execution',
 }
 
 export enum SlashCommandName {

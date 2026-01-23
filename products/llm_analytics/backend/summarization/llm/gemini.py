@@ -35,6 +35,8 @@ async def summarize_with_gemini(
         response_json_schema=SummarizationResponse.model_json_schema(),
     )
 
+    logger.info("Calling Gemini API", model=model, team_id=team_id, mode=mode, text_length=len(text_repr))
+
     try:
         response = await client.aio.models.generate_content(
             model=model,
@@ -44,9 +46,11 @@ async def summarize_with_gemini(
 
         if not response.text:
             raise exceptions.ValidationError("Gemini returned empty response")
+
+        logger.info("Gemini API call succeeded", model=model, team_id=team_id, response_length=len(response.text))
         return SummarizationResponse.model_validate_json(response.text)
     except exceptions.ValidationError:
         raise
-    except Exception:
-        logger.exception("Gemini API call failed")
+    except Exception as e:
+        logger.exception("Gemini API call failed", error_type=type(e).__name__, error_message=str(e))
         raise exceptions.APIException("Failed to generate summary due to an internal error")

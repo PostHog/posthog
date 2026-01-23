@@ -7,27 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-
-/**
- * * `draft` - draft
- * `concept` - concept
- * `alpha` - alpha
- * `beta` - beta
- * `general-availability` - general availability
- * `archived` - archived
- */
-export type StageEnumApi = (typeof StageEnumApi)[keyof typeof StageEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StageEnumApi = {
-    draft: 'draft',
-    concept: 'concept',
-    alpha: 'alpha',
-    beta: 'beta',
-    'general-availability': 'general-availability',
-    archived: 'archived',
-} as const
-
 /**
  * * `server` - Server
  * `client` - Client
@@ -66,6 +45,74 @@ export const BucketingIdentifierEnumApi = {
     device_id: 'device_id',
 } as const
 
+export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
+
+export interface MinimalFeatureFlagApi {
+    readonly id: number
+    readonly team_id: number
+    name?: string
+    /** @maxLength 400 */
+    key: string
+    filters?: MinimalFeatureFlagApiFilters
+    deleted?: boolean
+    active?: boolean
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    /** Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
+    /** Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
+    readonly evaluation_tags: readonly string[]
+}
+
+/**
+ * * `draft` - draft
+ * `concept` - concept
+ * `alpha` - alpha
+ * `beta` - beta
+ * `general-availability` - general availability
+ * `archived` - archived
+ */
+export type StageEnumApi = (typeof StageEnumApi)[keyof typeof StageEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const StageEnumApi = {
+    draft: 'draft',
+    concept: 'concept',
+    alpha: 'alpha',
+    beta: 'beta',
+    'general-availability': 'general-availability',
+    archived: 'archived',
+} as const
+
+export interface EarlyAccessFeatureApi {
+    readonly id: string
+    readonly feature_flag: MinimalFeatureFlagApi
+    /** @maxLength 200 */
+    name: string
+    description?: string
+    stage: StageEnumApi
+    /** @maxLength 800 */
+    documentation_url?: string
+    readonly payload: string
+    readonly created_at: string
+}
+
 export interface PaginatedEarlyAccessFeatureListApi {
     count: number
     /** @nullable */
@@ -90,19 +137,6 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     _create_in_folder?: string
 }
 
-export interface EarlyAccessFeatureApi {
-    readonly id: string
-    readonly feature_flag: MinimalFeatureFlagApi
-    /** @maxLength 200 */
-    name: string
-    description?: string
-    stage: StageEnumApi
-    /** @maxLength 800 */
-    documentation_url?: string
-    readonly payload: string
-    readonly created_at: string
-}
-
 export interface PatchedEarlyAccessFeatureApi {
     readonly id?: string
     readonly feature_flag?: MinimalFeatureFlagApi
@@ -114,82 +148,6 @@ export interface PatchedEarlyAccessFeatureApi {
     documentation_url?: string
     readonly payload?: string
     readonly created_at?: string
-}
-
-export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MinimalFeatureFlagApiEvaluationRuntime = {
-    ...EvaluationRuntimeEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
- * @nullable
- */
-export type MinimalFeatureFlagApiEvaluationRuntime =
-    | (typeof MinimalFeatureFlagApiEvaluationRuntime)[keyof typeof MinimalFeatureFlagApiEvaluationRuntime]
-    | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MinimalFeatureFlagApiBucketingIdentifier = {
-    ...BucketingIdentifierEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID
- * @nullable
- */
-export type MinimalFeatureFlagApiBucketingIdentifier =
-    | (typeof MinimalFeatureFlagApiBucketingIdentifier)[keyof typeof MinimalFeatureFlagApiBucketingIdentifier]
-    | null
-
-export interface MinimalFeatureFlagApi {
-    readonly id: number
-    readonly team_id: number
-    name?: string
-    /** @maxLength 400 */
-    key: string
-    filters?: MinimalFeatureFlagApiFilters
-    deleted?: boolean
-    active?: boolean
-    /** @nullable */
-    ensure_experience_continuity?: boolean | null
-    /** @nullable */
-    has_encrypted_payloads?: boolean | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    version?: number | null
-    /**
-   * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
-   * @nullable
-   */
-    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
-    /**
-   * Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID
-   * @nullable
-   */
-    bucketing_identifier?: MinimalFeatureFlagApiBucketingIdentifier
-    readonly evaluation_tags: readonly string[]
 }
 
 export type EarlyAccessFeatureListParams = {

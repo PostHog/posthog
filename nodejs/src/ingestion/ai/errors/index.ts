@@ -1,15 +1,18 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { aiErrorNormalizationCounter } from '../metrics'
 import { normalizeError } from './normalize-error'
+
+const UNKNOWN_ERROR = 'Unknown error'
 
 /**
  * Process error normalization for AI events.
  *
- * Only normalizes events that have $ai_is_error = true and $ai_error property.
- * Adds $ai_error_normalized property with the normalized error message.
+ * For all events with $ai_is_error = true, ensures $ai_error_normalized is set.
+ * This guarantees errors can be grouped in the LLM analytics errors tab.
  *
  * This is a non-blocking operation - if normalization fails for any reason,
- * the original event is returned unchanged.
+ * a fallback value is used.
  */
 export function processAiErrorNormalization<T extends PluginEvent>(event: T): T {
     if (!event.properties) {
@@ -30,6 +33,9 @@ export function processAiErrorNormalization<T extends PluginEvent>(event: T): T 
 
         const aiError = event.properties['$ai_error']
         if (aiError === undefined || aiError === null) {
+            // No error message provided, use fallback
+            event.properties['$ai_error_normalized'] = UNKNOWN_ERROR
+            aiErrorNormalizationCounter.labels({ status: 'fallback' }).inc()
             return event
         }
 
@@ -48,13 +54,15 @@ export function processAiErrorNormalization<T extends PluginEvent>(event: T): T 
         // Normalize the error message
         const normalizedError = normalizeError(errorString)
 
-        // Only set if we have a non-empty normalized error
-        if (normalizedError) {
-            event.properties['$ai_error_normalized'] = normalizedError
-        }
+        // Always set normalized error, use fallback if normalization produced empty result
+        event.properties['$ai_error_normalized'] = normalizedError || UNKNOWN_ERROR
+        aiErrorNormalizationCounter.labels({ status: normalizedError ? 'normalized' : 'fallback' }).inc()
 
         return event
     } catch {
+        // Ensure we still set a value even on error
+        event.properties['$ai_error_normalized'] = UNKNOWN_ERROR
+        aiErrorNormalizationCounter.labels({ status: 'error' }).inc()
         return event
     }
 }

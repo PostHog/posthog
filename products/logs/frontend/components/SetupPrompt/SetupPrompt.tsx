@@ -5,11 +5,14 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ListHog } from 'lib/components/hedgehogs'
+import { useInterval } from 'lib/hooks/useInterval'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { logsIngestionLogic } from './logsIngestionLogic'
+
+const POLLING_INTERVAL_MS = 5000
 
 export const LogsSetupPrompt = ({
     children,
@@ -18,15 +21,19 @@ export const LogsSetupPrompt = ({
     children: React.ReactNode
     className?: string
 }): JSX.Element => {
-    const { hasLogs, hasLogsLoading } = useValues(logsIngestionLogic)
+    const { hasLogs, teamHasLogsLoading, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    if (hasLogsLoading || !currentTeam) {
+    if ((teamHasLogsLoading && hasLogs === undefined) || !currentTeam) {
         return (
             <div className="flex justify-center">
                 <Spinner />
             </div>
         )
+    }
+
+    if (teamHasLogsCheckFailed || hasLogs === undefined) {
+        return <>{children}</>
     }
 
     if (!hasLogs) {
@@ -38,6 +45,14 @@ export const LogsSetupPrompt = ({
 
 const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null => {
     const { addProductIntent } = useActions(teamLogic)
+    const { hasLogs } = useValues(logsIngestionLogic)
+    const { loadTeamHasLogs } = useActions(logsIngestionLogic)
+
+    useInterval(() => {
+        if (!hasLogs) {
+            loadTeamHasLogs()
+        }
+    }, POLLING_INTERVAL_MS)
 
     return (
         <ProductIntroduction
@@ -50,20 +65,29 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
             className={className}
             customHog={ListHog}
             actionElementOverride={
-                <LemonButton
-                    type="primary"
-                    targetBlank
-                    sideIcon={<IconExternal className="w-5 h-5" />}
-                    to="https://posthog.com/docs/logs/"
-                    onClick={() => {
-                        addProductIntent({
-                            product_type: ProductKey.LOGS,
-                            intent_context: ProductIntentContext.LOGS_DOCS_VIEWED,
-                        })
-                    }}
-                >
-                    Configure your logging client
-                </LemonButton>
+                <div className="flex flex-col items-start gap-4">
+                    <LemonButton
+                        type="primary"
+                        targetBlank
+                        sideIcon={<IconExternal className="w-5 h-5" />}
+                        to="https://posthog.com/docs/logs/"
+                        onClick={() => {
+                            addProductIntent({
+                                product_type: ProductKey.LOGS,
+                                intent_context: ProductIntentContext.LOGS_DOCS_VIEWED,
+                            })
+                        }}
+                    >
+                        Configure your logging client
+                    </LemonButton>
+                    <div className="flex items-center gap-2 px-3 py-1.5 border border-accent rounded">
+                        <div className="relative flex items-center justify-center">
+                            <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
+                            <div className="w-2 h-2 bg-accent rounded-full" />
+                        </div>
+                        <span className="text-sm">Watching for logs</span>
+                    </div>
+                </div>
             }
         />
     )

@@ -1,0 +1,40 @@
+.SessionRecordingsKiosk {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: black;
+
+    &--loading,
+    &--empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    &__message {
+        padding: 2rem;
+        color: white;
+        text-align: center;
+
+        h2 {
+            margin: 0 0 1rem;
+            font-size: 1.5rem;
+        }
+
+        p {
+            margin: 0.5rem 0;
+            opacity: 0.8;
+        }
+
+        a {
+            color: #1d4aff;
+            text-decoration: underline;
+
+            &:hover {
+                color: #5b7eff;
+            }
+        }
+    }
+}

@@ -146,9 +146,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         try:
             self.setup_model_paths()
 
-            schedule_exists = saved_query_workflow_exists(str(self.id))
+            schedule_exists = saved_query_workflow_exists(self)
             if schedule_exists and unpause:
-                unpause_saved_query_schedule(str(self.id))
+                unpause_saved_query_schedule(self)
             sync_saved_query_workflow(self, create=not schedule_exists)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
@@ -160,8 +160,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             )
 
             # Disable materialization for this view if we failed to schedule the workflow
-            # TODO: Should we have a cron job that re-enables materialization for managed viewset-based views
-            # that failed to schedule?
+            # We can re-enable schedules via the resume_schedule API endpoint
             self.is_materialized = False
             self.save(update_fields=["is_materialized"])
 
@@ -181,7 +180,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                 self.table.soft_delete()
                 self.table_id = None
 
-            delete_saved_query_schedule(str(self.id))
+            delete_saved_query_schedule(self)
 
             self.save()
 
@@ -267,9 +266,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None

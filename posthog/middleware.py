@@ -24,22 +24,18 @@ from django.utils.cache import add_never_cache_headers
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
-from rest_framework import status
 from social_core.exceptions import AuthCanceled, AuthFailed
 from statshog.defaults.django import statsd
 
-from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
-from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
@@ -48,10 +44,8 @@ from posthog.utils import _is_valid_ip_address
 from products.notebooks.backend.models import Notebook
 
 from .auth import PersonalAPIKeyAuthentication
-from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
-    "decide",
     "static",
     "_health",
     "flags",
@@ -68,7 +62,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"decide", "api", "flags", "scim"}
+cookie_api_paths_to_ignore = {"api", "flags", "scim"}
 
 
 class AllowIPMiddleware:
@@ -413,36 +407,8 @@ def shortcircuitmiddleware(f):
 class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.decide_throttler = DecideRateThrottle(
-            replenish_rate=settings.DECIDE_BUCKET_REPLENISH_RATE,
-            bucket_capacity=settings.DECIDE_BUCKET_CAPACITY,
-        )
 
     def __call__(self, request: HttpRequest):
-        if request.path == "/decide/" or request.path == "/decide":
-            try:
-                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
-                tag_queries(
-                    kind="request",
-                    id=request.path,
-                    route_id=resolve(request.path).route,
-                    http_referer=request.headers.get("referer"),
-                    http_user_agent=request.headers.get("user-agent"),
-                )
-                if self.decide_throttler.allow_request(request, None):
-                    return get_decide(request)
-                else:
-                    return cors_response(
-                        request,
-                        generate_exception_response(
-                            "decide",
-                            f"Rate limit exceeded ",
-                            code="rate_limit_exceeded",
-                            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        ),
-                    )
-            finally:
-                reset_query_tags()
         response: HttpResponse = self.get_response(request)
         return response
 
@@ -455,7 +421,7 @@ def per_request_logging_context_middleware(
     see
     https://django-structlog.readthedocs.io/en/latest/getting_started.html#extending-request-log-metadata
     for details. They include e.g. request_id, user_id. In some cases e.g. we
-    add the team_id to the context like the get_events and decide endpoints.
+    add the team_id to the context like the get_events endpoint.
 
     This middleware adds some additional context at the beginning of the
     request. Feel free to add anything that's relevant for the request here.
@@ -538,6 +504,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
         if request.user and request.user.is_authenticated:
             if request.user.team:
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_project_token",
                     value=request.user.team.api_token,
@@ -549,6 +516,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                     samesite=default_cookie_options["samesite"],
                 )
 
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
                     value=request.user.team.name.encode("utf-8").decode("latin-1"),
@@ -560,6 +528,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                     samesite=default_cookie_options["samesite"],
                 )
 
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_instance",
                     value=SITE_URL,
@@ -574,6 +543,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             auth_backend = request.session.get("_auth_user_backend")
             login_method = AUTH_BACKEND_KEYS.get(auth_backend)
             if login_method:
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_last_login_method",
                     value=login_method,
@@ -776,7 +746,7 @@ class CSPMiddleware:
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",
                 f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
-                "frame-ancestors https://posthog.com https://preview.posthog.com",
+                "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
@@ -885,6 +855,8 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
+    # Allow upgrading from read-only to read-write impersonation
+    "/admin/impersonation/upgrade/",
 ]
 
 
@@ -913,6 +885,9 @@ class ImpersonationReadOnlyMiddleware:
         if self._is_path_allowlisted(request.path):
             return self.get_response(request)
 
+        if self._is_allowed_users_request(request):
+            return self.get_response(request)
+
         return JsonResponse(
             {
                 "type": "authentication_error",
@@ -930,6 +905,24 @@ class ImpersonationReadOnlyMiddleware:
             elif path.startswith(allowed_path):
                 return True
         return False
+
+    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
+        """
+        Allow switching organizations.
+
+        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
+        """
+        if request.method != "PATCH":
+            return False
+
+        if request.path not in ("/api/users/@me/", "/api/users/@me"):
+            return False
+
+        try:
+            body = json.loads(request.body)
+            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
 
 
 IMPERSONATION_BLOCKED_PATHS: list[str] = [
