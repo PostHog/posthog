@@ -32,7 +32,7 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
-    const { currentTab } = useValues(workflowSceneLogic)
+    const { currentTab } = useValues(workflowSceneLogic(props))
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
