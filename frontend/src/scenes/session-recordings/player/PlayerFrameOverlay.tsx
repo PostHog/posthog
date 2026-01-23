@@ -1,7 +1,6 @@
 import './PlayerFrameOverlay.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
@@ -20,32 +19,12 @@ import { SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
 const SeekIndicator = (): JSX.Element | null => {
     const { seekIndicator } = useValues(sessionRecordingPlayerLogic)
-    const { hideSeekIndicator } = useActions(sessionRecordingPlayerLogic)
-    const [visible, setVisible] = useState(false)
-    const [currentIndicator, setCurrentIndicator] = useState<{
-        direction: 'forward' | 'backward'
-        seconds: number
-    } | null>(null)
 
-    useEffect(() => {
-        if (seekIndicator) {
-            setCurrentIndicator(seekIndicator)
-            setVisible(true)
-
-            const timer = setTimeout(() => {
-                setVisible(false)
-                hideSeekIndicator()
-            }, 500)
-
-            return () => clearTimeout(timer)
-        }
-    }, [seekIndicator, hideSeekIndicator])
-
-    if (!currentIndicator || !visible) {
+    if (!seekIndicator) {
         return null
     }
 
-    const isForward = currentIndicator.direction === 'forward'
+    const isForward = seekIndicator.direction === 'forward'
 
     return (
         <div
@@ -60,7 +39,7 @@ const SeekIndicator = (): JSX.Element | null => {
                         'SeekIndicator__icon--forward': isForward,
                     })}
                 />
-                <span className="text-white text-sm font-semibold">{currentIndicator.seconds}s</span>
+                <span className="text-white text-sm font-semibold">{seekIndicator.seconds}s</span>
             </div>
         </div>
     )

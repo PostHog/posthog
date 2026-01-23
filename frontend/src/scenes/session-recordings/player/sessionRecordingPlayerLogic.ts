@@ -1519,8 +1519,60 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.showSeekIndicator('forward', Math.round(amount / 1000))
         },
         seekBackward: ({ amount = values.jumpTimeMs }) => {
-            actions.seekToTime((values.currentPlayerTime || 0) - amount)
+            const currentTime = values.currentPlayerTime || 0
+            let targetTime = currentTime - amount
+
+            // If in a gap > 3s or would land in a gap > 3s: go to end of previous activity - amount
+            // Otherwise: normal rewind
+            if (values.sessionPlayerData.start && values.currentTimestamp) {
+                const startTimestamp = values.sessionPlayerData.start.valueOf()
+                const segments = values.sessionPlayerData.segments
+                const currentSegment = values.segmentForTimestamp(values.currentTimestamp)
+                const minGapDuration = 3000
+
+                const findPrevActivitySegment = (beforeIndex: number): RecordingSegment | null => {
+                    for (let i = beforeIndex - 1; i >= 0; i--) {
+                        if (segments[i].kind === 'window') {
+                            return segments[i]
+                        }
+                    }
+                    return null
+                }
+
+                const findSegmentIndex = (segment: RecordingSegment): number =>
+                    segments.findIndex((s) => s.startTimestamp === segment.startTimestamp && s.kind === segment.kind)
+
+                const seekToPrevActivityEnd = (segment: RecordingSegment): void => {
+                    const prevActivity = findPrevActivitySegment(findSegmentIndex(segment) + 1)
+                    if (prevActivity) {
+                        targetTime = Math.max(0, prevActivity.endTimestamp - startTimestamp - amount)
+                    }
+                }
+
+                if (currentSegment?.kind === 'gap' && currentSegment.durationMs > minGapDuration) {
+                    seekToPrevActivityEnd(currentSegment)
+                } else {
+                    const targetTimestamp = startTimestamp + targetTime
+                    const targetSegment = values.segmentForTimestamp(targetTimestamp)
+                    if (targetSegment?.kind === 'gap' && targetSegment.durationMs > minGapDuration) {
+                        seekToPrevActivityEnd(targetSegment)
+                    }
+                }
+            }
+
+            actions.seekToTime(targetTime)
             actions.showSeekIndicator('backward', Math.round(amount / 1000))
+        },
+
+        showSeekIndicator: () => {
+            // Clear any existing timer to prevent premature hiding when spamming
+            if (cache.seekIndicatorTimer) {
+                clearTimeout(cache.seekIndicatorTimer)
+            }
+            cache.seekIndicatorTimer = setTimeout(() => {
+                actions.hideSeekIndicator()
+                cache.seekIndicatorTimer = null
+            }, 500)
         },
 
         seekToTime: ({ timeInMilliseconds }) => {
