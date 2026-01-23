@@ -6,6 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::Json,
 };
+use base64::{engine::general_purpose::STANDARD as base64_standard, Engine};
 use bytes::Bytes;
 use chrono::{TimeZone, Utc};
 use serde::Deserialize;
@@ -79,20 +80,45 @@ fn extract_token_from_auth_header(headers: &HeaderMap) -> Option<String> {
         })
 }
 
+fn hex_to_base64(hex_str: &str) -> String {
+    // Remove any 0x prefix if present
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+
+    // Decode hex to bytes
+    match hex::decode(hex_str) {
+        Ok(bytes) => base64_standard.encode(&bytes),
+        Err(_) => {
+            // If hex decoding fails, return empty string
+            debug!("Failed to decode hex string: {}", hex_str);
+            String::new()
+        }
+    }
+}
+
 pub fn extract_trace_span_ids(extra: &HashMap<String, serde_json::Value>) -> (String, String) {
-    let trace_id = extra
+    let trace_id_hex = extra
         .get("dd.trace_id")
         .or_else(|| extra.get("trace_id"))
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+        .unwrap_or("");
 
-    let span_id = extra
+    let span_id_hex = extra
         .get("dd.span_id")
         .or_else(|| extra.get("span_id"))
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+        .unwrap_or("");
+
+    let trace_id = if trace_id_hex.is_empty() {
+        String::new()
+    } else {
+        hex_to_base64(trace_id_hex)
+    };
+
+    let span_id = if span_id_hex.is_empty() {
+        String::new()
+    } else {
+        hex_to_base64(span_id_hex)
+    };
 
     (trace_id, span_id)
 }
@@ -156,24 +182,12 @@ pub fn datadog_log_to_kafka_row(log: DatadogLog, query_params: &DatadogQueryPara
     // Later values override earlier ones
     let mut attributes = HashMap::new();
 
-    // Add arbitrary query params (excluding reserved fields)
     for (key, value) in &query_params.extra {
         attributes.insert(key.clone(), json!(value).to_string());
     }
 
-    // Add body extra attributes (excluding trace/span IDs and event.name/otel.scope.name which go in dedicated fields)
     for (key, value) in &log.extra {
-        if !matches!(
-            key.as_str(),
-            "dd.trace_id"
-                | "trace_id"
-                | "dd.span_id"
-                | "span_id"
-                | "event.name"
-                | "otel.scope.name"
-        ) {
-            attributes.insert(key.clone(), value.to_string());
-        }
+        attributes.insert(key.clone(), value.to_string());
     }
 
     KafkaLogRow {

@@ -90,36 +90,42 @@ fn test_parse_datadog_tags_with_spaces() {
 #[test]
 fn test_extract_trace_span_ids_with_dd_prefix() {
     let mut extra = HashMap::new();
-    extra.insert("dd.trace_id".to_string(), json!("trace123"));
-    extra.insert("dd.span_id".to_string(), json!("span456"));
+    // Hex: "abc123" -> Base64: "q8Ej"
+    extra.insert("dd.trace_id".to_string(), json!("abc123"));
+    // Hex: "def456" -> Base64: "3vRW"
+    extra.insert("dd.span_id".to_string(), json!("def456"));
 
     let (trace_id, span_id) = extract_trace_span_ids(&extra);
-    assert_eq!(trace_id, "trace123");
-    assert_eq!(span_id, "span456");
+    assert_eq!(trace_id, "q8Ej");
+    assert_eq!(span_id, "3vRW");
 }
 
 #[test]
 fn test_extract_trace_span_ids_without_prefix() {
     let mut extra = HashMap::new();
-    extra.insert("trace_id".to_string(), json!("trace789"));
-    extra.insert("span_id".to_string(), json!("span012"));
+    // Hex: "123abc" -> Base64: "Ejq8"
+    extra.insert("trace_id".to_string(), json!("123abc"));
+    // Hex: "456def" -> Base64: "RW3v"
+    extra.insert("span_id".to_string(), json!("456def"));
 
     let (trace_id, span_id) = extract_trace_span_ids(&extra);
-    assert_eq!(trace_id, "trace789");
-    assert_eq!(span_id, "span012");
+    assert_eq!(trace_id, "Ejq8");
+    assert_eq!(span_id, "RW3v");
 }
 
 #[test]
 fn test_extract_trace_span_ids_dd_prefix_takes_precedence() {
     let mut extra = HashMap::new();
-    extra.insert("dd.trace_id".to_string(), json!("preferred_trace"));
-    extra.insert("trace_id".to_string(), json!("fallback_trace"));
-    extra.insert("dd.span_id".to_string(), json!("preferred_span"));
-    extra.insert("span_id".to_string(), json!("fallback_span"));
+    extra.insert("dd.trace_id".to_string(), json!("aabbcc"));
+    extra.insert("trace_id".to_string(), json!("112233"));
+    extra.insert("dd.span_id".to_string(), json!("ddeeff"));
+    extra.insert("span_id".to_string(), json!("445566"));
 
     let (trace_id, span_id) = extract_trace_span_ids(&extra);
-    assert_eq!(trace_id, "preferred_trace");
-    assert_eq!(span_id, "preferred_span");
+    // "aabbcc" hex -> base64
+    assert_eq!(trace_id, "qrvM");
+    // "ddeeff" hex -> base64
+    assert_eq!(span_id, "3e7/");
 }
 
 #[test]
@@ -135,6 +141,31 @@ fn test_extract_trace_span_ids_non_string_values() {
     let mut extra = HashMap::new();
     extra.insert("dd.trace_id".to_string(), json!(12345));
     extra.insert("dd.span_id".to_string(), json!(true));
+
+    let (trace_id, span_id) = extract_trace_span_ids(&extra);
+    assert_eq!(trace_id, "");
+    assert_eq!(span_id, "");
+}
+
+#[test]
+fn test_extract_trace_span_ids_with_0x_prefix() {
+    let mut extra = HashMap::new();
+    // 0x prefix should be stripped before decoding
+    extra.insert("dd.trace_id".to_string(), json!("0xaabbcc"));
+    extra.insert("dd.span_id".to_string(), json!("0xddeeff"));
+
+    let (trace_id, span_id) = extract_trace_span_ids(&extra);
+    // Same result as without prefix
+    assert_eq!(trace_id, "qrvM");
+    assert_eq!(span_id, "3e7/");
+}
+
+#[test]
+fn test_extract_trace_span_ids_invalid_hex() {
+    let mut extra = HashMap::new();
+    // Invalid hex should return empty strings
+    extra.insert("dd.trace_id".to_string(), json!("not-valid-hex"));
+    extra.insert("dd.span_id".to_string(), json!("xyz123"));
 
     let (trace_id, span_id) = extract_trace_span_ids(&extra);
     assert_eq!(trace_id, "");
@@ -180,8 +211,8 @@ fn test_datadog_log_to_kafka_row_basic() {
 #[test]
 fn test_datadog_log_to_kafka_row_with_trace_ids() {
     let mut extra = HashMap::new();
-    extra.insert("dd.trace_id".to_string(), json!("trace123"));
-    extra.insert("dd.span_id".to_string(), json!("span456"));
+    extra.insert("dd.trace_id".to_string(), json!("abcdefaa"));
+    extra.insert("dd.span_id".to_string(), json!("abcdefba"));
     extra.insert("custom_field".to_string(), json!("custom_value"));
 
     let log = DatadogLog {
@@ -208,11 +239,9 @@ fn test_datadog_log_to_kafka_row_with_trace_ids() {
 
     let row = datadog_log_to_kafka_row(log, &query_params);
 
-    assert_eq!(row.trace_id, "trace123");
-    assert_eq!(row.span_id, "span456");
+    assert_eq!(row.trace_id, "q83vqg==");
+    assert_eq!(row.span_id, "q83vug==");
     assert!(row.attributes.contains_key("custom_field"));
-    assert!(!row.attributes.contains_key("dd.trace_id"));
-    assert!(!row.attributes.contains_key("dd.span_id"));
 }
 
 #[test]
@@ -394,7 +423,6 @@ fn test_datadog_log_to_kafka_row_event_name_extraction() {
     let row = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.event_name, "user.signup");
-    assert!(!row.attributes.contains_key("event.name"));
     assert!(row.attributes.contains_key("other_field"));
 }
 
@@ -429,7 +457,6 @@ fn test_datadog_log_to_kafka_row_instrumentation_scope_extraction() {
     let row = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.instrumentation_scope, "my.service.logger");
-    assert!(!row.attributes.contains_key("otel.scope.name"));
     assert!(row.attributes.contains_key("other_field"));
 }
 
@@ -466,10 +493,7 @@ fn test_datadog_log_to_kafka_row_event_name_and_scope_extraction() {
 
     assert_eq!(row.event_name, "payment.processed");
     assert_eq!(row.instrumentation_scope, "payment.service");
-    assert!(!row.attributes.contains_key("event.name"));
-    assert!(!row.attributes.contains_key("otel.scope.name"));
     assert!(row.attributes.contains_key("custom_field"));
-    assert_eq!(row.attributes.len(), 1);
 }
 
 #[test]
