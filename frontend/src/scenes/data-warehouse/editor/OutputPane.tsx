@@ -466,6 +466,7 @@ export function OutputPane({ tabId, topSectionOpen = false }: OutputPaneProps): 
 
     const shouldStickToBottom = topSectionOpen && !isResultsOpen && !isVisualizationOpen
     const shouldStickVisualizationToBottom = isResultsOpen && !isVisualizationOpen
+    const shouldStretchResultsPane = isResultsOpen && (!resultsPaneDesiredSize || !isVisualizationOpen)
 
     return (
         <div
@@ -479,11 +480,13 @@ export function OutputPane({ tabId, topSectionOpen = false }: OutputPaneProps): 
                     className={clsx(
                         'relative flex flex-col min-h-0',
                         // isResultsOpen  && 'h-full',
-                        isResultsOpen && !resultsPaneDesiredSize && 'flex-1'
+                        shouldStretchResultsPane && 'flex-1'
                     )}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={
-                        isResultsOpen && resultsPaneDesiredSize ? { height: `${resultsPaneDesiredSize}px` } : undefined
+                        isResultsOpen && resultsPaneDesiredSize && isVisualizationOpen
+                            ? { height: `${resultsPaneDesiredSize}px` }
+                            : undefined
                     }
                     ref={resultsPaneRef}
                 >

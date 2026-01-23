@@ -268,7 +268,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: '',
                 },
-                display: ChartDisplayType.ActionsLineGraph,
+                display: ChartDisplayType.ActionsBar,
             } as DataVisualizationNode,
             {
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,

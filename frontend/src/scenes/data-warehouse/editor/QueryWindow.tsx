@@ -73,7 +73,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const { queryPaneHeight } = useValues(editorSizingLogic)
     const { activeTab: activeOutputTab, isResultsOpen, isVisualizationOpen } = useValues(outputPaneLogic({ tabId }))
     const [isQueryOpen, setIsQueryOpen] = useState(true)
-    const [isVariablesPanelOpen, setIsVariablesPanelOpen] = useState(true)
+    const [isVariablesPanelOpen, setIsVariablesPanelOpen] = useState(false)
     const variablesPanelRef = useRef<HTMLDivElement>(null)
     const variablesPanelResizerProps = useMemo(
         () => ({
