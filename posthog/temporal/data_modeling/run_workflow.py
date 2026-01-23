@@ -484,17 +484,21 @@ async def materialize_model(
             await database_sync_to_async(job.save)()
         except Exception as e:
             exception_str = str(e)
-            # if the count doesn't succeed due to the query timeout being exceeded, then re-raise
+            # If the count doesn't succeed due to the query timeout being exceeded, then re-raise
             if "Timeout exceeded" in exception_str:
                 raise
+
             await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
             job.rows_expected = None
             await database_sync_to_async(job.save)()
+
         delta_table: deltalake.DeltaTable | None = None
+
         async for index, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
                     table_uri=table_uri,
@@ -536,12 +540,12 @@ async def materialize_model(
 
             # Explicitly delete batch to free memory after writing
             del batch, ch_types
-        if delta_table is None:
-            error_message = "Query returned no results. Check that the query returns data before materializing."
-            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
+        if delta_table is None:
+            error_message = "Query returned no results. Check that the query returns data before materializing."
+            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
     except Exception as e:
         error_message = str(e)
         await logger.aerror(f"Error materializing model {model_label}: {error_message}")
