@@ -287,16 +287,14 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         # Track nesting depth for debugging/testing
         self._nesting_depth += 1
         try:
-            # Check if this query is eligible for predicate pushdown
-            # This includes checking for lazy types that would break pushdown
-            if not self._should_apply_pushdown(node):
-                return
-
             # First visit children (subqueries) - pushdown applied bottom-up
             super().visit_select_query(node)
 
-            # Apply the pushdown transformation
-            self._apply_pushdown(node)
+            # Check if this query is eligible for predicate pushdown
+            # This includes checking for lazy types that would break pushdown
+            if self._should_apply_pushdown(node):
+                # Apply the pushdown transformation
+                self._apply_pushdown(node)
         finally:
             self._nesting_depth -= 1
 

@@ -8,8 +8,7 @@
       (SELECT
           events.`$session_id` AS `$session_id`,
           toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp,
-          events.uuid AS uuid,
-          events.team_id
+          events.uuid AS uuid
       FROM
           events
       WHERE
@@ -62,12 +61,11 @@
           events.distinct_id AS distinct_id,
           events.event AS event,
           events.person_id AS person_id,
-          toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp,
-          events.team_id
+          toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp
       FROM
           events
       WHERE
-          and(equals(events.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_2)s, 6, %(hogql_val_3)s)))), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s))), equals(events.event, %(hogql_val_7)s)))) AS e
+          and(equals(events.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_2)s, 6, %(hogql_val_3)s)))), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s))), equals(events.event, %(hogql_val_7)s))) AS e
       LEFT OUTER JOIN (SELECT
           tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -138,8 +136,7 @@
   FROM
       (SELECT
           events.`$session_id` AS `$session_id`,
-          toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp,
-          events.team_id
+          toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp
       FROM
           events
       WHERE
