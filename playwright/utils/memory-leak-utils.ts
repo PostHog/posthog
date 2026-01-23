@@ -145,10 +145,18 @@ function aggregateLeakedObjects(leaks: Array<{ name?: string; retainedSize?: num
         .slice(0, 10)
 }
 
-export function formatBytes(bytes: number): string {
-    if (bytes === 0) {
-        return '0 B'
+    const absBytes = Math.abs(bytes)
+
+    if (absBytes < 1) {
+        const value = bytes
+        return `${value >= 0 ? '+' : ''}${Math.abs(value).toFixed(2)} ${units[0]}`
     }
+
+    const rawIndex = Math.log(absBytes) / Math.log(1024)
+    const i = Math.min(units.length - 1, Math.max(0, Math.floor(rawIndex)))
+    const value = bytes / Math.pow(1024, i)
+
+    return `${value >= 0 ? '+' : ''}${Math.abs(value).toFixed(2)} ${units[i]}`
 
     const units = ['B', 'KB', 'MB', 'GB']
     const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(1024))
