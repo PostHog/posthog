@@ -472,7 +472,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
         for tile_data in duplicate_tiles:
             existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
-            existing_tile.layouts = {}
+            existing_tile.layouts = tile_data.get("layouts", {})
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:

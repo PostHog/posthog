@@ -100,7 +100,7 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
-    EndpointVersion,
+    EndpointVersionType,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -131,6 +131,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    JiraProjectType,
     LLMPrompt,
     LineageGraph,
     LinearTeamType,
@@ -1341,6 +1342,10 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
     }
 
+    public integrationJiraProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('jira_projects')
+    }
+
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
     }
@@ -1391,10 +1396,6 @@ export class ApiRequest {
 
     public integrationClickUpWorkspaces(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('clickup_workspaces')
-    }
-
-    public integrationEmail(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('email')
     }
 
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1951,10 +1952,10 @@ const api = {
         async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
             return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
         },
-        async listVersions(name: string): Promise<EndpointVersion[]> {
+        async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
-        async getVersion(name: string, version: number): Promise<EndpointVersion> {
+        async getVersion(name: string, version: number): Promise<EndpointVersionType> {
             return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
         },
     },
@@ -4532,6 +4533,9 @@ const api = {
         async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
         },
+        async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
+            return await new ApiRequest().integrationJiraProjects(id).get()
+        },
         async googleAdsAccounts(
             id: IntegrationType['id']
         ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
@@ -4574,12 +4578,6 @@ const api = {
         },
         async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
             return await new ApiRequest().integrationEmailVerify(id).create()
-        },
-        async updateEmailConfig(
-            integrationId: IntegrationType['id'],
-            data: Partial<IntegrationType> | FormData
-        ): Promise<IntegrationType> {
-            return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
     },
 

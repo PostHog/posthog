@@ -6,9 +6,15 @@ import polars as pl
 import dagster
 from dagster import AssetKey, JsonMetadataValue, MetadataValue
 
-from posthog.clickhouse.client import sync_execute
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import ClayWebhookResource
+from posthog.models import Team
+
+# PostHog Cloud US team where JobSwitchers_v3 saved query exists
+JOB_SWITCHERS_TEAM_ID = 2
 
 # Column definitions matching JobSwitchers_v3 schema
 COLUMNS = [
@@ -116,13 +122,20 @@ def job_switchers_to_clay(
     Uses Dagster asset metadata to track domain hashes between runs,
     preserving Clay's 50k lifetime submission limit.
     """
-    context.log.info("Querying JobSwitchers_v3 materialized view")
+    context.log.info("Querying JobSwitchers_v3 saved query")
 
+    team = Team.objects.get(id=JOB_SWITCHERS_TEAM_ID)
     query = f"""
         SELECT {", ".join(COLUMNS)}
         FROM JobSwitchers_v3
     """
-    results = sync_execute(query)
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        query_type="job_switchers_query",
+        limit_context=LimitContext.SAVED_QUERY,
+    )
+    results = response.results
 
     if not results:
         context.log.info("No data found in JobSwitchers_v3")

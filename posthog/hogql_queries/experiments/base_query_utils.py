@@ -28,10 +28,56 @@ from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
+from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Experiment
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+
+def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:
+    """
+    Check if the metric source uses session-level aggregation.
+
+    Session properties require special handling:
+    1. They must be accessed via session.X instead of properties.X
+    2. They need deduplication per session to avoid event multiplication
+
+    Matches logic in trends/aggregation_operations.py:166-179
+    """
+    if not hasattr(source, "math_property"):
+        return False
+
+    math_property = getattr(source, "math_property", None)
+    if not math_property:
+        return False
+
+    # Backwards compatibility: $session_duration works without explicit math_property_type
+    if math_property == "$session_duration":
+        return True
+
+    math_property_type = getattr(source, "math_property_type", None)
+    return math_property_type == "session_properties" and math_property in ALLOWED_SESSION_MATH_PROPERTIES
+
+
+def validate_session_property(source: Union[EventsNode, ActionsNode]) -> str:
+    """
+    Validate and return the session property name.
+
+    Raises ValueError for invalid properties.
+    Matches logic in trends/aggregation_operations.py:154-164
+    """
+    math_property = getattr(source, "math_property", None)
+    if not math_property:
+        raise ValueError("No math_property specified for session-level aggregation")
+
+    if math_property not in ALLOWED_SESSION_MATH_PROPERTIES:
+        raise ValueError(
+            f"Invalid session property: {math_property}. "
+            f"Allowed properties are: {', '.join(sorted(ALLOWED_SESSION_MATH_PROPERTIES))}"
+        )
+
+    return math_property
 
 
 def is_continuous(
