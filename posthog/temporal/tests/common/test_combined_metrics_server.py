@@ -1,12 +1,11 @@
 import time
 import socket
 import threading
-import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
+from aiohttp import ClientSession, ClientTimeout
 from prometheus_client import CollectorRegistry, Counter, Gauge
 
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
@@ -92,7 +91,8 @@ def test_gauge(isolated_registry):
 
 
 class TestCombinedMetricsServer:
-    def test_serves_combined_metrics(self, test_counter, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_serves_combined_metrics(self, test_counter, isolated_registry):
         temporal_port = get_free_port()
         metrics_port = get_free_port()
 
@@ -124,22 +124,24 @@ temporal_long_request_latency_bucket{namespace="default",operation="PollActivity
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             # Check Temporal metrics are included
             assert temporal_metrics.decode() in content
             # Check prometheus_client metrics are included
             assert test_counter in content
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_serves_metrics_when_temporal_unavailable(self, test_counter, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_serves_metrics_when_temporal_unavailable(self, test_counter, isolated_registry):
         temporal_port = get_free_port()  # No server running on this port
         metrics_port = get_free_port()
 
@@ -148,20 +150,22 @@ temporal_long_request_latency_bucket{namespace="default",operation="PollActivity
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             # prometheus_client metrics should still be served
             assert test_counter in content
             assert "temporal" not in content
         finally:
-            server.stop()
+            await server.stop()
 
-    def test_returns_404_for_unknown_paths(self, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_returns_404_for_unknown_paths(self, isolated_registry):
         temporal_port = get_free_port()
         metrics_port = get_free_port()
 
@@ -170,18 +174,18 @@ temporal_long_request_latency_bucket{namespace="default",operation="PollActivity
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/unknown"
-            with pytest.raises(urllib.error.HTTPError) as exc_info:
-                urllib.request.urlopen(url, timeout=5)
-
-            assert exc_info.value.code == 404
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    assert response.status == 404
         finally:
-            server.stop()
+            await server.stop()
 
-    def test_root_path_serves_metrics(self, test_counter, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_root_path_serves_metrics(self, test_counter, isolated_registry):
         temporal_port = get_free_port()
         metrics_port = get_free_port()
 
@@ -199,20 +203,22 @@ temporal_active_workers{task_queue="main"} 5
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             assert temporal_metrics.decode() in content
             assert test_counter in content
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_counter_metrics_preserve_type_without_total_suffix(self, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_counter_metrics_preserve_type_without_total_suffix(self, isolated_registry):
         """Verify that Temporal counter metrics preserve their format when passed through."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
@@ -234,12 +240,13 @@ temporal_request{operation="DescribeNamespace"} 2
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             # Verify counter type is preserved
             assert "# TYPE temporal_request counter" in content
@@ -247,10 +254,11 @@ temporal_request{operation="DescribeNamespace"} 2
             assert "temporal_request{" in content
             assert "temporal_request_total" not in content
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_adds_newline_when_temporal_output_missing_trailing_newline(self, test_gauge, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_adds_newline_when_temporal_output_missing_trailing_newline(self, test_gauge, isolated_registry):
         """Ensure proper newline separation when Temporal output doesn't end with newline."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
@@ -267,12 +275,13 @@ temporal_request{operation="DescribeNamespace"} 2
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             # Full expected output - newline added after temporal_metric 42
             expected = """# HELP temporal_metric A metric
@@ -284,10 +293,11 @@ test_gauge 100.0
 """
             assert content == expected
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_no_extra_newlines_when_temporal_output_empty(self, test_counter, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_no_extra_newlines_when_temporal_output_empty(self, test_counter, isolated_registry):
         """No extra newlines when Temporal returns empty response."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
@@ -304,22 +314,24 @@ test_gauge 100.0
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             # prometheus_client metrics should be present
             assert test_counter in content
             # Output should not start with empty lines
             assert not content.startswith("\n")
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_duplicate_metric_names_both_present_in_output(self, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_duplicate_metric_names_both_present_in_output(self, isolated_registry):
         """Document: if both sources have same metric name, both appear in output.
 
         This is intentional - we pass through both outputs as-is and let Prometheus
@@ -350,12 +362,13 @@ test_gauge 100.0
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             # Full diff comparison - Temporal metrics first, then prometheus_client
             # Note: Both sources may define the same metric name, resulting in duplicates
@@ -368,10 +381,11 @@ test_gauge 100.0
 """
             assert content == expected
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_strips_multiple_trailing_newlines(self, test_gauge, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_strips_multiple_trailing_newlines(self, test_gauge, isolated_registry):
         """Strip multiple trailing newlines to ensure exactly one newline separates outputs."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
@@ -388,12 +402,13 @@ test_gauge 100.0
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             # Full expected output - note exactly ONE newline between temporal and prometheus_client
             expected = """# HELP temporal_metric A metric
@@ -405,10 +420,11 @@ test_gauge 100.0
 """
             assert content == expected
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_handles_temporal_http_error(self, test_counter, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_handles_temporal_http_error(self, test_counter, isolated_registry):
         """Gracefully degrade when Temporal returns HTTP error (e.g., 500)."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
@@ -422,22 +438,24 @@ test_gauge 100.0
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
 
             # prometheus_client metrics should still be served despite Temporal error
             assert test_counter in content
             # No Temporal metrics since it returned an error
             assert "temporal" not in content.lower() or "temporal_metrics" not in content
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_handles_temporal_timeout(self, test_counter, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_handles_temporal_timeout(self, test_counter, isolated_registry):
         """Gracefully degrade when Temporal is too slow to respond."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
@@ -452,23 +470,25 @@ test_gauge 100.0
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             url = f"http://127.0.0.1:{metrics_port}/metrics"
             # Use a longer timeout for the test request since we need to wait for the internal timeout
-            with urllib.request.urlopen(url, timeout=15) as response:
-                content = response.read().decode("utf-8")
+            async with ClientSession() as session:
+                async with session.get(url, timeout=ClientTimeout(15)) as response:
+                    content = await response.text()
 
             # prometheus_client metrics should still be served despite Temporal timeout
             assert test_counter in content
             # No Temporal metrics since it returned an error
             assert "temporal" not in content.lower()
         finally:
-            server.stop()
+            await server.stop()
             mock_server.shutdown()
 
-    def test_start_twice_raises_error(self, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_start_twice_raises_error(self, isolated_registry):
         """Starting server twice should raise RuntimeError."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
@@ -478,15 +498,16 @@ test_gauge 100.0
             temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
             registry=isolated_registry,
         )
-        server.start()
+        await server.start()
 
         try:
             with pytest.raises(RuntimeError, match="Server already started"):
-                server.start()
+                await server.start()
         finally:
-            server.stop()
+            await server.stop()
 
-    def test_stop_when_not_started_is_noop(self, isolated_registry):
+    @pytest.mark.asyncio
+    async def test_stop_when_not_started_is_noop(self, isolated_registry):
         """Stopping server that wasn't started should be safe no-op."""
         temporal_port = get_free_port()
         metrics_port = get_free_port()
@@ -498,8 +519,8 @@ test_gauge 100.0
         )
 
         # Should not raise any exception
-        server.stop()
-        server.stop()  # Multiple stops should also be safe
+        await server.stop()
+        await server.stop()  # Multiple stops should also be safe
 
 
 class TestGetFreePort:
