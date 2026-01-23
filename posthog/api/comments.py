@@ -3,7 +3,6 @@ from typing import Any, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
-import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, pagination, serializers, viewsets
 from rest_framework.request import Request
@@ -16,25 +15,22 @@ from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.models.comment import Comment
 from posthog.tasks.email import send_discussions_mentioned
 
-logger = structlog.get_logger(__name__)
-
 
 class CommentSerializer(serializers.ModelSerializer):
     def _extract_mentions_from_rich_content(self, rich_content: dict | None) -> list[int]:
-        """Extract user IDs from ph-mention nodes in rich_content"""
         if not rich_content:
             return []
 
-        mentions = []
+        mentions: list[int] = []
 
-        def find_mentions(node):
+        def find_mentions(node: Any) -> None:
             if isinstance(node, dict):
                 if node.get("type") == "ph-mention":
                     user_id = node.get("attrs", {}).get("id")
                     if user_id and isinstance(user_id, int) and user_id not in mentions:
                         mentions.append(user_id)
                 for value in node.values():
-                    if isinstance(value, (dict, list)):
+                    if isinstance(value, dict | list):
                         find_mentions(value)
             elif isinstance(node, list):
                 for item in node:
@@ -86,7 +82,6 @@ class CommentSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Any) -> Any:
         mentions: list[int] = validated_data.pop("mentions", [])
 
-        # Extract mentions from rich_content if not provided explicitly
         if not mentions:
             mentions = self._extract_mentions_from_rich_content(validated_data.get("rich_content"))
 
@@ -96,15 +91,13 @@ class CommentSerializer(serializers.ModelSerializer):
         comment = super().create(validated_data)
 
         if mentions:
-            logger.info(f"Sending discussions mentioned email for comment {comment.id} to {mentions}")
             send_discussions_mentioned.delay(comment.id, mentions, slug)
 
         return comment
 
-    def update(self, instance: Comment, validated_data: dict, **kwargs) -> Comment:
+    def update(self, instance: Comment, validated_data: dict, **kwargs: Any) -> Comment:
         mentions: list[int] = validated_data.pop("mentions", [])
 
-        # Extract mentions from rich_content if not provided explicitly
         if not mentions:
             mentions = self._extract_mentions_from_rich_content(validated_data.get("rich_content"))
 
@@ -112,7 +105,6 @@ class CommentSerializer(serializers.ModelSerializer):
         request = self.context["request"]
 
         with transaction.atomic():
-            # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Comment.objects.select_for_update().get(pk=instance.pk)
 
             if locked_instance.created_by != request.user:
@@ -140,10 +132,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     pagination_class = CommentPagination
-    # TODO: Update when fully released
     scope_object = "INTERNAL"
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()
 
         if params.get("user"):
@@ -168,11 +159,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         source_comment = params.get("source_comment")
         if self.action == "thread":
-            # Filter based on the source_comment
             source_comment = self.kwargs.get("pk")
 
         if source_comment:
-            # NOTE: Should we also return the source_comment ?
             queryset = queryset.filter(source_comment_id=source_comment)
 
         return queryset
@@ -182,7 +171,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
-    def count(self, request: Request, **kwargs) -> Response:
+    def count(self, request: Request, **kwargs: Any) -> Response:
         queryset = self.get_queryset()
         count = queryset.count()
 
