@@ -2,13 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getRemixSteps = ({
-    CodeBlock,
-    Markdown,
-    CalloutBox,
-    dedent,
-    snippets,
-}: OnboardingComponents): StepDefinition[] => {
+export const getRemixSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -139,7 +135,9 @@ export const getRemixSteps = ({
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Import the `PHProvider` component in your `app/root.tsx` file and use it to wrap your app:</Markdown>
+                    <Markdown>
+                        Import the `PHProvider` component in your `app/root.tsx` file and use it to wrap your app:
+                    </Markdown>
                     <CodeBlock
                         blocks={[
                             {

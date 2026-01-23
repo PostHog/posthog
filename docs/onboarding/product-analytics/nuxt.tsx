@@ -2,13 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getNuxtSteps = ({
-    CodeBlock,
-    Markdown,
-    CalloutBox,
-    dedent,
-    snippets,
-}: OnboardingComponents): StepDefinition[] => {
+export const getNuxtSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [

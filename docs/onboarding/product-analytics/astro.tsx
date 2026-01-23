@@ -2,7 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getAstroSteps = ({ CodeBlock, Markdown, dedent, snippets }: OnboardingComponents): StepDefinition[] => {
+export const getAstroSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -26,8 +28,8 @@ export const getAstroSteps = ({ CodeBlock, Markdown, dedent, snippets }: Onboard
                         ]}
                     />
                     <Markdown>
-                        In this file, add your PostHog web snippet. Be sure to include the `is:inline` directive to prevent
-                        Astro from processing it:
+                        In this file, add your PostHog web snippet. Be sure to include the `is:inline` directive to
+                        prevent Astro from processing it:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -58,8 +60,8 @@ export const getAstroSteps = ({ CodeBlock, Markdown, dedent, snippets }: Onboard
             content: (
                 <>
                     <Markdown>
-                        Create a layout where we will use `posthog.astro`. Create a new file `PostHogLayout.astro` in your
-                        `src/layouts` folder:
+                        Create a layout where we will use `posthog.astro`. Create a new file `PostHogLayout.astro` in
+                        your `src/layouts` folder:
                     </Markdown>
                     <CodeBlock
                         blocks={[

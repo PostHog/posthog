@@ -2,12 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getHTMLSnippetSteps = ({
-    CodeBlock,
-    Markdown,
-    dedent,
-    snippets,
-}: OnboardingComponents): StepDefinition[] => {
+export const getHTMLSnippetSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -17,8 +14,8 @@ export const getHTMLSnippetSteps = ({
             content: (
                 <>
                     <Markdown>
-                        Add this snippet to your website within the `&lt;head&gt;` tag. This can also be used in services
-                        like Google Tag Manager:
+                        Add this snippet to your website within the `&lt;head&gt;` tag. This can also be used in
+                        services like Google Tag Manager:
                     </Markdown>
                     <CodeBlock
                         blocks={[

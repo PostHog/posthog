@@ -2,13 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getSvelteSteps = ({
-    CodeBlock,
-    Markdown,
-    CalloutBox,
-    dedent,
-    snippets,
-}: OnboardingComponents): StepDefinition[] => {
+export const getSvelteSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -84,8 +80,8 @@ export const getSvelteSteps = ({
                     />
                     <CalloutBox type="fyi" title="SvelteKit layout">
                         <Markdown>
-                            Learn more about [SvelteKit layouts](https://kit.svelte.dev/docs/routing#layout) in the official
-                            documentation.
+                            Learn more about [SvelteKit layouts](https://kit.svelte.dev/docs/routing#layout) in the
+                            official documentation.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -130,7 +126,8 @@ export const getSvelteSteps = ({
                         ]}
                     />
                     <Markdown>
-                        Then, initialize the PostHog Node client where you'd like to use it on the server side. For example, in a load function:
+                        Then, initialize the PostHog Node client where you'd like to use it on the server side. For
+                        example, in a load function:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -156,7 +153,9 @@ export const getSvelteSteps = ({
                     />
                     <CalloutBox type="fyi" title="Note">
                         <Markdown>
-                            Make sure to always call `posthog.shutdown()` after capturing events from the server-side. PostHog queues events into larger batches, and this call forces all batched events to be flushed immediately.
+                            Make sure to always call `posthog.shutdown()` after capturing events from the server-side.
+                            PostHog queues events into larger batches, and this call forces all batched events to be
+                            flushed immediately.
                         </Markdown>
                     </CalloutBox>
                 </>

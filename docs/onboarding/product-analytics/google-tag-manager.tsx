@@ -2,12 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getGoogleTagManagerSteps = ({
-    CodeBlock,
-    Markdown,
-    dedent,
-    snippets,
-}: OnboardingComponents): StepDefinition[] => {
+export const getGoogleTagManagerSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -17,8 +14,8 @@ export const getGoogleTagManagerSteps = ({
             content: (
                 <>
                     <Markdown>
-                        Google Tag Manager (GTM) lets you manage tracking scripts without code changes. You can add PostHog
-                        to your site using a custom HTML tag.
+                        Google Tag Manager (GTM) lets you manage tracking scripts without code changes. You can add
+                        PostHog to your site using a custom HTML tag.
                     </Markdown>
                     <Markdown>
                         {`1. Log into your Google Tag Manager account and open your container.
@@ -55,7 +52,8 @@ export const getGoogleTagManagerSteps = ({
 2. Save the tag, then click **Submit** to publish your changes.`}
                     </Markdown>
                     <Markdown>
-                        Once published, PostHog will automatically capture pageviews, clicks, and other events on your site.
+                        Once published, PostHog will automatically capture pageviews, clicks, and other events on your
+                        site.
                     </Markdown>
                 </>
             ),

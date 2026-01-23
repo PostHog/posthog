@@ -2,34 +2,37 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getHeliconeSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => [
-    {
-        title: 'Set up Helicone',
-        badge: 'required',
-        content: (
-            <Markdown>
-                Helicone supports most popular LLM models and you can bring your Helicone data into PostHog for
-                analysis. Sign up to [Helicone](https://www.helicone.ai/) and add it to your LLM app.
-            </Markdown>
-        ),
-    },
-    {
-        title: 'Add PostHog headers',
-        badge: 'required',
-        content: (
-            <>
+export const getHeliconeSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return [
+        {
+            title: 'Set up Helicone',
+            badge: 'required',
+            content: (
                 <Markdown>
-                    Similar to how you add a [Helicone-Auth
-                    header](https://docs.helicone.ai/helicone-headers/header-directory#supported-headers) when
-                    installing Helicone, add two new headers **Helicone-Posthog-Key** and **Helicone-Posthog-Host** with
-                    your PostHog details:
+                    Helicone supports most popular LLM models and you can bring your Helicone data into PostHog for
+                    analysis. Sign up to [Helicone](https://www.helicone.ai/) and add it to your LLM app.
                 </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'python',
-                            file: 'Python',
-                            code: dedent`
+            ),
+        },
+        {
+            title: 'Add PostHog headers',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        Similar to how you add a [Helicone-Auth
+                        header](https://docs.helicone.ai/helicone-headers/header-directory#supported-headers) when
+                        installing Helicone, add two new headers **Helicone-Posthog-Key** and **Helicone-Posthog-Host**
+                        with your PostHog details:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
                                 # Example for adding it to OpenAI in Python
 
                                 client = OpenAI(
@@ -42,13 +45,14 @@ export const getHeliconeSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComp
                                     }
                                 )
                             `,
-                        },
-                    ]}
-                />
-                <Markdown>Helicone events will now be exported into PostHog as soon as they're available.</Markdown>
-            </>
-        ),
-    },
-]
+                            },
+                        ]}
+                    />
+                    <Markdown>Helicone events will now be exported into PostHog as soon as they're available.</Markdown>
+                </>
+            ),
+        },
+    ]
+}
 
 export const HeliconeInstallation = createInstallation(getHeliconeSteps)

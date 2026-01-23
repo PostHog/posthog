@@ -2,13 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getReactSteps = ({
-    CodeBlock,
-    Markdown,
-    CalloutBox,
-    dedent,
-    snippets,
-}: OnboardingComponents): StepDefinition[] => {
+export const getReactSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -110,7 +106,8 @@ export const getReactSteps = ({
                     <CalloutBox type="fyi" title="defaults option">
                         <Markdown>
                             The `defaults` option automatically configures PostHog with recommended settings for new
-                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for details.
+                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -146,9 +143,7 @@ export const getReactSteps = ({
                             },
                         ]}
                     />
-                    <Markdown>
-                        You can also import `posthog` directly for non-React code or utility functions:
-                    </Markdown>
+                    <Markdown>You can also import `posthog` directly for non-React code or utility functions:</Markdown>
                     <CodeBlock
                         blocks={[
                             {

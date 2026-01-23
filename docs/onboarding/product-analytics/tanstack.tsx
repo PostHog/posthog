@@ -2,13 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getTanStackSteps = ({
-    CodeBlock,
-    Markdown,
-    CalloutBox,
-    dedent,
-    snippets,
-}: OnboardingComponents): StepDefinition[] => {
+export const getTanStackSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -107,7 +103,8 @@ export const getTanStackSteps = ({
                     <CalloutBox type="fyi" title="defaults option">
                         <Markdown>
                             The `defaults` option automatically configures PostHog with recommended settings for new
-                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for details.
+                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>

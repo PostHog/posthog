@@ -2,7 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getJSWebSteps = ({ CodeBlock, Markdown, dedent, snippets }: OnboardingComponents): StepDefinition[] => {
+export const getJSWebSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -45,9 +47,7 @@ export const getJSWebSteps = ({ CodeBlock, Markdown, dedent, snippets }: Onboard
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Import and initialize the PostHog library with your project API key and host:
-                    </Markdown>
+                    <Markdown>Import and initialize the PostHog library with your project API key and host:</Markdown>
                     <CodeBlock
                         blocks={[
                             {

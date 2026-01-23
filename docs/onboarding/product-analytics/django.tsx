@@ -2,7 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getDjangoSteps = ({ CodeBlock, Markdown, dedent, snippets }: OnboardingComponents): StepDefinition[] => {
+export const getDjangoSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const PythonEventCapture = snippets?.PythonEventCapture
 
     return [

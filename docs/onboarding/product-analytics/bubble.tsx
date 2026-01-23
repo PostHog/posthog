@@ -2,7 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getBubbleSteps = ({ CodeBlock, Markdown, dedent, snippets }: OnboardingComponents): StepDefinition[] => {
+export const getBubbleSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [

@@ -2,7 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getFramerSteps = ({ CodeBlock, Markdown, dedent, snippets }: OnboardingComponents): StepDefinition[] => {
+export const getFramerSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -38,8 +40,8 @@ export const getFramerSteps = ({ CodeBlock, Markdown, dedent, snippets }: Onboar
             content: (
                 <>
                     <Markdown>
-                        Go to your Framer project settings by clicking the gear in the top right. If you haven't already,
-                        sign up for at least the **Mini** site plan. This enables you to add custom code. Then:
+                        Go to your Framer project settings by clicking the gear in the top right. If you haven't
+                        already, sign up for at least the **Mini** site plan. This enables you to add custom code. Then:
                     </Markdown>
                     <Markdown>
                         {`1. Go to the **General** tab in site settings.

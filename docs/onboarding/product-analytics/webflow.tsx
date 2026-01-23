@@ -2,7 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getWebflowSteps = ({ CodeBlock, Markdown, dedent, snippets }: OnboardingComponents): StepDefinition[] => {
+export const getWebflowSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -39,7 +41,8 @@ export const getWebflowSteps = ({ CodeBlock, Markdown, dedent, snippets }: Onboa
                 <>
                     <Markdown>
                         Go to your Webflow site settings by clicking on the menu icon in the top left. If you haven't
-                        already, sign up for at least the **Basic** site plan. This enables you to add custom code. Then:
+                        already, sign up for at least the **Basic** site plan. This enables you to add custom code.
+                        Then:
                     </Markdown>
                     <Markdown>
                         {`1. Go to the **Custom code** tab in site settings.

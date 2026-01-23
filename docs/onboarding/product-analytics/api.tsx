@@ -2,22 +2,25 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getAPISteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: OnboardingComponents): StepDefinition[] => [
-    {
-        title: 'Send events via the API',
-        badge: 'required',
-        content: (
-            <>
-                <Markdown>
-                    You can send events directly to the PostHog API from any programming language or platform that
-                    can make HTTP requests:
-                </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'http',
-                            file: 'HTTP',
-                            code: dedent`
+export const getAPISteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
+
+    return [
+        {
+            title: 'Send events via the API',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        You can send events directly to the PostHog API from any programming language or platform that
+                        can make HTTP requests:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'http',
+                                file: 'HTTP',
+                                code: dedent`
                                 POST <ph_client_api_host>/capture/
                                 Content-Type: application/json
 
@@ -32,27 +35,27 @@ export const getAPISteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: Onboard
                                     "timestamp": "[optional timestamp in ISO 8601 format]"
                                 }
                             `,
-                        },
-                    ]}
-                />
-            </>
-        ),
-    },
-    {
-        title: 'Person profiles',
-        badge: 'optional',
-        content: (
-            <>
-                <Markdown>
-                    By default, events are sent with person profile processing enabled. To disable this for specific
-                    events, add the following property:
-                </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'json',
-                            file: 'JSON',
-                            code: dedent`
+                            },
+                        ]}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Person profiles',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        By default, events are sent with person profile processing enabled. To disable this for specific
+                        events, add the following property:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'json',
+                                file: 'JSON',
+                                code: dedent`
                                 {
                                     "api_key": "<ph_project_api_key>",
                                     "event": "page_viewed",
@@ -62,18 +65,19 @@ export const getAPISteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: Onboard
                                     }
                                 }
                             `,
-                        },
-                    ]}
-                />
-                <CalloutBox type="fyi" title="Learn more">
-                    <Markdown>
-                        Read more about [person profiles](https://posthog.com/docs/data/persons) in our
-                        documentation.
-                    </Markdown>
-                </CalloutBox>
-            </>
-        ),
-    },
-]
+                            },
+                        ]}
+                    />
+                    <CalloutBox type="fyi" title="Learn more">
+                        <Markdown>
+                            Read more about [person profiles](https://posthog.com/docs/data/persons) in our
+                            documentation.
+                        </Markdown>
+                    </CalloutBox>
+                </>
+            ),
+        },
+    ]
+}
 
 export const APIInstallation = createInstallation(getAPISteps)

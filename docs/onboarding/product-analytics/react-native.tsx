@@ -2,7 +2,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 
 import { StepDefinition } from '../steps'
 
-export const getReactNativeSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => {
+export const getReactNativeSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install the package',
@@ -50,7 +52,8 @@ export const getReactNativeSteps = ({ CodeBlock, Markdown, dedent }: OnboardingC
             content: (
                 <>
                     <Markdown>
-                        PostHog is most easily used via the `PostHogProvider` component. Wrap your app with the provider:
+                        PostHog is most easily used via the `PostHogProvider` component. Wrap your app with the
+                        provider:
                     </Markdown>
                     <CodeBlock
                         blocks={[

@@ -3,7 +3,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 import { StepDefinition } from '../steps'
 import { PersonProfiles } from './_snippets/person-profiles'
 
-export const getIOSSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => {
+export const getIOSSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install via CocoaPods',

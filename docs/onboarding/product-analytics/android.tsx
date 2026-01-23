@@ -3,7 +3,9 @@ import { OnboardingComponents, createInstallation } from 'scenes/onboarding/Onbo
 import { StepDefinition } from '../steps'
 import { PersonProfiles } from './_snippets/person-profiles'
 
-export const getAndroidSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => {
+export const getAndroidSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install the dependency',
