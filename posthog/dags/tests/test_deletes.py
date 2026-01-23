@@ -18,6 +18,7 @@ from posthog.dags.deletes import (
     deletes_job,
     find_partitions_to_cleanup,
     monthly_old_events_cleanup_job,
+    remove_deleted_person_data,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -622,3 +623,73 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
 
     events_after = cluster.any_host(count_all_events).result()
     assert events_after == len(recent_events)
+
+
+@pytest.mark.django_db
+def test_remove_deleted_person_data(cluster: ClickhouseCluster):
+    from dagster import build_op_context
+
+    active_persons = [(500 + i, UUID(int=500 + i), 0) for i in range(100)]
+    deleted_persons = [(600 + i, UUID(int=600 + i), 1) for i in range(50)]
+
+    def insert_persons(client: Client) -> None:
+        client.execute(
+            """INSERT INTO person (team_id, id, is_deleted)
+            VALUES
+            """,
+            active_persons + deleted_persons,
+        )
+
+    cluster.any_host(insert_persons).result()
+
+    def count_persons(client: Client) -> int:
+        result = client.execute("SELECT count() FROM person WHERE team_id >= 500 AND team_id < 700")
+        return result[0][0]
+
+    assert cluster.any_host(count_persons).result() == 150
+
+    table = PendingDeletesTable(timestamp=datetime.now())
+    dummy_dict = PendingDeletesDictionary(source=table)
+
+    context = build_op_context()
+    remove_deleted_person_data(context, cluster, dummy_dict)
+
+    assert cluster.any_host(count_persons).result() == 100
+
+    def get_person_team_ids(client: Client) -> list[int]:
+        result = client.execute("SELECT team_id FROM person WHERE team_id >= 500 AND team_id < 700 ORDER BY team_id")
+        return [row[0] for row in result]
+
+    remaining_ids = cluster.any_host(get_person_team_ids).result()
+    assert remaining_ids == list(range(500, 600))
+
+
+@pytest.mark.django_db
+def test_remove_deleted_person_data_no_deletions(cluster: ClickhouseCluster):
+    from dagster import build_op_context
+
+    active_persons = [(700 + i, UUID(int=700 + i), 0) for i in range(50)]
+
+    def insert_persons(client: Client) -> None:
+        client.execute(
+            """INSERT INTO person (team_id, id, is_deleted)
+            VALUES
+            """,
+            active_persons,
+        )
+
+    cluster.any_host(insert_persons).result()
+
+    def count_persons(client: Client) -> int:
+        result = client.execute("SELECT count() FROM person WHERE team_id >= 700 AND team_id < 800")
+        return result[0][0]
+
+    assert cluster.any_host(count_persons).result() == 50
+
+    table = PendingDeletesTable(timestamp=datetime.now())
+    dummy_dict = PendingDeletesDictionary(source=table)
+
+    context = build_op_context()
+    remove_deleted_person_data(context, cluster, dummy_dict)
+
+    assert cluster.any_host(count_persons).result() == 50
