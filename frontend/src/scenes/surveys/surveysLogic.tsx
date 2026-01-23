@@ -459,7 +459,7 @@ export const surveysLogic = kea<surveysLogicType>([
         ],
         guidedEditorEnabled: [
             (s) => [s.enabledFlags],
-            (enabledFlags) => !!enabledFlags[FEATURE_FLAGS.SURVEYS_GUIDED_EDITOR],
+            (enabledFlags) => !!(enabledFlags[FEATURE_FLAGS.SURVEYS_GUIDED_EDITOR] === 'test'),
         ],
         globalSurveyAppearanceConfigAvailable: [
             (s) => [s.hasAvailableFeature],

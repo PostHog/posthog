@@ -1,5 +1,6 @@
 import time
 import asyncio
+from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
@@ -126,6 +127,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     task_queue=settings.LLMA_EVALS_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
+                    task_timeout=timedelta(minutes=2),
                 )
             )
 
