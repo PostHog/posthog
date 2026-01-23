@@ -139,7 +139,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
                 right=ast.Constant(value="$pageview"),
             ),
         ]
-        if self.query.includeScreenEvents is not False:
+        if self.query.includeMobileEvents is not False:
             exprs.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["event"]),

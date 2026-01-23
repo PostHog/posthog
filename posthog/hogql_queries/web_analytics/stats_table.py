@@ -271,7 +271,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
     def _frustration_metrics_inner_query(self):
         events = ["'$pageview'", "'$rageclick'", "'$dead_click'", "'$exception'"]
-        if self.query.includeScreenEvents is not False:
+        if self.query.includeMobileEvents is not False:
             events.insert(1, "'$screen'")
 
         query = parse_select(

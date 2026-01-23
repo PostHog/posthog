@@ -852,7 +852,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_include_screen_events_0_include_screen_events_default
+# name: TestWebOverviewQueryRunner.test_include_mobile_events_0_include_mobile_events_default
   '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
@@ -905,7 +905,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_include_screen_events_1_include_screen_events_true
+# name: TestWebOverviewQueryRunner.test_include_mobile_events_1_include_mobile_events_true
   '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
@@ -958,7 +958,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_include_screen_events_2_include_screen_events_false
+# name: TestWebOverviewQueryRunner.test_include_mobile_events_2_include_mobile_events_false
   '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,

@@ -206,7 +206,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             ),
         ]
 
-        if self.query.includeScreenEvents is not False:
+        if self.query.includeMobileEvents is not False:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
@@ -231,7 +231,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             ),
         ]
 
-        if self.query.includeScreenEvents is not False:
+        if self.query.includeMobileEvents is not False:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,

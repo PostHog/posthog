@@ -19237,12 +19237,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "integrationFilter": {
@@ -19544,12 +19544,12 @@
                     "description": "Filter test accounts",
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "integrationFilter": {
@@ -21501,12 +21501,12 @@
                     "description": "Filter test accounts",
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -32893,12 +32893,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -33049,12 +33049,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -33230,12 +33230,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -33374,12 +33374,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -33559,12 +33559,12 @@
                 "includeBounceRate": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
@@ -33759,12 +33759,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -33990,12 +33990,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -34180,12 +34180,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
-                "includeScreenEvents": {
-                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
