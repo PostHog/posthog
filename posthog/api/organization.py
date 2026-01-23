@@ -24,11 +24,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.signals import model_activity_signal, mutable_receiver, mute_selected_signals
-from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -41,6 +39,7 @@ from posthog.permissions import (
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.tasks.tasks import delete_organization_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
@@ -334,23 +333,22 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
-        team_ids = [team.pk for team in organization.teams.all()]
-        delete_bulky_postgres_data(team_ids=team_ids)
+        teams = list(organization.teams.only("id", "name").all())
+        team_ids = [team.pk for team in teams]
+        project_names = [team.name for team in teams]
+        organization_name = organization.name
+
         with mute_selected_signals():
             super().perform_destroy(organization)
-        # Once the organization is deleted, queue deletion of associated data
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Team,
-                    team_id=team_id,
-                    key=str(team_id),
-                    created_by=user,
-                )
-                for team_id in team_ids
-            ],
-            ignore_conflicts=True,
-        )
+
+        # Queue background task to delete bulky data and send email
+        if team_ids:
+            delete_organization_data_and_notify_task.delay(
+                team_ids=team_ids,
+                user_id=user.id,
+                organization_name=organization_name,
+                project_names=project_names,
+            )
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {

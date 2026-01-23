@@ -37,7 +37,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -47,7 +46,7 @@ from posthog.models.product_intent.product_intent import (
 )
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -59,6 +58,7 @@ from posthog.permissions import (
     get_organization_from_view,
 )
 from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.tasks.tasks import delete_project_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
@@ -598,24 +598,16 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         user = cast(User, self.request.user)
 
         teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
-        delete_bulky_postgres_data(team_ids=[team.id for team in teams])
-        delete_batch_exports(team_ids=[team.id for team in teams])
+        team_ids = [team.id for team in teams]
 
         with mute_selected_signals():
             super().perform_destroy(project)
 
-        # Once the project is deleted, queue deletion of associated data
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Team,
-                    team_id=team.id,
-                    key=str(team.id),
-                    created_by=user,
-                )
-                for team in teams
-            ],
-            ignore_conflicts=True,
+        # Queue background task to delete bulky data and send email
+        delete_project_data_and_notify_task.delay(
+            team_ids=team_ids,
+            user_id=user.id,
+            project_name=project_name,
         )
 
         for team in teams:

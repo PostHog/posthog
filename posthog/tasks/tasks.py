@@ -19,7 +19,11 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_conc
 from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.user import User
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -925,6 +929,114 @@ def background_delete_model_task(
         raise
 
 
+def _delete_team_data(team_ids: list[int], user_id: int) -> None:
+    """
+    Shared logic for deleting team data (Postgres, batch exports, ClickHouse).
+    """
+    logger.info("Deleting bulky postgres data", team_ids=team_ids)
+    delete_bulky_postgres_data(team_ids=team_ids)
+
+    logger.info("Deleting batch exports", team_ids=team_ids)
+    delete_batch_exports(team_ids=team_ids)
+
+    logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
+    user = User.objects.filter(id=user_id).first()
+    AsyncDeletion.objects.bulk_create(
+        [
+            AsyncDeletion(
+                deletion_type=DeletionType.Team,
+                team_id=team_id,
+                key=str(team_id),
+                created_by=user,
+            )
+            for team_id in team_ids
+        ],
+        ignore_conflicts=True,
+    )
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+def delete_project_data_and_notify_task(
+    team_ids: list[int],
+    user_id: int,
+    project_name: str,
+) -> None:
+    """
+    Task to delete project data and notify user when complete.
+
+    Args:
+        team_ids: List of team IDs whose data should be deleted
+        user_id: User who initiated the deletion (for email notification)
+        project_name: Name of the deleted project (for email notification)
+    """
+    from posthog.tasks.email import send_project_deleted_email
+
+    logger.info("Starting project data deletion", team_ids=team_ids, project_name=project_name)
+
+    try:
+        _delete_team_data(team_ids, user_id)
+        logger.info("Project data deletion completed", team_ids=team_ids, project_name=project_name)
+        send_project_deleted_email.delay(user_id=user_id, project_name=project_name)
+    except Exception as e:
+        logger.error(
+            "Project data deletion failed", team_ids=team_ids, project_name=project_name, error=str(e), exc_info=True
+        )
+        capture_exception(
+            e,
+            additional_properties={
+                "task": "delete_project_data_and_notify",
+                "team_ids": team_ids,
+                "project_name": project_name,
+            },
+        )
+        raise
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+def delete_organization_data_and_notify_task(
+    team_ids: list[int],
+    user_id: int,
+    organization_name: str,
+    project_names: list[str],
+) -> None:
+    """
+    Task to delete organization data and notify user when complete.
+
+    Args:
+        team_ids: List of team IDs whose data should be deleted
+        user_id: User who initiated the deletion (for email notification)
+        organization_name: Name of the deleted organization (for email notification)
+        project_names: Names of all projects in the organization (for email notification)
+    """
+    from posthog.tasks.email import send_organization_deleted_email
+
+    logger.info("Starting organization data deletion", team_ids=team_ids, organization_name=organization_name)
+
+    try:
+        _delete_team_data(team_ids, user_id)
+        logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
+        send_organization_deleted_email.delay(
+            user_id=user_id, organization_name=organization_name, project_names=project_names
+        )
+    except Exception as e:
+        logger.error(
+            "Organization data deletion failed",
+            team_ids=team_ids,
+            organization_name=organization_name,
+            error=str(e),
+            exc_info=True,
+        )
+        capture_exception(
+            e,
+            additional_properties={
+                "task": "delete_organization_data_and_notify",
+                "team_ids": team_ids,
+                "organization_name": organization_name,
+            },
+        )
+        raise
+
+
 @shared_task(
     bind=True,
     base=PushGatewayTask,
@@ -962,7 +1074,6 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     from django.core.cache import cache
 
     from posthog.clickhouse.client import sync_execute
-    from posthog.exceptions_capture import capture_exception
     from posthog.models.feature_flag.feature_flag import FeatureFlag
 
     FEATURE_FLAG_LAST_CALLED_SYNC_KEY = "posthog:feature_flag_last_called_sync:last_timestamp"
@@ -1186,7 +1297,6 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
     from posthog.api.advanced_activity_logs.constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
     from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery
     from posthog.api.advanced_activity_logs.fields_cache import delete_cached_fields
-    from posthog.exceptions_capture import capture_exception
     from posthog.models import Organization
     from posthog.models.activity_logging.activity_log import ActivityLog
 
