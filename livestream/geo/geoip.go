@@ -12,7 +12,7 @@ type MaxMindLocator struct {
 }
 
 type GeoLocator interface {
-	Lookup(ipString string) (float64, float64, error)
+	Lookup(ipString string) (float64, float64, string, error)
 }
 
 func NewMaxMindGeoLocator(dbPath string) (*MaxMindLocator, error) {
@@ -26,10 +26,10 @@ func NewMaxMindGeoLocator(dbPath string) (*MaxMindLocator, error) {
 	}, nil
 }
 
-func (g *MaxMindLocator) Lookup(ipString string) (float64, float64, error) {
+func (g *MaxMindLocator) Lookup(ipString string) (float64, float64, string, error) {
 	ip := net.ParseIP(ipString)
 	if ip == nil {
-		return 0, 0, errors.New("invalid IP address")
+		return 0, 0, "", errors.New("invalid IP address")
 	}
 
 	var record struct {
@@ -37,11 +37,14 @@ func (g *MaxMindLocator) Lookup(ipString string) (float64, float64, error) {
 			Latitude  float64 `maxminddb:"latitude"`
 			Longitude float64 `maxminddb:"longitude"`
 		} `maxminddb:"location"`
+		Country struct {
+			ISOCode string `maxminddb:"iso_code"`
+		} `maxminddb:"country"`
 	}
 
 	err := g.db.Lookup(ip, &record)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, "", err
 	}
-	return record.Location.Latitude, record.Location.Longitude, nil
+	return record.Location.Latitude, record.Location.Longitude, record.Country.ISOCode, nil
 }
