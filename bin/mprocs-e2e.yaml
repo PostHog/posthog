@@ -37,25 +37,33 @@ procs:
     docker-compose:
         shell: 'docker compose -f docker-compose.dev-minimal.yml up --pull always -d && docker compose -f docker-compose.dev-minimal.yml logs --tail=0 -f'
 
-    migrate:
-        shell: 'bin/check_postgres_up && bin/check_kafka_clickhouse_up && python manage.py migrate && python manage.py migrate_clickhouse && python manage.py setup_dev'
+    reset-db:
+        shell: |-
+            echo "=== Terminating existing connections ===" && \
+            psql -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'posthog_e2e_test' AND pid <> pg_backend_pid();" || true && \
+            echo "=== Dropping and recreating databases ===" && \
+            dropdb --if-exists posthog_e2e_test && \
+            createdb posthog_e2e_test && \
+            echo "DROP DATABASE IF EXISTS posthog_test SYNC" | curl 'http://localhost:8123/' --data-binary @- && \
+            echo "CREATE DATABASE posthog_test" | curl 'http://localhost:8123/' --data-binary @- && \
+            echo "=== Running migrations ===" && \
+            bin/check_kafka_clickhouse_up && \
+            python manage.py migrate && \
+            python manage.py migrate_clickhouse && \
+            echo "=== Setting up demo data ===" && \
+            python manage.py setup_dev && \
+            echo "=== Done ==="
+        autostart: false
         env:
+            PGHOST: 'localhost'
+            PGPORT: '5432'
+            PGUSER: 'posthog'
+            PGPASSWORD: 'posthog'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_e2e_test'
             CLICKHOUSE_DATABASE: 'posthog_test'
             CLOUD_DEPLOYMENT: 'E2E'
             SECRET_KEY: 'e2e_test'
             DEBUG: '1'
-            E2E_TESTING: '1'
-
-    recreate-db:
-        shell: |-
-            echo "Dropping and recreating databases..." && \
-            dropdb --if-exists posthog_e2e_test && \
-            createdb posthog_e2e_test && \
-            echo "DROP DATABASE IF EXISTS posthog_test" | curl 'http://localhost:8123/' --data-binary @- && \
-            echo "CREATE DATABASE posthog_test" | curl 'http://localhost:8123/' --data-binary @- && \
-            echo "Databases recreated successfully"
-        autostart: false
 
 mouse_scroll_speed: 1
 scrollback: 10000
