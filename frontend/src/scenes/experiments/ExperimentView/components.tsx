@@ -521,22 +521,25 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <ResetButton />
 
-                        {experiment.feature_flag && experiment.feature_flag.active && (
-                            <ButtonPrimitive
-                                variant="danger"
-                                menuItem
-                                data-attr="pause-experiment"
-                                onClick={() => openPauseExperimentModal()}
-                            >
-                                <IconPause /> Pause experiment
-                            </ButtonPrimitive>
-                        )}
-
-                        {experiment.feature_flag && !experiment.feature_flag.active && (
-                            <ButtonPrimitive menuItem data-attr="resume-experiment" onClick={() => resumeExperiment()}>
-                                <IconPlay /> Resume experiment
-                            </ButtonPrimitive>
-                        )}
+                        {experiment.feature_flag &&
+                            (experiment.feature_flag.active ? (
+                                <ButtonPrimitive
+                                    variant="danger"
+                                    menuItem
+                                    data-attr="pause-experiment"
+                                    onClick={() => openPauseExperimentModal()}
+                                >
+                                    <IconPause /> Pause experiment
+                                </ButtonPrimitive>
+                            ) : (
+                                <ButtonPrimitive
+                                    menuItem
+                                    data-attr="resume-experiment"
+                                    onClick={() => resumeExperiment()}
+                                >
+                                    <IconPlay /> Resume experiment
+                                </ButtonPrimitive>
+                            ))}
 
                         {!experiment.end_date && (
                             <ButtonPrimitive
