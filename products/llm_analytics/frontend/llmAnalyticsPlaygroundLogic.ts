@@ -162,7 +162,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 loadModelOptionsSuccess: () => null,
                 loadModelOptionsFailure: (_, { error }) => {
                     if ((error as unknown) instanceof ApiError) {
-                        return error.status ?? null
+                        return (error as ApiError).status ?? null
                     }
 
                     return null
