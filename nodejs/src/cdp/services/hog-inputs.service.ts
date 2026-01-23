@@ -63,8 +63,9 @@ export class HogInputsService {
 
             // Update the input values with resolved tokens
             for (const [key, resolvedInput] of Object.entries(pushSubscriptionInputs)) {
-                if (inputs[key]) {
-                    inputs[key].value = resolvedInput.value
+                const existingInput = inputs[key]
+                if (existingInput) {
+                    existingInput.value = resolvedInput.value
                 } else {
                     inputs[key] = resolvedInput
                 }
