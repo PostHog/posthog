@@ -1,5 +1,6 @@
 """Activity for generating summaries of individual $ai_generation events using LLM."""
 
+from datetime import datetime
 from uuid import uuid4
 
 import structlog
@@ -27,6 +28,12 @@ from products.llm_analytics.backend.summarization.models import (
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
 
 logger = structlog.get_logger(__name__)
+
+
+def _format_datetime_for_clickhouse(iso_string: str) -> str:
+    """Convert ISO format datetime string to ClickHouse-compatible format."""
+    dt = datetime.fromisoformat(iso_string)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _format_generation_text_repr(generation_data: dict) -> str:
@@ -118,6 +125,10 @@ async def generate_and_save_generation_summary_activity(
         """
         team = Team.objects.get(id=team_id)
 
+        # Convert ISO format to ClickHouse-compatible format
+        start_dt_str = _format_datetime_for_clickhouse(window_start)
+        end_dt_str = _format_datetime_for_clickhouse(window_end)
+
         query = parse_select(
             """
             SELECT
@@ -131,8 +142,8 @@ async def generate_and_save_generation_summary_activity(
                 timestamp
             FROM events
             WHERE event = '$ai_generation'
-                AND timestamp >= {start_dt}
-                AND timestamp < {end_dt}
+                AND timestamp >= toDateTime({start_dt})
+                AND timestamp < toDateTime({end_dt})
                 AND properties.$ai_span_id = {generation_id}
             LIMIT 1
             """
@@ -142,8 +153,8 @@ async def generate_and_save_generation_summary_activity(
             query_type="GenerationForSummarization",
             query=query,
             placeholders={
-                "start_dt": ast.Constant(value=window_start),
-                "end_dt": ast.Constant(value=window_end),
+                "start_dt": ast.Constant(value=start_dt_str),
+                "end_dt": ast.Constant(value=end_dt_str),
                 "generation_id": ast.Constant(value=generation_id),
             },
             team=team,

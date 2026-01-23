@@ -45,7 +45,7 @@ async def query_traces_in_window_activity(inputs: BatchSummarizationInputs) -> l
         inputs.team_id,
         inputs.window_start,
         inputs.window_end,
-        inputs.max_traces,
+        inputs.max_items,
     )
 
     return trace_ids

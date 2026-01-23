@@ -17,7 +17,9 @@ from posthog.temporal.llm_analytics.trace_clustering import (
 from posthog.temporal.llm_analytics.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
     BatchTraceSummarizationWorkflow,
+    generate_and_save_generation_summary_activity,
     generate_and_save_summary_activity,
+    query_generations_in_window_activity,
     query_traces_in_window_activity,
 )
 
@@ -45,7 +47,9 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     query_traces_in_window_activity,
+    query_generations_in_window_activity,
     generate_and_save_summary_activity,
+    generate_and_save_generation_summary_activity,
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,

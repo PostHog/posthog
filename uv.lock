@@ -4555,6 +4555,7 @@ dependencies = [
     { name = "statshog" },
     { name = "stripe" },
     { name = "structlog" },
+    { name = "tbb", marker = "sys_platform == 'linux'" },
     { name = "temporalio" },
     { name = "tenacity" },
     { name = "textcase" },
@@ -4810,6 +4811,7 @@ requires-dist = [
     { name = "statshog", specifier = "==1.0.6" },
     { name = "stripe", specifier = "==12.2.0" },
     { name = "structlog", specifier = "==25.4.0" },
+    { name = "tbb", marker = "sys_platform == 'linux'", specifier = "~=2022.1" },
     { name = "temporalio", specifier = "==1.14.1" },
     { name = "tenacity", specifier = "==9.1.2" },
     { name = "textcase", specifier = "~=0.4.5" },
@@ -6597,6 +6599,25 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a1/38/1ac3e633ddf775e2c76d6daa8f345f02db2252b02b83970ca15fbe8504bd/tach-0.20.0-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:aba656fd46e89a236d9b30610851010b200e7ae25db3053d1d852f6cc0357640", size = 3387869, upload-time = "2025-01-13T08:03:48.117Z" },
     { url = "https://files.pythonhosted.org/packages/59/74/3ebe4994b0569a4b53b5963ad4b63ca91277a543c841cc4934132030f325/tach-0.20.0-cp37-abi3-win32.whl", hash = "sha256:653455ff1da0aebfdd7408905aae13747a7144ee98490d93778447f56330fa4b", size = 2608869, upload-time = "2025-01-13T08:04:02.791Z" },
     { url = "https://files.pythonhosted.org/packages/7f/41/8d1d42e4de71e2894efe0e2ffd88e870252179df93335d0e7f04edd436b6/tach-0.20.0-cp37-abi3-win_amd64.whl", hash = "sha256:efdefa94bf899306fcb265ca603a419a24d2d81cc82d6547f4222077a37fa474", size = 2801132, upload-time = "2025-01-13T08:04:00.53Z" },
+]
+
+[[package]]
+name = "tbb"
+version = "2022.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tcmlib", marker = "sys_platform != 'emscripten'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/59/8d381a2cfe8d36c4f4ff9f94769ff2809bfc16014d888360b0e24c7e5c6b/tbb-2022.3.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:534c089eca6bcf148408684c156229d5f09c01d323b685b15739f41985b529d7", size = 4178630, upload-time = "2026-01-22T05:30:20.589Z" },
+]
+
+[[package]]
+name = "tcmlib"
+version = "1.4.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/a4/38e8b5a27b66ab286168ba6c449771ed71d71ec76524e7f12401474a5151/tcmlib-1.4.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:0d5bd98db48d31bec7fedba5c23599bf9ae43c7016d4c3946d25242d320cee89", size = 2731276, upload-time = "2025-10-22T17:57:02.392Z" },
 ]
 
 [[package]]
