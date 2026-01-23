@@ -304,7 +304,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'live',
     },
     [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger', defaultDocsPath: '/docs/data/events' },
-    [Scene.Login2FA]: { onlyUnauthenticated: true },
+    [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA' },
     [Scene.EmailMFAVerify]: { onlyUnauthenticated: true },
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
@@ -469,6 +469,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SurveyTemplates]: {
         projectBased: true,
         name: 'New survey',
+        defaultDocsPath: '/docs/surveys/creating-surveys',
+    },
+    [Scene.SurveyWizard]: {
+        projectBased: true,
+        name: 'Create survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
     [Scene.Survey]: {
@@ -730,8 +735,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
-    [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
+    [urls.surveyWizard(':id')]: [Scene.SurveyWizard, 'surveyWizard'],
+    [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],

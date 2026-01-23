@@ -3465,6 +3465,23 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         stats_config = response.json()["stats_config"]
         self.assertEqual(stats_config["method"], "bayesian")
 
+    def test_create_experiment_uses_team_default_confidence_level(self) -> None:
+        self.team.default_experiment_confidence_level = 0.90
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-confidence-level",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        stats_config = response.json()["stats_config"]
+        self.assertAlmostEqual(stats_config["bayesian"]["ci_level"], 0.90)
+        self.assertAlmostEqual(stats_config["frequentist"]["alpha"], 0.10)
+
     def test_experiment_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment activity logs show the correct user for both creation and updates."""
 

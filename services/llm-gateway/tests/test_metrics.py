@@ -3,15 +3,17 @@ from prometheus_client import generate_latest
 
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
+    CALLBACK_ERRORS,
+    CALLBACK_SUCCESS,
     CONCURRENT_REQUESTS,
     DB_POOL_SIZE,
+    LLM_RESPONSE_TIME,
+    LLM_TIME_TO_FIRST_TOKEN,
     PROVIDER_ERRORS,
-    PROVIDER_LATENCY,
     RATE_LIMIT_EXCEEDED,
     REQUEST_COUNT,
     REQUEST_LATENCY,
     STREAMING_CLIENT_DISCONNECT,
-    TIME_TO_FIRST_CHUNK,
     TOKENS_INPUT,
     TOKENS_OUTPUT,
 )
@@ -36,9 +38,11 @@ class TestMetricsConfiguration:
             pytest.param(
                 STREAMING_CLIENT_DISCONNECT, {"provider", "model", "product"}, id="streaming_client_disconnect"
             ),
-            pytest.param(TIME_TO_FIRST_CHUNK, {"provider", "model", "product"}, id="time_to_first_chunk"),
+            pytest.param(LLM_TIME_TO_FIRST_TOKEN, {"provider", "model", "product"}, id="llm_time_to_first_token"),
             pytest.param(DB_POOL_SIZE, {"state"}, id="db_pool_size"),
-            pytest.param(PROVIDER_LATENCY, {"provider", "model", "product"}, id="provider_latency"),
+            pytest.param(LLM_RESPONSE_TIME, {"provider", "model", "product"}, id="llm_response_time"),
+            pytest.param(CALLBACK_SUCCESS, {"callback"}, id="callback_success"),
+            pytest.param(CALLBACK_ERRORS, {"callback", "error_type"}, id="callback_errors"),
         ],
     )
     def test_metric_has_correct_labels(self, metric, expected_labels: set[str]) -> None:
@@ -67,7 +71,8 @@ class TestMetricsExport:
             pytest.param(b"llm_gateway_concurrent_requests", id="concurrent_requests"),
             pytest.param(b"llm_gateway_streaming_client_disconnect_total", id="streaming_client_disconnect"),
             pytest.param(b"llm_gateway_db_pool_size", id="db_pool_size"),
-            pytest.param(b"llm_gateway_provider_latency_seconds", id="provider_latency"),
+            pytest.param(b"llm_gateway_llm_response_time_seconds", id="llm_response_time"),
+            pytest.param(b"llm_gateway_llm_ttft_seconds", id="llm_time_to_first_token"),
         ],
     )
     def test_metric_appears_in_prometheus_output(self, metric_name: bytes) -> None:
@@ -137,10 +142,20 @@ class TestMetricsRecording:
         REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false", product="llm_gateway").observe(0.5)
         REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false", product="llm_gateway").observe(1.5)
 
-    def test_provider_latency_histogram_observes_values(self) -> None:
-        PROVIDER_LATENCY.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.25)
-        PROVIDER_LATENCY.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(2.5)
+    def test_llm_response_time_histogram_observes_values(self) -> None:
+        LLM_RESPONSE_TIME.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.25)
+        LLM_RESPONSE_TIME.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(2.5)
 
-    def test_time_to_first_chunk_histogram_observes_values(self) -> None:
-        TIME_TO_FIRST_CHUNK.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.15)
-        TIME_TO_FIRST_CHUNK.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.75)
+    def test_llm_time_to_first_token_histogram_observes_values(self) -> None:
+        LLM_TIME_TO_FIRST_TOKEN.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.15)
+        LLM_TIME_TO_FIRST_TOKEN.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.75)
+
+    def test_callback_success_increments(self) -> None:
+        initial = CALLBACK_SUCCESS.labels(callback="test_callback")._value.get()
+        CALLBACK_SUCCESS.labels(callback="test_callback").inc()
+        assert CALLBACK_SUCCESS.labels(callback="test_callback")._value.get() == initial + 1
+
+    def test_callback_errors_tracks_error_types(self) -> None:
+        initial = CALLBACK_ERRORS.labels(callback="test_callback", error_type="ValueError")._value.get()
+        CALLBACK_ERRORS.labels(callback="test_callback", error_type="ValueError").inc()
+        assert CALLBACK_ERRORS.labels(callback="test_callback", error_type="ValueError")._value.get() == initial + 1

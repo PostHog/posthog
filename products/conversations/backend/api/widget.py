@@ -12,8 +12,7 @@ This prevents users from accessing others' chats by knowing their email.
 
 import logging
 
-from django.db.models import CharField, Count, F, OuterRef, Q, Subquery
-from django.db.models.functions import Cast
+from django.db.models import F, Q
 
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
@@ -26,6 +25,7 @@ from posthog.auth import WidgetAuthentication
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
+from posthog.tasks.email import send_new_ticket_notification
 
 from products.conversations.backend.api.serializers import (
     WidgetMarkReadSerializer,
@@ -78,6 +78,8 @@ class WidgetMessageView(APIView):
         distinct_id = serializer.validated_data["distinct_id"]
         message_content = serializer.validated_data["message"]
         traits = serializer.validated_data.get("traits", {})
+        session_id = serializer.validated_data.get("session_id")
+        session_context = serializer.validated_data.get("session_context", {})
 
         # Handle optional ticket_id (UUID field)
         raw_ticket_id = request.data.get("ticket_id")
@@ -106,16 +108,31 @@ class WidgetMessageView(APIView):
                 if traits:
                     ticket.anonymous_traits.update(traits)
 
+                # Update session data if provided
+                if session_id:
+                    ticket.session_id = session_id
+                if session_context:
+                    ticket.session_context.update(session_context)
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
+                ticket.save(
+                    update_fields=[
+                        "distinct_id",
+                        "anonymous_traits",
+                        "session_id",
+                        "session_context",
+                        "unread_team_count",
+                        "updated_at",
+                    ]
+                )
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket
-            ticket = Ticket.objects.create(
+            ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
                 distinct_id=distinct_id,
@@ -123,6 +140,8 @@ class WidgetMessageView(APIView):
                 status="new",
                 anonymous_traits=traits,
                 unread_team_count=1,
+                session_id=session_id,
+                session_context=session_context,
             )
 
         # Create message
@@ -133,6 +152,16 @@ class WidgetMessageView(APIView):
             content=message_content,
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
+
+        # Send email notification for new tickets
+        if not ticket_id:
+            conversations_settings = team.conversations_settings or {}
+            if conversations_settings.get("notification_recipients"):
+                send_new_ticket_notification.delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team.id,
+                    first_message_content=message_content,
+                )
 
         return Response(
             {
@@ -288,46 +317,7 @@ class WidgetTicketsView(APIView):
         if status_filter:
             tickets_query = tickets_query.filter(status=status_filter)
 
-        # Add annotations to avoid N+1 queries
-        message_count_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .values("item_id")
-            .annotate(count=Count("id"))
-            .values("count")
-        )
-
-        last_message_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("content")[:1]
-        )
-
-        last_message_at_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("created_at")[:1]
-        )
-
-        tickets_query = tickets_query.annotate(
-            message_count=Subquery(message_count_subquery),
-            last_message=Subquery(last_message_subquery),
-            last_message_at=Subquery(last_message_at_subquery),
-        )
+        # message_count, last_message_at, last_message_text are now denormalized on Ticket model
 
         # Order and paginate
         tickets = tickets_query.order_by("-created_at")[offset : offset + limit]
@@ -341,9 +331,9 @@ class WidgetTicketsView(APIView):
                     "id": str(ticket.id),
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
-                    "last_message": ticket.last_message,
+                    "last_message": ticket.last_message_text,  # Now from denormalized field
                     "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
-                    "message_count": ticket.message_count or 0,
+                    "message_count": ticket.message_count,
                     "created_at": ticket.created_at.isoformat(),
                 }
             )

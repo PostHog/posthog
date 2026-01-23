@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-01-14 10:04:29 UTC
+// Generated at: 2026-01-22 10:06:01 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -88,6 +88,7 @@ export type CanonicalProvider =
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
+    | 'novita'
     | 'novita-bf16'
     | 'novita-fp16'
     | 'novita-fp4'
@@ -111,7 +112,7 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-high-throughput'
     | 'sambanova-turbo'
-    | 'seed'
+    | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'

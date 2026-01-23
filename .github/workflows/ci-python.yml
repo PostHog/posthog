@@ -55,6 +55,8 @@ jobs:
                         - 'bin/**'
                         # LLM Gateway service
                         - 'services/llm-gateway/**/*.py'
+                        # GitHub scripts
+                        - '.github/scripts/**/*.py'
 
     code-quality:
         needs: changes

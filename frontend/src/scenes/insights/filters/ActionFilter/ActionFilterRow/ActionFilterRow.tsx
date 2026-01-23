@@ -69,6 +69,7 @@ import {
     EntityTypes,
     FunnelExclusionLegacy,
     HogQLMathType,
+    InsightShortId,
     PropertyFilterValue,
     PropertyMathType,
 } from '~/types'
@@ -224,8 +225,10 @@ export function ActionFilterRow({
     const isTrendsContext = trendsDisplayCategory != null
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
+    // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
+    const dashboardItemId = typeKey.split('/')[0] as InsightShortId
     const { insightProps: funnelInsightProps } = useValues(
-        insightLogic({ dashboardItemId: isFunnelContext ? (typeKey as any) : 'new' })
+        insightLogic({ dashboardItemId: isFunnelContext ? dashboardItemId : 'new' })
     )
     const { isStepOptional: funnelIsStepOptional } = useValues(funnelDataLogic(funnelInsightProps))
 
@@ -796,6 +799,11 @@ export function ActionFilterRow({
                             filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
+                        }
+                        dataWarehouseTableName={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? (filter.name ?? undefined)
+                                : undefined
                         }
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
