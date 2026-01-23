@@ -106,8 +106,11 @@ class LazyTypeDetector(TraversingVisitor):
                 return self._check_select_query_type_for_lazy(table_type.select_query_type)
         return False
 
-    def _check_select_query_type_for_lazy(self, query_type: ast.SelectQueryType) -> bool:
+    def _check_select_query_type_for_lazy(self, query_type: ast.SelectQueryType | ast.SelectSetQueryType) -> bool:
         """Check if a select query type has lazy references in its tables."""
+        if isinstance(query_type, ast.SelectSetQueryType):
+            # For union queries, check each select in the union
+            return False
         for table_type in query_type.tables.values():
             if self._check_table_type_for_lazy(table_type):
                 return True
@@ -209,11 +212,11 @@ class EventsFieldCollector(TraversingVisitor):
             return False
 
         # Get the underlying TableType from both sides
-        unwrapped = table_type
+        unwrapped: ast.Type = table_type
         if isinstance(unwrapped, ast.TableAliasType):
             unwrapped = unwrapped.table_type
 
-        target = self.target_table
+        target: ast.Type = self.target_table
         if isinstance(target, ast.TableAliasType):
             target = target.table_type
 
@@ -232,7 +235,7 @@ class TypeRewriter(CloningVisitor):
     to reference the inner events table instead of the outer query's table.
     """
 
-    def __init__(self, table_type: ast.TableType, columns_in_scope: dict[str, ast.FieldType]):
+    def __init__(self, table_type: ast.TableType, columns_in_scope: dict[str, ast.Type]):
         super().__init__()
         self.table_type = table_type
         self.columns_in_scope = columns_in_scope
@@ -320,6 +323,10 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if events_table_type is None:
             return
 
+        # We only apply pushdown to events table which should be TableType or TableAliasType
+        if not isinstance(events_table_type, (ast.TableType, ast.TableAliasType)):
+            return
+
         # Collect all columns the outer query needs from the events table
         needed_columns = self._collect_needed_columns(node, events_table_type)
 
@@ -353,6 +360,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         # Set the JoinExpr type to SelectQueryAliasType so the printer knows to print
         # the subquery. Field references in the outer query still point to their original
         # types which is fine - they don't need to know about the subquery wrapper.
+        assert events_subquery.type is not None  # We always set the type in _build_typed_subquery
         node.select_from.type = ast.SelectQueryAliasType(
             alias=new_alias,
             select_query_type=events_subquery.type,
@@ -450,7 +458,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         # Build typed Field nodes for each column, wrapped in Alias to ensure
         # the column names are preserved even if PropertySwapper transforms the inner expression
         select_fields: list[ast.Expr] = []
-        columns_in_scope: dict[str, ast.FieldType] = {}
+        columns_in_scope: dict[str, ast.Type] = {}
 
         for col_name in sorted(collected_fields.keys()):
             # Create a FieldType that references the inner table directly (not aliased)
