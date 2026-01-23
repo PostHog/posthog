@@ -115,15 +115,22 @@ export function ClustersView(): JSX.Element {
             {/* Run Selector Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <LemonSegmentedButton
-                        value={clusteringLevel}
-                        onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
-                        options={[
-                            { value: 'trace', label: 'Traces' },
-                            { value: 'generation', label: 'Generations' },
-                        ]}
-                        size="small"
-                    />
+                    <Tooltip
+                        title="Traces cluster entire conversations, while generations cluster individual LLM calls"
+                        placement="bottom"
+                    >
+                        <span>
+                            <LemonSegmentedButton
+                                value={clusteringLevel}
+                                onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
+                                options={[
+                                    { value: 'trace', label: 'Traces' },
+                                    { value: 'generation', label: 'Generations' },
+                                ]}
+                                size="small"
+                            />
+                        </span>
+                    </Tooltip>
                     <span className="text-muted">|</span>
                     <label className="font-medium">Clustering run:</label>
                     <LemonSelect
