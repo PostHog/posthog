@@ -83,6 +83,12 @@ class DataModelingCancelledException(Exception):
     pass
 
 
+class QueryReturnedNoResultsException(Exception):
+    """Exception raised when a query returns no results. Could be a transient error."""
+
+    pass
+
+
 class NonRetryableException(Exception):
     @property
     def cause(self) -> BaseException | None:
@@ -467,15 +473,6 @@ async def materialize_model(
 
         await logger.adebug(f"Delta table URI = {table_uri}")
 
-        # Delete existing table first so that there are no schema conflicts
-        s3 = get_s3_client()
-        try:
-            await logger.adebug(f"Deleting existing delta table at {table_uri}")
-            s3.delete(table_uri, recursive=True)
-            await logger.adebug("Table deleted")
-        except FileNotFoundError:
-            await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
-
         try:
             rows_expected = await get_query_row_count(hogql_query, team, logger)
             await logger.ainfo(f"Expected rows: {rows_expected}")
@@ -484,22 +481,28 @@ async def materialize_model(
             await database_sync_to_async(job.save)()
         except Exception as e:
             exception_str = str(e)
-
-            # If the count doesn't succeed due to the query timeout being exceeded, then re-raise
+            # if the count doesn't succeed due to the query timeout being exceeded, then re-raise
             if "Timeout exceeded" in exception_str:
                 raise
-
             await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
             job.rows_expected = None
             await database_sync_to_async(job.save)()
-
         delta_table: deltalake.DeltaTable | None = None
-
+        existing_table_deleted = False
         async for index, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
-
+            # delete existing table only after we confirm we have new data to write
+            if not existing_table_deleted:
+                s3 = get_s3_client()
+                try:
+                    await logger.adebug(f"Deleting existing delta table at {table_uri}")
+                    s3.delete(table_uri, recursive=True)
+                    await logger.adebug("Table deleted")
+                except FileNotFoundError:
+                    await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
+                existing_table_deleted = True
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
                     table_uri=table_uri,
@@ -543,10 +546,27 @@ async def materialize_model(
             del batch, ch_types
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
-
         if delta_table is None:
-            error_message = "Query returned no results. Check that the query returns data before materializing."
-            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
+            # no batches were in the iterator so now we try to find the existing table uri
+            try:
+                delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
+                await logger.ainfo(f"Query returned no results, keeping existing delta table at {table_uri}")
+                # mark job as completed since we're keeping the existing data, unaltered
+                job.status = DataModelingJob.Status.COMPLETED
+                job.rows_materialized = 0
+                job.last_run_at = dt.datetime.now(dt.UTC)
+                await database_sync_to_async(job.save)()
+                return (saved_query.normalized_name, delta_table, job.id)
+            except Exception as delta_err:
+                if "no log files" in str(delta_err).lower() or "not found" in str(delta_err).lower():
+                    await logger.awarning(f"Query returned no results and no existing delta table found: {delta_err}")
+                else:
+                    await logger.awarning(
+                        f"Query returned no results and failed to open existing delta table: {delta_err}"
+                    )
+                raise QueryReturnedNoResultsException(
+                    f"Query for model {model_label} returned no results. The query may return data on the next scheduled run."
+                )
     except Exception as e:
         error_message = str(e)
         await logger.aerror(f"Error materializing model {model_label}: {error_message}")
@@ -609,12 +629,19 @@ async def materialize_model(
             await mark_job_as_failed(job, error_message, logger)
             await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
+        elif isinstance(e, QueryReturnedNoResultsException):
+            # returning no data could be transient, so we don't pause the schedule here
+            error_message = str(e)
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message, logger)
+            await logger.ainfo("Query returned no results for model %s (schedule NOT paused)", model_label)
+            raise
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
             saved_query.sync_frequency_interval = None
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
-            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
             if isinstance(e, NonRetryableException):
                 raise
