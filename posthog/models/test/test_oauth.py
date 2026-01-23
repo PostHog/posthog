@@ -483,7 +483,7 @@ class TestOAuthModels(TestCase):
         )
         schemes = app.get_allowed_schemes()
         self.assertIn("https", schemes)
-        self.assertIn("array", schemes)
+        self.assertIn("twig", schemes)
         self.assertIn("http", schemes)
         self.assertEqual(len(schemes), 3)
 
