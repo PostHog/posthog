@@ -1543,7 +1543,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     segments.findIndex((s) => s.startTimestamp === segment.startTimestamp && s.kind === segment.kind)
 
                 const seekToPrevActivityEnd = (segment: RecordingSegment): void => {
-                    const prevActivity = findPrevActivitySegment(findSegmentIndex(segment) + 1)
+                    const prevActivity = findPrevActivitySegment(findSegmentIndex(segment))
                     if (prevActivity) {
                         targetTime = Math.max(0, prevActivity.endTimestamp - startTimestamp - amount)
                     }
@@ -1569,10 +1569,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.seekIndicatorTimer) {
                 clearTimeout(cache.seekIndicatorTimer)
             }
+            // Wait for CSS animation to complete (100ms fade-in + 300ms visible + 200ms fade-out)
             cache.seekIndicatorTimer = setTimeout(() => {
                 actions.hideSeekIndicator()
                 cache.seekIndicatorTimer = null
-            }, 500)
+            }, 600)
         },
 
         seekToTime: ({ timeInMilliseconds }) => {

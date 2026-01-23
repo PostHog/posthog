@@ -32,6 +32,7 @@ const SeekIndicator = (): JSX.Element | null => {
                 'SeekIndicator absolute inset-0 z-20 flex items-center pointer-events-none',
                 isForward ? 'justify-end pr-[15%]' : 'justify-start pl-[15%]'
             )}
+            key="seek-indicator"
         >
             <div className="SeekIndicator__bubble flex flex-col items-center justify-center rounded-full bg-black/60 w-20 h-20">
                 <IconSkipBackward
