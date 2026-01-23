@@ -9,7 +9,11 @@ from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.transforms.events_predicate_pushdown import EventsPredicatePushdownTransform
+from posthog.hogql.transforms.events_predicate_pushdown import (
+    EventsFieldCollector,
+    EventsPredicatePushdownTransform,
+    LazyTypeDetector,
+)
 
 
 class TestEventsPredicatePushdownTransform(BaseTest):
@@ -23,7 +27,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
+                modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(pushDownPredicates=True),
             ),
             "clickhouse",
         )
@@ -91,8 +95,22 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         """Simple test: events with person.id should resolve without predicate pushdown issues."""
         printed = self._print_select(
             "SELECT event, person.id FROM events WHERE timestamp > '2024-01-01'",
-            modifiers=HogQLQueryModifiers(pushDownPredicates=False),
+            # modifiers=HogQLQueryModifiers(pushDownPredicates=False),
         )
+
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_pushdown_applied_to_nested_subqueries(self):
+        query = """
+                SELECT event, avg(duration)
+                FROM (SELECT event, session.$session_duration as duration
+                      FROM events
+                      WHERE timestamp > '2024-01-01')
+                GROUP BY event \
+                """
+
+        printed = self._print_select(query)
 
         assert printed == self.snapshot
 
@@ -260,5 +278,191 @@ class TestEventsPredicatePushdownTransformUnit:
         transform = EventsPredicatePushdownTransform(context)
 
         aliases = transform._collect_joined_aliases(node)
-
         assert aliases == set()
+
+
+class TestLazyTypeDetector(BaseTest):
+    """Tests for LazyTypeDetector using real HogQL queries.
+
+    LazyTypeDetector finds LazyJoinType/LazyTableType in the AST which indicates
+    that lazy join resolution hasn't completed - predicate pushdown should be skipped.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from posthog.hogql.database.database import Database
+
+        self.database = Database.create_for(team=self.team)
+        self.context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
+
+    def _resolve_query(self, query: str) -> ast.SelectQuery:
+        """Parse and resolve types for a query (without lazy table resolution)."""
+        from posthog.hogql.resolver import resolve_types
+
+        parsed = parse_select(query)
+        return resolve_types(parsed, self.context, dialect="clickhouse")
+
+    def test_detects_lazy_join_from_session_field(self):
+        """Query accessing session.$session_duration has LazyJoinType before lazy resolution."""
+        # session is a LazyJoin on events - produces LazyJoinType after resolve_types
+        node = self._resolve_query("SELECT session.$session_duration FROM events")
+
+        detector = LazyTypeDetector()
+        detector.visit(node)
+
+        assert detector.found_lazy_type is True
+
+    def test_detects_lazy_join_from_person_field(self):
+        """Query accessing person.id has LazyJoinType before lazy resolution."""
+        node = self._resolve_query("SELECT person.id FROM events")
+
+        detector = LazyTypeDetector()
+        detector.visit(node)
+
+        assert detector.found_lazy_type is True
+
+    def test_no_lazy_type_for_direct_events_columns(self):
+        """Query with only direct events columns has no lazy types."""
+        node = self._resolve_query("SELECT event, timestamp, distinct_id FROM events")
+
+        detector = LazyTypeDetector()
+        detector.visit(node)
+
+        assert detector.found_lazy_type is False
+
+    def test_no_lazy_type_after_lazy_table_resolution(self):
+        """After resolve_lazy_tables, there should be no lazy types in the main query fields."""
+        from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+
+        resolved = self._resolve_query(
+            "SELECT event, session.$session_duration FROM events WHERE timestamp > '2024-01-01'"
+        )
+        resolve_lazy_tables(resolved, "clickhouse", [], self.context)
+
+        # Check only the SELECT fields (not the joined subqueries which may have their own structure)
+        detector = LazyTypeDetector()
+        for field in resolved.select:
+            detector.visit(field)
+
+        assert detector.found_lazy_type is False
+
+
+class TestEventsFieldCollector(BaseTest):
+    """Tests for EventsFieldCollector using real HogQL queries.
+
+    EventsFieldCollector walks the AST to collect database columns needed from events table
+    and detects non-direct fields (PropertyType, LazyJoinType) that prevent safe pushdown.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from posthog.hogql.database.database import Database
+
+        self.database = Database.create_for(team=self.team)
+        self.context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
+
+    def _resolve_query(self, query: str) -> tuple[ast.SelectQuery, ast.Type]:
+        """Parse, resolve types, and return query with events table type."""
+        from posthog.hogql.resolver import resolve_types
+
+        parsed = parse_select(query)
+        resolved = resolve_types(parsed, self.context, dialect="clickhouse")
+        events_table_type = resolved.select_from.type
+        return resolved, events_table_type
+
+    def test_collects_direct_database_columns(self):
+        """Direct events columns like event, timestamp are collected."""
+        node, events_table_type = self._resolve_query("SELECT event, timestamp FROM events WHERE distinct_id = 'user1'")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "event" in collector.database_columns
+        assert "timestamp" in collector.database_columns
+        assert "distinct_id" in collector.database_columns
+        assert collector.has_non_direct_fields is False
+
+    def test_property_access_triggers_non_direct_flag(self):
+        """Accessing properties.$browser triggers has_non_direct_fields."""
+        node, events_table_type = self._resolve_query("SELECT properties.$browser FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert collector.has_non_direct_fields is True
+
+    def test_lazy_join_field_triggers_non_direct_flag(self):
+        """Accessing session.$session_duration (lazy join) triggers has_non_direct_fields."""
+        node, events_table_type = self._resolve_query("SELECT session.$session_duration FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert collector.has_non_direct_fields is True
+
+    def test_session_id_from_events_is_direct_column(self):
+        """$session_id on events is a direct column (not a property access)."""
+        node, events_table_type = self._resolve_query("SELECT `$session_id` FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        # $session_id is a direct column on events table
+        assert "$session_id" in collector.database_columns
+        assert collector.has_non_direct_fields is False
+
+
+class TestSavedQueryWithLazyJoins(BaseTest):
+    """Tests for predicate pushdown with SavedQuery views that contain lazy joins.
+
+    SavedQuery views (e.g., revenue_analytics) may contain queries with lazy joins
+    (like events.person.distinct_id). When these views are expanded during resolve_types,
+    the lazy joins should be fully resolved before predicate pushdown runs.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from posthog.hogql.database.database import Database
+        from posthog.hogql.database.models import IntegerDatabaseField, SavedQuery, StringDatabaseField, TableNode
+
+        self.database = Database.create_for(team=self.team)
+
+        # Create a SavedQuery that contains a query with lazy joins
+        # This simulates what revenue_analytics views do
+        self.saved_query = SavedQuery(
+            id="test_view",
+            name="test_events_with_person",
+            query="SELECT event, person.id AS person_id, session.$session_duration AS session_duration FROM events WHERE timestamp > '2024-01-01'",
+            fields={
+                "event": StringDatabaseField(name="event"),
+                "person_id": StringDatabaseField(name="person_id"),
+                "session_duration": IntegerDatabaseField(name="session_duration"),
+            },
+        )
+
+        # Add the saved query to the database using the proper table structure
+        self.database.tables.add_child(TableNode(name="test_events_with_person", table=self.saved_query))
+
+        self.context = HogQLContext(
+            team_id=self.team.pk,
+            database=self.database,
+            enable_select_queries=True,
+        )
+
+    def test_saved_query_with_lazy_joins_and_session_join(self):
+        """Query from SavedQuery that internally uses lazy joins should resolve properly."""
+
+        # Need to set team on context for persons table join to work
+        self.context.team = self.team
+
+        query_str = "SELECT event, person_id, session_duration FROM test_events_with_person"
+
+        # Use the full pipeline
+        query, prepared_ast = prepare_and_print_ast(
+            parse_select(query_str),
+            self.context,
+            "clickhouse",
+        )
+
+        # Should complete without error - verifies lazy joins are fully resolved
+        assert "SELECT" in query
