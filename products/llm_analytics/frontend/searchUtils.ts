@@ -54,6 +54,24 @@ export function containsSearchQuery(text: string, searchQuery: string): boolean 
 }
 
 /**
+ * Extract content from a message that may be a string, an object with .content, or other types.
+ * Handles null/undefined safely.
+ */
+export function extractMessageContent(msg: unknown): string {
+    if (typeof msg === 'string') {
+        return msg
+    }
+    if (!msg || typeof msg !== 'object') {
+        return JSON.stringify(msg)
+    }
+    const msgObj = msg as Record<string, unknown>
+    if (typeof msgObj.content === 'string') {
+        return msgObj.content
+    }
+    return JSON.stringify(msgObj.content ?? msg)
+}
+
+/**
  * Recursively extract all text content from an object, ignoring structure
  */
 export function extractAllText(obj: unknown): string {
@@ -293,13 +311,7 @@ export function findMessageOccurrences(
             const inputMessages = event.properties.$ai_input
             if (Array.isArray(inputMessages)) {
                 inputMessages.forEach((msg, msgIndex) => {
-                    // Handle both string messages (embedding events) and object messages with .content
-                    const content =
-                        typeof msg === 'string'
-                            ? msg
-                            : typeof msg.content === 'string'
-                              ? msg.content
-                              : JSON.stringify(msg.content ?? msg)
+                    const content = extractMessageContent(msg)
                     occurrences.push(
                         ...findSearchOccurrences(content, query, 'content', {
                             type: 'message',
@@ -348,13 +360,7 @@ export function findMessageOccurrences(
             const outputMessages = event.properties.$ai_output_choices || event.properties.$ai_output
             if (Array.isArray(outputMessages)) {
                 outputMessages.forEach((msg, msgIndex) => {
-                    // Handle both string messages and object messages with .content
-                    const content =
-                        typeof msg === 'string'
-                            ? msg
-                            : typeof msg.content === 'string'
-                              ? msg.content
-                              : JSON.stringify(msg.content ?? msg)
+                    const content = extractMessageContent(msg)
                     occurrences.push(
                         ...findSearchOccurrences(content, query, 'content', {
                             type: 'message',
