@@ -56,10 +56,13 @@ class SdkPolicyConfigAssignment(UUIDTModel, RootTeamMixin):
 def get_policy_config(
     team: Team, context: SdkPolicyConfigAssignment.Context, library: SdkPolicyConfigAssignment.Library | None
 ) -> dict | None:
-    return (
+    result = (
         SdkPolicyConfig.objects.filter(
             team=team, assignments__isnull=False, assignments__context=context, assignments__library=library
         )
         .values()
         .first()
     )
+    if result and result.get("sample_rate") is not None:
+        result["sample_rate"] = float(result["sample_rate"])
+    return result
