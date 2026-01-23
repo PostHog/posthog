@@ -114,31 +114,10 @@ async def create_worker(
     metrics_server: CombinedMetricsServer | None = None
 
     if enable_combined_metrics_server:
+        # Use an internal port for Temporal SDK metrics, which the combined metrics server
+        # will fetch from and merge with prometheus_client metrics on the main metrics port.
         temporal_metrics_port = get_free_port()
         temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
-
-        # Use PrometheusConfig to expose Temporal SDK metrics on an internal port.
-        # The combined metrics server fetches from this endpoint and merges with
-        # prometheus_client metrics on the main metrics port.
-        runtime = Runtime(
-            telemetry=TelemetryConfig(
-                metric_prefix=metric_prefix,
-                metrics=PrometheusConfig(
-                    bind_address=temporal_metrics_bind_address,
-                    durations_as_seconds=False,
-                    # Units are u64 milliseconds in sdk-core,
-                    # given that the `duration_as_seconds` is `False`.
-                    # But in Python we still need to pass floats due to type hints.
-                    histogram_bucket_overrides=dict(
-                        zip(
-                            BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
-                            itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
-                        )
-                    )
-                    | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
-                ),
-            )
-        )
 
         # Create a separate CollectorRegistry for the metrics server to avoid lock contention
         # with any other parts of the application that might use the global REGISTRY.
@@ -151,12 +130,28 @@ async def create_worker(
             registry=metrics_server_registry,
         )
     else:
-        logger.info("Metrics server disabled")
-        runtime = Runtime(
-            telemetry=TelemetryConfig(
-                metric_prefix=metric_prefix,
-            )
+        # Expose Temporal SDK metrics directly on the public metrics port.
+        temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
+
+    runtime = Runtime(
+        telemetry=TelemetryConfig(
+            metric_prefix=metric_prefix,
+            metrics=PrometheusConfig(
+                bind_address=temporal_metrics_bind_address,
+                durations_as_seconds=False,
+                # Units are u64 milliseconds in sdk-core,
+                # given that the `duration_as_seconds` is `False`.
+                # But in Python we still need to pass floats due to type hints.
+                histogram_bucket_overrides=dict(
+                    zip(
+                        BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
+            ),
         )
+    )
     client = await connect(
         host,
         port,
