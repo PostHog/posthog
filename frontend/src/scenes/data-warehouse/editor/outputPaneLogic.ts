@@ -20,12 +20,26 @@ export const outputPaneLogic = kea<outputPaneLogicType>([
     key((props) => props.tabId),
     actions({
         setActiveTab: (tab: OutputTab) => ({ tab }),
+        setResultsOpen: (isOpen: boolean) => ({ isOpen }),
+        setVisualizationOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     reducers({
         activeTab: [
             OutputTab.Results as OutputTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        isResultsOpen: [
+            true,
+            {
+                setResultsOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        isVisualizationOpen: [
+            true,
+            {
+                setVisualizationOpen: (_, { isOpen }) => isOpen,
             },
         ],
     }),

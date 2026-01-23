@@ -21,6 +21,8 @@ interface QueryPaneProps {
     sourceQuery: HogQLQuery
     originalValue?: string
     onRun?: () => void
+    fillHeight?: boolean
+    showResizer?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -36,10 +38,10 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     return (
         <>
             <div
-                className="relative flex flex-row w-full bg-primary"
+                className="relative flex flex-row w-full bg-primary min-h-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    height: `${queryPaneHeight}px`,
+                    height: props.fillHeight ? '100%' : `${queryPaneHeight}px`,
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
@@ -142,7 +144,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         </div>
                     )}
                 </div>
-                <Resizer {...queryPaneResizerProps} />
+                {(props.showResizer ?? true) ? <Resizer {...queryPaneResizerProps} /> : null}
             </div>
         </>
     )

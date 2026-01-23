@@ -54,7 +54,7 @@ import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../quer
 import TabScroller from './TabScroller'
 import { CollapsibleSection } from './components/CollapsibleSection'
 import { multitabEditorLogic } from './multitabEditorLogic'
-import { OutputTab } from './outputPaneLogic'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -281,7 +281,12 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     )
 }
 
-export function OutputPane(): JSX.Element {
+export interface OutputPaneProps {
+    tabId: string
+    topSectionOpen?: boolean
+}
+
+export function OutputPane({ tabId, topSectionOpen = false }: OutputPaneProps): JSX.Element {
     const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
         useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
@@ -311,8 +316,8 @@ export function OutputPane(): JSX.Element {
     const response = dataNodeResponse as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
-    const [isResultsOpen, setIsResultsOpen] = useState(true)
-    const [isVisualizationOpen, setIsVisualizationOpen] = useState(true)
+    const { isResultsOpen, isVisualizationOpen } = useValues(outputPaneLogic({ tabId }))
+    const { setResultsOpen, setVisualizationOpen } = useActions(outputPaneLogic({ tabId }))
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
@@ -459,12 +464,21 @@ export function OutputPane(): JSX.Element {
 
     const hasColumns = columns.length > 1
 
+    const shouldStickToBottom = topSectionOpen && !isResultsOpen && !isVisualizationOpen
+    const shouldStickVisualizationToBottom = isResultsOpen && !isVisualizationOpen
+
     return (
-        <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
+        <div
+            className={clsx(
+                'OutputPane flex flex-col w-full bg-white dark:bg-black',
+                shouldStickToBottom ? 'mt-auto shrink-0' : 'flex-1 min-h-0'
+            )}
+        >
             <div className="flex flex-col flex-1 min-h-0">
                 <div
                     className={clsx(
                         'relative flex flex-col min-h-0',
+                        // isResultsOpen  && 'h-full',
                         isResultsOpen && !resultsPaneDesiredSize && 'flex-1'
                     )}
                     // eslint-disable-next-line react/forbid-dom-props
@@ -475,8 +489,9 @@ export function OutputPane(): JSX.Element {
                 >
                     <CollapsibleSection
                         title="Results"
+                        className="h-full"
                         isOpen={isResultsOpen}
-                        onToggle={() => setIsResultsOpen((prev) => !prev)}
+                        onToggle={() => setResultsOpen(!isResultsOpen)}
                         actions={
                             <>
                                 <LemonMenu
@@ -567,11 +582,18 @@ export function OutputPane(): JSX.Element {
                         <Resizer {...resultsPaneResizerProps} handleClassName="bg-transparent" />
                     )}
                 </div>
-                <div className={clsx('flex flex-col min-h-0 h-full', isVisualizationOpen && 'flex-1')}>
+                <div
+                    className={clsx(
+                        'flex flex-col min-h-0',
+                        isVisualizationOpen && 'flex-1',
+                        shouldStickVisualizationToBottom && 'mt-auto'
+                    )}
+                >
                     <CollapsibleSection
                         title="Visualization"
+                        className="h-full"
                         isOpen={isVisualizationOpen}
-                        onToggle={() => setIsVisualizationOpen((prev) => !prev)}
+                        onToggle={() => setVisualizationOpen(!isVisualizationOpen)}
                         actions={
                             <>
                                 {showLegacyFilters && (

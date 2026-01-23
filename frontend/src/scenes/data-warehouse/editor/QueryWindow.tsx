@@ -1,4 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo, useRef, useState } from 'react'
@@ -70,7 +71,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { queryPaneHeight } = useValues(editorSizingLogic)
-    const { activeTab: activeOutputTab } = useValues(outputPaneLogic)
+    const { activeTab: activeOutputTab, isResultsOpen, isVisualizationOpen } = useValues(outputPaneLogic({ tabId }))
     const [isQueryOpen, setIsQueryOpen] = useState(true)
     const [isVariablesPanelOpen, setIsVariablesPanelOpen] = useState(true)
     const variablesPanelRef = useRef<HTMLDivElement>(null)
@@ -101,6 +102,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     const isMaterializedView = editingView?.is_materialized === true
+    const areOutputSectionsClosed = !isResultsOpen && !isVisualizationOpen
     const isEndpointEditing = featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeOutputTab === OutputTab.Endpoint
     const showVariablesToggle = !editingView && !isEndpointEditing
     const isVariablesPanelVisible = showVariablesToggle ? isVariablesPanelOpen : true
@@ -133,6 +135,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 title="Query"
                 isOpen={isQueryOpen}
                 onToggle={() => setIsQueryOpen((prev) => !prev)}
+                className={clsx(isQueryOpen && areOutputSectionsClosed && 'flex-1 min-h-0')}
                 actions={
                     <>
                         <RunButton />
@@ -289,7 +292,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     </>
                 }
             >
-                <div className="flex w-full min-h-0">
+                <div className="flex w-full min-h-0 h-full">
                     <div className="flex-1 min-w-0">
                         <QueryPane
                             originalValue={originalQueryInput ?? ''}
@@ -297,6 +300,8 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             sourceQuery={sourceQuery.source}
                             promptError={null}
                             onRun={runQuery}
+                            fillHeight={isQueryOpen && areOutputSectionsClosed}
+                            showResizer={!areOutputSectionsClosed}
                             codeEditorProps={{
                                 queryKey: codeEditorKey,
                                 onChange: (v) => {
@@ -326,7 +331,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     </div>
                     {isVariablesPanelVisible && (
                         <div
-                            className="relative shrink-0 border-l bg-bg-light dark:bg-black"
+                            className="relative shrink-0 border-l bg-bg-light dark:bg-black h-full"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ height: `${queryPaneHeight}px`, width: `${variablesPanelWidth}px` }}
                             ref={variablesPanelRef}
@@ -345,7 +350,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     )}
                 </div>
             </CollapsibleSection>
-            <InternalQueryWindow />
+            <InternalQueryWindow tabId={tabId} topSectionOpen={isQueryOpen} />
             <QueryHistoryModal />
         </div>
     )
@@ -403,7 +408,13 @@ function RunButton(): JSX.Element {
     )
 }
 
-function InternalQueryWindow(): JSX.Element | null {
+function InternalQueryWindow({
+    tabId,
+    topSectionOpen,
+}: {
+    tabId: string
+    topSectionOpen: boolean
+}): JSX.Element | null {
     const { finishedLoading } = useValues(multitabEditorLogic)
 
     // NOTE: hacky way to avoid flicker loading
@@ -411,5 +422,5 @@ function InternalQueryWindow(): JSX.Element | null {
         return null
     }
 
-    return <OutputPane />
+    return <OutputPane tabId={tabId} topSectionOpen={topSectionOpen} />
 }
