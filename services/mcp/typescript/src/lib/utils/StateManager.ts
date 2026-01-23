@@ -80,7 +80,7 @@ export class StateManager {
         return _distinctId
     }
 
-    private async _getDefaultOrganizationAndProject(): Promise<{
+    private async _getDefaultOrganizationAndProject(existingOrgId?: string): Promise<{
         organizationId?: string
         projectId: number
     }> {
@@ -98,6 +98,29 @@ export class StateManager {
             const projectId = scoped_teams[0]!
 
             return { projectId }
+        }
+
+        // If we have an existing org context, use it to fetch projects rather than
+        // overwriting with the user's current default org. This prevents org context
+        // from being reset when only projectId is missing.
+        if (existingOrgId) {
+            // Verify the org is accessible
+            if (scoped_organizations.length > 0 && !scoped_organizations.includes(existingOrgId)) {
+                throw new Error(`Organization ${existingOrgId} is not accessible with this API key`)
+            }
+
+            const projectsResult = await this._api.organizations().projects({ orgId: existingOrgId }).list()
+
+            if (!projectsResult.success) {
+                throw projectsResult.error
+            }
+
+            if (projectsResult.data.length === 0) {
+                throw new Error(`No projects found in organization ${existingOrgId}`)
+            }
+
+            const projectId = projectsResult.data[0]!
+            return { organizationId: existingOrgId, projectId: Number(projectId) }
         }
 
         if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
@@ -121,19 +144,22 @@ export class StateManager {
         return { organizationId, projectId: Number(projectId) }
     }
 
-    async setDefaultOrganizationAndProject(): Promise<{
+    async setDefaultOrganizationAndProject(preserveExistingOrg = false): Promise<{
         organizationId: string | undefined
         projectId: number
     }> {
-        const { organizationId, projectId } = await this._getDefaultOrganizationAndProject()
+        // Check for existing orgId if we need to preserve it
+        const existingOrgId = preserveExistingOrg ? await this._cache.get('orgId') : undefined
+        const { organizationId, projectId } = await this._getDefaultOrganizationAndProject(existingOrgId)
 
-        if (organizationId) {
+        // Only set orgId if we don't have an existing one we're preserving
+        if (organizationId && !existingOrgId) {
             await this._cache.set('orgId', organizationId)
         }
 
         await this._cache.set('projectId', projectId.toString())
 
-        return { organizationId, projectId }
+        return { organizationId: existingOrgId || organizationId, projectId }
     }
 
     async getOrgID(): Promise<string | undefined> {
@@ -152,7 +178,9 @@ export class StateManager {
         const projectId = await this._cache.get('projectId')
 
         if (!projectId) {
-            const { projectId } = await this.setDefaultOrganizationAndProject()
+            // Pass true to preserve existing org context - this prevents the org
+            // from being reset to the user's default when only projectId is missing
+            const { projectId } = await this.setDefaultOrganizationAndProject(true)
             return projectId.toString()
         }
 

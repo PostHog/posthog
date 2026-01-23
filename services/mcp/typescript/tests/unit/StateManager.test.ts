@@ -246,7 +246,7 @@ describe('StateManager', () => {
             expect(result).toBe('cached-project-id')
         })
 
-        it('should call setDefaultOrganizationAndProject when not cached', async () => {
+        it('should call setDefaultOrganizationAndProject with preserveExistingOrg=true when not cached', async () => {
             const spy = vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
                 organizationId: 'default-org',
                 projectId: 789,
@@ -256,6 +256,89 @@ describe('StateManager', () => {
 
             expect(result).toBe('789')
             expect(spy).toHaveBeenCalledOnce()
+            expect(spy).toHaveBeenCalledWith(true)
+        })
+
+        it('should preserve existing orgId when fetching new projectId', async () => {
+            // Set up: user has explicitly set an org, but no project
+            await cache.set('orgId', 'user-selected-org')
+
+            const mockApi = stateManager as any
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+
+            // Mock the API client to return projects for the user-selected org
+            mockApi._api = {
+                organizations: () => ({
+                    projects: () => ({
+                        list: vi.fn().mockResolvedValue({
+                            success: true,
+                            data: [999],
+                        }),
+                    }),
+                }),
+            }
+
+            const result = await stateManager.getProjectId()
+
+            // Should get a project for the user-selected org, NOT the default org
+            expect(result).toBe('999')
+            // orgId should remain unchanged
+            expect(await cache.get('orgId')).toBe('user-selected-org')
+        })
+    })
+
+    describe('setDefaultOrganizationAndProject with preserveExistingOrg', () => {
+        it('should not overwrite existing orgId when preserveExistingOrg=true', async () => {
+            await cache.set('orgId', 'existing-org')
+
+            const mockApi = stateManager as any
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+
+            mockApi._api = {
+                organizations: () => ({
+                    projects: () => ({
+                        list: vi.fn().mockResolvedValue({
+                            success: true,
+                            data: [555],
+                        }),
+                    }),
+                }),
+            }
+
+            const result = await stateManager.setDefaultOrganizationAndProject(true)
+
+            expect(result.organizationId).toBe('existing-org')
+            expect(result.projectId).toBe(555)
+            expect(await cache.get('orgId')).toBe('existing-org')
+        })
+
+        it('should set orgId normally when preserveExistingOrg=true but no existing org', async () => {
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+
+            const result = await stateManager.setDefaultOrganizationAndProject(true)
+
+            expect(result.organizationId).toBe('org-1')
+            expect(result.projectId).toBe(456)
+            expect(await cache.get('orgId')).toBe('org-1')
+        })
+
+        it('should throw error when preserving org that is not accessible', async () => {
+            await cache.set('orgId', 'inaccessible-org')
+
+            const scopedApiKey = {
+                ...mockApiKey,
+                scoped_organizations: ['org-1', 'org-2'],
+            }
+
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+
+            await expect(stateManager.setDefaultOrganizationAndProject(true)).rejects.toThrow(
+                'Organization inaccessible-org is not accessible with this API key'
+            )
         })
     })
 })

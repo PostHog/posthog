@@ -10,6 +10,9 @@ type Params = z.infer<typeof schema>
 export const setActiveHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { orgId } = params
     await context.cache.set('orgId', orgId)
+    // Clear projectId when switching orgs - the cached project likely belongs to the old org
+    // and would cause setDefaultOrganizationAndProject() to overwrite the org context
+    await context.cache.delete('projectId')
 
     return {
         content: [{ type: 'text', text: `Switched to organization ${orgId}` }],
