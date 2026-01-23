@@ -204,13 +204,41 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
-            ),
         ]
+
+        if self.query.includeScreenEvents is not False:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value="$screen"),
+                )
+            )
 
         if self.conversion_goal_expr:
             exprs.append(self.conversion_goal_expr)
+
+        return ast.Or(exprs=exprs) if len(exprs) > 1 else exprs[0]
+
+    @cached_property
+    def scroll_event_type_expr(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageleave")
+            ),
+        ]
+
+        if self.query.includeScreenEvents is not False:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value="$screen"),
+                )
+            )
 
         return ast.Or(exprs=exprs)
 

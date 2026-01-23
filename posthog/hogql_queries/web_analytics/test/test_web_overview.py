@@ -12,6 +12,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionConversionGoal,
     BounceRatePageViewMode,
@@ -97,6 +99,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         compare: bool = True,
         limit_context: Optional[LimitContext] = None,
         filter_test_accounts: Optional[bool] = False,
+        include_screen_events: Optional[bool] = None,
         action: Optional[Action] = None,
         custom_event: Optional[str] = None,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
@@ -111,6 +114,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 compareFilter=CompareFilter(compare=compare) if compare else None,
                 modifiers=modifiers,
                 filterTestAccounts=filter_test_accounts,
+                includeScreenEvents=include_screen_events,
                 conversionGoal=ActionConversionGoal(actionId=action.id)
                 if action
                 else CustomEventConversionGoal(customEventName=custom_event)
@@ -259,6 +263,42 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(100, bounce.value)
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
+
+    @parameterized.expand(
+        [
+            ("include_screen_events_default", None, 3),
+            ("include_screen_events_true", True, 3),
+            ("include_screen_events_false", False, 2),
+        ]
+    )
+    def test_include_screen_events(self, _name: str, include_screen_events: Optional[bool], expected_views: int):
+        s1 = str(uuid7("2023-12-11"))
+        s2 = str(uuid7("2023-12-12"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-11", s1), ("2023-12-12", s1)]),
+            ],
+            event="$pageview",
+        )
+        self._create_events(
+            [
+                ("p2", [("2023-12-12", s2)]),
+            ],
+            event="$screen",
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-08",
+            "2023-12-15",
+            compare=False,
+            include_screen_events=include_screen_events,
+            bounce_rate_mode=BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES,
+        ).results
+
+        views = results[1]
+        self.assertEqual("views", views.key)
+        self.assertEqual(expected_views, views.value)
 
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))

@@ -201,6 +201,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setIncludeScreenEvents: (includeScreenEvents: boolean) => ({ includeScreenEvents }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
         openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
@@ -395,6 +396,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
                 clearFilters: () => false,
+            },
+        ],
+        includeScreenEvents: [
+            true as boolean,
+            persistConfig,
+            {
+                setIncludeScreenEvents: (_, { includeScreenEvents }) => includeScreenEvents,
+                clearFilters: () => true,
             },
         ],
         shouldStripQueryParams: [
@@ -658,10 +667,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         controls: [
-            (s) => [s.isPathCleaningEnabled, s.shouldFilterTestAccounts, s.shouldStripQueryParams],
-            (isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams) => ({
+            (s) => [
+                s.isPathCleaningEnabled,
+                s.shouldFilterTestAccounts,
+                s.includeScreenEvents,
+                s.shouldStripQueryParams,
+            ],
+            (isPathCleaningEnabled, filterTestAccounts, includeScreenEvents, shouldStripQueryParams) => ({
                 isPathCleaningEnabled,
                 filterTestAccounts,
+                includeScreenEvents,
                 shouldStripQueryParams,
             }),
         ],
@@ -827,7 +842,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (
                 productTab,
                 { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeoIPQueries, activeHoursTab },
-                { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
+                { isPathCleaningEnabled, filterTestAccounts, includeScreenEvents, shouldStripQueryParams },
                 {
                     webAnalyticsFilters,
                     replayFilters,
@@ -1040,6 +1055,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 compareFilter,
                                 limit: 10,
                                 filterTestAccounts,
+                                includeScreenEvents,
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
@@ -1121,6 +1137,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 kind: NodeKind.WebVitalsPathBreakdownQuery,
                                 dateRange,
                                 filterTestAccounts,
+                                includeScreenEvents,
                                 properties: webAnalyticsFilters,
                                 percentile: webVitalsPercentile,
                                 metric: webVitalsTab,
@@ -1159,6 +1176,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             sampling,
                             compareFilter,
                             filterTestAccounts,
+                            includeScreenEvents,
                             conversionGoal,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
@@ -1382,6 +1400,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
+                                                  includeScreenEvents,
                                                   conversionGoal,
                                                   orderBy: tablesOrderBy ?? undefined,
                                                   stripQueryParams: shouldStripQueryParams,
@@ -1946,6 +1965,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
+                                      includeScreenEvents,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   embedded: true,
@@ -2035,6 +2055,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       breakdownBy: WebStatsBreakdown.FrustrationMetrics,
                                       dateRange,
                                       filterTestAccounts,
+                                      includeScreenEvents,
                                       properties: webAnalyticsFilters,
                                       compareFilter,
                                       limit: 10,
@@ -2117,6 +2138,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 _graphsTab,
                 isPathCleaningEnabled,
                 shouldFilterTestAccounts,
+                includeScreenEvents,
                 compareFilter,
                 productTab,
                 webVitalsPercentile,
@@ -2173,6 +2195,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (shouldFilterTestAccounts != null) {
                 urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
             }
+            if (includeScreenEvents != null) {
+                urlParams.set('include_screen_events', includeScreenEvents.toString())
+            }
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
             } else {
@@ -2220,6 +2245,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
             setIsPathCleaningEnabled: stateToUrl,
+            setIncludeScreenEvents: stateToUrl,
             setDomainFilter: stateToUrl,
             setDeviceTypeFilter: stateToUrl,
             setTileVisualization: stateToUrl,
@@ -2244,6 +2270,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 active_hours_tab,
                 path_cleaning,
                 filter_test_accounts,
+                include_screen_events,
                 compare_filter,
                 percentile,
                 domain,
@@ -2308,6 +2335,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
+            }
+            if (include_screen_events && include_screen_events !== values.includeScreenEvents) {
+                actions.setIncludeScreenEvents([true, 'true', 1, '1'].includes(include_screen_events))
             }
             if (
                 compare_filter &&
@@ -2469,6 +2499,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
                 if (filters.shouldFilterTestAccounts !== undefined) {
                     actions.setShouldFilterTestAccounts(filters.shouldFilterTestAccounts)
+                }
+                if (filters.includeScreenEvents !== undefined) {
+                    actions.setIncludeScreenEvents(filters.includeScreenEvents)
                 }
             },
         }

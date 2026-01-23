@@ -90,9 +90,11 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
 const createTimeOnPageTrendsQuery = (
     pathname: string,
     filterTestAccounts: boolean,
+    includeScreenEvents: boolean,
     interval: IntervalType,
     dateRange: { date_from: string | null; date_to: string | null }
 ): InsightVizNode<TrendsQuery> => {
+    const eventValues = includeScreenEvents ? ['$pageview', '$pageleave', '$screen'] : ['$pageview', '$pageleave']
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -107,7 +109,7 @@ const createTimeOnPageTrendsQuery = (
                             type: PropertyFilterType.EventMetadata,
                             key: 'event',
                             operator: PropertyOperator.In,
-                            value: ['$pageview', '$pageleave', '$screen'],
+                            value: eventValues,
                         },
                         {
                             type: PropertyFilterType.Event,
@@ -145,6 +147,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             [
                 'tiles as webAnalyticsTiles',
                 'shouldFilterTestAccounts',
+                'includeScreenEvents',
                 'dateFilter',
                 'compareFilter',
                 'webAnalyticsFilters',
@@ -243,6 +246,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 s.stripQueryParams,
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
+                s.includeScreenEvents,
                 s.compareFilter,
                 s.isPathCleaningEnabled,
             ],
@@ -252,6 +256,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 stripQueryParams: boolean,
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
                 shouldFilterTestAccounts: boolean,
+                includeScreenEvents: boolean,
                 compareFilter: CompareFilter,
                 isPathCleaningEnabled: boolean
             ) => {
@@ -352,6 +357,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         breakdownBy: WebStatsBreakdown.PreviousPage,
                         dateRange,
                         filterTestAccounts: shouldFilterTestAccounts,
+                        includeScreenEvents,
                         properties: pageReportsPropertyFilters,
                         compareFilter,
                         limit: 10,
@@ -368,6 +374,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         ? createTimeOnPageTrendsQuery(
                               parsedUrl.pathname,
                               shouldFilterTestAccounts,
+                              includeScreenEvents,
                               dateFilter.interval,
                               dateRange
                           )

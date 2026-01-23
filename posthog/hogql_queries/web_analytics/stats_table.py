@@ -157,6 +157,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
+                    "event_filter": self.event_type_expr,
+                    "scroll_event_filter": self.scroll_event_type_expr,
                     "time_on_page_event_properties": self._event_properties_for_scroll(),
                     "time_on_page_breakdown_value": self._scroll_prev_pathname_breakdown(),
                     "bounce_event_properties": self._event_properties_for_bounce_rate(),
@@ -191,6 +193,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 placeholders={
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
+                    "event_filter": self.event_type_expr,
+                    "scroll_event_filter": self.scroll_event_type_expr,
                     "event_properties_for_scroll": self._event_properties_for_scroll(),
                     "breakdown_value": self._counts_breakdown_value(),
                     "scroll_breakdown_value": self._scroll_prev_pathname_breakdown(),
@@ -225,6 +229,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
+                    "event_filter": self.event_type_expr,
                     "bounce_event_properties": self._event_properties_for_bounce_rate(),
                     "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
                     "current_period": self._current_period_expression(),
@@ -265,14 +270,17 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         return query
 
     def _frustration_metrics_inner_query(self):
+        events = ["'$pageview'", "'$rageclick'", "'$dead_click'", "'$exception'"]
+        if self.query.includeScreenEvents is not False:
+            events.insert(1, "'$screen'")
+
         query = parse_select(
             FRUSTRATION_METRICS_INNER_QUERY,
             timings=self.timings,
             placeholders={
                 "breakdown_value": self._counts_breakdown_value(),
-                "event_where": parse_expr(
-                    "events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')"
-                ),
+                "event_where": parse_expr(f"events.event IN ({', '.join(events)})"),
+                "pageview_event_filter": self.event_type_expr,
                 "all_properties": self._all_properties(),
                 "where_breakdown": self.where_breakdown(),
                 "inside_periods": self._periods_expression(),

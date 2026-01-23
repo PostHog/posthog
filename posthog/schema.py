@@ -13111,6 +13111,9 @@ class WebExternalClicksTableQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     interval: IntervalType | None = Field(
         default=None,
         description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
@@ -13148,6 +13151,9 @@ class WebGoalsQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     interval: IntervalType | None = Field(
         default=None,
         description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
@@ -13184,6 +13190,9 @@ class WebOverviewQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     interval: IntervalType | None = Field(
         default=None,
         description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
@@ -13219,6 +13228,9 @@ class WebPageURLSearchQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     interval: IntervalType | None = Field(
         default=None,
         description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
@@ -13260,6 +13272,9 @@ class WebStatsTableQuery(BaseModel):
     includeAvgTimeOnPage: bool | None = None
     includeBounceRate: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     includeScrollDepth: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -14328,6 +14343,9 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     )
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
     interval: IntervalType | None = Field(
         default=None,
@@ -14369,6 +14387,9 @@ class MarketingAnalyticsTableQuery(BaseModel):
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
     interval: IntervalType | None = Field(
         default=None,
@@ -14473,6 +14494,9 @@ class NonIntegratedConversionsTableQuery(BaseModel):
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     interval: IntervalType | None = Field(
         default=None,
         description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
@@ -14820,6 +14844,9 @@ class WebTrendsQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     interval: IntervalType = Field(
         ..., description="For Product Analytics UI compatibility only - not used in Web Analytics query execution"
     )
@@ -14857,6 +14884,9 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     interval: IntervalType | None = Field(
         default=None,
         description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
@@ -16649,6 +16679,9 @@ class WebVitalsQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeScreenEvents: bool | None = Field(
+        default=None, description="Whether to include $screen events (mobile) in queries. Defaults to true."
+    )
     interval: IntervalType | None = Field(
         default=None,
         description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",

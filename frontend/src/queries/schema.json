@@ -19241,6 +19241,10 @@
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                    "type": "boolean"
+                },
                 "integrationFilter": {
                     "$ref": "#/definitions/IntegrationFilter",
                     "description": "Filter by integration IDs"
@@ -19542,6 +19546,10 @@
                 },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "integrationFilter": {
@@ -21495,6 +21503,10 @@
                 },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "interval": {
@@ -32885,6 +32897,10 @@
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
@@ -33035,6 +33051,10 @@
                 },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "interval": {
@@ -33214,6 +33234,10 @@
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
@@ -33352,6 +33376,10 @@
                 },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "interval": {
@@ -33533,6 +33561,10 @@
                 },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
@@ -33729,6 +33761,10 @@
                 },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "interval": {
@@ -33958,6 +33994,10 @@
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
@@ -34142,6 +34182,10 @@
                 },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeScreenEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "interval": {

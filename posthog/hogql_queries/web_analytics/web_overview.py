@@ -132,25 +132,23 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
 
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:
-        return ast.Call(
-            name="countIf",
-            args=[
-                ast.Or(
-                    exprs=[
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["event"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value="$pageview"),
-                        ),
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["event"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value="$screen"),
-                        ),
-                    ]
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value="$pageview"),
+            ),
+        ]
+        if self.query.includeScreenEvents is not False:
+            exprs.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value="$screen"),
                 )
-            ],
-        )
+            )
+        condition = ast.Or(exprs=exprs) if len(exprs) > 1 else exprs[0]
+        return ast.Call(name="countIf", args=[condition])
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:

@@ -28,10 +28,11 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const { shouldFilterTestAccounts, hiddenTiles, productTab } = useValues(webAnalyticsLogic)
+    const { shouldFilterTestAccounts, includeScreenEvents, hiddenTiles, productTab } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { setShouldFilterTestAccounts, setTileVisibility, resetTileVisibility } = useActions(webAnalyticsLogic)
+    const { setShouldFilterTestAccounts, setIncludeScreenEvents, setTileVisibility, resetTileVisibility } =
+        useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
 
@@ -58,6 +59,18 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                             }}
                             fullWidth={true}
                             label="Filter out internal and test users"
+                        />
+                    ),
+                },
+                {
+                    label: () => (
+                        <LemonSwitch
+                            checked={includeScreenEvents}
+                            onChange={() => {
+                                setIncludeScreenEvents(!includeScreenEvents)
+                            }}
+                            fullWidth={true}
+                            label="Include screen events"
                         />
                     ),
                 },

@@ -2053,6 +2053,8 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     /** Sampling rate */
     samplingFactor?: number | null
     filterTestAccounts?: boolean
+    /** Whether to include $screen events (mobile) in queries. Defaults to true. */
+    includeScreenEvents?: boolean
     /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
     /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
