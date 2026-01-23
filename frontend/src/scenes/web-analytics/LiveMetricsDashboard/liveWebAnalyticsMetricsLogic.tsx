@@ -19,7 +19,14 @@ import {
 import { BaseMathType, LiveEvent } from '~/types'
 
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
-import { ChartDataPoint, DeviceBreakdownItem, PathItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import {
+    ChartDataPoint,
+    CountryBreakdownItem,
+    DeviceBreakdownItem,
+    LiveGeoEvent,
+    PathItem,
+    SlidingWindowBucket,
+} from './LiveWebAnalyticsMetricsTypes'
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
@@ -39,10 +46,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
+        addGeoEvents: (events: LiveGeoEvent[]) => ({ events }),
         setInitialData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
         setIsLoading: (loading: boolean) => ({ loading }),
         loadInitialData: true,
         updateConnection: true,
+        updateGeoConnection: true,
         tickCurrentMinute: true,
         pauseStream: true,
         resumeStream: true,
@@ -86,6 +95,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                     return window
                 },
+                addGeoEvents: (window, { events }) => {
+                    const nowTs = Date.now() / 1000
+                    for (const event of events) {
+                        if (event.country_code) {
+                            window.addGeoDataPoint(nowTs, event.country_code, event.count || 1)
+                        }
+                    }
+                    return window
+                },
             },
         ],
         // This is used to force a re-render every time we add an event or a minute passes
@@ -94,6 +112,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             {
                 setInitialData: (v) => v + 1,
                 addEvents: (v) => v + 1,
+                addGeoEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
             },
         ],
@@ -132,6 +151,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => slidingWindow.getDeviceBreakdown(),
         ],
+        countryBreakdown: [
+            (s) => [s.slidingWindow, s.windowVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): CountryBreakdownItem[] => slidingWindow.getCountryBreakdown(),
+        ],
         topPaths: [
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): PathItem[] => slidingWindow.getTopPaths(10),
@@ -152,9 +175,14 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
             cache.eventSourceController?.abort()
+            cache.geoEventSourceController?.abort()
             if (cache.retryTimeout) {
                 clearTimeout(cache.retryTimeout)
                 cache.retryTimeout = null
+            }
+            if (cache.geoRetryTimeout) {
+                clearTimeout(cache.geoRetryTimeout)
+                cache.geoRetryTimeout = null
             }
         },
         resumeStream: () => {
@@ -179,6 +207,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.newerThan = handoff
 
                 actions.updateConnection()
+                actions.updateGeoConnection()
                 const [usersPageviewsResponse, deviceResponse, pathsResponse] = await loadQueryData(dateFrom, handoff)
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
@@ -268,6 +297,53 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 },
             })
         },
+        updateGeoConnection: async () => {
+            cache.geoEventSourceController?.abort()
+            if (cache.geoRetryTimeout) {
+                clearTimeout(cache.geoRetryTimeout)
+                cache.geoRetryTimeout = null
+            }
+
+            if (!values.currentTeam) {
+                return
+            }
+
+            const host = liveEventsHostOrigin()
+            if (!host) {
+                return
+            }
+
+            const url = new URL(`${host}/geo`)
+            cache.geoEventSourceController = new AbortController()
+
+            const scheduleRetry = (): void => {
+                const currentDelay = cache.geoRetryDelay ?? INITIAL_RETRY_DELAY_MS
+                cache.geoRetryTimeout = setTimeout(() => {
+                    actions.updateGeoConnection()
+                }, currentDelay)
+                cache.geoRetryDelay = Math.min(currentDelay * 2, MAX_RETRY_DELAY_MS)
+            }
+
+            await api.stream(url.toString(), {
+                headers: {
+                    Authorization: `Bearer ${values.currentTeam.live_events_token}`,
+                },
+                signal: cache.geoEventSourceController.signal,
+                onMessage: (event) => {
+                    cache.geoRetryDelay = INITIAL_RETRY_DELAY_MS
+                    try {
+                        const geoData = JSON.parse(event.data) as LiveGeoEvent
+                        actions.addGeoEvents([geoData])
+                    } catch (ex) {
+                        console.error('Failed to parse geo event:', ex)
+                    }
+                },
+                onError: (error) => {
+                    console.error('Geo stream error:', error)
+                    scheduleRetry()
+                },
+            })
+        },
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
@@ -287,11 +363,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         },
         beforeUnmount: () => {
             cache.eventSourceController?.abort()
+            cache.geoEventSourceController?.abort()
             if (cache.minuteTickTimeout) {
                 clearTimeout(cache.minuteTickTimeout)
             }
             if (cache.retryTimeout) {
                 clearTimeout(cache.retryTimeout)
+            }
+            if (cache.geoRetryTimeout) {
+                clearTimeout(cache.geoRetryTimeout)
             }
         },
     })),
@@ -438,5 +518,6 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         devices: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
+        countries: new Map<string, number>(),
     }
 }

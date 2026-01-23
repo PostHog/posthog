@@ -7,14 +7,23 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
+import { LiveWorldMap } from './LiveWorldMap'
 import { DeviceBreakdownChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 
 const STATS_POLL_INTERVAL_MS = 1000
 
 export const LiveWebAnalyticsMetrics = (): JSX.Element => {
-    const { chartData, deviceBreakdown, topPaths, totalPageviews, totalUniqueVisitors, totalDevices, isLoading } =
-        useValues(liveWebAnalyticsMetricsLogic)
+    const {
+        chartData,
+        deviceBreakdown,
+        countryBreakdown,
+        topPaths,
+        totalPageviews,
+        totalUniqueVisitors,
+        totalDevices,
+        isLoading,
+    } = useValues(liveWebAnalyticsMetricsLogic)
     const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
     const { pauseStream: pauseLiveCount, resumeStream: resumeLiveCount } = useActions(
@@ -61,6 +70,13 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             </div>
 
             <LiveTopPathsTable paths={topPaths} isLoading={isLoading} />
+
+            <LiveChartCard title="Countries" isLoading={isLoading} contentClassName="aspect-[2.3/1] mt-6">
+                <LiveWorldMap
+                    data={countryBreakdown}
+                    totalEvents={countryBreakdown.reduce((sum: number, c: { count: number }) => sum + c.count, 0)}
+                />
+            </LiveChartCard>
         </div>
     )
 }

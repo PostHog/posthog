@@ -1,4 +1,4 @@
-import { SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import { CountryBreakdownItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
 
 export class LiveMetricsSlidingWindow {
     private buckets = new Map<number, SlidingWindowBucket>()
@@ -40,6 +40,15 @@ export class LiveMetricsSlidingWindow {
         this.prune()
     }
 
+    addGeoDataPoint(eventTs: number, countryCode: string, count: number = 1): void {
+        if (!countryCode) {
+            return
+        }
+        const bucket = this.getOrCreateBucket(eventTs)
+        bucket.countries.set(countryCode, (bucket.countries.get(countryCode) || 0) + count)
+        this.prune()
+    }
+
     extendBucketData(eventTs: number, data: SlidingWindowBucket): void {
         const bucket = this.getOrCreateBucket(eventTs)
 
@@ -64,6 +73,12 @@ export class LiveMetricsSlidingWindow {
         if (data.paths) {
             for (const [path, count] of data.paths) {
                 bucket.paths.set(path, (bucket.paths.get(path) || 0) + count)
+            }
+        }
+
+        if (data.countries) {
+            for (const [country, count] of data.countries) {
+                bucket.countries.set(country, (bucket.countries.get(country) || 0) + count)
             }
         }
 
@@ -193,6 +208,30 @@ export class LiveMetricsSlidingWindow {
             .slice(0, limit)
     }
 
+    getCountryBreakdown(): CountryBreakdownItem[] {
+        const aggregates = new Map<string, number>()
+        let total = 0
+
+        for (const bucket of this.buckets.values()) {
+            for (const [country, count] of bucket.countries) {
+                aggregates.set(country, (aggregates.get(country) || 0) + count)
+                total += count
+            }
+        }
+
+        if (total === 0) {
+            return []
+        }
+
+        return [...aggregates.entries()]
+            .map(([country, count]) => ({
+                country,
+                count,
+                percentage: (count / total) * 100,
+            }))
+            .sort((a, b) => b.count - a.count)
+    }
+
     getTotalUniqueUsers(): number {
         return this.userBucketCounts.size
     }
@@ -208,6 +247,7 @@ export class LiveMetricsSlidingWindow {
                 devices: new Map<string, Set<string>>(),
                 paths: new Map<string, number>(),
                 uniqueUsers: new Set<string>(),
+                countries: new Map<string, number>(),
             }
             this.buckets.set(bucketTs, bucket)
         }

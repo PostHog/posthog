@@ -1,0 +1,61 @@
+.LiveWorldMap {
+    &__svg {
+        color: var(--color-border-primary);
+
+        .landxx {
+            fill: currentColor;
+            fill-rule: evenodd;
+            stroke: var(--color-bg-surface-primary);
+            stroke-width: 0.125rem;
+
+            &:hover {
+                color: var(--world-map-hover) !important;
+            }
+        }
+    }
+
+    &__tooltip {
+        position: fixed;
+        z-index: var(--z-graph-tooltip);
+        overflow: hidden;
+        font-size: 0.8125rem;
+        pointer-events: none;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation-3000);
+    }
+
+    &__tooltip-content {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__tooltip-country {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        font-weight: 600;
+    }
+
+    &__tooltip-flag {
+        font-size: 1.25rem;
+        line-height: 1;
+    }
+
+    &__tooltip-count {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+
+    &__tooltip-footer {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.75rem;
+        color: var(--color-text-secondary);
+        background: var(--color-bg-surface-primary);
+    }
+}
