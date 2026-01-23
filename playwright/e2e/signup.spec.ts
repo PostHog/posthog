@@ -1,13 +1,27 @@
-import type { Page } from '@playwright/test'
+import type { APIRequestContext, Page } from '@playwright/test'
 
 import { expect, test } from '../utils/playwright-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
+const ensureExistingUser = async (request: APIRequestContext, email: string): Promise<void> => {
+    await request.post('/api/signup/', {
+        data: {
+            first_name: 'Test',
+            email,
+            password: VALID_PASSWORD,
+            organization_name: 'Hogflix',
+            role_at_organization: 'Engineering',
+        },
+    })
+}
+
 const startSignupFlow = async (page: Page, email: string, password: string): Promise<void> => {
     await page.locator('[data-attr=signup-email]').fill(email)
     await expect(page.locator('[data-attr=signup-email]')).toHaveValue(email)
+    const precheckPromise = page.waitForResponse('**/api/signup/precheck')
     await page.locator('[data-attr=signup-start]').click()
+    await precheckPromise
 
     await expect(page.locator('[data-attr=signup-auth-continue]')).toBeVisible()
     await page.locator('[data-attr=password]').fill(password)
@@ -19,11 +33,16 @@ const startSignupFlow = async (page: Page, email: string, password: string): Pro
 
 const submitEmailAndExpectExistingAccount = async (page: Page, email: string): Promise<void> => {
     await page.locator('[data-attr=signup-email]').fill(email)
+    const precheckPromise = page.waitForResponse((response) => {
+        return response.url().includes('/api/signup/precheck') && response.request().method() === 'POST'
+    })
     await page.locator('[data-attr=signup-start]').click()
+    const precheckResponse = await precheckPromise
 
-    await expect(
-        page.locator('.Field--error').filter({ hasText: 'There is already an account with this email address.' })
-    ).toBeVisible()
+    expect(precheckResponse.status()).toBe(409)
+    const precheckBody = await precheckResponse.json()
+    expect(precheckBody.detail).toContain('There is already an account with this email address.')
+    await expect(page.locator('[data-attr=signup-auth-continue]')).not.toBeVisible()
 }
 
 test.describe('Signup', () => {
@@ -46,7 +65,8 @@ test.describe('Signup', () => {
         await page.goto('/signup')
     })
 
-    test('Cannot create account with existing email', async ({ page }) => {
+    test('Cannot create account with existing email', async ({ page, request }) => {
+        await ensureExistingUser(request, 'test@posthog.com')
         await submitEmailAndExpectExistingAccount(page, 'test@posthog.com')
     })
 
@@ -67,9 +87,11 @@ test.describe('Signup', () => {
 
         await expect(page.locator('[data-attr=signup-auth-continue]')).toBeVisible()
         await page.locator('[data-attr=password]').fill('123')
+        await page.locator('[data-attr=signup-auth-continue]').click()
         await expect(page.getByText('Add another word or two')).toBeVisible()
 
         await page.locator('[data-attr=password]').fill('123 abc def')
+        await page.locator('[data-attr=signup-auth-continue]').click()
         await expect(page.getByText('Add another word or two')).not.toBeVisible()
     })
 
@@ -102,6 +124,7 @@ test.describe('Signup', () => {
 
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
         let signupRequestBody: string | null = null
+        const email = `new_user+generic_error_test@posthog.com`
 
         await page.route('/api/signup/', async (route) => {
             signupRequestBody = route.request().postData()
@@ -109,7 +132,6 @@ test.describe('Signup', () => {
         })
 
         // Create initial account
-        const email = `new_user+generic_error_test@posthog.com`
         await startSignupFlow(page, email, VALID_PASSWORD)
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')

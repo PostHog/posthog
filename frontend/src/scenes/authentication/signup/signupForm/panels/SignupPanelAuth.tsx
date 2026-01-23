@@ -99,7 +99,7 @@ export function SignupPanelAuth(): JSX.Element | null {
                     htmlType="submit"
                     data-attr="signup-auth-continue"
                     loading={isSignupPanelAuthSubmitting}
-                    disabled={isSignupPanelAuthSubmitting || (!passkeyRegistered && validatedPassword.score < 3)}
+                    disabled={isSignupPanelAuthSubmitting}
                     size="large"
                 >
                     Continue

@@ -41,6 +41,8 @@ export interface SignupPanelOnboardingForm {
 
 interface SignupEmailPrecheckResponse {
     email_exists: boolean
+    code?: string
+    detail?: string
 }
 
 // Keep SignupForm for backwards compatibility
@@ -64,6 +66,7 @@ export const signupLogic = kea<signupLogicType>([
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
         setPasskeyError: (error: string | null) => ({ error }),
+        setError: (error: string | null) => ({ error }),
     })),
     reducers(() => ({
         panel: [
@@ -97,6 +100,12 @@ export const signupLogic = kea<signupLogicType>([
                 registerPasskey: () => null,
             },
         ],
+        error: [
+            null as string | null,
+            {
+                setError: (_, { error }) => error,
+            },
+        ],
     })),
     forms(({ actions, values }) => ({
         signupPanelEmail: {
@@ -115,27 +124,26 @@ export const signupLogic = kea<signupLogicType>([
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
                 actions.setSignupPanelEmailManualErrors({})
+                actions.setPasskeyError(null)
+                actions.setError(null)
                 try {
-                    const { email_exists } = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
+                    await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
                         email,
                     })
-                    if (email_exists) {
-                        actions.setSignupPanelEmailManualErrors({
-                            email: 'There is already an account with this email address.',
-                        })
-                        return
-                    }
                 } catch (e: any) {
                     if (e?.status === 409 || e?.code === 'account_exists') {
+                        const errorMessage = e?.detail || 'There is already an account with this email address.'
                         actions.setSignupPanelEmailManualErrors({
-                            email: 'There is already an account with this email address.',
+                            email: errorMessage,
                         })
+                        actions.setError(errorMessage)
+                        actions.setPanel(0)
                         return
                     }
                     actions.setSignupPanelEmailManualErrors({
                         email: e?.detail || 'Could not verify your email. Please try again.',
                     })
-                    throw e
+                    return
                 }
                 actions.setPanel(1)
             },
@@ -250,27 +258,30 @@ export const signupLogic = kea<signupLogicType>([
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
                 actions.setSignupPanel1ManualErrors({})
+                let precheckResponse: SignupEmailPrecheckResponse
                 try {
-                    const { email_exists } = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
+                    precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
                         email,
                     })
-                    if (email_exists) {
-                        actions.setSignupPanel1ManualErrors({
-                            email: 'There is already an account with this email address.',
-                        })
-                        return
-                    }
                 } catch (e: any) {
                     if (e?.status === 409 || e?.code === 'account_exists') {
                         actions.setSignupPanel1ManualErrors({
                             email: 'There is already an account with this email address.',
                         })
+                        actions.setPanel(0)
                         return
                     }
                     actions.setSignupPanel1ManualErrors({
                         email: e?.detail || 'Could not verify your email. Please try again.',
                     })
-                    throw e
+                    return
+                }
+                if (precheckResponse.email_exists || precheckResponse.code === 'account_exists') {
+                    actions.setSignupPanel1ManualErrors({
+                        email: precheckResponse.detail || 'There is already an account with this email address.',
+                    })
+                    actions.setPanel(0)
+                    return
                 }
                 actions.setPanel(1)
             },

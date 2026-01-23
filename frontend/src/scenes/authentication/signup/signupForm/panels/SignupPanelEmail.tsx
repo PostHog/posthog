@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useRef } from 'react'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -14,7 +14,7 @@ import { signupLogic } from '../signupLogic'
 
 export function SignupPanelEmail(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanelEmailSubmitting, loginUrl, emailCaseNotice } = useValues(signupLogic)
+    const { isSignupPanelEmailSubmitting, loginUrl, emailCaseNotice, passkeyError, error } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -24,6 +24,11 @@ export function SignupPanelEmail(): JSX.Element | null {
     return (
         <div className="deprecated-space-y-4 Signup__panel__email">
             <RegionSelect />
+            {passkeyError && (
+                <LemonBanner type="error" className="mb-4">
+                    {passkeyError}
+                </LemonBanner>
+            )}
             {!preflight?.demo && socialAuthAvailable && (
                 <>
                     <SocialLoginButtons caption="Sign up with" bottomDivider className="mt-6" />
@@ -45,6 +50,7 @@ export function SignupPanelEmail(): JSX.Element | null {
                         inputRef={emailInputRef}
                     />
                 </LemonField>
+                {error && <LemonBanner type="error">{error}</LemonBanner>}
                 <LemonButton
                     fullWidth
                     type="primary"
