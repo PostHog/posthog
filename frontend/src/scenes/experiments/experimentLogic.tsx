@@ -1274,8 +1274,19 @@ export const experimentLogic = kea<experimentLogicType>([
                     id: sharedMetric.saved_metric,
                     metadata: sharedMetric.metadata,
                 }))
+
+            // Also remove orphaned shared metrics that were incorrectly stored in the metrics arrays
+            const cleanedMetrics = (values.experiment.metrics || []).filter(
+                (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
+            )
+            const cleanedMetricsSecondary = (values.experiment.metrics_secondary || []).filter(
+                (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
+            )
+
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: sharedMetricsIds,
+                metrics: cleanedMetrics,
+                metrics_secondary: cleanedMetricsSecondary,
             })
 
             actions.loadExperiment()

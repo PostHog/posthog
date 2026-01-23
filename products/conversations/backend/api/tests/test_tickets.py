@@ -193,21 +193,24 @@ class TestTicketAPI(BaseConversationsAPITest):
             ),
             (
                 "deleted_messages_excluded",
-                [("Active message", False), ("Deleted message", True)],
+                [("Active message", False), ("Deleted message", "soft_delete")],
                 {"message_count": 1},
             ),
         ]
     )
     def test_message_annotations(self, test_name, messages, expected_fields):
-        """Test that message-related fields are correctly annotated on tickets."""
-        for content, deleted in messages:
-            Comment.objects.create(
+        """Test that denormalized message stats are correctly maintained on tickets."""
+        for content, should_delete in messages:
+            comment = Comment.objects.create(
                 team=self.team,
                 scope="conversations_ticket",
                 item_id=str(self.ticket.id),
                 content=content,
-                deleted=deleted,
             )
+            # Soft-delete after creation (realistic flow)
+            if should_delete == "soft_delete":
+                comment.deleted = True
+                comment.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -219,7 +222,10 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertEqual(response.json()[field_name], expected_value)
 
     def test_list_tickets_no_n_plus_one_queries(self):
-        """Verify ticket list doesn't trigger N+1 queries for messages and assigned users."""
+        """Verify ticket list doesn't trigger N+1 queries for assigned users.
+        Message stats (message_count, last_message_at, last_message_text) are now
+        denormalized on the Ticket model, so no subqueries needed.
+        """
         # Create 10 tickets with messages and assigned users
         for i in range(10):
             ticket = Ticket.objects.create_with_number(
@@ -229,7 +235,7 @@ class TestTicketAPI(BaseConversationsAPITest):
                 distinct_id=f"user-{i}",
                 assigned_to=self.user,
             )
-            # Add 2 messages per ticket
+            # Add 2 messages per ticket (updates denormalized fields via signal)
             Comment.objects.create(
                 team=self.team,
                 scope="conversations_ticket",
@@ -247,12 +253,13 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         # Query count should be constant regardless of number of tickets
         # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query
+        # Note: message stats are denormalized, no subqueries needed
         with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
             self.assertEqual(response.json()["count"], 11)
-            # Verify all annotated fields are present
+            # Verify all denormalized fields are present
             for ticket_data in response.json()["results"]:
                 self.assertIn("message_count", ticket_data)
                 self.assertIn("last_message_at", ticket_data)
