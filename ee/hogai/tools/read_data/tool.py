@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Literal, Self, Union
 from uuid import uuid4
 
@@ -290,7 +291,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     @database_sync_to_async
     def _build_table_schema(self, database: Database, hogql_context: HogQLContext, table_name: str) -> str:
         # Load tables on demand: warehouse first, then views, then posthog tables
-        table_sources = [
+        table_sources: list[Callable[[], list[str]]] = [
             database.get_warehouse_table_names,
             database.get_view_names,
             database.get_posthog_table_names,

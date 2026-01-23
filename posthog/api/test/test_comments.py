@@ -445,3 +445,105 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         call_args = mock_send_email.call_args
         # Should only extract the valid integer ID, ignoring string, None, and float
         assert call_args[0][1] == [valid_user.id]
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_passes_slug_parameter_when_provided(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        mentioned_user = User.objects.create_and_join(self.organization, "slug_test@posthog.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "",
+                "scope": "Replay",
+                "item_id": "test-replay-id",
+                "slug": "/replay/test-replay-id",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "ph-mention", "attrs": {"id": mentioned_user.id}}],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        # Verify slug is passed as 3rd argument
+        assert call_args[0][2] == "/replay/test-replay-id"
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_slug_defaults_to_empty_string_when_not_provided(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        mentioned_user = User.objects.create_and_join(self.organization, "no_slug@posthog.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "",
+                "scope": "Replay",
+                "item_id": "test-replay-id",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "ph-mention", "attrs": {"id": mentioned_user.id}}],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        # Verify slug defaults to empty string
+        assert call_args[0][2] == ""
+
+    def test_soft_delete_comment_without_providing_content(self) -> None:
+        # Create a comment
+        existing = self._create_comment({"content": "This is a comment"})
+
+        # Soft delete by setting deleted=True without providing content
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{existing['id']}",
+            {"deleted": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["deleted"] is True
+        assert response.json()["content"] == "This is a comment"
+
+    def test_soft_deleted_comments_excluded_from_list_by_default(self) -> None:
+        # Create comments
+        self._create_comment({"content": "comment 1"})
+        comment_to_delete = self._create_comment({"content": "comment 2"})
+
+        # Verify both exist
+        response = self.client.get(f"/api/projects/{self.team.id}/comments")
+        assert len(response.json()["results"]) == 2
+
+        # Soft delete
+        self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{comment_to_delete['id']}",
+            {"deleted": True},
+        )
+
+        # Verify deleted comment is excluded from list
+        response = self.client.get(f"/api/projects/{self.team.id}/comments")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["content"] == "comment 1"
+
+    def test_hard_delete_returns_method_not_allowed(self) -> None:
+        existing = self._create_comment({"content": "This is a comment"})
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/comments/{existing['id']}")
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
