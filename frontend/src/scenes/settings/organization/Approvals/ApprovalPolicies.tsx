@@ -238,6 +238,10 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
         let conditions: Record<string, unknown> = {}
         if (actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE && rules.length > 0) {
             const rule = rules[0]
+            if (rule.type !== 'any_change' && rule.value === undefined) {
+                lemonToast.error('Please specify a threshold value')
+                return
+            }
             conditions = {
                 type: rule.type,
                 field: rule.field,
