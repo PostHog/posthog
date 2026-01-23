@@ -2,7 +2,16 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCopy, IconEye, IconFlask, IconPause, IconPlusSmall, IconRefresh, IconStopFilled } from '@posthog/icons'
+import {
+    IconCopy,
+    IconEye,
+    IconFlask,
+    IconPause,
+    IconPlay,
+    IconPlusSmall,
+    IconRefresh,
+    IconStopFilled,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -334,6 +343,7 @@ export function PageHeaderCustom(): JSX.Element {
         createExperimentDashboard,
         updateExperiment,
         setHogfettiTrigger,
+        resumeExperiment,
     } = useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal, openPauseExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
@@ -511,7 +521,7 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <ResetButton />
 
-                        {experiment.feature_flag && (
+                        {experiment.feature_flag && experiment.feature_flag.active && (
                             <ButtonPrimitive
                                 variant="danger"
                                 menuItem
@@ -519,6 +529,12 @@ export function PageHeaderCustom(): JSX.Element {
                                 onClick={() => openPauseExperimentModal()}
                             >
                                 <IconPause /> Pause experiment
+                            </ButtonPrimitive>
+                        )}
+
+                        {experiment.feature_flag && !experiment.feature_flag.active && (
+                            <ButtonPrimitive menuItem data-attr="resume-experiment" onClick={() => resumeExperiment()}>
+                                <IconPlay /> Resume experiment
                             </ButtonPrimitive>
                         )}
 
