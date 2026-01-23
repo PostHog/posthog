@@ -16,7 +16,7 @@ export interface SearchOccurrence {
  * Find all occurrences of a search query in a text string (case-insensitive)
  */
 export function findSearchMatches(text: string, searchQuery: string): SearchMatch[] {
-    if (!searchQuery.trim()) {
+    if (!text || !searchQuery.trim()) {
         return []
     }
 
@@ -289,11 +289,17 @@ export function findMessageOccurrences(
                 }
             })
         } else {
-            // Fallback for non-generation events
+            // Fallback for non-generation events (e.g., embedding events where $ai_input is an array of strings)
             const inputMessages = event.properties.$ai_input
             if (Array.isArray(inputMessages)) {
                 inputMessages.forEach((msg, msgIndex) => {
-                    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+                    // Handle both string messages (embedding events) and object messages with .content
+                    const content =
+                        typeof msg === 'string'
+                            ? msg
+                            : typeof msg.content === 'string'
+                              ? msg.content
+                              : JSON.stringify(msg.content ?? msg)
                     occurrences.push(
                         ...findSearchOccurrences(content, query, 'content', {
                             type: 'message',
@@ -342,7 +348,13 @@ export function findMessageOccurrences(
             const outputMessages = event.properties.$ai_output_choices || event.properties.$ai_output
             if (Array.isArray(outputMessages)) {
                 outputMessages.forEach((msg, msgIndex) => {
-                    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+                    // Handle both string messages and object messages with .content
+                    const content =
+                        typeof msg === 'string'
+                            ? msg
+                            : typeof msg.content === 'string'
+                              ? msg.content
+                              : JSON.stringify(msg.content ?? msg)
                     occurrences.push(
                         ...findSearchOccurrences(content, query, 'content', {
                             type: 'message',
@@ -352,17 +364,20 @@ export function findMessageOccurrences(
                         })
                     )
 
-                    const { role: _roleMsg, content: _contentMsg, ...additionalKwargs } = msg
-                    if (Object.keys(additionalKwargs).length > 0) {
-                        const additionalStr = JSON.stringify(additionalKwargs)
-                        occurrences.push(
-                            ...findSearchOccurrences(additionalStr, query, 'additionalKwargs', {
-                                type: 'message',
-                                eventId: event.id,
-                                messageIndex: msgIndex,
-                                messageType: 'output',
-                            })
-                        )
+                    // Only extract additional kwargs for object messages
+                    if (typeof msg === 'object' && msg !== null) {
+                        const { role: _roleMsg, content: _contentMsg, ...additionalKwargs } = msg
+                        if (Object.keys(additionalKwargs).length > 0) {
+                            const additionalStr = JSON.stringify(additionalKwargs)
+                            occurrences.push(
+                                ...findSearchOccurrences(additionalStr, query, 'additionalKwargs', {
+                                    type: 'message',
+                                    eventId: event.id,
+                                    messageIndex: msgIndex,
+                                    messageType: 'output',
+                                })
+                            )
+                        }
                     }
                 })
             }
