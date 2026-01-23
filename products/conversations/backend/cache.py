@@ -5,8 +5,6 @@ Caches responses to reduce database load from frequent polling.
 Invalidated automatically when messages are created or tickets updated.
 """
 
-import hashlib
-
 from django.core.cache import cache
 
 import structlog
@@ -25,12 +23,14 @@ def _make_cache_key(prefix: str, *args: str) -> str:
 
 
 # Widget Messages Cache
+# Caches both initial load (after=None) and polling (after=timestamp).
+# When polling, 'after' stays constant until a new message arrives,
+# so cache hits are common. When a new message arrives, cache is invalidated via signal.
 
 
 def get_messages_cache_key(team_id: int, ticket_id: str, after: str | None = None) -> str:
     """Cache key for widget messages endpoint."""
-    after_hash = hashlib.sha256((after or "").encode()).hexdigest()[:8] if after else "all"
-    return _make_cache_key("messages", str(team_id), ticket_id, after_hash)
+    return _make_cache_key("messages", str(team_id), ticket_id, after or "initial")
 
 
 def get_cached_messages(team_id: int, ticket_id: str, after: str | None = None) -> dict | None:
@@ -53,20 +53,14 @@ def set_cached_messages(team_id: int, ticket_id: str, response_data: dict, after
 
 
 def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
-    """Invalidate all messages cache for a ticket.
-    Uses delete_pattern to clear all 'after' variations.
-    Falls back to deleting the base key if pattern delete not available.
-    Note: With fallback, 'after=<timestamp>' cached queries may serve stale data
-    for up to MESSAGES_CACHE_TTL seconds. This is acceptable given the short TTL.
-    """
+    """Invalidate all messages cache for a ticket (all 'after' variations)."""
     pattern = _make_cache_key("messages", str(team_id), ticket_id, "*")
     try:
         if hasattr(cache, "delete_pattern"):
             cache.delete_pattern(pattern)
         else:
-            # Fallback: delete the "all" key. Other 'after' variations will expire via TTL.
+            # Fallback: delete initial key. Other variations expire via TTL.
             cache.delete(get_messages_cache_key(team_id, ticket_id, None))
-            logger.info("conversations_cache_pattern_delete_unavailable", pattern=pattern)
     except Exception:
         logger.warning("conversations_cache_invalidate_error", pattern=pattern, exc_info=True)
 

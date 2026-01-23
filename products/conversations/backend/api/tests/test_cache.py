@@ -19,19 +19,11 @@ from products.conversations.backend.cache import (
 class TestCacheKeyGeneration(TestCase):
     def test_messages_cache_key_without_after(self):
         key = get_messages_cache_key(team_id=1, ticket_id="abc-123")
-        assert key == "conversations:messages:1:abc-123:all"
+        assert key == "conversations:messages:1:abc-123:initial"
 
     def test_messages_cache_key_with_after(self):
         key = get_messages_cache_key(team_id=1, ticket_id="abc-123", after="2024-01-01T00:00:00")
-        # after is hashed to 8 chars
-        assert key.startswith("conversations:messages:1:abc-123:")
-        assert key != "conversations:messages:1:abc-123:all"
-        assert len(key.split(":")[-1]) == 8  # md5 hash truncated to 8 chars
-
-    def test_messages_cache_key_different_after_different_keys(self):
-        key1 = get_messages_cache_key(team_id=1, ticket_id="abc", after="2024-01-01")
-        key2 = get_messages_cache_key(team_id=1, ticket_id="abc", after="2024-01-02")
-        assert key1 != key2
+        assert key == "conversations:messages:1:abc-123:2024-01-01T00:00:00"
 
     def test_tickets_cache_key_without_status(self):
         key = get_tickets_cache_key(team_id=1, widget_session_id="session-123")
@@ -96,12 +88,11 @@ class TestMessagesCacheOperations(TestCase):
 
     @patch("products.conversations.backend.cache.cache")
     def test_invalidate_messages_falls_back_to_delete(self, mock_cache):
-        # Remove delete_pattern to simulate non-redis cache
         del mock_cache.delete_pattern
 
         invalidate_messages_cache(team_id=1, ticket_id="abc")
 
-        mock_cache.delete.assert_called_once_with("conversations:messages:1:abc:all")
+        mock_cache.delete.assert_called_once_with("conversations:messages:1:abc:initial")
 
     @patch("products.conversations.backend.cache.cache")
     def test_invalidate_messages_swallows_exception(self, mock_cache):
