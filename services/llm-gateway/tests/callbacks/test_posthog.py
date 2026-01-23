@@ -243,7 +243,7 @@ class TestPostHogCallback:
                 "custom_llm_provider": "openai",
                 "error_str": "Error",
             },
-            "litellm_params": {},
+            "litellm_params": {"metadata": {"user_id": "trace-id-from-metadata"}},
         }
 
         with (
@@ -255,4 +255,4 @@ class TestPostHogCallback:
 
             call_kwargs = mock_posthog.capture.call_args.kwargs
             assert call_kwargs["distinct_id"] == "openai-end-user-789"
-            assert call_kwargs["properties"]["$ai_trace_id"] == "openai-end-user-789"
+            assert call_kwargs["properties"]["$ai_trace_id"] == "trace-id-from-metadata"

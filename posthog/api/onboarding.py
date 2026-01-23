@@ -188,7 +188,7 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
                 ],
-                user=user_distinct_id,
+                user=user_distinct_id,  # type: ignore[arg-type]
                 response_format=ProductRecommendationResponse,
             )
 
