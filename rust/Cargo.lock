@@ -1681,6 +1681,7 @@ dependencies = [
  "common-metrics",
  "envconfig",
  "health",
+ "hex",
  "jsonwebtoken",
  "limiters",
  "metrics",

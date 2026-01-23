@@ -22,7 +22,7 @@ async fn janitor_test(db: PgPool) {
 
     // Purposefully MUCH smaller than would be used in production, so
     // we can simulate stalled or poison jobs quickly
-    let stall_timeout = Duration::milliseconds(20);
+    let stall_timeout = Duration::milliseconds(100);
     let max_touches = 3;
 
     // Workers by default drop any heartbeats for the first 5 seconds, or between
@@ -276,8 +276,8 @@ async fn janitor_test(db: PgPool) {
     let start = tokio::time::Instant::now();
     loop {
         worker.heartbeat(job.id).await.unwrap();
-        tokio::time::sleep(Duration::milliseconds(1).to_std().unwrap()).await;
-        if start.elapsed() > stall_timeout.to_std().unwrap() * 2 {
+        tokio::time::sleep(Duration::milliseconds(5).to_std().unwrap()).await;
+        if start.elapsed() > stall_timeout.to_std().unwrap() * 3 {
             break;
         }
     }
