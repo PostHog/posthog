@@ -15,8 +15,6 @@ from django.urls import path, reverse
 from django.utils.html import escapejs, format_html
 from django.utils.safestring import mark_safe
 
-from boto3 import client as boto3_client
-from botocore.client import Config
 from structlog import get_logger
 from temporalio import common
 
@@ -28,36 +26,12 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import cache_key_for_team_token
 from posthog.models.team.team import DEPRECATED_ATTRS
-from posthog.settings.session_replay_v2 import (
-    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
-    SESSION_RECORDING_V2_S3_BUCKET,
-    SESSION_RECORDING_V2_S3_ENDPOINT,
-    SESSION_RECORDING_V2_S3_REGION,
-    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
-)
+from posthog.storage.recordings import file_storage
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.export_recording.types import ExportRecordingInput
 from posthog.temporal.import_recording.types import ImportRecordingInput
 
 logger = get_logger()
-
-
-def _download_from_s3(key: str) -> bytes:
-    """Download a file from the session recording S3 bucket."""
-    s3_client = boto3_client(
-        "s3",
-        endpoint_url=SESSION_RECORDING_V2_S3_ENDPOINT,
-        aws_access_key_id=SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
-        aws_secret_access_key=SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4"),
-        region_name=SESSION_RECORDING_V2_S3_REGION,
-    )
-
-    s3_response = s3_client.get_object(
-        Bucket=SESSION_RECORDING_V2_S3_BUCKET,
-        Key=key,
-    )
-    return s3_response["Body"].read()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -558,7 +532,7 @@ class TeamAdmin(admin.ModelAdmin):
                 messages.error(request, "Export content not available yet")
                 return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
-            content = _download_from_s3(export.export_location)
+            content = file_storage.file_storage().download_file(export.export_location)
 
             response = HttpResponse(content, content_type="application/zip")
             filename = f"export-{export.session_id}.zip"

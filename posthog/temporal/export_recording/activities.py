@@ -19,7 +19,7 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import list_blocks
-from posthog.storage import session_recording_v2_object_storage
+from posthog.storage.recordings import block_storage, file_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -187,10 +187,10 @@ async def export_recording_data(input: ExportContext) -> None:
         block_offset = int(match.group(1))
 
         try:
-            async with session_recording_v2_object_storage.async_client() as storage:
-                block_data = await storage.fetch_block_bytes(block.url)
+            async with block_storage.cleartext_block_storage() as storage:
+                block_data = await storage.fetch_compressed_block(block.url)
             logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
-        except session_recording_v2_object_storage.BlockFetchError:
+        except block_storage.BlockFetchError:
             logger.warning(f"Failed to fetch block at {block.url}, skipping...")
             continue
 
@@ -278,9 +278,8 @@ async def store_export_data(input: ExportContext) -> None:
 
     s3_key = f"session_recording_exports/{input.team_id}/{input.session_id}/{input.export_id}.zip"
 
-    async with session_recording_v2_object_storage.async_client() as storage:
+    async with file_storage.async_file_storage() as storage:
         await storage.upload_file(s3_key, str(zip_path))
-
     logger.info(f"Uploaded zip archive to S3 at {s3_key}")
 
     zip_path.unlink()
