@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientTimeout
 from prometheus_client import CollectorRegistry, Counter, Gauge
 
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
@@ -476,7 +476,7 @@ test_gauge 100.0
             url = f"http://127.0.0.1:{metrics_port}/metrics"
             # Use a longer timeout for the test request since we need to wait for the internal timeout
             async with ClientSession() as session:
-                async with session.get(url, timeout=15) as response:
+                async with session.get(url, timeout=ClientTimeout(15)) as response:
                     content = await response.text()
 
             # prometheus_client metrics should still be served despite Temporal timeout
