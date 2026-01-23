@@ -3,6 +3,7 @@ from typing import Optional, Union, cast
 from posthog.schema import (
     ActionsNode,
     Breakdown,
+    EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
@@ -29,6 +30,8 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     funnel_evaluation_expr,
     funnel_steps_to_filter,
     get_source_value_expr,
+    is_session_property_metric,
+    validate_session_property,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
@@ -404,12 +407,80 @@ class ExperimentQueryBuilder:
 
         return query
 
+    def _get_session_property_ctes(self) -> str:
+        """
+        Returns CTEs for session property metrics with proper deduplication.
+
+        Session properties require special handling to avoid the multiplication bug:
+        - Without deduplication: each event in a session contributes the full session value
+        - With deduplication: each session contributes exactly once
+
+        Pattern:
+        1. metric_events_by_session: GROUP BY $session_id, get any(session.$property)
+        2. metric_events: Join with exposures, filter by temporal ordering
+        3. entity_metrics: Aggregate across sessions per entity
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        assert isinstance(self.metric.source, (ActionsNode, EventsNode))
+
+        session_property = validate_session_property(self.metric.source)
+
+        return f"""
+            exposures AS (
+                {{exposure_select_query}}
+            ),
+
+            -- Layer 1: Deduplicate within sessions
+            -- Each session contributes exactly one value regardless of event count
+            metric_events_by_session AS (
+                SELECT
+                    {{entity_key}} AS entity_id,
+                    `$session_id` AS session_id,
+                    any(session.`{session_property}`) AS session_value,
+                    min(timestamp) AS first_event_timestamp
+                FROM events
+                WHERE {{metric_predicate}}
+                    AND `$session_id` IS NOT NULL
+                    AND `$session_id` != ''
+                GROUP BY {{entity_key}}, `$session_id`
+            ),
+
+            -- Layer 2: Join with exposures, filter by temporal ordering
+            metric_events AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    toFloat(coalesce(metric_events_by_session.session_value, 0)) AS value,
+                    metric_events_by_session.session_id AS session_id
+                FROM exposures
+                INNER JOIN metric_events_by_session
+                    ON exposures.entity_id = metric_events_by_session.entity_id
+                    AND metric_events_by_session.first_event_timestamp >= exposures.first_exposure_time
+                    AND {{session_conversion_window_predicate}}
+            ),
+
+            -- Layer 3: Aggregate across sessions per entity
+            entity_metrics AS (
+                SELECT
+                    entity_id,
+                    variant,
+                    {{value_agg}} AS value
+                FROM metric_events
+                GROUP BY entity_id, variant
+            )
+        """
+
     def _get_mean_query_common_ctes(self) -> str:
         """
         Returns the common CTEs used by both regular and winsorized mean queries.
         Supports both regular events and data warehouse sources.
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Check if this is a session property metric - use special CTE structure
+        if isinstance(self.metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(self.metric.source):
+            return self._get_session_property_ctes()
+
         is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
 
         if is_dw:
@@ -457,6 +528,15 @@ class ExperimentQueryBuilder:
         Supports both regular events and data warehouse sources.
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Check if this is a session property metric - use different placeholders
+        is_session_property = isinstance(self.metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(
+            self.metric.source
+        )
+
+        if is_session_property:
+            return self._get_session_property_placeholders()
+
         is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
 
         # Build exposure query with exposure_identifier for data warehouse
@@ -497,6 +577,23 @@ class ExperimentQueryBuilder:
             )
 
         return placeholders
+
+    def _get_session_property_placeholders(self) -> dict:
+        """
+        Returns placeholders specific to session property metrics.
+        Session properties use a different CTE structure with deduplication per session.
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        exposure_query = self._build_exposure_select_query()
+
+        return {
+            "exposure_select_query": exposure_query,
+            "entity_key": parse_expr(self.entity_key),
+            "metric_predicate": self._build_metric_predicate(table_alias="events"),
+            "value_agg": self._build_value_aggregation_expr(),
+            "session_conversion_window_predicate": self._build_session_conversion_window_predicate(),
+        }
 
     def _inject_mean_breakdown_columns(self, query: ast.SelectQuery, final_cte_name: str = "entity_metrics") -> None:
         """
@@ -1019,6 +1116,27 @@ class ExperimentQueryBuilder:
         Uses "metric_events" as the events alias.
         """
         return self._build_conversion_window_predicate_for_events("metric_events")
+
+    def _build_session_conversion_window_predicate(self) -> ast.Expr:
+        """
+        Build the predicate for limiting session metric events to the conversion window.
+        Uses first_event_timestamp from metric_events_by_session for temporal filtering.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            return parse_expr(
+                """
+                metric_events_by_session.first_event_timestamp
+                    < exposures.last_exposure_time + toIntervalSecond({conversion_window_seconds})
+                """,
+                placeholders={
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            # No conversion window limit - just return true since temporal filtering
+            # is already handled by the >= first_exposure_timestamp condition in the join
+            return ast.Constant(value=True)
 
     def _build_conversion_window_predicate_for_events(self, events_alias: str) -> ast.Expr:
         """

@@ -34,7 +34,6 @@ export interface OnboardingLogicProps {
 }
 
 const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
-    [OnboardingStepKey.AI_CONSENT]: 'PostHog AI',
     [OnboardingStepKey.LINK_DATA]: 'Import data',
 }
 

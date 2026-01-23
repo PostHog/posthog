@@ -23,8 +23,9 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
@@ -58,6 +59,7 @@ export function TaxonomicPropertyFilter({
     taxonomicGroupTypes,
     eventNames,
     schemaColumns,
+    dataWarehouseTableName,
     propertyGroupType,
     orFiltering,
     addText = 'Add filter',
@@ -120,6 +122,7 @@ export function TaxonomicPropertyFilter({
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
     const { columnsJoinedToPersons } = useValues(dataWarehouseJoinsLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -166,7 +169,17 @@ export function TaxonomicPropertyFilter({
             operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
             value={filter?.value}
             placeholder="Enter value..."
-            endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
+            endpoint={
+                filter?.key &&
+                filter?.type === PropertyFilterType.DataWarehouse &&
+                dataWarehouseTableName &&
+                currentTeamId
+                    ? `api/environments/${currentTeamId}/data_warehouse/property_values?${toParams({
+                          table_name: dataWarehouseTableName,
+                          key: filter.key,
+                      })}`
+                    : filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)
+            }
             eventNames={eventNames}
             addRelativeDateTimeOptions={allowRelativeDateOptions}
             onChange={(newOperator, newValue) => {

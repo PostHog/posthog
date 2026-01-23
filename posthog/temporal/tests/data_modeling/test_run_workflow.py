@@ -1746,3 +1746,27 @@ async def test_hogql_table_applies_custom_modifier_to_sessions_query(ateam):
     assert str(custom_bounce_rate_duration) in captured_sql, (
         f"Expected bounce rate duration {custom_bounce_rate_duration} in SQL, got: {captured_sql}"
     )
+
+
+async def test_create_default_modifiers_for_team_in_async_context(ateam):
+    """Test that create_default_modifiers_for_team must be wrapped with database_sync_to_async in async context.
+
+    The function accesses team.organization.created_at via person_on_events_mode_flag_based_default,
+    which triggers a lazy load of the organization foreign key. Without database_sync_to_async,
+    this raises SynchronousOnlyOperation in an async context.
+
+    This is a regression test for the fix that wrapped the call in hogql_table and get_query_row_count.
+    """
+    from django.core.exceptions import SynchronousOnlyOperation
+
+    from posthog.hogql.modifiers import create_default_modifiers_for_team
+
+    # fetch team without select_related to ensure organization needs lazy loading
+    team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
+    # mock is_cloud() to return true so that the code path accessing team.organization.created_at is triggered
+    with unittest.mock.patch("posthog.models.team.team.is_cloud", return_value=True):
+        # calling directly raises
+        with pytest.raises(SynchronousOnlyOperation):
+            create_default_modifiers_for_team(team)
+        # wrapped doesn't raise
+        await database_sync_to_async(create_default_modifiers_for_team)(team)

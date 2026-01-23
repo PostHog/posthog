@@ -364,7 +364,7 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if node.table_final:
-            join_strings.append("FINAL")
+            raise QueryError("The FINAL keyword is not supported in HogQL as it causes slow queries")
 
         if node.sample is not None:
             sample_clause = self.visit_sample_expr(node.sample)
@@ -800,7 +800,13 @@ class HogQLPrinter(Visitor[str]):
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
                     db = django_settings.CLICKHOUSE_DATABASE
-                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
+                    # Build rate lookup expressions
+                    from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
+                    to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
+                    # Use if() around divisor to avoid division by zero with enable_analyzer=0
+                    # (old analyzer evaluates all branches regardless of condition)
+                    safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
+                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
                 elif node.name == "getSurveyResponse":
                     question_index_obj = node.args[0]
                     if not isinstance(question_index_obj, ast.Constant):
