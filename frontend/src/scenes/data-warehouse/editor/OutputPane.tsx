@@ -7,10 +7,7 @@ import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
-    IconBolt,
-    IconBrackets,
     IconCode,
-    IconCode2,
     IconCopy,
     IconDownload,
     IconExpand45,
@@ -24,11 +21,8 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { IconTableChart } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -57,12 +51,9 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
 import TabScroller from './TabScroller'
-import { FixErrorButton } from './components/FixErrorButton'
+import { CollapsibleSection } from './components/CollapsibleSection'
 import { multitabEditorLogic } from './multitabEditorLogic'
-import { Endpoint } from './output-pane-tabs/Endpoint'
-import { QueryInfo } from './output-pane-tabs/QueryInfo'
-import { QueryVariables } from './output-pane-tabs/QueryVariables'
-import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { OutputTab } from './outputPaneLogic'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -289,12 +280,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     )
 }
 
-export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
-    const { activeTab } = useValues(outputPaneLogic)
-    const { setActiveTab } = useActions(outputPaneLogic)
-    const { editingView } = useValues(multitabEditorLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
+export function OutputPane(): JSX.Element {
     const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
         useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
@@ -312,6 +298,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const response = dataNodeResponse as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
+    const [isResultsOpen, setIsResultsOpen] = useState(true)
+    const [isVisualizationOpen, setIsVisualizationOpen] = useState(true)
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
@@ -460,220 +448,194 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
-            <div className="flex flex-row justify-between align-center w-full min-h-[50px] overflow-y-auto">
-                <div className="flex min-h-[50px] gap-2 ml-4">
-                    {[
-                        {
-                            key: OutputTab.Results,
-                            label: 'Results',
-                            icon: <IconTableChart />,
-                        },
-                        {
-                            key: OutputTab.Visualization,
-                            label: 'Visualization',
-                            icon: <IconGraph />,
-                        },
-                        {
-                            key: OutputTab.Variables,
-                            label: (
-                                <Tooltip title={editingView ? 'Variables are not allowed in views.' : undefined}>
-                                    Variables
-                                </Tooltip>
-                            ),
-                            disabled: editingView,
-                            icon: <IconBrackets />,
-                        },
-                        {
-                            key: OutputTab.Materialization,
-                            label: 'Materialization',
-                            icon: <IconBolt />,
-                        },
-                        {
-                            key: OutputTab.Endpoint,
-                            label: 'Endpoint',
-                            icon: <IconCode2 />,
-                            flag: FEATURE_FLAGS.ENDPOINTS,
-                        },
-                    ]
-                        .filter((tab) => !tab.flag || featureFlags[tab.flag])
-                        .map((tab) => (
-                            <div
-                                key={tab.key}
-                                className={clsx(
-                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
-                                    {
-                                        'font-semibold !border-brand-yellow': tab.key === activeTab,
-                                        'border-transparent': tab.key !== activeTab,
-                                        'opacity-50 cursor-not-allowed': tab.disabled,
-                                    }
-                                )}
-                                onClick={() => !tab.disabled && setActiveTab(tab.key)}
-                            >
-                                <span className="mr-1">{tab.icon}</span>
-                                {tab.label}
-                            </div>
-                        ))}
-                </div>
-                <div className="flex gap-2 py-2 px-4 flex-shrink-0">
-                    {showLegacyFilters && (
-                        <DateRange
-                            key="date-range"
-                            query={sourceQuery.source}
-                            setQuery={(query) => {
-                                setSourceQuery({
-                                    ...sourceQuery,
-                                    source: query,
-                                })
-                                runQuery(query.query)
-                            }}
-                        />
-                    )}
-                    {activeTab === OutputTab.Visualization && (
+            <div className="flex flex-col flex-1 min-h-0">
+                <CollapsibleSection
+                    title="Visualization"
+                    isOpen={isVisualizationOpen}
+                    onToggle={() => setIsVisualizationOpen((prev) => !prev)}
+                    headerClassName="border-b bg-bg-light dark:bg-black"
+                    contentClassName="flex-1 min-h-0"
+                    actions={
                         <>
-                            <div className="flex justify-between flex-wrap">
-                                <div className="flex items-center" />
-                                <div className="flex items-center">
-                                    <div className="flex gap-2 items-center flex-wrap">
-                                        <TableDisplay
-                                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
-                                        />
-
-                                        <LemonButton
-                                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
-                                            type="secondary"
-                                            icon={<IconGear />}
-                                            onClick={() => toggleChartSettingsPanel()}
-                                            tooltip="Visualization settings"
-                                        />
-                                        {editingInsight && (
-                                            <LemonButton
-                                                disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
-                                                type="primary"
-                                                onClick={() => updateInsight()}
-                                                id="sql-editor-update-insight"
-                                                sideAction={{
-                                                    dropdown: {
-                                                        placement: 'bottom-end',
-                                                        overlay: (
-                                                            <LemonMenuOverlay
-                                                                items={[
-                                                                    {
-                                                                        label: 'Save as...',
-                                                                        onClick: () => saveAsInsight(),
-                                                                    },
-                                                                ]}
-                                                            />
-                                                        ),
-                                                    },
-                                                }}
-                                            >
-                                                Save insight
-                                            </LemonButton>
-                                        )}
-                                        {!editingInsight && (
-                                            <LemonButton
-                                                disabledReason={!hasColumns ? 'No results to save' : undefined}
-                                                type="primary"
-                                                onClick={() => saveAsInsight()}
-                                                id="sql-editor-save-insight"
-                                            >
-                                                Save insight
-                                            </LemonButton>
-                                        )}
-                                    </div>
-                                </div>
+                            {showLegacyFilters && (
+                                <DateRange
+                                    key="date-range"
+                                    query={sourceQuery.source}
+                                    setQuery={(query) => {
+                                        setSourceQuery({
+                                            ...sourceQuery,
+                                            source: query,
+                                        })
+                                        runQuery(query.query)
+                                    }}
+                                />
+                            )}
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <TableDisplay disabledReason={!hasColumns ? 'No results to visualize' : undefined} />
+                                <LemonButton
+                                    disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                    type="secondary"
+                                    icon={<IconGear />}
+                                    onClick={() => toggleChartSettingsPanel()}
+                                    tooltip="Visualization settings"
+                                />
+                                {editingInsight && (
+                                    <LemonButton
+                                        disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
+                                        type="primary"
+                                        onClick={() => updateInsight()}
+                                        id="sql-editor-update-insight"
+                                        sideAction={{
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={[
+                                                            {
+                                                                label: 'Save as...',
+                                                                onClick: () => saveAsInsight(),
+                                                            },
+                                                        ]}
+                                                    />
+                                                ),
+                                            },
+                                        }}
+                                    >
+                                        Save insight
+                                    </LemonButton>
+                                )}
+                                {!editingInsight && (
+                                    <LemonButton
+                                        disabledReason={!hasColumns ? 'No results to save' : undefined}
+                                        type="primary"
+                                        onClick={() => saveAsInsight()}
+                                        id="sql-editor-save-insight"
+                                    >
+                                        Save insight
+                                    </LemonButton>
+                                )}
                             </div>
                         </>
-                    )}
-                    {activeTab === OutputTab.Results && (
-                        <LemonButton
-                            disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
-                            type="secondary"
-                            onClick={() => setActiveTab(OutputTab.Visualization)}
-                            id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
-                            icon={<IconGraph />}
-                        >
-                            {editingInsight ? 'View insight' : 'Create insight'}
-                        </LemonButton>
-                    )}
-                    {activeTab === OutputTab.Results && (
-                        <LemonMenu
-                            items={Object.values(copyMap).map(({ label, copyFn }) => ({
-                                label,
-                                onClick: () => {
-                                    if (response?.columns && rows.length > 0) {
-                                        const dataTableRows = transformDataTableToDataTableRows(rows, response.columns)
-                                        const query = createDataTableQuery()
-                                        copyFn(dataTableRows, response.columns, query)
+                    }
+                >
+                    <div className="flex flex-1 relative bg-dark min-h-[240px]">
+                        <Content
+                            activeTab={OutputTab.Visualization}
+                            responseError={responseError}
+                            responseLoading={responseLoading}
+                            response={response}
+                            sourceQuery={sourceQuery}
+                            queryCancelled={queryCancelled}
+                            columns={columns}
+                            rows={rows}
+                            isDarkModeOn={isDarkModeOn}
+                            vizKey={vizKey}
+                            setSourceQuery={setSourceQuery}
+                            saveAsInsight={saveAsInsight}
+                            queryId={queryId}
+                            pollResponse={pollResponse}
+                            setProgress={setProgress}
+                            progress={queryId ? progressCache[queryId] : undefined}
+                        />
+                    </div>
+                </CollapsibleSection>
+                <CollapsibleSection
+                    title="Results"
+                    isOpen={isResultsOpen}
+                    onToggle={() => setIsResultsOpen((prev) => !prev)}
+                    headerClassName="border-b bg-bg-light dark:bg-black"
+                    contentClassName="flex-1 min-h-0"
+                    actions={
+                        <>
+                            <LemonButton
+                                disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
+                                type="secondary"
+                                onClick={() => setIsVisualizationOpen(true)}
+                                id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
+                                icon={<IconGraph />}
+                            >
+                                {editingInsight ? 'View insight' : 'Create insight'}
+                            </LemonButton>
+                            <LemonMenu
+                                items={Object.values(copyMap).map(({ label, copyFn }) => ({
+                                    label,
+                                    onClick: () => {
+                                        if (response?.columns && rows.length > 0) {
+                                            const dataTableRows = transformDataTableToDataTableRows(
+                                                rows,
+                                                response.columns
+                                            )
+                                            const query = createDataTableQuery()
+                                            copyFn(dataTableRows, response.columns, query)
+                                        }
+                                    },
+                                }))}
+                                placement="bottom-end"
+                            >
+                                <LemonButton
+                                    id="sql-editor-copy-dropdown"
+                                    disabledReason={
+                                        !response?.columns || !rows.length ? 'No results to copy' : undefined
                                     }
-                                },
-                            }))}
-                            placement="bottom-end"
-                        >
-                            <LemonButton
-                                id="sql-editor-copy-dropdown"
-                                disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
-                                type="secondary"
-                                icon={<IconCopy />}
-                            />
-                        </LemonMenu>
-                    )}
-                    {activeTab === OutputTab.Results && exportContext && (
-                        <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
-                            <ExportButton
-                                id="sql-editor-export"
-                                disabledReason={!hasColumns ? 'No results to export' : undefined}
-                                type="secondary"
-                                icon={<IconDownload />}
-                                sideIcon={null}
-                                buttonCopy=""
-                                items={[
-                                    {
-                                        export_format: ExporterFormat.CSV,
-                                        export_context: exportContext,
-                                    },
-                                    {
-                                        export_format: ExporterFormat.XLSX,
-                                        export_context: exportContext,
-                                    },
-                                ]}
-                            />
-                        </Tooltip>
-                    )}
-                    {activeTab === OutputTab.Results && (
-                        <Tooltip title="Share your current query">
-                            <LemonButton
-                                id="sql-editor-share"
-                                disabledReason={!queryInput && 'No query to share'}
-                                type="secondary"
-                                icon={<IconShare />}
-                                onClick={() => shareTab()}
-                            />
-                        </Tooltip>
-                    )}
-                </div>
-            </div>
-            <div className="flex flex-1 relative bg-dark">
-                <Content
-                    activeTab={activeTab}
-                    responseError={responseError}
-                    responseLoading={responseLoading}
-                    response={response}
-                    sourceQuery={sourceQuery}
-                    queryCancelled={queryCancelled}
-                    columns={columns}
-                    rows={rows}
-                    isDarkModeOn={isDarkModeOn}
-                    vizKey={vizKey}
-                    setSourceQuery={setSourceQuery}
-                    exportContext={exportContext}
-                    saveAsInsight={saveAsInsight}
-                    queryId={queryId}
-                    pollResponse={pollResponse}
-                    tabId={tabId}
-                    setProgress={setProgress}
-                    progress={queryId ? progressCache[queryId] : undefined}
-                />
+                                    type="secondary"
+                                    icon={<IconCopy />}
+                                />
+                            </LemonMenu>
+                            {exportContext && (
+                                <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
+                                    <ExportButton
+                                        id="sql-editor-export"
+                                        disabledReason={!hasColumns ? 'No results to export' : undefined}
+                                        type="secondary"
+                                        icon={<IconDownload />}
+                                        sideIcon={null}
+                                        buttonCopy=""
+                                        items={[
+                                            {
+                                                export_format: ExporterFormat.CSV,
+                                                export_context: exportContext,
+                                            },
+                                            {
+                                                export_format: ExporterFormat.XLSX,
+                                                export_context: exportContext,
+                                            },
+                                        ]}
+                                    />
+                                </Tooltip>
+                            )}
+                            <Tooltip title="Share your current query">
+                                <LemonButton
+                                    id="sql-editor-share"
+                                    disabledReason={!queryInput && 'No query to share'}
+                                    type="secondary"
+                                    icon={<IconShare />}
+                                    onClick={() => shareTab()}
+                                />
+                            </Tooltip>
+                        </>
+                    }
+                >
+                    <div className="flex flex-1 relative bg-dark min-h-[240px]">
+                        <Content
+                            activeTab={OutputTab.Results}
+                            responseError={responseError}
+                            responseLoading={responseLoading}
+                            response={response}
+                            sourceQuery={sourceQuery}
+                            queryCancelled={queryCancelled}
+                            columns={columns}
+                            rows={rows}
+                            isDarkModeOn={isDarkModeOn}
+                            vizKey={vizKey}
+                            setSourceQuery={setSourceQuery}
+                            saveAsInsight={saveAsInsight}
+                            queryId={queryId}
+                            pollResponse={pollResponse}
+                            setProgress={setProgress}
+                            progress={queryId ? progressCache[queryId] : undefined}
+                        />
+                    </div>
+                </CollapsibleSection>
             </div>
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
@@ -809,9 +771,7 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    tabId,
     setSourceQuery,
-    exportContext,
     saveAsInsight,
     queryId,
     pollResponse,
@@ -819,9 +779,6 @@ const Content = ({
     progress,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
-    const { editingView } = useValues(multitabEditorLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -849,41 +806,6 @@ const Content = ({
             return 0
         })
     }, [rows, sortColumns])
-    if (activeTab === OutputTab.Materialization) {
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <QueryInfo tabId={tabId} />
-                </div>
-            </TabScroller>
-        )
-    }
-
-    if (activeTab === OutputTab.Variables) {
-        if (editingView) {
-            return (
-                <TabScroller>
-                    <div className="px-6 py-4 border-t text-secondary">Variables are not allowed in views.</div>
-                </TabScroller>
-            )
-        }
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <QueryVariables />
-                </div>
-            </TabScroller>
-        )
-    }
-    if (featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeTab === OutputTab.Endpoint) {
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <Endpoint tabId={tabId} />
-                </div>
-            </TabScroller>
-        )
-    }
 
     if (responseLoading) {
         return (
