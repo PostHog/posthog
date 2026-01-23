@@ -861,8 +861,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.335.1
-        version: 1.335.1
+        specifier: 1.335.2
+        version: 1.335.2
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1653,8 +1653,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.1
-        version: 1.335.1
+        specifier: 1.335.2
+        version: 1.335.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -1847,8 +1847,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.1
-        version: 1.335.1
+        specifier: 1.335.2
+        version: 1.335.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -2088,8 +2088,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.1
-        version: 1.335.1
+        specifier: 1.335.2
+        version: 1.335.2
       prettier:
         specifier: '*'
         version: 3.6.2
@@ -2173,8 +2173,8 @@ importers:
         specifier: '*'
         version: 5.4.1
       posthog-js:
-        specifier: 1.335.1
-        version: 1.335.1
+        specifier: 1.335.2
+        version: 1.335.2
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2494,8 +2494,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.1
-        version: 1.335.1
+        specifier: 1.335.2
+        version: 1.335.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -2566,8 +2566,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.1
-        version: 1.335.1
+        specifier: 1.335.2
+        version: 1.335.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -6939,8 +6939,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.335.1':
-    resolution: {integrity: sha512-Eh5panAsr3faM/yG8MnaPnXQWl51v6/ld+69bFPERe7WXXgI+3E5twwsU/y2oFUOZIwMUq0Pw9yzDEq6RN5H1A==}
+  '@posthog/types@1.335.2':
+    resolution: {integrity: sha512-cyl6eFrt0nR7lxb8+oGXyS16wDxQJz6awMWPyDB423lI+MiM64vz0VV5LNABahEc4BuytJzfEOyvyA3LPJ4hOQ==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -17129,8 +17129,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.335.1:
-    resolution: {integrity: sha512-VLB6TBlUzymcoyR2LrK9FQkmbC0ukFFEaFjLk3tWDwsplhshLAZydjgjVUxVqENBvqhXHlKKWCsVJvXv39VZAA==}
+  posthog-js@1.335.2:
+    resolution: {integrity: sha512-xiPh9eXqNiNiFZjVe+HMcuEeqhbMJuL+bOVUM6ywGAfxUe71av71q6hK/zlzIiPNsPxhV6PL08LC6yPooStQxA==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -26754,7 +26754,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.335.1': {}
+  '@posthog/types@1.335.2': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -29175,7 +29175,7 @@ snapshots:
       '@storybook/core-common': 7.6.4(encoding@0.1.13)
       '@storybook/node-logger': 7.6.4
       '@storybook/types': 7.6.4
-      '@types/node': 18.19.130
+      '@types/node': 18.18.4
       ts-dedent: 2.2.0
     transitivePeerDependencies:
       - encoding
@@ -30759,7 +30759,7 @@ snapshots:
 
   '@types/set-cookie-parser@2.4.2':
     dependencies:
-      '@types/node': 22.18.8
+      '@types/node': 22.15.17
 
   '@types/snowflake-sdk@1.6.12':
     dependencies:
@@ -39665,7 +39665,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.335.1:
+  posthog-js@1.335.2:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
@@ -39673,7 +39673,7 @@ snapshots:
       '@opentelemetry/resources': 2.4.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
       '@posthog/core': 1.14.0
-      '@posthog/types': 1.335.1
+      '@posthog/types': 1.335.2
       core-js: 3.40.0
       dompurify: 3.3.1
       fflate: 0.4.8
