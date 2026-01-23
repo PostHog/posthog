@@ -1,5 +1,6 @@
-import pytest
 from typing import get_args
+
+import pytest
 from unittest.mock import patch
 
 from posthog.llm.gateway_client import Product, get_llm_client

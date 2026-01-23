@@ -29,16 +29,18 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 
 The gateway supports two authentication methods:
 
-| Method | Token Prefix | Header |
-|--------|--------------|--------|
-| Personal API Key | `phx_` | `Authorization: Bearer phx_...` or `x-api-key: phx_...` |
-| OAuth Access Token | `pha_` | `Authorization: Bearer pha_...` |
+| Method             | Token Prefix | Header                                                  |
+| ------------------ | ------------ | ------------------------------------------------------- |
+| Personal API Key   | `phx_`       | `Authorization: Bearer phx_...` or `x-api-key: phx_...` |
+| OAuth Access Token | `pha_`       | `Authorization: Bearer pha_...`                         |
 
 **Required Scope**: `llm_gateway:read`
 
 ## User attribution
 
-When calling the gateway on behalf of end-users, **always specify the end-user's identifier**:
+When using an OAuth Access Token, the user who's token it is is the user used for analytics and rate limiting.
+
+When calling the gateway on behalf of end-users with a Personal API Key, **always specify the end-user's identifier** if you want user based analytics / rate limiting:
 
 ### OpenAI SDK (Python)
 
@@ -46,12 +48,12 @@ When calling the gateway on behalf of end-users, **always specify the end-user's
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://llm-gateway.posthog.com/v1",
+    base_url="https://gateway.us.posthog.com/v1",
     api_key="phx_your_api_key",
 )
 
 response = client.chat.completions.create(
-    model="gpt-4.1-mini",
+    model="gpt-5-mini",
     messages=[{"role": "user", "content": "Hello"}],
     user="user_distinct_id_123",  # End-user attribution
 )
@@ -60,18 +62,18 @@ response = client.chat.completions.create(
 ### OpenAI SDK (TypeScript/JavaScript)
 
 ```typescript
-import OpenAI from 'openai';
+import OpenAI from 'openai'
 
 const client = new OpenAI({
-  baseURL: 'https://llm-gateway.posthog.com/v1',
+  baseURL: 'https://gateway.us.posthog.com/v1',
   apiKey: 'phx_your_api_key',
-});
+})
 
 const response = await client.chat.completions.create({
-  model: 'gpt-4.1-mini',
+  model: 'gpt-5-mini',
   messages: [{ role: 'user', content: 'Hello' }],
-  user: 'user_distinct_id_123',  // End-user attribution
-});
+  user: 'user_distinct_id_123', // End-user attribution
+})
 ```
 
 ### Anthropic SDK (Python)
@@ -80,24 +82,17 @@ const response = await client.chat.completions.create({
 import anthropic
 
 client = anthropic.Anthropic(
-    base_url="https://llm-gateway.posthog.com/v1",
+    base_url="https://gateway.us.posthog.com/v1",
     api_key="phx_your_api_key",
 )
 
 response = client.messages.create(
-    model="claude-sonnet-4-20250514",
+    model="claude-opus-4-5",
     max_tokens=1024,
     messages=[{"role": "user", "content": "Hello"}],
     metadata={"user_id": "user_distinct_id_123"},  # End-user attribution
 )
 ```
-
-### How attribution works
-
-| Field | Description | PostHog Event Property |
-|-------|-------------|----------------------|
-| `user` (OpenAI) / `metadata.user_id` (Anthropic) | End-user identifier | `distinct_id`, `$ai_trace_id` |
-| API Key owner | Team/billing attribution | `groups.project` |
 
 ## API endpoints
 
@@ -121,20 +116,11 @@ Products: `llm_gateway` (default), `array`, `wizard`, `django`
 
 ## Supported models
 
-All models are available via any endpoint format:
-
-- **OpenAI**: `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o`, `o3-mini`, etc.
-- **Anthropic**: `claude-sonnet-4-20250514`, `claude-3-5-sonnet`, etc.
-- **Google**: `gemini/gemini-3-pro-preview`, etc.
+All OpenAI, Anthropic and Gemini chat models are supported.
 
 ## Rate limiting
 
-Cost-based rate limiting is applied per user and per product:
-
-- Default: $500/hour per user
-- Limits configurable per product
-
-Rate limit headers are included in responses.
+Cost-based rate limiting is applied per user and per product, and you can specify custom rate limits for your product in it's config.
 
 ## Error handling
 
@@ -150,27 +136,27 @@ Errors follow OpenAI's format:
 }
 ```
 
-| Status | Meaning |
-|--------|---------|
-| 400 | Bad request (invalid model, missing fields) |
-| 401 | Invalid or missing API key |
-| 403 | Insufficient scope or unauthorized product |
-| 429 | Rate limit exceeded |
-| 504 | Request timeout |
+| Status | Meaning                                     |
+| ------ | ------------------------------------------- |
+| 400    | Bad request (invalid model, missing fields) |
+| 401    | Invalid or missing API key                  |
+| 403    | Insufficient scope or unauthorized product  |
+| 429    | Rate limit exceeded                         |
+| 504    | Request timeout                             |
 
 ## Configuration
 
 Environment variables (prefix `LLM_GATEWAY_`):
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection URL (required) |
-| `REDIS_URL` | Redis URL for rate limiting (optional) |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `POSTHOG_API_KEY` | PostHog API key for analytics |
-| `POSTHOG_HOST` | PostHog host URL |
+| Variable            | Description                            |
+| ------------------- | -------------------------------------- |
+| `DATABASE_URL`      | PostgreSQL connection URL (required)   |
+| `REDIS_URL`         | Redis URL for rate limiting (optional) |
+| `ANTHROPIC_API_KEY` | Anthropic API key                      |
+| `OPENAI_API_KEY`    | OpenAI API key                         |
+| `GEMINI_API_KEY`    | Google Gemini API key                  |
+| `POSTHOG_API_KEY`   | PostHog API key for analytics          |
+| `POSTHOG_HOST`      | PostHog host URL                       |
 
 ## Internal Django integration
 
@@ -186,20 +172,3 @@ response = client.chat.completions.create(
     user=request.user.distinct_id,  # Always pass for attribution
 )
 ```
-
-### Supported models
-
-- **OpenAI**: `gpt-5.2`, `gpt-5-mini`, `gpt-5-nano`
-- **Anthropic**: `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-haiku-4-5`
-
-### Fallback behavior
-
-When the gateway is disabled (feature flag off or unavailable), the client transparently maps Anthropic models to OpenAI equivalents:
-
-| Anthropic | OpenAI fallback |
-|-----------|-----------------|
-| `claude-opus-4-5` | `gpt-5.2` |
-| `claude-sonnet-4-5` | `gpt-5-mini` |
-| `claude-haiku-4-5` | `gpt-5-nano` |
-
-Uses feature flag `use-llm-gateway` to control gateway vs direct OpenAI.
