@@ -16,10 +16,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
-  FROM
-    (SELECT *
-     FROM events
-     WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-11-30 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-12-01 00:20:00', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'bar'), 0)))) AS events
+  FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -70,10 +67,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
-  FROM
-    (SELECT *
-     FROM events
-     WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-11-30 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-12-01 00:20:00', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'baz'), 0)))) AS events
+  FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -124,10 +118,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
-  FROM
-    (SELECT *
-     FROM events
-     WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-11-30 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-12-01 00:20:00', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'barz'), 0)))) AS events
+  FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -178,10 +169,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
-  FROM
-    (SELECT *
-     FROM events
-     WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-11-30 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-12-01 00:20:00', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0)))) AS events
+  FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -233,10 +221,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
-  FROM
-    (SELECT *
-     FROM events
-     WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-11-30 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-12-01 00:20:00', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0)))) AS events
+  FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id

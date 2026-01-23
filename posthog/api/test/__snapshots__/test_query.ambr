@@ -520,10 +520,7 @@
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), '')) AS `concat(event, ' ', properties.key)`
-  FROM
-    (SELECT *
-     FROM events
-     WHERE and(equals(events.team_id, 99999), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))) AS events
+  FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -565,10 +562,7 @@
          nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), '')) AS `concat(event, ' ', properties.key)`
-  FROM
-    (SELECT *
-     FROM events
-     WHERE and(equals(events.team_id, 99999), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))) AS events
+  FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
