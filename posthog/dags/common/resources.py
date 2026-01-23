@@ -1,3 +1,4 @@
+import json
 import asyncio
 from collections.abc import Generator
 from urllib.parse import urlparse
@@ -193,8 +194,6 @@ class ClayWebhookResource(dagster.ConfigurableResource):
 
     def _get_batch_size(self, batch: list[dict]) -> int:
         """Get the serialized size of a batch in bytes."""
-        import json
-
         return len(json.dumps(batch, default=str).encode("utf-8"))
 
     def send_batched(self, data: list[dict]) -> list[requests.Response]:
@@ -207,6 +206,10 @@ class ClayWebhookResource(dagster.ConfigurableResource):
 
         with requests.Session() as session:
             for record in data:
+                record_size = self._get_batch_size([record])
+                if record_size > self.max_batch_bytes:
+                    raise ValueError(f"Single record exceeds max_batch_bytes ({record_size} > {self.max_batch_bytes})")
+
                 candidate_batch = [*current_batch, record]
                 if current_batch and self._get_batch_size(candidate_batch) > self.max_batch_bytes:
                     responses.append(self._send_with_retry(session, current_batch))
