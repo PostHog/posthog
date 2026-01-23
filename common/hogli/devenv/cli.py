@@ -210,7 +210,7 @@ def dev_explain(intents: tuple[str, ...], preset: str | None) -> None:
     try:
         resolver = _create_resolver()
     except FileNotFoundError:
-        click.echo("Error: intent-map.yaml not found in dev/", err=True)
+        click.echo("Error: intent-map.yaml not found in devenv/", err=True)
         raise SystemExit(1)
 
     if preset:
@@ -332,7 +332,7 @@ def dev_setup() -> None:
     try:
         intent_map = load_intent_map()
     except FileNotFoundError:
-        click.echo("Error: intent-map.yaml not found in dev/", err=True)
+        click.echo("Error: intent-map.yaml not found in devenv/", err=True)
         click.echo("Are you in the PostHog repository root?", err=True)
         raise SystemExit(1)
 

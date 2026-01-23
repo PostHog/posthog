@@ -168,7 +168,14 @@ def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
 
 
 def _configure_overrides(config: DevenvConfig, registry) -> DevenvConfig:
-    """Configure overrides for manual-start processes."""
+    """Configure overrides."""
+    # Exclude units
+    click.echo("")
+    click.echo("Units to exclude (e.g., dagster, temporal-worker):")
+    exclude = click.prompt("Comma-separated, or blank", default="")
+    if exclude.strip():
+        config.exclude_units = [u.strip() for u in exclude.split(",") if u.strip()]
+
     # Ask about manual-start processes (those with ask_skip: true)
     ask_skip_processes = registry.get_ask_skip_processes()
     for process_name in ask_skip_processes:

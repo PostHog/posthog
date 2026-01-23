@@ -6,7 +6,7 @@
 # This file is used as fallback when hogli isn't available.
 #
 # To customize which processes run, use `hogli dev:setup`.
-# See dev/intent-map.yaml for intent-to-capability mappings.
+# See devenv/intent-map.yaml for intent-to-capability mappings.
 
 procs:
     backend:

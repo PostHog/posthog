@@ -442,7 +442,7 @@ def get_default_intent_map_path() -> Path:
     # Walk up from this file to find the repo root
     current = Path(__file__).resolve()
     for parent in current.parents:
-        intent_map = parent / "dev" / "intent-map.yaml"
+        intent_map = parent / "devenv" / "intent-map.yaml"
         if intent_map.exists():
             return intent_map
 
