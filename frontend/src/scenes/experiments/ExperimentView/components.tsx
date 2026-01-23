@@ -521,7 +521,8 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <ResetButton />
 
-                        {experiment.feature_flag &&
+                        {!experiment.end_date &&
+                            experiment.feature_flag &&
                             (experiment.feature_flag.active ? (
                                 <ButtonPrimitive
                                     variant="danger"
