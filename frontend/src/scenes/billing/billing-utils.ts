@@ -540,3 +540,83 @@ export function buildBillingCsv(params: {
 
     return Papa.unparse([header, ...rows])
 }
+
+/**
+ * Build a human-readable list of product names (e.g., "A, B and C")
+ */
+export function formatProductNames(names: string[]): string {
+    if (names.length === 0) {
+        return ''
+    }
+    if (names.length === 1) {
+        return names[0]
+    }
+    return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
+}
+
+/**
+ * Get the consequence message for a product when it exceeds its usage limit
+ */
+export function getUsageLimitConsequence(productName: string): string {
+    if (productName === 'Data warehouse') {
+        return 'data will not be synced'
+    }
+    if (productName === 'Feature flags & Experiments') {
+        return 'feature flags will not evaluate'
+    }
+    return 'data loss may occur'
+}
+
+/**
+ * Build a consolidated message for products that have exceeded their usage limits
+ */
+export function buildUsageLimitExceededMessage(products: Array<{ name: string; subscribed: boolean | null }>): {
+    title: string
+    message: string
+} {
+    if (products.length === 0) {
+        return { title: '', message: '' }
+    }
+
+    const productNames = products.map((p) => p.name)
+    const allSubscribed = products.every((p) => p.subscribed === true)
+
+    // Build consequence message, deduplicating common consequences
+    const consequences = [...new Set(products.map((p) => getUsageLimitConsequence(p.name)))]
+
+    const productListText = formatProductNames(productNames)
+    const actionText = allSubscribed ? 'increase your billing limit' : 'upgrade your plan'
+    const consequenceText = consequences.join(' and ')
+
+    return {
+        title: products.length === 1 ? 'Usage limit exceeded' : 'Usage limits exceeded',
+        message: `You have exceeded the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+    }
+}
+
+/**
+ * Build a consolidated message for products approaching their usage limits
+ */
+export function buildUsageLimitApproachingMessage(
+    products: Array<{ name: string; percentage_usage: number; usage_key?: string | null }>
+): { title: string; message: string } {
+    if (products.length === 0) {
+        return { title: '', message: '' }
+    }
+
+    const usageDetails = products.map((p) => {
+        const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
+        const usageKey = p.usage_key?.toLowerCase() || 'usage'
+        return `${percentage}% of your ${usageKey} allocation`
+    })
+
+    const message =
+        products.length === 1
+            ? `You have currently used ${usageDetails[0]}.`
+            : `You are approaching your usage limits: ${usageDetails.join(', ')}.`
+
+    return {
+        title: products.length === 1 ? 'You will soon hit your usage limit' : 'You will soon hit your usage limits',
+        message,
+    }
+}

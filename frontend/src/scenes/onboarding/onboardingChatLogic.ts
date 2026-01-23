@@ -3,6 +3,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
     AgentMode,
@@ -117,7 +118,6 @@ export const onboardingChatLogic = kea<onboardingChatLogicType>([
         selectedProducts: [
             [] as ProductKey[],
             {
-                setRecommendedProducts: (_: ProductKey[], { products }: { products: ProductKey[] }) => products,
                 toggleSelectedProduct: (state: ProductKey[], { product }: { product: ProductKey }) =>
                     state.includes(product) ? state.filter((p) => p !== product) : [...state, product],
                 reset: () => [],
@@ -300,6 +300,6 @@ export const onboardingChatLogic = kea<onboardingChatLogicType>([
         })
 
         // Track that onboarding chat started
-        window.posthog?.capture('ai chat onboarding started')
+        eventUsageLogic.actions.reportAIChatOnboardingStarted('chat')
     }),
 ])

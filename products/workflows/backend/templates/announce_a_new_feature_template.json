@@ -1,0 +1,1049 @@
+{
+    "id": "019b6fc4-282c-0000-50c9-aef7a834102d",
+    "name": "Announce a new feature",
+    "description": "Use this workflow when you release a new feature and want to notify only the users it actually applies to. This avoids blanket announcements and keeps feature messaging relevant. This pattern is especially useful when features are gated by:\n\n- plan or account type\n- role or permissions\n- rollout conditions\n- product usage level\n\nWe've left the event points empty so you can add your own events, but feel free to use the suggested email copy we've added.",
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/posthog_mobile_sessions_1aa340c741.jpg",
+    "scope": "global",
+    "created_at": "2025-12-30T14:58:04.972674Z",
+    "created_by": {
+        "id": 310726,
+        "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+        "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+        "first_name": "Sara",
+        "last_name": "Miteva",
+        "email": "sara@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "updated_at": "2025-12-30T14:58:04.972685Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "$feature_view",
+                    "name": "$feature_view",
+                    "type": "events",
+                    "uuid": "d3e5caf3-ae82-42c7-834c-6e9f5e2fe2cb",
+                    "order": 0
+                }
+            ],
+            "source": "events",
+            "actions": [],
+            "bytecode": ["_H", 1, 32, "$feature_view", 32, "event", 1, 1, 11]
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "window_minutes": 0
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_conditional_branch_44798717-428e-4a5a-b7e9-c7e3665999b8",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_44798717-428e-4a5a-b7e9-c7e3665999b8",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_47e03dff-3a63-461e-afba-0724a2db05f3",
+            "from": "action_conditional_branch_44798717-428e-4a5a-b7e9-c7e3665999b8",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_083f311a-3584-4c17-bd6c-c5ee52801fac",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_5c445845-de35-4390-9dcb-b4eb334eca82",
+            "from": "action_conditional_branch_083f311a-3584-4c17-bd6c-c5ee52801fac",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "action_delay_da93a9e5-c253-4a05-8d74-87133fea3507",
+            "from": "action_function_email_5c445845-de35-4390-9dcb-b4eb334eca82",
+            "type": "continue"
+        },
+        {
+            "to": "action_conditional_branch_7222c2be-61c5-4e28-a6a6-ab09ccd81052",
+            "from": "action_delay_da93a9e5-c253-4a05-8d74-87133fea3507",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_7222c2be-61c5-4e28-a6a6-ab09ccd81052",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_e4582fe9-f964-4596-82e0-8737f53162f5",
+            "from": "action_conditional_branch_7222c2be-61c5-4e28-a6a6-ab09ccd81052",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_e4582fe9-f964-4596-82e0-8737f53162f5",
+            "type": "continue"
+        },
+        {
+            "to": "action_delay_bafa4ed7-30b8-4034-ae78-5f7d7544c5f3",
+            "from": "action_function_email_47e03dff-3a63-461e-afba-0724a2db05f3",
+            "type": "continue"
+        },
+        {
+            "to": "action_conditional_branch_083f311a-3584-4c17-bd6c-c5ee52801fac",
+            "from": "action_delay_bafa4ed7-30b8-4034-ae78-5f7d7544c5f3",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Feature available",
+            "description": "Trigger when a feature becomes available to a user.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$feature_view",
+                            "name": "$feature_view",
+                            "type": "events",
+                            "uuid": "d3e5caf3-ae82-42c7-834c-6e9f5e2fe2cb",
+                            "order": 0
+                        }
+                    ],
+                    "source": "events",
+                    "actions": [],
+                    "bytecode": ["_H", 1, 32, "$feature_view", 32, "event", 1, 1, 11]
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_44798717-428e-4a5a-b7e9-c7e3665999b8",
+            "name": "User eligible?",
+            "description": "Check whether the user meets the criteria to use the feature.",
+            "on_error": null,
+            "created_at": 1767015195334,
+            "updated_at": 1767015195334,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_47e03dff-3a63-461e-afba-0724a2db05f3",
+            "name": "Announcement",
+            "description": "Tell the user the feature is available.",
+            "on_error": null,
+            "created_at": 1767015236252,
+            "updated_at": 1767015236252,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #0000ee; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Good news &ndash; there&rsquo;s something new waiting for you.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">We&rsquo;ve just rolled out a new feature that&rsquo;s now available in your account. It&rsquo;s designed to make things simpler, faster, or generally less annoying (pick your favorite outcome).</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If you want to give it a spin, you can jump straight in here:</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <!--[if mso]><style>.v-button {background: transparent !important;}</style><![endif]-->\n<div align=\"center\">\n  <!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"urn:schemas-microsoft-com:office:word\" href=\"\" style=\"height:37px; v-text-anchor:middle; width:160px;\" arcsize=\"11%\"  stroke=\"f\" fillcolor=\"#0879A1\"><w:anchorlock/><center style=\"color:#FFFFFF;\"><![endif]-->\n    <a href=\"\" target=\"_blank\" class=\"v-button\" style=\"box-sizing: border-box;display: inline-block;text-decoration: none;-webkit-text-size-adjust: none;text-align: center;color: #FFFFFF; background-color: #0879A1; border-radius: 4px;-webkit-border-radius: 4px; -moz-border-radius: 4px; width:auto; max-width:100%; overflow-wrap: break-word; word-break: break-word; word-wrap:break-word; mso-border-alt: none;font-size: 14px;\">\n      <span style=\"display:block;padding:10px 20px;line-height:120%;\"><span style=\"line-height: 16.8px;\">Try the new feature</span></span>\n    </a>\n    <!--[if mso]></center></v:roundrect><![endif]-->\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">No rush. But if you&rsquo;ve been wishing for &ldquo;that one thing&rdquo; to exist, this might be it.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Happy exploring,</p>\n<p style=\"line-height: 140%;\">The team</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Hi there,\n\nGood news – there’s something new waiting for you.\n\nWe’ve just rolled out a new feature that’s now available in your account. It’s\ndesigned to make things simpler, faster, or generally less annoying (pick your\nfavorite outcome).\n\nIf you want to give it a spin, you can jump straight in here:\n\nTry the new feature\nNo rush. But if you’ve been wishing for “that one thing” to exist, this might\nbe it.\n\nHappy exploring,\n\nThe team",
+                            "design": {
+                                "body": {
+                                    "id": "JD8Nq-U0IP",
+                                    "rows": [
+                                        {
+                                            "id": "GYHnX-Y3UN",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "uhWCp9QQx8",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "uR2L3fQEW5",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Good news &ndash; there&rsquo;s something new waiting for you.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">We&rsquo;ve just rolled out a new feature that&rsquo;s now available in your account. It&rsquo;s designed to make things simpler, faster, or generally less annoying (pick your favorite outcome).</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If you want to give it a spin, you can jump straight in here:</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "bqr4ySraaD",
+                                                            "type": "button",
+                                                            "values": {
+                                                                "href": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "size": {
+                                                                    "width": "100%",
+                                                                    "autoWidth": true
+                                                                },
+                                                                "text": "<span style=\"line-height: 16.8px;\">Try the new feature</span>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_button_1",
+                                                                    "htmlClassNames": "u_content_button"
+                                                                },
+                                                                "anchor": "",
+                                                                "border": {},
+                                                                "locked": false,
+                                                                "padding": "10px 20px",
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "textAlign": "center",
+                                                                "_languages": {},
+                                                                "lineHeight": "120%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "borderRadius": "4px",
+                                                                "buttonColors": {
+                                                                    "color": "#FFFFFF",
+                                                                    "hoverColor": "#FFFFFF",
+                                                                    "backgroundColor": "#0879A1",
+                                                                    "hoverBackgroundColor": "#0879A1"
+                                                                },
+                                                                "duplicatable": true,
+                                                                "calculatedWidth": 160,
+                                                                "calculatedHeight": 37,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "6BkjLzaqgM",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">No rush. But if you&rsquo;ve been wishing for &ldquo;that one thing&rdquo; to exist, this might be it.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Happy exploring,</p>\n<p style=\"line-height: 140%;\">The team</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_2",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 2,
+                                    "u_content_button": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "New feature unlocked",
+                            "preheader": "It's live and ready for you to try"
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_083f311a-3584-4c17-bd6c-c5ee52801fac",
+            "name": "Feature not used?",
+            "description": "Check if they've used the feature after the announcement.",
+            "on_error": null,
+            "created_at": 1767015366508,
+            "updated_at": 1767015366508,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_5c445845-de35-4390-9dcb-b4eb334eca82",
+            "name": "Reminder",
+            "description": "Remind them to use the feature.",
+            "on_error": null,
+            "created_at": 1767015429934,
+            "updated_at": 1767015429934,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #0000ee; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Quick check-in &ndash; the new feature we mentioned earlier is still available in your account.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If you haven&rsquo;t had a chance to try it yet, no problem. When you&rsquo;re ready, it&rsquo;s there to help make things a little easier (or at least save you a few clicks).</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <!--[if mso]><style>.v-button {background: transparent !important;}</style><![endif]-->\n<div align=\"center\">\n  <!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"urn:schemas-microsoft-com:office:word\" href=\"\" style=\"height:37px; v-text-anchor:middle; width:111px;\" arcsize=\"11%\"  stroke=\"f\" fillcolor=\"#0879A1\"><w:anchorlock/><center style=\"color:#FFFFFF;\"><![endif]-->\n    <a href=\"\" target=\"_blank\" class=\"v-button\" style=\"box-sizing: border-box;display: inline-block;text-decoration: none;-webkit-text-size-adjust: none;text-align: center;color: #FFFFFF; background-color: #0879A1; border-radius: 4px;-webkit-border-radius: 4px; -moz-border-radius: 4px; width:auto; max-width:100%; overflow-wrap: break-word; word-break: break-word; word-wrap:break-word; mso-border-alt: none;font-size: 14px;\">\n      <span style=\"display:block;padding:10px 20px;line-height:120%;\"><span style=\"line-height: 16.8px;\">Give it a try</span></span>\n    </a>\n    <!--[if mso]></center></v:roundrect><![endif]-->\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">And if now&rsquo;s not the moment, feel free to ignore this and come back to it later. We&rsquo;ll be right here.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Cheers,<br>The team</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Hi there,\n\nQuick check-in – the new feature we mentioned earlier is still available in your\naccount.\n\nIf you haven’t had a chance to try it yet, no problem. When you’re ready, it’s\nthere to help make things a little easier (or at least save you a few clicks).\n\nGive it a try\nAnd if now’s not the moment, feel free to ignore this and come back to it\nlater. We’ll be right here.\n\nCheers,\nThe team",
+                            "design": {
+                                "body": {
+                                    "id": "ig3-yGWhvx",
+                                    "rows": [
+                                        {
+                                            "id": "COIHSVdxrl",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "vv1ZuQbC-J",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "AZY2WbcW-i",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Quick check-in &ndash; the new feature we mentioned earlier is still available in your account.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If you haven&rsquo;t had a chance to try it yet, no problem. When you&rsquo;re ready, it&rsquo;s there to help make things a little easier (or at least save you a few clicks).</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "E2F7ygC1wK",
+                                                            "type": "button",
+                                                            "values": {
+                                                                "href": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "size": {
+                                                                    "width": "100%",
+                                                                    "autoWidth": true
+                                                                },
+                                                                "text": "<span style=\"line-height: 16.8px;\">Give it a try</span>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_button_1",
+                                                                    "htmlClassNames": "u_content_button"
+                                                                },
+                                                                "anchor": "",
+                                                                "border": {},
+                                                                "locked": false,
+                                                                "padding": "10px 20px",
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "textAlign": "center",
+                                                                "_languages": {},
+                                                                "lineHeight": "120%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "borderRadius": "4px",
+                                                                "buttonColors": {
+                                                                    "color": "#FFFFFF",
+                                                                    "hoverColor": "#FFFFFF",
+                                                                    "backgroundColor": "#0879A1",
+                                                                    "hoverBackgroundColor": "#0879A1"
+                                                                },
+                                                                "duplicatable": true,
+                                                                "calculatedWidth": 111,
+                                                                "calculatedHeight": 37,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "4eeClpG3Dv",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">And if now&rsquo;s not the moment, feel free to ignore this and come back to it later. We&rsquo;ll be right here.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Cheers,<br>The team</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_2",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 2,
+                                    "u_content_button": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "Just checking in 👋",
+                            "preheader": "That new feature is still waiting for you."
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_da93a9e5-c253-4a05-8d74-87133fea3507",
+            "name": "Delay",
+            "description": "Wait for 7 days.",
+            "on_error": null,
+            "created_at": 1767015587431,
+            "updated_at": 1767015587431,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "7d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_7222c2be-61c5-4e28-a6a6-ab09ccd81052",
+            "name": "Feature not used?",
+            "description": "Final check if they're not using the feature.",
+            "on_error": null,
+            "created_at": 1767015601812,
+            "updated_at": 1767015601812,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_e4582fe9-f964-4596-82e0-8737f53162f5",
+            "name": "Email",
+            "description": "Send an email to the user.",
+            "on_error": null,
+            "created_at": 1767015622006,
+            "updated_at": 1767015622006,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #0000ee; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">One last note from us.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">The new feature we mentioned earlier is still available in your account, and this is the final reminder we&rsquo;ll send about it.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If you&rsquo;re curious, you can try it anytime here:</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <!--[if mso]><style>.v-button {background: transparent !important;}</style><![endif]-->\n<div align=\"center\">\n  <!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"urn:schemas-microsoft-com:office:word\" href=\"\" style=\"height:37px; v-text-anchor:middle; width:131px;\" arcsize=\"11%\"  stroke=\"f\" fillcolor=\"#0879A1\"><w:anchorlock/><center style=\"color:#FFFFFF;\"><![endif]-->\n    <a href=\"\" target=\"_blank\" class=\"v-button\" style=\"box-sizing: border-box;display: inline-block;text-decoration: none;-webkit-text-size-adjust: none;text-align: center;color: #FFFFFF; background-color: #0879A1; border-radius: 4px;-webkit-border-radius: 4px; -moz-border-radius: 4px; width:auto; max-width:100%; overflow-wrap: break-word; word-break: break-word; word-wrap:break-word; mso-border-alt: none;font-size: 14px;\">\n      <span style=\"display:block;padding:10px 20px;line-height:120%;\"><span style=\"line-height: 16.8px;\">Try the feature</span></span>\n    </a>\n    <!--[if mso]></center></v:roundrect><![endif]-->\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">If not, no worries &ndash; we&rsquo;ll take the hint and let you get back to what you were doing.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Thanks for reading,<br>The team</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Hi there,\n\nOne last note from us.\n\nThe new feature we mentioned earlier is still available in your account, and\nthis is the final reminder we’ll send about it.\n\nIf you’re curious, you can try it anytime here:\n\nTry the feature\nIf not, no worries – we’ll take the hint and let you get back to what you were\ndoing.\n\nThanks for reading,\nThe team",
+                            "design": {
+                                "body": {
+                                    "id": "jE8cRoc60R",
+                                    "rows": [
+                                        {
+                                            "id": "Vr7NvY0HaA",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "8UyPcfcQAG",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "OaJ02NBWd9",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">One last note from us.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">The new feature we mentioned earlier is still available in your account, and this is the final reminder we&rsquo;ll send about it.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If you&rsquo;re curious, you can try it anytime here:</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "_jSrQVZ4SV",
+                                                            "type": "button",
+                                                            "values": {
+                                                                "href": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "size": {
+                                                                    "width": "100%",
+                                                                    "autoWidth": true
+                                                                },
+                                                                "text": "<span style=\"line-height: 16.8px;\">Try the feature</span>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_button_1",
+                                                                    "htmlClassNames": "u_content_button"
+                                                                },
+                                                                "anchor": "",
+                                                                "border": {},
+                                                                "locked": false,
+                                                                "padding": "10px 20px",
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "textAlign": "center",
+                                                                "_languages": {},
+                                                                "lineHeight": "120%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "borderRadius": "4px",
+                                                                "buttonColors": {
+                                                                    "color": "#FFFFFF",
+                                                                    "hoverColor": "#FFFFFF",
+                                                                    "backgroundColor": "#0879A1",
+                                                                    "hoverBackgroundColor": "#0879A1"
+                                                                },
+                                                                "duplicatable": true,
+                                                                "calculatedWidth": 131,
+                                                                "calculatedHeight": 37,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "DeDx2R2fDO",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">If not, no worries &ndash; we&rsquo;ll take the hint and let you get back to what you were doing.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Thanks for reading,<br>The team</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_2",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 2,
+                                    "u_content_button": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "Last call on the new feature",
+                            "preheader": "We’ll stop bugging you after this."
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_bafa4ed7-30b8-4034-ae78-5f7d7544c5f3",
+            "name": "Delay",
+            "description": "Wait for 7 days.",
+            "on_error": null,
+            "created_at": 1767018616035,
+            "updated_at": 1767018616035,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "7d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": []
+}

@@ -20,7 +20,6 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
-import { OnboardingAIConsent } from './OnboardingAIConsent'
 import { OnboardingChat } from './OnboardingChat'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
@@ -104,9 +103,6 @@ const OnboardingWrapper = ({
 
             steps = [...steps, BillingStep]
         }
-
-        const aiConsentStep = <OnboardingAIConsent />
-        steps = [...steps, aiConsentStep]
 
         const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
         if (!userCannotInvite) {

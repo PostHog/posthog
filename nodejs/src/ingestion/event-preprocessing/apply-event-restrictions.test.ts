@@ -1,6 +1,6 @@
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { EventHeaders } from '../../types'
-import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restrictions'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import { RoutingConfig, createApplyEventRestrictionsStep } from './apply-event-restrictions'
 
