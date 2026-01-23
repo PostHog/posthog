@@ -78,7 +78,8 @@ class CommentSerializer(serializers.ModelSerializer):
             if not content.strip() and (not rich_content or self.has_empty_paragraph(rich_content)):
                 raise exceptions.ValidationError("A comment must have content")
 
-        data["created_by"] = request.user
+        if not instance:
+            data["created_by"] = request.user
 
         return data
 
