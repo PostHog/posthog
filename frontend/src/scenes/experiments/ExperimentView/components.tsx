@@ -710,8 +710,8 @@ export function StopExperimentModal(): JSX.Element {
                     later if needed.
                 </div>
                 <div>
-                    To roll out a specific variant to all users, use the 'Ship a variant' button or adjust the feature
-                    flag settings.
+                    To roll out a specific variant to all users instead, use the 'Ship a variant' button or adjust the
+                    feature flag settings.
                 </div>
                 <ConclusionForm />
             </div>
@@ -750,13 +750,9 @@ export function PauseExperimentModal(): JSX.Element {
             <div className="space-y-4">
                 <div>
                     Pausing the experiment will <b>disable the feature flag</b>, preventing any users from seeing the
-                    experiment variants. This is useful when you need to quickly stop the experiment from affecting
-                    users.
+                    experiment variants. This is useful when you need to quickly stop exposing users to the experiment.
                 </div>
-                <div>
-                    The experiment will remain in draft mode and can be re-launched later by re-enabling the feature
-                    flag. All collected data will be preserved.
-                </div>
+                <div>The experiment can be resumed at any time. All collected data will be preserved.</div>
             </div>
         </LemonModal>
     )
