@@ -12,6 +12,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar'
 import { LogsFilterBar as LogsFilterBarV2 } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { LogsViewerConfig, LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
@@ -27,6 +28,7 @@ const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
 
 export interface LogsViewerProps {
+    config: LogsViewerConfig
     tabId: string
     logs: ParsedLogMessage[]
     loading: boolean
@@ -43,9 +45,12 @@ export interface LogsViewerProps {
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     onExpandTimeRange?: () => void
+    onFiltersChanged?: (filters: LogsViewerFilters) => void
+    onConfigChanged?: (config: LogsViewerConfig) => void
 }
 
 export function LogsViewer({
+    config,
     tabId,
     logs,
     loading,
@@ -62,9 +67,11 @@ export function LogsViewer({
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
     onExpandTimeRange,
+    onFiltersChanged,
+    onConfigChanged,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerConfigLogic} props={{ id: tabId }}>
+        <BindLogic logic={logsViewerConfigLogic} props={{ id: tabId, config, onFiltersChanged, onConfigChanged }}>
             <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
                 <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
                     <LogsViewerContent

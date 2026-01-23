@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
-import { logsViewerConfigLogic } from './logsViewerConfigLogic'
+import { DEFAULT_LOGS_VIEWER_CONFIG, logsViewerConfigLogic } from './logsViewerConfigLogic'
 import { LogsViewerFilters } from './types'
 
 describe('logsViewerConfigLogic', () => {
@@ -11,7 +11,7 @@ describe('logsViewerConfigLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        logic = logsViewerConfigLogic({ id: 'test-tab' })
+        logic = logsViewerConfigLogic({ id: 'test-tab', config: DEFAULT_LOGS_VIEWER_CONFIG })
         logic.mount()
     })
 
@@ -66,8 +66,8 @@ describe('logsViewerConfigLogic', () => {
 
     describe('keyed instances', () => {
         it('maintains separate state for different keys', async () => {
-            const logic1 = logsViewerConfigLogic({ id: 'tab-1' })
-            const logic2 = logsViewerConfigLogic({ id: 'tab-2' })
+            const logic1 = logsViewerConfigLogic({ id: 'tab-1', config: DEFAULT_LOGS_VIEWER_CONFIG })
+            const logic2 = logsViewerConfigLogic({ id: 'tab-2', config: DEFAULT_LOGS_VIEWER_CONFIG })
             logic1.mount()
             logic2.mount()
 

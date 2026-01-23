@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -9,6 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
@@ -41,10 +43,19 @@ const LogsSceneContent = (): JSX.Element => {
         orderBy,
         sparklineData,
         sparklineBreakdownBy,
+        filters,
     } = useValues(logsSceneLogic)
+    const { setFilters } = useActions(logsSceneLogic)
     const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy, zoomDateRange } =
         useActions(logsSceneLogic)
+
+    const handleFiltersChanged = useCallback(
+        (filters: LogsViewerFilters) => {
+            setFilters(filters)
+        },
+        [setFilters]
+    )
 
     return (
         <>
@@ -81,6 +92,9 @@ const LogsSceneContent = (): JSX.Element => {
             </LemonBanner>
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                 <LogsViewer
+                    config={{
+                        filters,
+                    }}
                     tabId={tabId}
                     logs={parsedLogs}
                     loading={logsLoading}
@@ -97,6 +111,7 @@ const LogsSceneContent = (): JSX.Element => {
                     sparklineBreakdownBy={sparklineBreakdownBy}
                     onSparklineBreakdownByChange={setSparklineBreakdownBy}
                     onExpandTimeRange={() => zoomDateRange(2)}
+                    onFiltersChanged={handleFiltersChanged}
                 />
             </div>
         </>

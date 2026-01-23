@@ -1,4 +1,7 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+
+import { objectsEqual } from 'lib/utils'
 
 import { FilterLogicalOperator } from '~/types'
 
@@ -18,11 +21,14 @@ export const DEFAULT_LOGS_VIEWER_CONFIG: LogsViewerConfig = {
 
 export interface LogsViewerConfigProps {
     id: string
+    config: LogsViewerConfig
+    onFiltersChanged?: (filters: LogsViewerFilters) => void
+    onConfigChanged?: (config: LogsViewerConfig) => void
 }
 
 export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'config', 'logsViewerConfigLogic']),
-    props({ id: 'default' } as LogsViewerConfigProps),
+    props({ id: 'default', config: DEFAULT_LOGS_VIEWER_CONFIG } as LogsViewerConfigProps),
     key((props) => props.id),
 
     actions({
@@ -33,9 +39,9 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         filters: [
-            DEFAULT_LOGS_VIEWER_CONFIG.filters,
+            props.config.filters,
             {
                 setFilters: (_, { filters }) => filters,
                 setFilter: (state, { filter, value }) => ({
@@ -44,9 +50,25 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                 }),
             },
         ],
-    }),
+    })),
 
     selectors({
         config: [(s) => [s.filters], (filters: LogsViewerFilters): LogsViewerConfig => ({ filters })],
+    }),
+
+    subscriptions(({ props, values }) => ({
+        filters: (filters: LogsViewerFilters, oldFilters: LogsViewerFilters) => {
+            if (objectsEqual(filters, oldFilters)) {
+                return
+            }
+            props.onFiltersChanged?.(filters)
+            props.onConfigChanged?.(values.config)
+        },
+    })),
+
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!objectsEqual(props.config.filters, oldProps.config.filters)) {
+            actions.setFilters(props.config.filters)
+        }
     }),
 ])
