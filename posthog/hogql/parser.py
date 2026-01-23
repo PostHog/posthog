@@ -271,25 +271,6 @@ class HogQLErrorListener(ErrorListener):
         raise SyntaxError(msg, start=start, end=len(self.query))
 
 
-POSTGRES_TYPE_TO_HOGQL_FUNCTION: dict[str, str] = {
-    "int": "toInt",
-    "integer": "toInt",
-    "int64": "toInt",
-    "float": "toFloat",
-    "float64": "toFloat",
-    "double": "toFloat",
-    "string": "toString",
-    "text": "toString",
-    "varchar": "toString",
-    "bool": "toBool",
-    "boolean": "toBool",
-    "date": "toDate",
-    "datetime": "toDateTime",
-    "timestamp": "toDateTime",
-    "uuid": "toUUID",
-}
-
-
 class HogQLParseTreeConverter(ParseTreeVisitor):
     def __init__(self, start: int | None = 0):
         super().__init__()
