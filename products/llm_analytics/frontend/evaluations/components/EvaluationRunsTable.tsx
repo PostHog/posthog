@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -85,9 +85,11 @@ export function EvaluationRunsTable(): JSX.Element {
             title: 'Reasoning',
             key: 'reasoning',
             render: (_, run) => (
-                <div className="max-w-md">
-                    <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
-                </div>
+                <Tooltip title={run.reasoning}>
+                    <div className="max-w-md cursor-default">
+                        <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
+                    </div>
+                </Tooltip>
             ),
         },
         {

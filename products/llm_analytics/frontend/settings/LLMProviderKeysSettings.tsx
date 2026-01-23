@@ -480,6 +480,8 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <p className="text-muted">
                                     Evaluations use GPT-5-mini as the judge model. Add your OpenAI API key to run
                                     evaluations with your own account.
+                                    <br />
+                                    Anthropic, Google, and OpenRouter coming soon.
                                 </p>
                             </div>
                             <LemonButton type="primary" icon={<IconPlus />} onClick={() => setNewKeyModalOpen(true)}>
@@ -495,8 +497,10 @@ export function LLMProviderKeysSettings(): JSX.Element {
                             <div className="border rounded-lg p-8 flex flex-col items-center">
                                 <IconKey className="text-muted text-4xl mb-4" />
                                 <h3 className="font-semibold mb-2">No API keys configured</h3>
-                                <p className="text-muted mb-4">
-                                    Add your own OpenAI API key to run evaluations using your own account.
+                                <p className="text-muted mb-4 text-center">
+                                    Add your OpenAI API key to run evaluations with your own account.
+                                    <br />
+                                    Anthropic, Google, and OpenRouter coming soon.
                                 </p>
                                 <LemonButton
                                     type="primary"
