@@ -3,7 +3,6 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
 import {
     IconBalance,
@@ -52,8 +51,16 @@ import { FeatureFlagTemplates } from './FeatureFlagTemplates'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
-    const { props, featureFlag, multivariateEnabled, variants, variantErrors, isEditingFlag } =
-        useValues(featureFlagLogic)
+    const {
+        props,
+        featureFlag,
+        multivariateEnabled,
+        variants,
+        variantErrors,
+        isEditingFlag,
+        showImplementation,
+        openVariants,
+    } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
         setFeatureFlag,
@@ -63,12 +70,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setFeatureFlagFilters,
         editFeatureFlag,
         loadFeatureFlag,
+        setShowImplementation,
+        setOpenVariants,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
-
-    const [showImplementation, setShowImplementation] = useState(false)
-    const [openVariants, setOpenVariants] = useState<string[]>([])
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 

@@ -63,15 +63,15 @@ describe('featureFlagLogic', () => {
     })
 
     describe('setMultivariateEnabled functionality', () => {
-        it('adds an empty variant when enabling multivariate', async () => {
+        it('adds default variants when enabling multivariate', async () => {
             await expectLogic(logic).toMatchValues({
                 featureFlag: partial({
                     filters: partial({
                         groups: [
-                            {
+                            partial({
                                 properties: [],
                                 variant: null,
-                            },
+                            }),
                         ],
                     }),
                 }),
@@ -84,9 +84,14 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({
                     variants: [
                         {
-                            key: '',
+                            key: 'control',
                             name: '',
-                            rollout_percentage: 100,
+                            rollout_percentage: 50,
+                        },
+                        {
+                            key: 'test',
+                            name: '',
+                            rollout_percentage: 50,
                         },
                     ],
                 })
