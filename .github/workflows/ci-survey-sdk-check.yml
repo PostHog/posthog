@@ -47,3 +47,74 @@ jobs:
                   `frontend/src/scenes/surveys/surveyVersionRequirements.ts`
 
                   This ensures users see warnings when launching surveys their SDK doesn'\''t support.'
+
+    check-docs-generated:
+        name: Check SDK docs are up to date
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Check if requirements file changed
+              id: requirements-check
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  if gh pr diff ${{ github.event.pull_request.number }} --name-only \
+                      | grep -q 'frontend/src/scenes/surveys/surveyVersionRequirements.ts'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Checkout
+              if: steps.requirements-check.outputs.changed == 'true'
+              uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              if: steps.requirements-check.outputs.changed == 'true'
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Setup Node.js
+              if: steps.requirements-check.outputs.changed == 'true'
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              if: steps.requirements-check.outputs.changed == 'true'
+              run: pnpm install --frozen-lockfile
+
+            - name: Generate docs
+              if: steps.requirements-check.outputs.changed == 'true'
+              run: pnpm --filter=@posthog/frontend build:survey-sdk-docs
+
+            - name: Check for uncommitted changes
+              id: docs-check
+              if: steps.requirements-check.outputs.changed == 'true'
+              run: |
+                  if git diff --exit-code docs/published/products/surveys/sdk-feature-support.mdx; then
+                      echo "outdated=false" >> $GITHUB_OUTPUT
+                  else
+                      echo "outdated=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Post reminder comment
+              if: steps.docs-check.outputs.outdated == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Check if reminder comment already exists
+                  if gh pr view ${{ github.event.pull_request.number }} --json comments \
+                      --jq '.comments[].body' | grep -q 'SDK Docs Update Required'; then
+                      echo "Comment already exists, skipping"
+                      exit 0
+                  fi
+
+                  gh pr comment ${{ github.event.pull_request.number }} --body '### 📄 SDK Docs Update Required
+
+                  You updated `surveyVersionRequirements.ts` but the generated docs are out of date.
+
+                  Please run:
+                  ```
+                  pnpm --filter=@posthog/frontend build:survey-sdk-docs
+                  ```
+
+                  Then commit the updated `docs/published/products/surveys/sdk-feature-support.mdx` file.'
