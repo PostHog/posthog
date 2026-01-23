@@ -19,9 +19,7 @@ const ensureExistingUser = async (request: APIRequestContext, email: string): Pr
 const startSignupFlow = async (page: Page, email: string, password: string): Promise<void> => {
     await page.locator('[data-attr=signup-email]').fill(email)
     await expect(page.locator('[data-attr=signup-email]')).toHaveValue(email)
-    const precheckPromise = page.waitForResponse('**/api/signup/precheck')
     await page.locator('[data-attr=signup-start]').click()
-    await precheckPromise
 
     await expect(page.locator('[data-attr=signup-auth-continue]')).toBeVisible()
     await page.locator('[data-attr=password]').fill(password)
@@ -33,15 +31,9 @@ const startSignupFlow = async (page: Page, email: string, password: string): Pro
 
 const submitEmailAndExpectExistingAccount = async (page: Page, email: string): Promise<void> => {
     await page.locator('[data-attr=signup-email]').fill(email)
-    const precheckPromise = page.waitForResponse((response) => {
-        return response.url().includes('/api/signup/precheck') && response.request().method() === 'POST'
-    })
     await page.locator('[data-attr=signup-start]').click()
-    const precheckResponse = await precheckPromise
 
-    expect(precheckResponse.status()).toBe(409)
-    const precheckBody = await precheckResponse.json()
-    expect(precheckBody.detail).toContain('There is already an account with this email address.')
+    await expect(page.getByText('There is already an account with this email address.')).toBeVisible()
     await expect(page.locator('[data-attr=signup-auth-continue]')).not.toBeVisible()
 }
 
