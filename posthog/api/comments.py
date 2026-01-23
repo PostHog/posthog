@@ -69,13 +69,17 @@ class CommentSerializer(serializers.ModelSerializer):
             if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
 
-        content = data.get("content", "")
-        rich_content = data.get("rich_content")
+        # Skip content validation when soft-deleting a comment
+        is_deleting = data.get("deleted") is True
+        if not is_deleting:
+            content = data.get("content", "")
+            rich_content = data.get("rich_content")
 
-        if not content.strip() and (not rich_content or self.has_empty_paragraph(rich_content)):
-            raise exceptions.ValidationError("A comment must have content")
+            if not content.strip() and (not rich_content or self.has_empty_paragraph(rich_content)):
+                raise exceptions.ValidationError("A comment must have content")
 
-        data["created_by"] = request.user
+        if not instance:
+            data["created_by"] = request.user
 
         return data
 

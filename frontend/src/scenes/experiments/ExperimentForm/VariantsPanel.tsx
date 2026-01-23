@@ -121,7 +121,10 @@ export function VariantsPanel({
             updateFeatureFlag({
                 feature_flag_key: selected,
                 parameters: {
-                    feature_flag_variants: experiment.parameters?.feature_flag_variants || [],
+                    feature_flag_variants: experiment.parameters?.feature_flag_variants || [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
                 },
             })
             // Change mode after updating the key to avoid validating the old key in setMode listener

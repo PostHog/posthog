@@ -866,6 +866,7 @@ jobs:
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      --junitxml=junit-core.xml \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -897,6 +898,7 @@ jobs:
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      --junitxml=junit-temporal.xml \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -963,6 +965,14 @@ jobs:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-backend-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
+                  path: junit-*.xml
+
+    # Aggregate and commit snapshot changes from all matrix jobs
 
     get_clickhouse_versions:
         name: Get ClickHouse versions
@@ -1033,6 +1043,8 @@ jobs:
                   person-on-events: false
                   pytest-targets: 'posthog/clickhouse ee/clickhouse'
                   oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+                  # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
+                  skip-plugin-transpiler: 'true'
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
@@ -1228,7 +1240,14 @@ jobs:
 
             - name: Run async migrations tests
               run: |
-                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1
+                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1 --junitxml=junit.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-async-migrations
+                  path: junit.xml
 
     calculate-running-time:
         name: Calculate running time
@@ -1278,4 +1297,11 @@ jobs:
               env:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-              run: uv run pytest tests/ -v --tb=short
+              run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-llm-gateway
+                  path: junit.xml

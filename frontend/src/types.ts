@@ -890,6 +890,13 @@ export enum ProgressStatus {
     Complete = 'complete',
 }
 
+export enum ExperimentProgressStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Paused = 'paused',
+    Complete = 'complete',
+}
+
 export enum PropertyFilterType {
     /** Event metadata and fields on the clickhouse events table */
     Meta = 'meta',

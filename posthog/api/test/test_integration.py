@@ -223,7 +223,7 @@ class TestEmailIntegration:
         mock_ses_provider_class.return_value = mock_client
 
         integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
+            {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
             team_id=self.team.id,
             organization_id=self.organization.id,
             created_by=self.user,
@@ -235,13 +235,16 @@ class TestEmailIntegration:
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "youmustnothavelikedmyemail",
             "verified": False,
             "provider": "ses",
         }
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_client.create_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.create_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="youmustnothavelikedmyemail", team_id=self.team.id
+        )
 
     @patch("posthog.models.integration.SESProvider")
     def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
@@ -288,13 +291,16 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
+        )
 
         integration.refresh_from_db()
         assert integration.config == {
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "feedback",
             "verified": False,
             "provider": "ses",
         }
@@ -322,13 +328,16 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
+        )
 
         integration.refresh_from_db()
         assert integration.config == {
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "feedback",
             "verified": True,
             "provider": "ses",
         }
@@ -363,6 +372,7 @@ class TestEmailIntegration:
             {
                 "email": "me@otherdomain.com",
                 "name": "Me",
+                "mail_from_subdomain": "feedback",
                 "provider": "ses",
             },
             team_id=self.team.id,
