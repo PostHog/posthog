@@ -2,8 +2,6 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES
-
 from ..factory import AgentModeDefinition
 from ..toolkit import AgentToolkit
 
@@ -17,12 +15,8 @@ class OnboardingAgentToolkit(AgentToolkit):
     This agent helps users through the product onboarding process with conversational guidance.
     """
 
-    POSITIVE_TODO_EXAMPLES = [*POSITIVE_TODO_EXAMPLES]
-
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        # Onboarding agent doesn't need any tools, it's primarily conversational
-        # and guides users through the onboarding steps
         return []
 
 

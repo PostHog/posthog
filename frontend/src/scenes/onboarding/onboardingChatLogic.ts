@@ -27,34 +27,25 @@ export interface OnboardingChatMessage {
     status: MessageStatus
 }
 
-// Product keywords the AI might mention when recommending products
+// Product keywords the AI uses when recommending products
+// The AI is instructed to use exact product names in bold, so we match those specifically
 const PRODUCT_KEYWORDS: Record<string, ProductKey> = {
     'product analytics': ProductKey.PRODUCT_ANALYTICS,
-    analytics: ProductKey.PRODUCT_ANALYTICS,
     'session replay': ProductKey.SESSION_REPLAY,
     'session recording': ProductKey.SESSION_REPLAY,
-    replay: ProductKey.SESSION_REPLAY,
-    recordings: ProductKey.SESSION_REPLAY,
+    'session recordings': ProductKey.SESSION_REPLAY,
     'feature flags': ProductKey.FEATURE_FLAGS,
     'feature flag': ProductKey.FEATURE_FLAGS,
-    flags: ProductKey.FEATURE_FLAGS,
     experiments: ProductKey.EXPERIMENTS,
     'a/b test': ProductKey.EXPERIMENTS,
-    'ab test': ProductKey.EXPERIMENTS,
+    'a/b testing': ProductKey.EXPERIMENTS,
     surveys: ProductKey.SURVEYS,
     survey: ProductKey.SURVEYS,
-    feedback: ProductKey.SURVEYS,
     'error tracking': ProductKey.ERROR_TRACKING,
-    errors: ProductKey.ERROR_TRACKING,
-    exceptions: ProductKey.ERROR_TRACKING,
     'web analytics': ProductKey.WEB_ANALYTICS,
     'website analytics': ProductKey.WEB_ANALYTICS,
-    traffic: ProductKey.WEB_ANALYTICS,
-    llm: ProductKey.LLM_ANALYTICS,
     'llm observability': ProductKey.LLM_ANALYTICS,
-    ai: ProductKey.LLM_ANALYTICS,
     'data warehouse': ProductKey.DATA_WAREHOUSE,
-    warehouse: ProductKey.DATA_WAREHOUSE,
 }
 
 // Extract product recommendations from AI message content

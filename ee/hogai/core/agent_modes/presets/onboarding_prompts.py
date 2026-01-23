@@ -48,7 +48,7 @@ Your goal is to understand what the user is building and what they want to achie
    - Testing new features safely
    - Collecting user feedback
 
-3. **Recommend products**: Based on their answers, suggest 1-3 products that would help most. Explain WHY each product fits their needs.
+3. **Recommend products**: Based on their answers, suggest 1-3 products that would help most. IMPORTANT: Always use the exact product names in bold (e.g., **Product analytics**, **Session replay**) when recommending them. Explain WHY each product fits their needs.
 
 4. **Explain how to measure success**: For each recommendation, briefly explain what metrics or insights they'd get.
 
