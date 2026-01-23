@@ -139,7 +139,13 @@ class DuckLakeStorageConfig:
     is_local: bool
 
     @classmethod
-    def from_runtime(cls, *, use_local_setup: bool | None = None) -> DuckLakeStorageConfig:
+    def from_runtime(
+        cls,
+        *,
+        use_local_setup: bool | None = None,
+        team_id: int | None = None,
+        allow_env_fallback: bool = False,
+    ) -> DuckLakeStorageConfig:
         """Create storage config from current runtime environment.
 
         This factory method encapsulates the USE_LOCAL_SETUP branching logic,
@@ -149,11 +155,14 @@ class DuckLakeStorageConfig:
         Args:
             use_local_setup: Override for USE_LOCAL_SETUP setting. If None,
                 reads from Django settings or defaults to True for CLI tools.
+            team_id: Optional team ID to look up team-specific configuration.
+            allow_env_fallback: If True, allow falling back to environment variables
+                in production for global operations (e.g., compaction, backfill).
 
         Returns:
             DuckLakeStorageConfig instance with appropriate credentials.
         """
-        config = get_config()
+        config = get_config(team_id=team_id, allow_env_fallback=allow_env_fallback)
         settings = _get_django_settings()
 
         if use_local_setup is None:
@@ -400,6 +409,9 @@ def configure_cross_account_connection(
 def ensure_ducklake_bucket_exists(
     storage_config: DuckLakeStorageConfig | None = None,
     config: dict[str, str] | None = None,
+    *,
+    team_id: int | None = None,
+    allow_env_fallback: bool = False,
 ) -> None:
     """Ensure the DuckLake bucket exists (local dev only).
 
@@ -409,15 +421,18 @@ def ensure_ducklake_bucket_exists(
     Args:
         storage_config: Storage config to use. If None, creates one from runtime.
         config: DuckLake config dict. If None, uses get_config().
+        team_id: Optional team ID to look up team-specific configuration.
+        allow_env_fallback: If True, allow falling back to environment variables
+            in production for global operations.
     """
     if storage_config is None:
-        storage_config = DuckLakeStorageConfig.from_runtime()
+        storage_config = DuckLakeStorageConfig.from_runtime(team_id=team_id, allow_env_fallback=allow_env_fallback)
 
     if not storage_config.is_local:
         return
 
     if config is None:
-        config = get_config()
+        config = get_config(team_id=team_id, allow_env_fallback=allow_env_fallback)
 
     from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
@@ -432,19 +447,27 @@ def ensure_ducklake_bucket_exists(
     )
 
 
-def get_deltalake_storage_options(storage_config: DuckLakeStorageConfig | None = None) -> dict[str, str]:
+def get_deltalake_storage_options(
+    storage_config: DuckLakeStorageConfig | None = None,
+    *,
+    team_id: int | None = None,
+    allow_env_fallback: bool = False,
+) -> dict[str, str]:
     """Get storage options for deltalake library.
 
     Convenience function that creates a storage config from runtime if not provided.
 
     Args:
         storage_config: Storage config to use. If None, creates one from runtime.
+        team_id: Optional team ID to look up team-specific configuration.
+        allow_env_fallback: If True, allow falling back to environment variables
+            in production for global operations.
 
     Returns:
         Dict of storage options to pass to deltalake.DeltaTable.
     """
     if storage_config is None:
-        storage_config = DuckLakeStorageConfig.from_runtime()
+        storage_config = DuckLakeStorageConfig.from_runtime(team_id=team_id, allow_env_fallback=allow_env_fallback)
     return storage_config.to_deltalake_options()
 
 

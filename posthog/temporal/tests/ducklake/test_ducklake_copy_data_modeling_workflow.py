@@ -193,7 +193,7 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
 
     ensured: dict[str, bool] = {"called": False}
 
-    def fake_ensure_bucket(storage_config=None, config=None):
+    def fake_ensure_bucket(storage_config=None, config=None, *, team_id=None, allow_env_fallback=False):
         ensured["called"] = True
 
     monkeypatch.setattr(ducklake_module, "ensure_ducklake_bucket_exists", fake_ensure_bucket)

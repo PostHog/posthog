@@ -166,12 +166,12 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
-        config = get_config()
+        config = get_config(team_id=inputs.team_id)
         conn = duckdb.connect()
         alias = "ducklake"
         try:
             configure_connection(conn)
-            ensure_ducklake_bucket_exists(config=config)
+            ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             qualified_schema = f"{alias}.{inputs.model.schema_name}"
@@ -204,7 +204,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
 
     heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
     with heartbeater:
-        config = get_config()
+        config = get_config(team_id=inputs.team_id)
         conn = duckdb.connect()
         alias = "ducklake"
         results: list[DuckLakeCopyVerificationResult] = []

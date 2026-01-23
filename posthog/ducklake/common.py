@@ -24,25 +24,58 @@ DEFAULTS: dict[str, str] = {
 }
 
 
-def get_config(*, team_id: int | None = None) -> dict[str, str]:
+def get_config(*, team_id: int | None = None, allow_env_fallback: bool = False) -> dict[str, str]:
     """Get DuckLake configuration.
-
-    If team_id is provided, looks up team-specific DuckLakeCatalog configuration
-    from the database. Falls back to environment variables if no team-specific
-    config exists.
 
     Args:
         team_id: Optional team ID to look up team-specific configuration.
+        allow_env_fallback: If True, allow falling back to environment variables
+            in production for global operations (e.g., compaction, backfill).
 
     Returns:
         Configuration dict with DUCKLAKE_* keys.
+
+    Raises:
+        ValueError: In production mode when required configuration is missing.
     """
+    # In dev mode, always use DEFAULTS (skip database lookup)
+    if _is_dev_mode():
+        return {key: os.environ.get(key, default) or default for key, default in DEFAULTS.items()}
+
+    # In prod mode with team_id, require DuckLakeCatalog
     if team_id is not None:
         catalog = get_ducklake_catalog_for_team(team_id)
         if catalog is not None:
             return catalog.to_config()
+        raise ValueError(f"No DuckLakeCatalog configured for team {team_id}")
 
-    return {key: os.environ.get(key, default) or default for key, default in DEFAULTS.items()}
+    # In prod mode without team_id, require explicit allow_env_fallback
+    if allow_env_fallback:
+        return _get_config_from_env_strict()
+
+    raise ValueError("get_config() requires team_id in production. Use allow_env_fallback=True for global operations.")
+
+
+def _is_dev_mode() -> bool:
+    """Check if running in development mode."""
+    try:
+        from posthog.settings.data_warehouse import USE_LOCAL_SETUP
+
+        return USE_LOCAL_SETUP
+    except ImportError:
+        return True
+
+
+def _get_config_from_env_strict() -> dict[str, str]:
+    """Get config from environment variables, raising if required vars are missing."""
+    config = {}
+    required_keys = {"DUCKLAKE_RDS_HOST", "DUCKLAKE_RDS_PASSWORD", "DUCKLAKE_BUCKET"}
+    for key, default in DEFAULTS.items():
+        value = os.environ.get(key) or ""
+        if key in required_keys and not value:
+            raise ValueError(f"Required environment variable {key} is not set")
+        config[key] = value or default
+    return config
 
 
 def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:

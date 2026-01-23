@@ -61,12 +61,12 @@ CONCURRENCY_TAG = {
 
 
 def get_ducklake_bucket() -> str:
-    config = get_config()
+    config = get_config(allow_env_fallback=True)
     return config["DUCKLAKE_BUCKET"]
 
 
 def get_ducklake_region() -> str:
-    config = get_config()
+    config = get_config(allow_env_fallback=True)
     return config["DUCKLAKE_BUCKET_REGION"]
 
 
@@ -211,7 +211,7 @@ def validate_ducklake_schema(context: AssetExecutionContext) -> None:
     This pre-flight check ensures we don't waste time exporting data that can't
     be registered with DuckLake due to schema mismatches.
     """
-    ducklake_config = get_config()
+    ducklake_config = get_config(allow_env_fallback=True)
     storage_config = DuckLakeStorageConfig.from_runtime()
     alias = "ducklake"
 
@@ -481,7 +481,7 @@ def register_files_with_ducklake(
         context.log.info(f"[DRY RUN] Would register {len(s3_paths)} files with DuckLake")
         return 0
 
-    ducklake_config = get_config()
+    ducklake_config = get_config(allow_env_fallback=True)
     storage_config = DuckLakeStorageConfig.from_runtime()
     alias = "ducklake"
 
