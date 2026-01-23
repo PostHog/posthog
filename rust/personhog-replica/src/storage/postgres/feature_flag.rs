@@ -50,7 +50,7 @@ impl FeatureFlagStorage for PostgresStorage {
         )
         .bind(team_id)
         .bind(distinct_ids)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         // Group by (person_id, distinct_id) and collect overrides
@@ -107,7 +107,7 @@ impl FeatureFlagStorage for PostgresStorage {
         )
         .bind(team_id)
         .bind(distinct_ids)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         let mut result_map: HashMap<i64, Vec<String>> = HashMap::new();

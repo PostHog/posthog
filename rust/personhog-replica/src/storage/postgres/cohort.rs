@@ -35,7 +35,7 @@ impl CohortStorage for PostgresStorage {
         )
         .bind(person_id)
         .bind(&cohort_ids_i32)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         let member_set: HashSet<i64> = member_ids.into_iter().map(|id| id as i64).collect();

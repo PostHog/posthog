@@ -4,8 +4,6 @@ mod feature_flag;
 mod group;
 mod person;
 
-use std::sync::Arc;
-
 use sqlx::postgres::PgPool;
 
 use super::error::StorageError;
@@ -14,11 +12,11 @@ pub(crate) const DB_QUERY_DURATION: &str = "personhog_replica_db_query_duration_
 
 /// Postgres implementation of storage traits
 pub struct PostgresStorage {
-    pub(crate) pool: Arc<PgPool>,
+    pub(crate) pool: PgPool,
 }
 
 impl PostgresStorage {
-    pub fn new(pool: Arc<PgPool>) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 }

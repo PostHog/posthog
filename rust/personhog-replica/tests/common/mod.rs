@@ -14,7 +14,7 @@ fn random_person_id() -> i64 {
 
 /// Test context that manages database connections and provides test data helpers.
 pub struct TestContext {
-    pool: Arc<PgPool>,
+    pool: PgPool,
     pub storage: Arc<dyn FullStorage>,
     pub team_id: i64,
 }
@@ -28,7 +28,6 @@ impl TestContext {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let pool = Arc::new(pool);
         let storage = Arc::new(PostgresStorage::new(pool.clone()));
         let team_id = random_team_id();
 
@@ -59,7 +58,7 @@ impl TestContext {
         .bind(uuid)
         .bind(self.team_id)
         .bind(&properties)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await?;
 
         sqlx::query(
@@ -71,7 +70,7 @@ impl TestContext {
         .bind(distinct_id)
         .bind(person_id)
         .bind(self.team_id)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(TestPerson {
@@ -98,7 +97,7 @@ impl TestContext {
         .bind(group_type_index)
         .bind(group_key)
         .bind(&properties)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(TestGroup {
@@ -122,7 +121,7 @@ impl TestContext {
         .bind(self.team_id)
         .bind(group_type)
         .bind(group_type_index)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
@@ -158,7 +157,7 @@ impl TestContext {
         )
         .bind(person_id)
         .bind(cohort_id)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
@@ -180,7 +179,7 @@ impl TestContext {
         .bind(person_id)
         .bind(feature_flag_key)
         .bind(hash_key)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
@@ -200,7 +199,7 @@ impl TestContext {
         .bind(distinct_id)
         .bind(person_id)
         .bind(self.team_id)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
@@ -209,34 +208,34 @@ impl TestContext {
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1")
             .bind(self.team_id)
-            .execute(&*self.pool)
+            .execute(&self.pool)
             .await?;
 
         sqlx::query(
             "DELETE FROM posthog_cohortpeople WHERE person_id IN (SELECT id FROM posthog_person WHERE team_id = $1)",
         )
         .bind(self.team_id)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await?;
 
         sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
             .bind(self.team_id)
-            .execute(&*self.pool)
+            .execute(&self.pool)
             .await?;
 
         sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
             .bind(self.team_id)
-            .execute(&*self.pool)
+            .execute(&self.pool)
             .await?;
 
         sqlx::query("DELETE FROM posthog_group WHERE team_id = $1")
             .bind(self.team_id)
-            .execute(&*self.pool)
+            .execute(&self.pool)
             .await?;
 
         sqlx::query("DELETE FROM posthog_grouptypemapping WHERE team_id = $1")
             .bind(self.team_id)
-            .execute(&*self.pool)
+            .execute(&self.pool)
             .await?;
 
         Ok(())

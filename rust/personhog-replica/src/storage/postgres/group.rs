@@ -88,7 +88,7 @@ impl GroupStorage for PostgresStorage {
         .bind(team_id)
         .bind(group_type_index)
         .bind(group_key)
-        .fetch_optional(&*self.pool)
+        .fetch_optional(&self.pool)
         .await?;
 
         Ok(row.map(Group::from))
@@ -122,7 +122,7 @@ impl GroupStorage for PostgresStorage {
         .bind(team_id)
         .bind(&group_type_indexes)
         .bind(&group_keys)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().map(Group::from).collect())
@@ -152,7 +152,7 @@ impl GroupStorage for PostgresStorage {
         .bind(&team_ids)
         .bind(&group_type_indexes)
         .bind(&group_keys)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows
@@ -187,7 +187,7 @@ impl GroupStorage for PostgresStorage {
             "#,
         )
         .bind(team_id)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().map(GroupTypeMapping::from).collect())
@@ -216,7 +216,7 @@ impl GroupStorage for PostgresStorage {
             "#,
         )
         .bind(team_ids)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().map(GroupTypeMapping::from).collect())
@@ -241,7 +241,7 @@ impl GroupStorage for PostgresStorage {
             "#,
         )
         .bind(project_id)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().map(GroupTypeMapping::from).collect())
@@ -270,7 +270,7 @@ impl GroupStorage for PostgresStorage {
             "#,
         )
         .bind(project_ids)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().map(GroupTypeMapping::from).collect())

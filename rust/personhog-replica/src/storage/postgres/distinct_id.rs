@@ -40,7 +40,7 @@ impl DistinctIdLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(person_id)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows
@@ -76,7 +76,7 @@ impl DistinctIdLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(person_ids)
-        .fetch_all(&*self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows

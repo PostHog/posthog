@@ -51,7 +51,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 .expect("Failed to create database pool");
 
             tracing::info!("Created Postgres storage backend");
-            Arc::new(PostgresStorage::new(Arc::new(pool)))
+            Arc::new(PostgresStorage::new(pool))
         }
         other => {
             panic!("Unknown storage backend: {other}. Supported: postgres");
