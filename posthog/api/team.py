@@ -199,6 +199,7 @@ TEAM_CONFIG_FIELDS = (
     "business_model",
     "conversations_enabled",
     "conversations_settings",
+    "proactive_tasks_enabled",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
