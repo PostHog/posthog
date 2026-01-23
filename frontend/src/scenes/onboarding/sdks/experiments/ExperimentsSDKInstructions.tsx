@@ -118,31 +118,31 @@ const ExperimentsRubyInstructionsWrapper = withOnboardingDocsWrapper(RubyInstall
 const ExperimentsGoInstructionsWrapper = withOnboardingDocsWrapper(GoInstallation, SERVER_SDK_SNIPPETS)
 
 // Mobile SDKs with AdvertiseMobileReplay
-const ExperimentsAndroidInstructionsWrapper = withMobileReplay(
-    AndroidInstallation,
-    SDKKey.ANDROID,
-    'experiments-onboarding',
-    MOBILE_SNIPPETS
-)
-const ExperimentsIOSInstructionsWrapper = withMobileReplay(
-    IOSInstallation,
-    SDKKey.IOS,
-    'experiments-onboarding',
-    MOBILE_SNIPPETS
-)
-const ExperimentsFlutterInstructionsWrapper = withMobileReplay(
-    FlutterInstallation,
-    SDKKey.FLUTTER,
-    'experiments-onboarding',
-    MOBILE_SNIPPETS
-)
-const ExperimentsRNInstructionsWrapper = withMobileReplay(
-    ReactNativeInstallation,
-    SDKKey.REACT_NATIVE,
-    'experiments-onboarding',
-    MOBILE_SNIPPETS,
-    'React Native'
-)
+const ExperimentsAndroidInstructionsWrapper = withMobileReplay({
+    Installation: AndroidInstallation,
+    sdkKey: SDKKey.ANDROID,
+    onboardingContext: 'experiments-onboarding',
+    snippets: MOBILE_SNIPPETS,
+})
+const ExperimentsIOSInstructionsWrapper = withMobileReplay({
+    Installation: IOSInstallation,
+    sdkKey: SDKKey.IOS,
+    onboardingContext: 'experiments-onboarding',
+    snippets: MOBILE_SNIPPETS,
+})
+const ExperimentsFlutterInstructionsWrapper = withMobileReplay({
+    Installation: FlutterInstallation,
+    sdkKey: SDKKey.FLUTTER,
+    onboardingContext: 'experiments-onboarding',
+    snippets: MOBILE_SNIPPETS,
+})
+const ExperimentsRNInstructionsWrapper = withMobileReplay({
+    Installation: ReactNativeInstallation,
+    sdkKey: SDKKey.REACT_NATIVE,
+    onboardingContext: 'experiments-onboarding',
+    snippets: MOBILE_SNIPPETS,
+    wizardIntegrationName: 'React Native',
+})
 
 // SSR Frameworks (with wizard support where available)
 const ExperimentsNextJSInstructionsWrapper = withOnboardingDocsWrapper(

@@ -159,30 +159,30 @@ const FeatureFlagsLaravelInstructionsWrapper = withOnboardingDocsWrapper(
 )
 
 // Wrappers for mobile SDKs with AdvertiseMobileReplay
-const FeatureFlagsAndroidInstructionsWrapper = withMobileReplay(
-    AndroidInstallation,
-    SDKKey.ANDROID,
-    'flags-onboarding',
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
-const FeatureFlagsIOSInstructionsWrapper = withMobileReplay(
-    IOSInstallation,
-    SDKKey.IOS,
-    'flags-onboarding',
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
-const FeatureFlagsFlutterInstructionsWrapper = withMobileReplay(
-    FlutterInstallation,
-    SDKKey.FLUTTER,
-    'flags-onboarding',
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
-const FeatureFlagsRNInstructionsWrapper = withMobileReplay(
-    ReactNativeInstallation,
-    SDKKey.REACT_NATIVE,
-    'flags-onboarding',
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
+const FeatureFlagsAndroidInstructionsWrapper = withMobileReplay({
+    Installation: AndroidInstallation,
+    sdkKey: SDKKey.ANDROID,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
+const FeatureFlagsIOSInstructionsWrapper = withMobileReplay({
+    Installation: IOSInstallation,
+    sdkKey: SDKKey.IOS,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
+const FeatureFlagsFlutterInstructionsWrapper = withMobileReplay({
+    Installation: FlutterInstallation,
+    sdkKey: SDKKey.FLUTTER,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
+const FeatureFlagsRNInstructionsWrapper = withMobileReplay({
+    Installation: ReactNativeInstallation,
+    sdkKey: SDKKey.REACT_NATIVE,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
 
 // Wrappers for SSR frameworks
 const FeatureFlagsNextJSInstructionsWrapper = withOnboardingDocsWrapper(NextJSInstallation, SSR_FRAMEWORK_SNIPPETS)

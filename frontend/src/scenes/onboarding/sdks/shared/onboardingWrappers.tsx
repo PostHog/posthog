@@ -28,24 +28,27 @@ export function withOnboardingDocsWrapper(
     }
 }
 
+interface MobileReplayOptions {
+    Installation: React.ComponentType<any>
+    sdkKey: SDKKey
+    onboardingContext: AdvertiseMobileReplayContext
+    snippets?: Record<string, React.ComponentType<any>>
+    wizardIntegrationName?: string
+}
+
 /**
  * Helper to create components with Installation + AdvertiseMobileReplay (for mobile SDKs).
  * Used for Android, iOS, React Native, and Flutter SDKs.
  */
-export function withMobileReplay(
-    Installation: React.ComponentType<any>,
-    sdkKey: SDKKey,
-    context: AdvertiseMobileReplayContext,
-    snippets?: Record<string, React.ComponentType<any>>,
-    wizardIntegrationName?: string
-): () => JSX.Element {
+export function withMobileReplay(options: MobileReplayOptions): () => JSX.Element {
+    const { Installation, sdkKey, onboardingContext, snippets, wizardIntegrationName } = options
     return function WrappedInstallation() {
         return (
             <>
                 {wizardIntegrationName && <SetupWizardBanner integrationName={wizardIntegrationName} />}
                 <OnboardingDocsContentWrapper snippets={snippets}>
                     <Installation />
-                    <AdvertiseMobileReplay context={context} sdkKey={sdkKey} />
+                    <AdvertiseMobileReplay context={onboardingContext} sdkKey={sdkKey} />
                 </OnboardingDocsContentWrapper>
             </>
         )
