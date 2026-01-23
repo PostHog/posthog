@@ -1,10 +1,6 @@
 from typing import TYPE_CHECKING, TypedDict, cast
 
-from django.conf import settings
-
 import structlog
-import posthoganalytics
-from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 from rest_framework import request, response, viewsets
 from rest_framework.decorators import action
@@ -157,33 +153,19 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             user_distinct_id = cast("User", request.user).distinct_id
-
-            # TODO: Remove feature flag check once gateway is tested in production
-            use_gateway = posthoganalytics.feature_enabled(
-                "use-llm-gateway",
-                str(self.team.id),
-                groups={"project": str(self.team.id)},
-                send_feature_flag_events=False,
-            )
-
-            if use_gateway:
-                client = get_llm_client("growth")
-            else:
-                client = OpenAI(api_key=settings.OPENAI_API_KEY)
-
-            model = "gpt-4.1-mini"
+            client = get_llm_client()
+            model = "gpt-5-mini"
 
             logger.debug(
                 "Making LLM request for product recommendation",
                 team_id=self.team.id,
                 user_distinct_id=user_distinct_id,
                 model=model,
-                use_gateway=use_gateway,
             )
 
             completion = client.beta.chat.completions.parse(
                 model=model,
-                temperature=0.1,
+                temperature=1,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
