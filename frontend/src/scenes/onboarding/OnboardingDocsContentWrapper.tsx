@@ -405,26 +405,6 @@ export function dedent(strings: TemplateStringsArray | string, ...values: any[])
 
 /**
  * Creates an Installation component from a steps function.
- * Eliminates boilerplate for the standard Installation pattern.
- *
- * @example
- * // Before (15 lines per framework):
- * export const NodeJSInstallation = (): JSX.Element => {
- *     const { Steps, Step, CodeBlock, Markdown, ... } = useMDXComponents()
- *     const steps = getNodeJSSteps(CodeBlock, Markdown, ...)
- *     return (
- *         <Steps>
- *             {steps.map((step, index) => (
- *                 <Step key={index} title={step.title} badge={step.badge}>
- *                     {step.content}
- *                 </Step>
- *             ))}
- *         </Steps>
- *     )
- * }
- *
- * // After (1 line):
- * export const NodeJSInstallation = createInstallation(getNodeJSSteps)
  */
 export function createInstallation(
     getSteps: (ctx: OnboardingComponents) => StepDefinition[]
