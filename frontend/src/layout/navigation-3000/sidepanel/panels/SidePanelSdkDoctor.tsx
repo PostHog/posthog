@@ -5,7 +5,6 @@ import { IconInfo, IconStethoscope } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
@@ -110,8 +109,8 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                         <Tooltip
                             placement="right"
                             title={
-                                record.releaseDate
-                                    ? `Released ${dayjs(record.releaseDate).fromNow()}. Upgrade recommended.`
+                                record.releasedAgo
+                                    ? `Released ${record.releasedAgo}. Upgrade recommended.`
                                     : 'Upgrade recommended'
                             }
                         >
@@ -119,7 +118,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                                 Outdated
                             </LemonTag>
                         </Tooltip>
-                    ) : record.latestVersion && record.version === record.latestVersion ? (
+                    ) : record.isCurrentOrNewer ? (
                         <Tooltip
                             placement="right"
                             title={
@@ -138,9 +137,9 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                         <Tooltip
                             placement="right"
                             title={
-                                record.releaseDate ? (
+                                record.releasedAgo ? (
                                     <>
-                                        Released {dayjs(record.releaseDate).fromNow()}.
+                                        Released {record.releasedAgo}.
                                         <br />
                                         Upgrading is a good idea, but it's not urgent yet.
                                     </>
@@ -149,11 +148,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                                 )
                             }
                         >
-                            <LemonTag
-                                type="warning"
-                                className="shrink-0 cursor-help"
-                                style={{ color: 'var(--warning-dark)', borderColor: 'var(--warning-dark)' }}
-                            >
+                            <LemonTag type="warning" className="shrink-0 cursor-help">
                                 Recent
                             </LemonTag>
                         </Tooltip>
@@ -333,7 +328,7 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                     <Tooltip
                         title={
                             <>
-                                Version number cached daily near midnight UTC.
+                                Version number cached once a day.
                                 <br />
                                 Click 'Releases ↗' to check for any since.
                             </>

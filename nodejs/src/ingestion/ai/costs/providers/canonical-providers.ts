@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-01-20 20:22:07 UTC
+// Generated at: 2026-01-23 20:02:00 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -18,7 +18,6 @@ export type CanonicalProvider =
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
-    | 'cerebras'
     | 'cerebras-fp16'
     | 'chutes'
     | 'chutes-bf16'
@@ -59,6 +58,7 @@ export type CanonicalProvider =
     | 'hyperbolic-bf16'
     | 'hyperbolic-fp8'
     | 'inception'
+    | 'inceptron-fp8'
     | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'
@@ -77,9 +77,6 @@ export type CanonicalProvider =
     | 'moonshotai-int4'
     | 'moonshotai-turbo'
     | 'morph'
-    | 'ncompass'
-    | 'ncompass-bf16'
-    | 'ncompass-fp8'
     | 'nebius'
     | 'nebius-base'
     | 'nebius-fast'
@@ -112,7 +109,7 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-high-throughput'
     | 'sambanova-turbo'
-    | 'seed'
+    | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'
@@ -123,6 +120,7 @@ export type CanonicalProvider =
     | 'together-turbo'
     | 'venice-beta'
     | 'venice-fp16'
+    | 'venice-fp4'
     | 'venice-fp8'
     | 'wandb-bf16'
     | 'wandb-fp16'

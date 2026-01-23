@@ -59,6 +59,21 @@ class OAuthApplication(AbstractApplication):
             ),
         ]
 
+    # Dangerous URI schemes that could be used for attacks (XSS, data exfiltration, etc.)
+    DEFAULT_BLOCKED_SCHEMES = frozenset(["javascript", "data", "file", "blob", "vbscript"])
+
+    @staticmethod
+    def get_blocked_schemes() -> set[str]:
+        """Get the set of blocked redirect URI schemes from settings."""
+        return set(
+            cast(
+                list[str],
+                settings.OAUTH2_PROVIDER.get(
+                    "BLOCKED_REDIRECT_URI_SCHEMES", list(OAuthApplication.DEFAULT_BLOCKED_SCHEMES)
+                ),
+            )
+        )
+
     def clean(self):
         super().clean()
 
@@ -72,17 +87,16 @@ class OAuthApplication(AbstractApplication):
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
 
             # Custom URL schemes for native apps (RFC 8252 Section 7.1)
-            # These look like: myapp://callback, array://oauth
+            # These look like: myapp://callback, twig://oauth
             is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
 
             if is_custom_scheme:
-                allowed_schemes = cast(
-                    list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"])
-                )
-                if parsed_uri.scheme not in allowed_schemes:
+                # Block dangerous schemes that could be used for attacks (XSS, data exfiltration, etc.)
+                # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
+                if parsed_uri.scheme in self.get_blocked_schemes():
                     raise ValidationError(
                         {
-                            "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed. Allowed schemes: {', '.join(allowed_schemes)}"
+                            "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed for security reasons"
                         }
                     )
             else:
@@ -107,17 +121,14 @@ class OAuthApplication(AbstractApplication):
         super().save(*args, **kwargs)
 
     def get_allowed_schemes(self) -> list[str]:
-        """Extract unique schemes from the application's registered redirect URIs, filtered against allowed schemes."""
-        from django.conf import settings
-
-        allowed_list = cast(list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"]))
-        globally_allowed = set(allowed_list)
+        """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
+        blocked_schemes = self.get_blocked_schemes()
         schemes: set[str] = set()
         for uri in self.redirect_uris.split(" "):
             if not uri:
                 continue
             parsed_uri = urlparse(uri)
-            if parsed_uri.scheme and parsed_uri.scheme in globally_allowed:
+            if parsed_uri.scheme and parsed_uri.scheme not in blocked_schemes:
                 schemes.add(parsed_uri.scheme)
         return list(schemes) if schemes else ["https"]
 

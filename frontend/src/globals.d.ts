@@ -4,6 +4,7 @@ import { ExportedData } from '~/exporter/types'
 
 declare global {
     interface Window {
+        JS_URL?: string
         JS_POSTHOG_API_KEY?: string
         JS_POSTHOG_HOST?: string
         JS_POSTHOG_UI_HOST?: string
