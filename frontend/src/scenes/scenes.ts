@@ -350,6 +350,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.PasswordResetComplete]: { onlyUnauthenticated: true },
     [Scene.PasswordReset]: { onlyUnauthenticated: true },
+    [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelLinkError]: { name: 'Vercel account mismatch' },
     [Scene.Person]: {
         projectBased: true,
@@ -780,6 +781,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inviteSignup(':id')]: [Scene.InviteSignup, 'inviteSignup'],
     [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],
     [urls.passwordResetComplete(':uuid', ':token')]: [Scene.PasswordResetComplete, 'passwordResetComplete'],
+    [urls.twoFactorReset(':uuid', ':token')]: [Scene.TwoFactorReset, 'twoFactorReset'],
     [urls.onboarding({ productKey: ':productKey' })]: [Scene.Onboarding, 'onboarding'],
     [urls.onboarding({ campaign: ':campaign' })]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
     [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],
