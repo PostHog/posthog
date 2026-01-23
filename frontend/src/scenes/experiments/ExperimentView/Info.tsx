@@ -15,7 +15,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { ExperimentStatsMethod, ProgressStatus } from '~/types'
+import { ExperimentProgressStatus, ExperimentStatsMethod } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
@@ -146,7 +146,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                             <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
-                                    {status === ProgressStatus.Paused && (
+                                    {status === ExperimentProgressStatus.Paused && (
                                         <Tooltip
                                             placement="bottom"
                                             title="Your experiment is paused. The linked flag is disabled and no data is being collected."

@@ -887,6 +887,12 @@ export enum ActivityTab {
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
+    Complete = 'complete',
+}
+
+export enum ExperimentProgressStatus {
+    Draft = 'draft',
+    Running = 'running',
     Paused = 'paused',
     Complete = 'complete',
 }

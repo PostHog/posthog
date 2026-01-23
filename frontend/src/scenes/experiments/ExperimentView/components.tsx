@@ -64,8 +64,8 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     ExperimentConclusion,
+    ExperimentProgressStatus,
     InsightShortId,
-    ProgressStatus,
 } from '~/types'
 
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
@@ -907,7 +907,7 @@ export const ResetButton = (): JSX.Element => {
     )
 }
 
-export function StatusTag({ status }: { status: ProgressStatus }): JSX.Element {
+export function StatusTag({ status }: { status: ExperimentProgressStatus }): JSX.Element {
     return (
         <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
             <b className="uppercase">{status}</b>
