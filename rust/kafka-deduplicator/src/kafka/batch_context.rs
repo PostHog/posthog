@@ -109,9 +109,11 @@ impl BatchConsumerContext {
                         .async_setup_assigned_partitions(&tpl, &consumer_command_tx)
                         .await
                     {
+                        // Note: This error path is rare - async_setup_assigned_partitions
+                        // returns Ok(()) for normal scenarios (cancellation, revoked partitions).
+                        // It only errors if the consumer command channel is broken.
                         error!("Partition assignment async setup failed: {}", e);
-                        // Even on failure, resume partitions so processing can continue
-                        // (will create fresh stores on demand)
+                        // Try to resume anyway as a fallback (will likely also fail if channel is broken)
                         if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(tpl)) {
                             error!("Failed to send resume command after setup failure: {}", e);
                         }
