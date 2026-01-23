@@ -26,7 +26,7 @@ Usage:
 """
 
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.core.management.base import BaseCommand
@@ -160,13 +160,16 @@ class Command(BaseCommand):
         Uses the error field from the latest DataModelingJob for each saved query,
         which is more reliable than the saved query's latest_error field.
         """
+        # Parse the date string to a timezone-aware datetime
+        created_after_dt = datetime.strptime(created_after, "%Y-%m-%d").replace(tzinfo=UTC)
+
         latest_job_error = (
             DataModelingJob.objects.filter(saved_query=OuterRef("pk")).order_by("-created_at").values("error")[:1]
         )
         qs = DataWarehouseSavedQuery.objects.annotate(latest_job_error=Subquery(latest_job_error)).filter(
             deleted=False,
-            created_at__gt=created_after,
-            sync_frequency_interval__isnull=True,  # this is a symptop of the bug
+            created_at__gt=created_after_dt,
+            sync_frequency_interval__isnull=True,  # this is a symptom of the bug
         )
         error_conditions = Q(latest_job_error__icontains="Query returned no results") | Q(
             latest_job_error__icontains="You cannot call this from an async context"
