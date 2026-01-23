@@ -136,7 +136,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     // Only apply to data warehouse - for events/properties, selectedItemMeta.id is the
     // event name which would incorrectly overwrite the event definition's UUID.
     useEffect(() => {
-        if (isDataWarehouse && selectedItemMeta && definition.name == selectedItemMeta.id) {
+        if (isDataWarehouse && selectedItemMeta && definition.name === selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
     }, [definition, isDataWarehouse]) // eslint-disable-line react-hooks/exhaustive-deps
