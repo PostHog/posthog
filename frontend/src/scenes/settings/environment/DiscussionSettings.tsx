@@ -21,7 +21,11 @@ export function DiscussionMentionNotifications(): JSX.Element {
                 </Tooltip>
             </p>
 
-            <LinkedHogFunctions type="internal_destination" subTemplateIds={['discussion-mention']} />
+            <LinkedHogFunctions
+                type="internal_destination"
+                subTemplateIds={['discussion-mention']}
+                emptyState="No notifications configured"
+            />
         </div>
     )
 }
