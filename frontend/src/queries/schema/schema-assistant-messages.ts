@@ -436,12 +436,15 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'finalize_plan'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
     ErrorTracking = 'error_tracking',
+    Plan = 'plan',
+    Execution = 'execution',
 }
 
 export enum SlashCommandName {
