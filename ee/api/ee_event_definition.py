@@ -77,12 +77,16 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
     def validate_name(self, value):
         # For creation, check if event definition with this name already exists
-        if not self.instance:
-            view = self.context.get("view")
-            if view:
-                existing = EventDefinition.objects.filter(team_id=view.team_id, name=value).exists()
-                if existing:
-                    raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+        if self.instance:
+            return value
+
+        view = self.context.get("view")
+        if not view:
+            return value
+
+        if EventDefinition.objects.filter(team_id=view.team_id, name=value).exists():
+            raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+
         return value
 
     def validate(self, data):
