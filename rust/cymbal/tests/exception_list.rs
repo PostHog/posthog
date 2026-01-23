@@ -50,10 +50,7 @@ async fn process_invalid_list(db: PgPool) {
     .await;
 
     assert!(status.is_client_error());
-    assert_eq!(
-        body.error,
-        "Failed to parse exception list: invalid type: map, expected a sequence"
-    );
+    assert_eq!(body.error, "invalid type: map, expected a sequence");
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
