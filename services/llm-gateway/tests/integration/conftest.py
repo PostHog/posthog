@@ -101,33 +101,35 @@ def run_gateway_server(configure_all_providers: bool = False):
         get_settings.cache_clear()
         ModelRegistryService.reset_instance()
         ModelCostService.reset_instance()
-        with patch(
-            "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=MOCK_MODEL_COSTS,
-        ):
-            with patch("llm_gateway.main.init_db_pool", return_value=mock_db_pool):
-                with patch("llm_gateway.main.close_db_pool", return_value=None):
-                    from llm_gateway.main import create_app
 
-                    app = create_app()
-                    app.state.db_pool = mock_db_pool
+        # Pre-populate the ModelCostService cache to avoid network calls in CI
+        cost_service = ModelCostService.get_instance()
+        cost_service._costs = MOCK_MODEL_COSTS
+        cost_service._last_refresh = time.monotonic()
 
-                    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-                    server = uvicorn.Server(config)
+        with patch("llm_gateway.main.init_db_pool", return_value=mock_db_pool):
+            with patch("llm_gateway.main.close_db_pool", return_value=None):
+                from llm_gateway.main import create_app
 
-                    thread = threading.Thread(target=server.run, daemon=True)
-                    thread.start()
+                app = create_app()
+                app.state.db_pool = mock_db_pool
 
-                    time.sleep(0.5)
+                config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+                server = uvicorn.Server(config)
 
-                    try:
-                        yield f"http://127.0.0.1:{port}"
-                    finally:
-                        server.should_exit = True
-                        thread.join(timeout=2)
-                        get_settings.cache_clear()
-                        ModelRegistryService.reset_instance()
-                        ModelCostService.reset_instance()
+                thread = threading.Thread(target=server.run, daemon=True)
+                thread.start()
+
+                time.sleep(0.5)
+
+                try:
+                    yield f"http://127.0.0.1:{port}"
+                finally:
+                    server.should_exit = True
+                    thread.join(timeout=2)
+                    get_settings.cache_clear()
+                    ModelRegistryService.reset_instance()
+                    ModelCostService.reset_instance()
 
 
 @pytest.fixture
