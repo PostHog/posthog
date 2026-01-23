@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytest
@@ -358,19 +359,24 @@ class TestClayWebhookResource:
             mock_response.status_code = 200
             mock_session.post.return_value = mock_response
 
-            # Use a small max_batch_bytes to trigger multiple batches
+            max_bytes = 100
             resource = ClayWebhookResource(
                 webhook_url="https://api.clay.com/webhook/123",
                 api_key="test-key",
-                max_batch_bytes=100,  # Very small limit to force splitting
+                max_batch_bytes=max_bytes,
             )
-            # Each record is ~20 bytes, so ~5 records per batch
             data = [{"domain": f"{i}.com"} for i in range(12)]
 
             responses = resource.send_batched(data)
 
             assert len(responses) == 3
             assert mock_session.post.call_count == 3
+
+            # Verify each batch is under the size limit
+            for call in mock_session.post.call_args_list:
+                batch = call.kwargs["json"]
+                batch_size = len(json.dumps(batch).encode("utf-8"))
+                assert batch_size <= max_bytes, f"Batch size {batch_size} exceeds limit {max_bytes}"
 
     def test_retry_on_transient_failure_recovers(self):
         """Transient 503 that recovers after retry should succeed."""
