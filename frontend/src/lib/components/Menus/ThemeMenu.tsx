@@ -1,3 +1,4 @@
+import { DropdownMenuSubContentProps } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
 
 import { IconDay, IconLaptop, IconNight, IconPalette } from '@posthog/icons'
@@ -20,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { UserTheme } from '~/types'
 
-export function ThemeMenu(): JSX.Element {
+export function ThemeMenu(props: DropdownMenuSubContentProps): JSX.Element {
     const { themeMode } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
     const { customCssEnabled } = useValues(themeLogic)
@@ -41,7 +42,7 @@ export function ThemeMenu(): JSX.Element {
                     </div>
                 </ButtonPrimitive>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
+            <DropdownMenuSubContent {...props}>
                 <DropdownMenuGroup>
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive

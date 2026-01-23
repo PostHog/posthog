@@ -36,6 +36,7 @@ import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 
 import { OrgCombobox } from './OrgCombobox'
 import { ProjectCombobox } from './ProjectCombobox'
+import { newAccountMenuLogic } from './newAccountMenuLogic'
 
 interface AccountMenuProps {
     isLayoutNavCollapsed: boolean
@@ -52,9 +53,11 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
+    const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
 
     return (
-        <DropdownMenu>
+        <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
             <DropdownMenuTrigger asChild>
                 <ButtonPrimitive
                     tooltip={
@@ -68,6 +71,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                     className={cn('max-w-[175px]', {
                         'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                     })}
+                    variant="panel"
                     data-attr="menu-item-me"
                 >
                     {isAuthenticatedTeam(currentTeam) && (

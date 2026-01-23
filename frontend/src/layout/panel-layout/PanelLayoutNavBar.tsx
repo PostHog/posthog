@@ -12,7 +12,6 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconQuestion,
     IconSearch,
     IconShortcut,
     IconSidebarClose,
@@ -612,22 +611,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <>
-                                    <ButtonPrimitive
-                                        onClick={() =>
-                                            sidePanelOpen ? closeSidePanel() : openSidePanel(SidePanelTab.Support)
-                                        }
-                                        tooltip={isLayoutNavCollapsed ? 'Help' : undefined}
-                                        tooltipPlacement="right"
-                                        iconOnly
-                                    >
-                                        <span className="flex group-hover:text-primary">
-                                            <IconQuestion className="size-5" />
-                                        </span>
-                                    </ButtonPrimitive>
-
-                                    <HelpMenu />
-                                </>
+                                <HelpMenu />
                             )}
                         </div>
                     </div>
