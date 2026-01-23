@@ -1,6 +1,6 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -40,16 +40,18 @@ export function DataNode(props: DataNodeProps): JSX.Element {
                     <Spinner />
                 </div>
             ) : (
-                <AutoSizer disableWidth>
-                    {({ height }) => (
-                        <CodeEditor
-                            className="border"
-                            language="json"
-                            value={JSON.stringify(response ?? responseErrorObject, null, 2)}
-                            height={Math.max(height, 300)}
-                        />
-                    )}
-                </AutoSizer>
+                <AutoSizer
+                    renderProp={({ height }) =>
+                        height ? (
+                            <CodeEditor
+                                className="border"
+                                language="json"
+                                value={JSON.stringify(response ?? responseErrorObject, null, 2)}
+                                height={Math.max(height, 300)}
+                            />
+                        ) : null
+                    }
+                />
             )}
         </div>
     )

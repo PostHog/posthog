@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -45,18 +45,20 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 )}
             >
                 <div className="flex-1">
-                    <AutoSizer disableWidth>
-                        {({ height }) => (
-                            <CodeEditor
-                                className="border"
-                                language="json"
-                                value={queryInput}
-                                onChange={(v) => setQueryInput(v ?? '')}
-                                height={height}
-                                schema={schema}
-                            />
-                        )}
-                    </AutoSizer>
+                    <AutoSizer
+                        renderProp={({ height }) =>
+                            height ? (
+                                <CodeEditor
+                                    className="border"
+                                    language="json"
+                                    value={queryInput}
+                                    onChange={(v) => setQueryInput(v ?? '')}
+                                    height={height}
+                                    schema={schema}
+                                />
+                            ) : null
+                        }
+                    />
                 </div>
                 {error ? (
                     <div className="bg-danger text-white p-2">
