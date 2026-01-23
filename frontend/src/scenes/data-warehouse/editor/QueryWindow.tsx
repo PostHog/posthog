@@ -109,7 +109,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 title="Query"
                 isOpen={isQueryOpen}
                 onToggle={() => setIsQueryOpen((prev) => !prev)}
-                headerClassName="border-b bg-white dark:bg-black"
                 actions={
                     <>
                         <RunButton />

@@ -477,9 +477,6 @@ export function OutputPane(): JSX.Element {
                         title="Results"
                         isOpen={isResultsOpen}
                         onToggle={() => setIsResultsOpen((prev) => !prev)}
-                        headerClassName="border-b bg-bg-light dark:bg-black"
-                        contentClassName="flex-1"
-                        className="h-full flex flex-col"
                         actions={
                             <>
                                 <LemonMenu
@@ -575,9 +572,6 @@ export function OutputPane(): JSX.Element {
                         title="Visualization"
                         isOpen={isVisualizationOpen}
                         onToggle={() => setIsVisualizationOpen((prev) => !prev)}
-                        headerClassName="border-b bg-bg-light dark:bg-black"
-                        contentClassName="flex-1"
-                        className="h-full flex flex-col"
                         actions={
                             <>
                                 {showLegacyFilters && (
