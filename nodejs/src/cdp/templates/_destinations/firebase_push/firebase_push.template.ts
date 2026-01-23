@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+// TODOdin: Proper handling of when we don't find a token for a distinct_id
+// push_subscription_distinct_id input gets resolved to FCM token in hog-inputs.service.ts
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'hidden',
@@ -11,10 +13,10 @@ export const template: HogFunctionTemplate = {
     category: ['Communication'],
     code_language: 'hog',
     code: `
-let fcmToken := inputs.push_subscription
+let fcmToken := inputs.push_subscription_distinct_id
 
 if (not fcmToken) {
-    throw Error('FCM token is required. Please select a push subscription.')
+    throw Error('FCM token is required. Please provide a distinct_id.')
 }
 
 let title := inputs.title
@@ -77,13 +79,15 @@ if (inputs.debug) {
             required: true,
         },
         {
-            key: 'push_subscription',
-            type: 'push_subscription',
-            label: 'Push subscription',
+            key: 'push_subscription_distinct_id',
+            type: 'push_subscription_distinct_id',
+            label: 'Person Name',
             secret: false,
             required: true,
-            description: 'Select a user with an active Android push subscription',
+            description: 'Person name to send the push notification to.',
             platform: 'android',
+            default: '{{ person.name }}',
+            templating: 'liquid',
         },
         {
             key: 'title',

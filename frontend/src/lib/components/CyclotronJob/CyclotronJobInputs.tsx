@@ -20,7 +20,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { PushSubscriptionPickerField } from 'lib/integrations/PushSubscriptionPickerField'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
@@ -469,8 +468,16 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
-        case 'push_subscription':
-            return <PushSubscriptionPickerField schema={schema} value={input.value} onChange={onValueChange} />
+        case 'push_subscription_distinct_id':
+            return (
+                <CyclotronJobTemplateInput
+                    input={input}
+                    onChange={disabled ? () => {} : onChange}
+                    className="ph-no-capture"
+                    templating={schema.templating ?? true}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
+            )
         default:
             return (
                 <strong className="text-danger">

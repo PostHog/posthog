@@ -21,6 +21,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'email',
         'native_email',
         'push_subscription',
+        'person_name',
     ]),
     key: z.string(),
     label: z.string(),
