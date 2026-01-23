@@ -466,9 +466,6 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             # Track for the SelectQueryType
             columns_in_scope[col_name] = field_type
 
-        # Add team_id to SELECT (the filter is added by the printer)
-        # self._add_team_id_to_scope(inner_table_type, columns_in_scope, select_fields)
-
         # Create the JoinExpr for FROM events
         events_field = ast.Field(chain=["events"], type=inner_table_type)
         select_from = ast.JoinExpr(table=events_field, type=inner_table_type)
@@ -489,31 +486,3 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             where=where_clause,
             type=select_query_type,
         )
-
-    def _add_team_id_to_scope(
-        self,
-        inner_table_type: ast.TableType,
-        columns_in_scope: dict[str, ast.FieldType],
-        select_fields: list[ast.Expr],
-    ) -> None:
-        """Add team_id to SELECT fields and columns_in_scope.
-
-        The team_id filter itself is added by the printer, so we don't add it here.
-        We only ensure team_id is available in the subquery scope.
-        """
-        if self.context.team_id is None:
-            return
-
-        # Create typed team_id field
-        team_id_field_type = ast.FieldType(name="team_id", table_type=inner_table_type)
-        columns_in_scope["team_id"] = team_id_field_type
-
-        # Add team_id to SELECT fields if not already there
-        existing_cols = {
-            f.alias if isinstance(f, ast.Alias) else (str(f.chain[0]) if isinstance(f, ast.Field) and f.chain else None)
-            for f in select_fields
-        }
-        if "team_id" not in existing_cols:
-            field_node = ast.Field(chain=["team_id"], type=team_id_field_type)
-            alias_node = ast.Alias(alias="team_id", expr=field_node, type=team_id_field_type)
-            select_fields.append(alias_node)

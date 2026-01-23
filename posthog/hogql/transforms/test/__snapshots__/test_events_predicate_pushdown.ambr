@@ -4,7 +4,7 @@
   
   SELECT e.event AS event, e__session.`$session_duration` AS `$session_duration` 
   FROM (
-  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.team_id AS team_id 
+  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))) AS e LEFT JOIN (
   SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
@@ -20,7 +20,7 @@
   
   SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
   FROM (
-  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.team_id AS team_id 
+  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
@@ -58,7 +58,7 @@
   
   SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
   FROM (
-  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.team_id AS team_id 
+  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), equals(events.event, %(hogql_val_3)s))) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
@@ -90,7 +90,7 @@
   
   SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
   FROM (
-  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.team_id AS team_id 
+  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
@@ -106,7 +106,7 @@
   
   SELECT events.event AS event, events__person.id AS id 
   FROM (
-  SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.team_id AS team_id 
+  SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
   WHERE and(equals(events.team_id, 420), greater(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))) AS events LEFT OUTER JOIN (
   SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
