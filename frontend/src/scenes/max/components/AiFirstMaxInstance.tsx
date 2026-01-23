@@ -223,22 +223,24 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
 
             {/* Input area wrapper for sticky positioning */}
             <div className={`${hasMessages ? 'sticky bottom-0' : ''} z-50`}>
-                {/* Scroll to bottom button - above input */}
-                <div
-                    className={`
-                        flex justify-center pb-2 bg-gradient-to-t from-primary to-transparent pt-4 w-full
-                        transition-all duration-300
-                        ${showScrollButton && hasMessages ? 'opacity-100 pointer-events-auto translate-y-0' : 'opacity-0 pointer-events-none translate-y-full'}
-                    `}
-                    style={{ position: 'static' }}
-                >
-                    <ButtonPrimitive
-                        onClick={handleScrollToBottom}
-                        className="shadow-md bg-surface-primary rounded-full"
+                <div className="h-0 w-full">
+                    <div
+                        className={`
+                            flex justify-center pb-2 bg-gradient-to-t from-primary to-transparent pt-4 w-full
+                            transition-all duration-300
+                            ${showScrollButton && hasMessages ? 'opacity-100 pointer-events-auto -translate-y-full' : 'opacity-0 pointer-events-none translate-y-4'}
+                        `}
+                        style={{ position: 'static' }}
                     >
-                        <IconChevronDown />
-                    </ButtonPrimitive>
+                        <ButtonPrimitive
+                            onClick={handleScrollToBottom}
+                            className="shadow-md bg-surface-primary rounded-full"
+                        >
+                            <IconChevronDown />
+                        </ButtonPrimitive>
+                    </div>
                 </div>
+                {/* Scroll to bottom button - above input */}
 
                 {/* Input container */}
                 <div
