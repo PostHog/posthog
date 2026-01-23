@@ -5,6 +5,18 @@ from django.db import migrations
 
 def migrate_assigned_to_forward(apps, schema_editor):
     """Migrate existing assigned_to data to TicketAssignment table."""
+    from django.db import connection
+
+    # Check if assigned_to_id column exists (may already be dropped)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='posthog_conversations_ticket' AND column_name='assigned_to_id'"
+        )
+        if not cursor.fetchone():
+            # Column already dropped, nothing to migrate
+            return
+
     Ticket = apps.get_model("conversations", "Ticket")
     TicketAssignment = apps.get_model("conversations", "TicketAssignment")
 
