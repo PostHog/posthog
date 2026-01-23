@@ -1,7 +1,8 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../steps'
 
-export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
+    
     return [
         {
             title: 'Install the package',
@@ -117,8 +118,8 @@ export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any):
 }
 
 export const ReactNativeInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getReactNativeSteps(CodeBlock, Markdown, dedent)
+    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
+    const steps = getReactNativeSteps(CodeBlock, Markdown, dedent, snippets)
 
     return (
         <Steps>

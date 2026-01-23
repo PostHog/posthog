@@ -2,14 +2,21 @@ import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper
 import { PersonProfiles } from './_snippets/person-profiles'
 import { StepDefinition } from '../steps'
 
-export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getIOSSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    CalloutBox: any,
+    Tab: any,
+    dedent: any,
+    snippets: any
+): StepDefinition[] => {
     return [
         {
-            title: 'Install via CocoaPods',
+            title: 'Install the SDK',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Add PostHog to your Podfile:</Markdown>
+                    <Markdown>You can install PostHog via CocoaPods by adding it to your Podfile:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -21,7 +28,7 @@ export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
                             },
                         ]}
                     />
-                    <Markdown>Or install via Swift Package Manager:</Markdown>
+                    <Markdown>Or install via Swift Package Manager and add PostHog to the dependencies section of your Package.swift file:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -35,6 +42,22 @@ export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
                             },
                         ]}
                     />
+                    <Markdown>
+                        Then add it as a dependency for your target:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'swift',
+                                file: 'Package.swift',
+                                code: dedent`
+                                    .target(
+                                        name: "myApp",
+                                        dependencies: [.product(name: "PostHog", package: "posthog-ios")]),
+                                `,
+                            },
+                        ]}
+                    />
                 </>
             ),
         },
@@ -43,12 +66,12 @@ export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Initialize PostHog in your AppDelegate:</Markdown>
+                    <Markdown>Configuration is done through the PostHogConfig object.</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'swift',
-                                file: 'AppDelegate.swift',
+                                file: 'UIKit',
                                 code: dedent`
                                     import Foundation
                                     import PostHog
@@ -63,6 +86,33 @@ export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
                                             PostHogSDK.shared.setup(config)
 
                                             return true
+                                        }
+                                    }
+                                `,
+                            },
+                            {
+                                language: 'swift',
+                                file: 'SwiftUI',
+                                code: dedent`
+                                    import SwiftUI
+                                    import PostHog
+
+                                    @main
+                                    struct YourGreatApp: App {
+                                        // Add PostHog to your app's initializer.
+                                        // If using UIApplicationDelegateAdaptor, see the UIKit tab.
+                                        init() {
+                                            let POSTHOG_API_KEY = "<ph_project_api_key>"
+                                            let POSTHOG_HOST = "<ph_client_api_host>"
+                                            
+                                            let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+                                            PostHogSDK.shared.setup(config)
+                                        }
+                                        
+                                        var body: some Scene {
+                                            WindowGroup {
+                                                ContentView()
+                                            }
                                         }
                                     }
                                 `,
@@ -100,8 +150,8 @@ export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
 }
 
 export const IOSInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getIOSSteps(CodeBlock, Markdown, dedent)
+    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
+    const steps = getIOSSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
 
     return (
         <Steps>
