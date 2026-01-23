@@ -543,9 +543,11 @@ function ConfigurationPanel(): JSX.Element {
                         data-attr="playground-model-selector"
                     />
                 )}
-                {options.length === 0 && !modelOptionsLoading && errorMessage && (
+                {options.length === 0 && !modelOptionsLoading && (
                     <div className="mt-1">
-                        <p className="text-xs text-danger">{errorMessage}</p>
+                        <p className="text-xs text-danger">
+                            {errorMessage || 'No models available. Check proxy status.'}
+                        </p>
                         <button
                             type="button"
                             className="text-xs text-link mt-1 underline"
