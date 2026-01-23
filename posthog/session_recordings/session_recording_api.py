@@ -739,8 +739,13 @@ class SessionRecordingViewSet(
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
 
-        recording.deleted = True
-        recording.save()
+        if self._should_use_recording_api():
+            # Use recording-api for full deletion (S3 + ClickHouse + Postgres)
+            self._delete_via_recording_api(recording.session_id)
+        else:
+            # Old soft-delete (Postgres only)
+            recording.deleted = True
+            recording.save()
 
         return Response({"success": True}, status=204)
 
@@ -790,32 +795,42 @@ class SessionRecordingViewSet(
 
         # Filter out recordings that are already deleted
         non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
-        # First, bulk create any missing records
-        session_recordings_to_create = [
-            SessionRecording(
-                team=self.team,
-                session_id=recording.session_id,
-                distinct_id=recording.distinct_id,
-                deleted=True,
-            )
-            for recording in non_deleted_recordings
-        ]
 
-        created_records = []
-        if session_recordings_to_create:
-            created_records = SessionRecording.objects.bulk_create(session_recordings_to_create, ignore_conflicts=True)
+        if self._should_use_recording_api():
+            # Delete via recording-api - handles S3, ClickHouse, and Postgres
+            deleted_count = 0
+            for recording in non_deleted_recordings:
+                if self._delete_via_recording_api(recording.session_id):
+                    deleted_count += 1
+        else:
+            # Old soft-delete (Postgres only)
+            session_recordings_to_create = [
+                SessionRecording(
+                    team=self.team,
+                    session_id=recording.session_id,
+                    distinct_id=recording.distinct_id,
+                    deleted=True,
+                )
+                for recording in non_deleted_recordings
+            ]
 
-        # Then, bulk update existing records that aren't already deleted
-        session_ids_to_delete = [recording.session_id for recording in non_deleted_recordings]
-        updated_count = 0
-        if session_ids_to_delete:
-            updated_count = SessionRecording.objects.filter(
-                team=self.team,
-                session_id__in=session_ids_to_delete,
-                deleted=False,
-            ).update(deleted=True)
+            created_records = []
+            if session_recordings_to_create:
+                created_records = SessionRecording.objects.bulk_create(
+                    session_recordings_to_create, ignore_conflicts=True
+                )
 
-        deleted_count = len(created_records) + updated_count
+            # Then, bulk update existing records that aren't already deleted
+            session_ids_to_delete = [recording.session_id for recording in non_deleted_recordings]
+            updated_count = 0
+            if session_ids_to_delete:
+                updated_count = SessionRecording.objects.filter(
+                    team=self.team,
+                    session_id__in=session_ids_to_delete,
+                    deleted=False,
+                ).update(deleted=True)
+
+            deleted_count = len(created_records) + updated_count
 
         logger.info(
             "bulk_recordings_deleted",
@@ -1283,6 +1298,33 @@ class SessionRecordingViewSet(
             )
             or False
         )
+
+    def _delete_via_recording_api(self, session_id: str) -> bool:
+        """Delete recording via recording-api. Returns True if deleted successfully."""
+        url = f"{settings.RECORDING_API_URL}/api/projects/{self.team.id}/recordings/{session_id}"
+        try:
+            response = requests.delete(url, timeout=30)
+            if response.status_code in (200, 410):  # Success or already deleted
+                return True
+            elif response.status_code == 404:
+                return False  # Not found in S3 (may still need soft-delete)
+            else:
+                logger.warning(
+                    "Recording-api delete failed",
+                    status_code=response.status_code,
+                    response_text=response.text,
+                    session_id=session_id,
+                    team_id=self.team.id,
+                )
+                return False
+        except Exception as e:
+            logger.exception(
+                "Recording-api delete error",
+                error=str(e),
+                session_id=session_id,
+                team_id=self.team.id,
+            )
+            return False
 
     async def _fetch_blocks_parallel(
         self,
