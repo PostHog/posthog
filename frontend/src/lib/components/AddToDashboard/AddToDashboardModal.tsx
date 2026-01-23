@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CSSProperties } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { CSSProperties, useEffect } from 'react'
+import { AutoSizer } from 'react-virtualized-auto-sizer'
+import { List, useListRef } from 'react-window'
 
 import { IconHome } from '@posthog/icons'
 
@@ -92,6 +92,41 @@ interface SaveToDashboardModalProps {
     canEditInsight: boolean
 }
 
+interface DashboardRowProps {
+    orderedDashboards: DashboardBasicType[]
+    currentDashboards: DashboardBasicType[]
+    insightProps: InsightLogicProps
+    canEditInsight: boolean
+    scrollIndex: number
+}
+
+const DashboardRow = ({
+    index,
+    style,
+    orderedDashboards,
+    currentDashboards,
+    insightProps,
+    canEditInsight,
+    scrollIndex,
+}: {
+    ariaAttributes: Record<string, unknown>
+    index: number
+    style: CSSProperties
+} & DashboardRowProps): JSX.Element => {
+    return (
+        <DashboardRelationRow
+            dashboard={orderedDashboards[index]}
+            insightProps={insightProps}
+            canEditInsight={canEditInsight}
+            isHighlighted={index === scrollIndex}
+            isAlreadyOnDashboard={currentDashboards.some(
+                (currentDashboard) => currentDashboard.id === orderedDashboards[index].id
+            )}
+            style={style}
+        />
+    )
+}
+
 export function AddToDashboardModal({
     isOpen,
     closeModal,
@@ -102,21 +137,20 @@ export function AddToDashboardModal({
 
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
     const { setSearchQuery, addNewDashboard } = useActions(logic)
+    const listRef = useListRef()
 
-    const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
-        return (
-            <DashboardRelationRow
-                key={rowIndex}
-                dashboard={orderedDashboards[rowIndex]}
-                insightProps={insightProps}
-                canEditInsight={canEditInsight}
-                isHighlighted={rowIndex === scrollIndex}
-                isAlreadyOnDashboard={currentDashboards.some(
-                    (currentDashboard) => currentDashboard.id === orderedDashboards[rowIndex].id
-                )}
-                style={style}
-            />
-        )
+    useEffect(() => {
+        if (scrollIndex >= 0 && listRef.current) {
+            listRef.current.scrollToRow({ index: scrollIndex, align: 'smart' })
+        }
+    }, [scrollIndex])
+
+    const rowProps: DashboardRowProps = {
+        orderedDashboards,
+        currentDashboards,
+        insightProps,
+        canEditInsight,
+        scrollIndex,
     }
 
     return (
@@ -163,19 +197,21 @@ export function AddToDashboardModal({
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
                 <div className="min-h-[420px]">
-                    <AutoSizer>
-                        {({ height, width }) => (
-                            <List
-                                width={width}
-                                height={height}
-                                rowCount={orderedDashboards.length}
-                                overscanRowCount={100}
-                                rowHeight={40}
-                                rowRenderer={renderItem}
-                                scrollToIndex={scrollIndex}
-                            />
-                        )}
-                    </AutoSizer>
+                    <AutoSizer
+                        renderProp={({ height, width }) =>
+                            height && width ? (
+                                <List
+                                    listRef={listRef}
+                                    style={{ width, height }}
+                                    rowCount={orderedDashboards.length}
+                                    overscanCount={100}
+                                    rowHeight={40}
+                                    rowComponent={DashboardRow}
+                                    rowProps={rowProps}
+                                />
+                            ) : null
+                        }
+                    />
                 </div>
             </div>
         </LemonModal>

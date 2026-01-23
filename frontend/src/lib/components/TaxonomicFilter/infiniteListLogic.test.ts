@@ -204,23 +204,13 @@ describe('infiniteListLogic', () => {
                 })
 
                 await expectLogic(logic, () =>
-                    logic.actions.onRowsRendered({
-                        startIndex: 30,
-                        stopIndex: 40,
-                        overscanStartIndex: 20,
-                        overscanStopIndex: 60,
-                    })
+                    logic.actions.onRowsRendered({ startIndex: 30, stopIndex: 40 }, { startIndex: 20, stopIndex: 60 })
                 )
                     .toDispatchActions(['onRowsRendered'])
                     .toNotHaveDispatchedActions(['loadRemoteItems'])
 
                 await expectLogic(logic, () =>
-                    logic.actions.onRowsRendered({
-                        startIndex: 80,
-                        stopIndex: 100,
-                        overscanStartIndex: 70,
-                        overscanStopIndex: 120,
-                    })
+                    logic.actions.onRowsRendered({ startIndex: 80, stopIndex: 100 }, { startIndex: 70, stopIndex: 120 })
                 )
                     .toDispatchActions(['onRowsRendered', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                     .toMatchValues({

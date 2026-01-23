@@ -2,7 +2,6 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
-import { RenderedRows } from 'react-virtualized/dist/es/List'
 
 import api from 'lib/api'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -96,7 +95,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         moveDown: true,
         setIndex: (index: number) => ({ index }),
         setLimit: (limit: number) => ({ limit }),
-        onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
+        onRowsRendered: (
+            visibleRows: { startIndex: number; stopIndex: number },
+            allRows: { startIndex: number; stopIndex: number }
+        ) => ({ visibleRows, allRows }),
         loadRemoteItems: (options: LoaderOptions) => options,
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
         expand: true,
@@ -248,8 +250,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 setLimit: (_, { limit }) => limit,
             },
         ],
-        startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
-        stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
+        startIndex: [0, { onRowsRendered: (_, { visibleRows: { startIndex } }) => startIndex }],
+        stopIndex: [0, { onRowsRendered: (_, { visibleRows: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
     })),
     selectors({
@@ -406,17 +408,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
     }),
     listeners(({ values, actions, props, cache }) => ({
-        onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
+        onRowsRendered: ({ visibleRows, allRows }) => {
             if (values.hasRemoteDataSource) {
                 let loadFrom: number | null = null
-                for (let i = startIndex; i < (stopIndex + overscanStopIndex) / 2; i++) {
+                for (let i = visibleRows.startIndex; i < (visibleRows.stopIndex + allRows.stopIndex) / 2; i++) {
                     if (!values.results[i]) {
                         loadFrom = i
                         break
                     }
                 }
                 if (loadFrom !== null) {
-                    const offset = (loadFrom || startIndex) - values.localItems.count
+                    const offset = (loadFrom || visibleRows.startIndex) - values.localItems.count
                     actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }

@@ -1,9 +1,9 @@
 // KeaDevtools.tsx
 import { getContext } from 'kea'
 import type { BuiltLogic, Context as KeaContext } from 'kea'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps } from 'react-virtualized/dist/es/List'
+import React, { CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import { AutoSizer } from 'react-virtualized-auto-sizer'
+import { List, useListRef } from 'react-window'
 
 type MountedMap = Record<string, BuiltLogic>
 type SortMode = 'alpha' | 'recent'
@@ -2546,7 +2546,7 @@ function ActionsTab({
     }
 
     // Calculate dynamic row height based on whether payload is expanded
-    const getRowHeight = ({ index }: { index: number }): number => {
+    const getRowHeight = (index: number): number => {
         const action = filtered[index]
         if (!action) {
             return 110
@@ -2562,10 +2562,17 @@ function ActionsTab({
     }
 
     // Row renderer for virtualized list
-    const renderRow = ({ index, key, style }: ListRowProps): JSX.Element => {
+    const renderRow = ({
+        index,
+        style,
+    }: {
+        ariaAttributes: Record<string, unknown>
+        index: number
+        style: CSSProperties
+    }): JSX.Element => {
         const action = filtered[index]
         if (!action) {
-            return <div key={key} style={style} />
+            return <div style={style} />
         }
 
         const isOpen = expanded.has(action.id)
@@ -2574,7 +2581,6 @@ function ActionsTab({
 
         return (
             <div
-                key={key}
                 style={{
                     ...style,
                     display: 'flex',
@@ -2689,11 +2695,11 @@ function ActionsTab({
     }
 
     // Create a ref for the List to trigger re-render when expanded state changes
-    const listRef = useRef<List>(null)
+    const listRef = useListRef()
 
-    // Force re-render of list when expanded state changes
+    // Force re-render of list when expanded state changes - not needed in v2 since rowHeight is recalculated
     useEffect(() => {
-        listRef.current?.recomputeRowHeights()
+        // In v2, the list re-renders when rowHeight function returns different values
     }, [expanded, filtered])
 
     return (
@@ -2793,19 +2799,21 @@ function ActionsTab({
                     {filtered.length === 0 ? (
                         <div style={{ padding: 12, color: 'rgba(0,0,0,0.6)' }}>No actions yet.</div>
                     ) : (
-                        <AutoSizer>
-                            {({ height, width }) => (
-                                <List
-                                    ref={listRef}
-                                    width={width}
-                                    height={height}
-                                    rowCount={filtered.length}
-                                    rowHeight={getRowHeight}
-                                    rowRenderer={renderRow}
-                                    overscanRowCount={10}
-                                />
-                            )}
-                        </AutoSizer>
+                        <AutoSizer
+                            renderProp={({ height, width }) =>
+                                height && width ? (
+                                    <List
+                                        listRef={listRef}
+                                        style={{ width, height }}
+                                        rowCount={filtered.length}
+                                        rowHeight={getRowHeight}
+                                        overscanCount={10}
+                                        rowComponent={renderRow}
+                                        rowProps={{}}
+                                    />
+                                ) : null
+                            }
+                        />
                     )}
                 </div>
             </div>

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import React, { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 import { IconLock, IconPencil } from '@posthog/icons'
 import {
@@ -314,21 +314,24 @@ function JsonConfigField(props: {
     value: any
 }): JSX.Element {
     return (
-        <AutoSizer disableWidth className="min-h-60">
-            {({ height }) => (
-                <CodeEditor
-                    className="border"
-                    language="json"
-                    value={props.value}
-                    onChange={(v) => props.onChange?.(v ?? '')}
-                    height={height}
-                    options={{
-                        minimap: {
-                            enabled: false,
-                        },
-                    }}
-                />
-            )}
-        </AutoSizer>
+        <AutoSizer
+            className="min-h-60"
+            renderProp={({ height }) =>
+                height ? (
+                    <CodeEditor
+                        className="border"
+                        language="json"
+                        value={props.value}
+                        onChange={(v) => props.onChange?.(v ?? '')}
+                        height={height}
+                        options={{
+                            minimap: {
+                                enabled: false,
+                            },
+                        }}
+                    />
+                ) : null
+            }
+        />
     )
 }
