@@ -166,7 +166,7 @@ class Command(BaseCommand):
         qs = DataWarehouseSavedQuery.objects.annotate(latest_job_error=Subquery(latest_job_error)).filter(
             deleted=False,
             created_at__gt=created_after,
-            sync_frequency_interval__isnull=True,  # this is a symptop of the bug
+            sync_frequency_interval__isnull=True,  # this is a symptom of the bug
         )
         error_conditions = Q(latest_job_error__icontains="Query returned no results") | Q(
             latest_job_error__icontains="You cannot call this from an async context"
