@@ -35,7 +35,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     CleanupRunningJobsActivityInputs,
     CreateJobModelInputs,
     ModelNode,
-    QueryReturnedNoResultsException,
+    NonRetryableException,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -1678,7 +1678,7 @@ async def test_materialize_model_empty_results(ateam, bucket_name, minio_client)
             workflow_id="test_workflow",
         )
 
-        with pytest.raises(QueryReturnedNoResultsException) as exc_info:
+        with pytest.raises(NonRetryableException) as exc_info:
             await materialize_model(
                 saved_query.id.hex,
                 ateam,
