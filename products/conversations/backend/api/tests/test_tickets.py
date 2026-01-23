@@ -4,10 +4,12 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.comment import Comment
+from posthog.models import ActivityLog, Comment, Organization, User
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
+
+from ee.models.rbac.role import Role
 
 
 class BaseConversationsAPITest(APIBaseTest):
@@ -89,18 +91,11 @@ class TestTicketAPI(BaseConversationsAPITest):
 
     @parameterized.expand(
         [
-            ("status", Status.RESOLVED, Status.RESOLVED, None),
-            ("priority", Priority.HIGH, Priority.HIGH, None),
-            ("assigned_to", "user_id", "user_id", "user_id"),
+            ("status", Status.RESOLVED, Status.RESOLVED),
+            ("priority", Priority.HIGH, Priority.HIGH),
         ]
     )
-    def test_update_ticket_field(self, field_name, update_value, expected_response_value, expected_nested_field):
-        # Replace placeholders with actual values
-        if update_value == "user_id":
-            update_value = self.user.id
-        if expected_response_value == "user_id":
-            expected_response_value = self.user.id
-
+    def test_update_ticket_field(self, field_name, update_value, expected_response_value):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
             {field_name: update_value},
@@ -108,14 +103,8 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()[field_name], expected_response_value)
 
-        # Some fields have nested representations
-        if expected_nested_field:
-            self.assertEqual(response.json()["assigned_to_user"]["id"], self.user.id)
-
-        # Verify database was updated (except for nested fields)
-        if field_name != "assigned_to":
-            self.ticket.refresh_from_db()
-            self.assertEqual(getattr(self.ticket, field_name), expected_response_value)
+        self.ticket.refresh_from_db()
+        self.assertEqual(getattr(self.ticket, field_name), expected_response_value)
 
     @parameterized.expand(
         [
@@ -128,8 +117,6 @@ class TestTicketAPI(BaseConversationsAPITest):
                 Channel.WIDGET,
                 {"channel_source": Channel.EMAIL},
             ),
-            ("assigned_to=unassigned", None, "assigned_to", None, {"assigned_to": "user"}),
-            ("assigned_to={user_id}", "user_id", "assigned_to", "user_id", {}),
             ("distinct_id=user-123", "user-123", "distinct_id", "user-123", {}),
         ]
     )
@@ -137,22 +124,12 @@ class TestTicketAPI(BaseConversationsAPITest):
         self, filter_param, expected_value, response_field, expected_response_value, other_ticket_attrs
     ):
         """Test filtering tickets by various fields."""
-        # Update self.ticket if needed
-        if expected_value == "user_id":
-            self.ticket.assigned_to = self.user
-            self.ticket.save()
-            filter_param = filter_param.format(user_id=self.user.id)
-            expected_response_value = self.user.id
-        elif expected_value and expected_value != "user-123":
+        if expected_value and expected_value != "user-123":
             setattr(self.ticket, response_field, expected_value)
             self.ticket.save()
 
-        # Create another ticket with different attributes - avoid conflicts with hardcoded values
         other_channel = other_ticket_attrs.pop("channel_source", Channel.WIDGET)
         other_distinct_id = other_ticket_attrs.pop("distinct_id", "other-user")
-
-        if "user" in other_ticket_attrs.get("assigned_to", ""):
-            other_ticket_attrs["assigned_to"] = self.user
 
         Ticket.objects.create_with_number(
             team=self.team,
@@ -193,21 +170,24 @@ class TestTicketAPI(BaseConversationsAPITest):
             ),
             (
                 "deleted_messages_excluded",
-                [("Active message", False), ("Deleted message", True)],
+                [("Active message", False), ("Deleted message", "soft_delete")],
                 {"message_count": 1},
             ),
         ]
     )
     def test_message_annotations(self, test_name, messages, expected_fields):
-        """Test that message-related fields are correctly annotated on tickets."""
-        for content, deleted in messages:
-            Comment.objects.create(
+        """Test that denormalized message stats are correctly maintained on tickets."""
+        for content, should_delete in messages:
+            comment = Comment.objects.create(
                 team=self.team,
                 scope="conversations_ticket",
                 item_id=str(self.ticket.id),
                 content=content,
-                deleted=deleted,
             )
+            # Soft-delete after creation (realistic flow)
+            if should_delete == "soft_delete":
+                comment.deleted = True
+                comment.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -219,17 +199,21 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertEqual(response.json()[field_name], expected_value)
 
     def test_list_tickets_no_n_plus_one_queries(self):
-        """Verify ticket list doesn't trigger N+1 queries for messages and assigned users."""
-        # Create 10 tickets with messages and assigned users
+        """Verify ticket list doesn't trigger N+1 queries for assigned users.
+        Message stats (message_count, last_message_at, last_message_text) are now
+        denormalized on the Ticket model, so no subqueries needed.
+        """
+        # Create 10 tickets with messages and assignments
         for i in range(10):
             ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
                 widget_session_id=f"session-{i}",
                 distinct_id=f"user-{i}",
-                assigned_to=self.user,
             )
-            # Add 2 messages per ticket
+            # Assign user to ticket
+            TicketAssignment.objects.create(ticket=ticket, user=self.user)
+            # Add 2 messages per ticket (updates denormalized fields via signal)
             Comment.objects.create(
                 team=self.team,
                 scope="conversations_ticket",
@@ -247,17 +231,18 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         # Query count should be constant regardless of number of tickets
         # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query
+        # Note: message stats are denormalized, no subqueries needed
         with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
             self.assertEqual(response.json()["count"], 11)
-            # Verify all annotated fields are present
+            # Verify all denormalized fields are present
             for ticket_data in response.json()["results"]:
                 self.assertIn("message_count", ticket_data)
                 self.assertIn("last_message_at", ticket_data)
                 self.assertIn("last_message_text", ticket_data)
-                self.assertIn("assigned_to_user", ticket_data)
+                self.assertIn("assignee", ticket_data)
 
     def test_feature_flag_required(self):
         """Verify that product-support feature flag is required for API access."""
@@ -278,6 +263,220 @@ class TestTicketAPI(BaseConversationsAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Failed for {method} {url}: expected 403, got {response.status_code}",
             )
+
+
+class TestTicketAssignment(BaseConversationsAPITest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session-123",
+            distinct_id="user-123",
+            status=Status.NEW,
+        )
+        self.role = Role.objects.create(name="Support Team", organization=self.organization)
+
+    def test_assign_ticket_to_user(self):
+        """Test assigning a ticket to a user."""
+        self.assertEqual(TicketAssignment.objects.count(), 0)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"assignee": {"id": self.user.id, "type": "user"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["assignee"]["id"], self.user.id)
+        self.assertEqual(response.json()["assignee"]["type"], "user")
+
+        self.assertEqual(TicketAssignment.objects.count(), 1)
+        assignment = TicketAssignment.objects.get(ticket=self.ticket)
+        self.assertEqual(assignment.user_id, self.user.id)
+        self.assertIsNone(assignment.role_id)
+
+    def test_assign_ticket_to_role(self):
+        """Test assigning a ticket to a role."""
+        self.assertEqual(TicketAssignment.objects.count(), 0)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"assignee": {"id": str(self.role.id), "type": "role"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["assignee"]["id"], str(self.role.id))
+        self.assertEqual(response.json()["assignee"]["type"], "role")
+
+        self.assertEqual(TicketAssignment.objects.count(), 1)
+        assignment = TicketAssignment.objects.get(ticket=self.ticket)
+        self.assertIsNone(assignment.user_id)
+        self.assertEqual(assignment.role_id, self.role.id)
+
+    def test_update_assignment_from_user_to_role(self):
+        """Test updating assignment from user to role."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        self.assertEqual(TicketAssignment.objects.count(), 1)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"assignee": {"id": str(self.role.id), "type": "role"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["assignee"]["type"], "role")
+
+        self.assertEqual(TicketAssignment.objects.count(), 1)
+        assignment = TicketAssignment.objects.get(ticket=self.ticket)
+        self.assertIsNone(assignment.user_id)
+        self.assertEqual(assignment.role_id, self.role.id)
+
+    def test_remove_assignment(self):
+        """Test removing assignment from ticket."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        self.assertEqual(TicketAssignment.objects.count(), 1)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"assignee": None},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["assignee"])
+        self.assertEqual(TicketAssignment.objects.count(), 0)
+
+    def test_serialization_returns_correct_format(self):
+        """Test that assignee serialization returns correct {id, type} format."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("assignee", response.json())
+        self.assertEqual(response.json()["assignee"]["id"], self.user.id)
+        self.assertEqual(response.json()["assignee"]["type"], "user")
+
+    def test_unassigned_ticket_returns_null_assignee(self):
+        """Test that unassigned ticket returns null for assignee."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["assignee"])
+
+    def test_filter_by_user_assignment(self):
+        """Test filtering tickets by user assignment."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=user:{self.user.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_by_role_assignment(self):
+        """Test filtering tickets by role assignment."""
+        TicketAssignment.objects.create(ticket=self.ticket, role=self.role)
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=role:{self.role.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_unassigned_tickets(self):
+        """Test filtering for unassigned tickets."""
+        assigned_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="assigned-session",
+            distinct_id="assigned-user",
+        )
+        TicketAssignment.objects.create(ticket=assigned_ticket, user=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=unassigned")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_assignment_logs_activity(self):
+        """Test that assignment changes are logged in activity log."""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"assignee": {"id": self.user.id, "type": "user"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="Ticket",
+            item_id=str(self.ticket.id),
+            activity="assigned",
+        ).first()
+
+        assert activity is not None
+        assert activity.detail is not None
+        self.assertEqual(activity.detail["changes"][0]["field"], "assignee")
+        self.assertIsNone(activity.detail["changes"][0]["before"])
+        self.assertEqual(activity.detail["changes"][0]["after"]["id"], self.user.id)
+        self.assertEqual(activity.detail["changes"][0]["after"]["type"], "user")
+
+    @parameterized.expand(
+        [
+            ("missing_type", {"id": 1}, "must have 'type' and 'id'"),
+            ("missing_id", {"type": "user"}, "must have 'type' and 'id'"),
+            ("invalid_type", {"id": 1, "type": "invalid"}, "type must be 'user' or 'role'"),
+            ("not_an_object", "invalid", "must be an object"),
+        ]
+    )
+    def test_invalid_assignee_payload(self, name, payload, expected_error):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"assignee": payload},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_error, str(response.json()))
+
+    def test_assign_to_user_not_in_organization(self):
+        other_user = User.objects.create(email="other@example.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"assignee": {"id": other_user.id, "type": "user"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not a member of this organization", str(response.json()))
+        self.assertEqual(TicketAssignment.objects.count(), 0)
+
+    def test_assign_to_role_not_in_organization(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_role = Role.objects.create(name="Other Role", organization=other_org)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"assignee": {"id": str(other_role.id), "type": "role"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not belong to this organization", str(response.json()))
+        self.assertEqual(TicketAssignment.objects.count(), 0)
 
 
 class TestTicketManager(BaseTest):

@@ -54,10 +54,16 @@ EVENT_NAME_TRACE_SUMMARY = "$ai_trace_summary"
 ALLOWED_TEAM_IDS: list[int] = [
     1,  # Local development
     2,  # Internal PostHog project
-    112495,  # Dogfooding project
+    # Dogfooding projects
+    112495,
+    148051,
+    140227,
+    237906,
+    294356,
 ]
 
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-summarization"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-summarization-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-summarization-coordinator-schedule"
+CHILD_WORKFLOW_ID_PREFIX = "llma-trace-summarization-team"

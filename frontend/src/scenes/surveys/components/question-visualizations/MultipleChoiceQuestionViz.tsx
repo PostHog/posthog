@@ -1,13 +1,11 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic } from 'kea'
 import { useMemo } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
-import { ResponseCard, ScrollToSurveyResultsCard } from 'scenes/surveys/components/question-visualizations/ResponseCard'
 import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import {
     ChoiceQuestionResponseData,
@@ -39,54 +37,29 @@ function toOpenQuestionFormat(responses: ChoiceQuestionResponseData[]): OpenQues
     return responses.map((r) => ({
         distinctId: r.distinctId || '',
         response: r.label,
-        personProperties: r.personProperties,
+        personDisplayName: r.personDisplayName,
         timestamp: r.timestamp,
     }))
 }
 
 function OpenEndedResponsesSection({
     openEndedResponses,
-    useVirtualizedList,
     questionId,
     questionIndex,
 }: {
     openEndedResponses: ChoiceQuestionResponseData[]
-    useVirtualizedList: boolean
     questionId?: string
     questionIndex: number
 }): JSX.Element {
-    if (useVirtualizedList) {
-        return (
-            <div>
-                <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
-                <OpenQuestionSummaryV2
-                    questionId={questionId}
-                    questionIndex={questionIndex}
-                    totalResponses={openEndedResponses.length}
-                />
-                <VirtualizedResponseList responses={toOpenQuestionFormat(openEndedResponses)} />
-            </div>
-        )
-    }
-
     return (
         <div>
             <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {openEndedResponses.slice(0, openEndedResponses.length > 20 ? 19 : 20).map((response, i) => (
-                    <ResponseCard
-                        key={`open-${i}`}
-                        response={response.label}
-                        distinctId={response.distinctId}
-                        personProperties={response.personProperties}
-                        timestamp={response.timestamp}
-                        count={response.value}
-                    />
-                ))}
-                {openEndedResponses.length > 20 && (
-                    <ScrollToSurveyResultsCard numOfResponses={openEndedResponses.length - 20} />
-                )}
-            </div>
+            <OpenQuestionSummaryV2
+                questionId={questionId}
+                questionIndex={questionIndex}
+                totalResponses={openEndedResponses.length}
+            />
+            <VirtualizedResponseList responses={toOpenQuestionFormat(openEndedResponses)} />
         </div>
     )
 }
@@ -97,8 +70,6 @@ export function MultipleChoiceQuestionViz({
     responseData,
     totalResponses,
 }: Props): JSX.Element | null {
-    const { isSurveyResultsV2Enabled } = useValues(surveyLogic)
-
     const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
         const nonPredefinedResponses = responseData.filter((d) => !d.isPredefined)
@@ -162,7 +133,6 @@ export function MultipleChoiceQuestionViz({
             {openEndedResponses.length > 0 && (
                 <OpenEndedResponsesSection
                     openEndedResponses={openEndedResponses}
-                    useVirtualizedList={isSurveyResultsV2Enabled}
                     questionId={question.id}
                     questionIndex={questionIndex}
                 />
