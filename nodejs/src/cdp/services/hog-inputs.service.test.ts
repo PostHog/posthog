@@ -1,15 +1,18 @@
 import '~/tests/helpers/mocks/date.mock'
 
+import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { PostgresUse } from '~/utils/db/postgres'
 
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { HogInputsService, formatHogInput } from './hog-inputs.service'
+import { PushSubscription } from './managers/push-subscriptions-manager.service'
 
 describe('Hog Inputs', () => {
     let hub: Hub
@@ -235,6 +238,449 @@ describe('Hog Inputs', () => {
             expect(inputs.email.html).toEqual(
                 `<div>Unsubscribe here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a></div>`
             )
+        })
+    })
+
+    describe('loadPushSubscriptionInputs', () => {
+        const insertPushSubscription = async (
+            teamId: number,
+            distinctId: string,
+            token: string,
+            platform: 'android' | 'ios',
+            isActive: boolean = true
+        ): Promise<PushSubscription> => {
+            const id = randomUUID()
+            const encryptedToken = hub.encryptedFields.encrypt(token)
+            const tokenHash = require('crypto').createHash('sha256').update(token, 'utf-8').digest('hex')
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_pushsubscription 
+                 (id, team_id, distinct_id, token, token_hash, platform, is_active, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                 RETURNING *`,
+                [id, teamId, distinctId, encryptedToken, tokenHash, platform, isActive],
+                'insertPushSubscription'
+            )
+
+            return {
+                id,
+                team_id: teamId,
+                distinct_id: distinctId,
+                token,
+                platform,
+                is_active: isActive,
+                last_successfully_used_at: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            }
+        }
+
+        const insertPersonDistinctId = async (teamId: number, personId: number, distinctId: string): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                 VALUES ($1, $2, $3, 0)
+                 ON CONFLICT DO NOTHING`,
+                [distinctId, personId, teamId],
+                'insertPersonDistinctId'
+            )
+        }
+
+        const insertPerson = async (teamId: number): Promise<number> => {
+            const personUuid = randomUUID()
+            const result = await hub.postgres.query<{ id: number }>(
+                PostgresUse.PERSONS_WRITE,
+                `INSERT INTO posthog_person (uuid, team_id, created_at, properties, properties_last_updated_at, properties_last_operation, is_identified, version)
+                 VALUES ($1, $2, NOW(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, true, 0)
+                 RETURNING id`,
+                [personUuid, teamId],
+                'insertPerson'
+            )
+            return result.rows[0].id
+        }
+
+        let hogFunction: HogFunctionType
+        let globals: HogFunctionInvocationGlobalsWithInputs
+
+        beforeEach(() => {
+            hogFunction = createHogFunction({
+                id: 'hog-function-1',
+                team_id: team.id,
+                name: 'Hog Function 1',
+                enabled: true,
+                type: 'destination',
+                inputs: {},
+                inputs_schema: [],
+            })
+
+            globals = {
+                ...createHogExecutionGlobals(),
+                inputs: {},
+            }
+        })
+
+        it('returns empty object when no push subscription inputs exist', async () => {
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({})
+        })
+
+        it('returns empty object when input value is not a string', async () => {
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: 123,
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({})
+        })
+
+        it('resolves distinct_id to FCM token for active subscription', async () => {
+            const distinctId = 'user-123'
+            const token = 'fcm-token-abc123'
+            await insertPushSubscription(team.id, distinctId, token, 'android', true)
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: token,
+                },
+            })
+        })
+
+        it('returns null for inactive subscription', async () => {
+            const distinctId = 'user-123'
+            const token = 'fcm-token-abc123'
+            await insertPushSubscription(team.id, distinctId, token, 'android', false)
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: null,
+                },
+            })
+        })
+
+        it('returns null for subscription from different team', async () => {
+            const distinctId = 'user-123'
+            const token = 'fcm-token-abc123'
+            await insertPushSubscription(999, distinctId, token, 'android', true)
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: null,
+                },
+            })
+        })
+
+        it('filters by platform when specified', async () => {
+            const distinctId = 'user-123'
+            const androidToken = 'fcm-token-android'
+            const iosToken = 'fcm-token-ios'
+            await insertPushSubscription(team.id, distinctId, androidToken, 'android', true)
+            await insertPushSubscription(team.id, distinctId, iosToken, 'ios', true)
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: androidToken,
+                },
+            })
+        })
+
+        it('resolves liquid template to distinct_id', async () => {
+            const distinctId = 'user-123'
+            const token = 'fcm-token-abc123'
+            await insertPushSubscription(team.id, distinctId, token, 'android', true)
+
+            globals.person = {
+                id: 'person-1',
+                name: distinctId,
+                url: 'http://localhost:8000/persons/1',
+                properties: {},
+            }
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                    templating: 'liquid',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: '{{ person.name }}',
+                    templating: 'liquid',
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: token,
+                },
+            })
+        })
+
+        it('resolves hog template to distinct_id', async () => {
+            const distinctId = 'user-123'
+            const token = 'fcm-token-abc123'
+            await insertPushSubscription(team.id, distinctId, token, 'android', true)
+
+            globals.event = {
+                ...globals.event!,
+                distinct_id: distinctId,
+            }
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                    templating: 'hog',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                    templating: 'hog',
+                    bytecode: await compileHog(`return event.distinct_id`),
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: token,
+                },
+            })
+        })
+
+        it('returns null when template resolution fails', async () => {
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                    templating: 'liquid',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: '{{ invalid.template }}',
+                    templating: 'liquid',
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: null,
+                },
+            })
+        })
+
+        it('falls back to related distinct_ids for same person and updates distinct_id', async () => {
+            const originalDistinctId = 'user-original'
+            const newDistinctId = 'user-new'
+            const token = 'fcm-token-abc123'
+
+            // Create person with original distinct_id
+            const personId = await insertPerson(team.id)
+            await insertPersonDistinctId(team.id, personId, originalDistinctId)
+            await insertPersonDistinctId(team.id, personId, newDistinctId)
+
+            // Subscription exists with original distinct_id
+            await insertPushSubscription(team.id, originalDistinctId, token, 'android', true)
+
+            // But we're looking for new distinct_id
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: newDistinctId,
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: token,
+                },
+            })
+
+            // Verify the subscription was updated to use the new distinct_id
+            const tokenHash = require('crypto').createHash('sha256').update(token, 'utf-8').digest('hex')
+            const updatedSub = await hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT distinct_id FROM workflows_pushsubscription WHERE team_id = $1 AND token_hash = $2 LIMIT 1`,
+                [team.id, tokenHash],
+                'checkUpdatedDistinctId'
+            )
+            expect(updatedSub.rows[0]?.distinct_id).toBe(newDistinctId)
+        })
+
+        it('handles multiple push subscription inputs', async () => {
+            const distinctId1 = 'user-1'
+            const distinctId2 = 'user-2'
+            const token1 = 'fcm-token-1'
+            const token2 = 'fcm-token-2'
+            await insertPushSubscription(team.id, distinctId1, token1, 'android', true)
+            await insertPushSubscription(team.id, distinctId2, token2, 'ios', true)
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'android_token',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+                {
+                    key: 'ios_token',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'ios',
+                },
+            ]
+            hogFunction.inputs = {
+                android_token: {
+                    value: distinctId1,
+                },
+                ios_token: {
+                    value: distinctId2,
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                android_token: {
+                    value: token1,
+                },
+                ios_token: {
+                    value: token2,
+                },
+            })
+        })
+
+        it('returns null when subscription not found', async () => {
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: 'non-existent-user',
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: null,
+                },
+            })
+        })
+
+        it('handles liquid template with double braces detection', async () => {
+            const distinctId = 'user-123'
+            const token = 'fcm-token-abc123'
+            await insertPushSubscription(team.id, distinctId, token, 'android', true)
+
+            globals.person = {
+                id: 'person-1',
+                name: distinctId,
+                url: 'http://localhost:8000/persons/1',
+                properties: {},
+            }
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: '{{ person.name }}',
+                    // No templating specified, but contains {{ so should use liquid
+                },
+            }
+
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: token,
+                },
+            })
         })
     })
 })

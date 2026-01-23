@@ -4,7 +4,12 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { Hub } from '~/types'
 
-import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import {
+    HogFunctionInputSchemaType,
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+} from '../types'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
 import { PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
@@ -33,9 +38,8 @@ export class HogInputsService {
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
 
-        // Check if function has push subscription inputs (type='push_subscription' or integration_field='push_subscription')
         const hasPushSubscriptionInputs = hogFunction.inputs_schema?.some(
-            (schema) => schema.type === 'push_subscription' || schema.integration_field === 'push_subscription'
+            (schema) => schema.type === 'push_subscription_distinct_id'
         )
 
         const inputs: HogFunctionType['inputs'] = {
@@ -46,13 +50,25 @@ export class HogInputsService {
             ...additionalInputs,
             // and decode any integration inputs
             ...(await this.loadIntegrationInputs(hogFunction)),
-            // and resolve any push subscription inputs (only if function has push subscription inputs)
-            ...(hasPushSubscriptionInputs ? await this.loadPushSubscriptionInputs(hogFunction) : {}),
         }
 
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
             ...globals,
             inputs: {},
+        }
+
+        // Resolve push subscription inputs after we have newGlobals for template resolution
+        if (hasPushSubscriptionInputs) {
+            const pushSubscriptionInputs = await this.loadPushSubscriptionInputs(hogFunction, newGlobals)
+
+            // Update the input values with resolved tokens
+            for (const [key, resolvedInput] of Object.entries(pushSubscriptionInputs)) {
+                if (inputs[key]) {
+                    inputs[key].value = resolvedInput.value
+                } else {
+                    inputs[key] = resolvedInput
+                }
+            }
         }
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
@@ -85,25 +101,7 @@ export class HogInputsService {
             }
         }
 
-        // Only load push_subscriptions globals if function uses push subscriptions
-        // Check if function has push subscription inputs (type='push_subscription') or integration fields
-        const usesPushSubscriptions = hogFunction.inputs_schema?.some(
-            (schema) => schema.type === 'push_subscription' || schema.integration_field === 'push_subscription'
-        )
-
-        if (usesPushSubscriptions && globals.event?.distinct_id) {
-            const pushSubscriptions = await this.pushSubscriptionsManager.get({
-                teamId: hogFunction.team_id,
-                distinctId: globals.event.distinct_id,
-            })
-            // Store only IDs to avoid bloating the cyclotron database
-            // Full subscription data will be loaded when needed during execution
-            newGlobals.push_subscriptions = pushSubscriptions.map((sub) => ({
-                id: sub.id,
-            }))
-        } else {
-            newGlobals.push_subscriptions = []
-        }
+        newGlobals.push_subscriptions = []
 
         const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
             return (input1?.order ?? -1) - (input2?.order ?? -1)
@@ -181,16 +179,17 @@ export class HogInputsService {
     }
 
     public async loadPushSubscriptionInputs(
-        hogFunction: HogFunctionType
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobalsWithInputs
     ): Promise<Record<string, { value: string | null }>> {
-        const inputsToLoad: Record<string, string> = {}
+        const inputsToLoad: Record<string, { rawValue: string; schema: HogFunctionInputSchemaType }> = {}
 
         hogFunction.inputs_schema?.forEach((schema) => {
-            if (schema.type === 'push_subscription' || schema.integration_field === 'push_subscription') {
+            if (schema.type === 'push_subscription_distinct_id') {
                 const input = hogFunction.inputs?.[schema.key]
                 const value = input?.value
                 if (value && typeof value === 'string') {
-                    inputsToLoad[schema.key] = value
+                    inputsToLoad[schema.key] = { rawValue: value, schema }
                 }
             }
         })
@@ -199,18 +198,67 @@ export class HogInputsService {
             return {}
         }
 
-        // Batch fetch all subscriptions at once
-        const subscriptionIds = Object.values(inputsToLoad)
-        const subscriptions = await this.pushSubscriptionsManager.getManyById(hogFunction.team_id, subscriptionIds)
-
         const returnInputs: Record<string, { value: string | null }> = {}
 
-        for (const [key, subscriptionId] of Object.entries(inputsToLoad)) {
+        for (const [key, { rawValue, schema }] of Object.entries(inputsToLoad)) {
             returnInputs[key] = {
                 value: null,
             }
 
-            const subscription = subscriptions[subscriptionId]
+            let resolvedValue = rawValue
+            const input = hogFunction.inputs?.[key]
+            const templating = schema.templating ?? 'hog'
+            if (templating === 'liquid' || rawValue.includes('{{')) {
+                resolvedValue = formatLiquidInput(rawValue, globals, key)
+            } else if (templating === 'hog' && input?.bytecode) {
+                resolvedValue = await formatHogInput(input.bytecode, globals, key)
+            }
+
+            if (!resolvedValue || typeof resolvedValue !== 'string') {
+                continue
+            }
+
+            const distinctId = resolvedValue
+
+            // Step 1: Look up subscription by distinct_id directly
+            const subscriptions = await this.pushSubscriptionsManager.get({
+                teamId: hogFunction.team_id,
+                distinctId,
+                platform: schema.platform,
+            })
+
+            let subscription = subscriptions.length > 0 ? subscriptions[0] : null
+
+            // Step 2: If not found, try fallback to other distinct_ids for same person
+            if (!subscription) {
+                const relatedDistinctIds = await this.pushSubscriptionsManager.getDistinctIdsForSamePerson(
+                    hogFunction.team_id,
+                    distinctId
+                )
+
+                if (relatedDistinctIds.length > 0) {
+                    subscription = await this.pushSubscriptionsManager.findSubscriptionByPersonDistinctIds(
+                        hogFunction.team_id,
+                        relatedDistinctIds,
+                        schema.platform
+                    )
+
+                    // Step 3: If found, update subscription to use new distinct_id
+                    if (subscription) {
+                        await this.pushSubscriptionsManager.updateDistinctId(
+                            hogFunction.team_id,
+                            subscription.id,
+                            distinctId
+                        )
+                        // Update the subscription object to reflect the new distinct_id
+                        subscription = {
+                            ...subscription,
+                            distinct_id: distinctId,
+                        }
+                    }
+                }
+            }
+
             if (subscription && subscription.is_active && subscription.team_id === hogFunction.team_id) {
                 returnInputs[key] = {
                     value: subscription.token,
@@ -218,6 +266,7 @@ export class HogInputsService {
             }
         }
 
+        // TODOdin: Handle missing subscription here or in the hog function run?
         return returnInputs
     }
 }

@@ -92,7 +92,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "integration_field",
             "email",
             "native_email",
-            "push_subscription",
+            "push_subscription_distinct_id",
         ]
     )
     key = serializers.CharField()
@@ -161,9 +161,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
-        elif item_type == "push_subscription":
+        elif item_type == "push_subscription_distinct_id":
             if not isinstance(value, str):
-                raise serializers.ValidationError({"input": f"Value must be a push subscription ID (string)."})
+                raise serializers.ValidationError({"input": f"Value must be a string."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -182,7 +182,14 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    if item_type in ["string", "dictionary", "json", "email", "native_email"]:
+                    if item_type in [
+                        "string",
+                        "dictionary",
+                        "json",
+                        "email",
+                        "native_email",
+                        "push_subscription_distinct_id",
+                    ]:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
                             value = {key: value[key] for key in value if key != "design"}

@@ -24,8 +24,6 @@ const fromKey = (key: string): PushSubscriptionGetArgs => {
     }
 }
 
-const MAX_SUBSCRIPTION_IDS_PER_QUERY = 10_000
-
 // Type for the query result from the database
 type PushSubscriptionRow = {
     id: string
@@ -120,75 +118,6 @@ export class PushSubscriptionsManagerService {
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
-    }
-
-    public async getManyById(
-        teamId: number,
-        subscriptionIds: string[]
-    ): Promise<Record<string, PushSubscription | null>> {
-        if (subscriptionIds.length === 0) {
-            return {}
-        }
-
-        let idsToQuery = subscriptionIds
-        if (subscriptionIds.length > MAX_SUBSCRIPTION_IDS_PER_QUERY) {
-            logger.warn('[PushSubscriptionsManager]', 'getManyById exceeded max limit', {
-                requested: subscriptionIds.length,
-                limit: MAX_SUBSCRIPTION_IDS_PER_QUERY,
-                teamId,
-            })
-            idsToQuery = subscriptionIds.slice(0, MAX_SUBSCRIPTION_IDS_PER_QUERY)
-        }
-
-        const placeholders = idsToQuery.map((_, idx) => `$${idx + 2}`).join(', ')
-        const queryString = `SELECT
-                id,
-                team_id,
-                distinct_id,
-                token,
-                platform,
-                is_active,
-                last_successfully_used_at,
-                created_at,
-                updated_at
-            FROM workflows_pushsubscription
-            WHERE team_id = $1 AND id IN (${placeholders}) AND is_active = true
-            LIMIT ${MAX_SUBSCRIPTION_IDS_PER_QUERY}`
-
-        const params = [teamId, ...idsToQuery]
-        const rows = (
-            await this.postgres.query<PushSubscriptionRow>(
-                PostgresUse.COMMON_READ,
-                queryString,
-                params,
-                'getManyPushSubscriptionsById'
-            )
-        ).rows
-
-        const result: Record<string, PushSubscription | null> = {}
-
-        for (const id of subscriptionIds) {
-            result[id] = null
-        }
-
-        // Populate found subscriptions
-        for (const row of rows) {
-            const decryptedToken =
-                this.encryptedFields.decrypt(row.token, { ignoreDecryptionErrors: true }) ?? row.token
-            result[row.id] = {
-                id: row.id,
-                team_id: row.team_id,
-                distinct_id: row.distinct_id,
-                token: decryptedToken,
-                platform: row.platform,
-                is_active: row.is_active,
-                last_successfully_used_at: row.last_successfully_used_at,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-            }
-        }
-
-        return result
     }
 
     private async fetchPushSubscriptions(ids: string[]): Promise<Record<string, PushSubscription[] | undefined>> {
@@ -355,6 +284,97 @@ export class PushSubscriptionsManagerService {
             queryString,
             [reason, teamId, tokenHash],
             'deactivatePushSubscriptionToken'
+        )
+    }
+
+    public async getDistinctIdsForSamePerson(teamId: number, distinctId: string): Promise<string[]> {
+        const queryString = `SELECT DISTINCT distinct_id
+            FROM posthog_persondistinctid
+            WHERE team_id = $1 
+              AND person_id = (
+                  SELECT person_id 
+                  FROM posthog_persondistinctid 
+                  WHERE team_id = $1 AND distinct_id = $2
+                  LIMIT 1
+              )`
+
+        const { rows } = await this.postgres.query<{ distinct_id: string }>(
+            PostgresUse.COMMON_READ,
+            queryString,
+            [teamId, distinctId],
+            'getDistinctIdsForSamePerson'
+        )
+
+        return rows.map((row) => row.distinct_id)
+    }
+
+    public async findSubscriptionByPersonDistinctIds(
+        teamId: number,
+        distinctIds: string[],
+        platform?: 'android' | 'ios'
+    ): Promise<PushSubscription | null> {
+        if (distinctIds.length === 0) {
+            return null
+        }
+
+        const placeholders = distinctIds.map((_, idx) => `$${idx + 2}`).join(', ')
+        const platformFilter = platform ? `AND platform = $${distinctIds.length + 2}` : ''
+        const params = platform ? [teamId, ...distinctIds, platform] : [teamId, ...distinctIds]
+
+        const queryString = `SELECT
+                id,
+                team_id,
+                distinct_id,
+                token,
+                platform,
+                is_active,
+                last_successfully_used_at,
+                created_at,
+                updated_at
+            FROM workflows_pushsubscription
+            WHERE team_id = $1 AND distinct_id IN (${placeholders}) AND is_active = true ${platformFilter}
+            ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC
+            LIMIT 1`
+
+        const rows = (
+            await this.postgres.query<PushSubscriptionRow>(
+                PostgresUse.COMMON_READ,
+                queryString,
+                params,
+                'findSubscriptionByPersonDistinctIds'
+            )
+        ).rows
+
+        const row = rows[0] ?? null
+        if (!row) {
+            return null
+        }
+
+        const decryptedToken = this.encryptedFields.decrypt(row.token, { ignoreDecryptionErrors: true }) ?? row.token
+
+        return {
+            id: row.id,
+            team_id: row.team_id,
+            distinct_id: row.distinct_id,
+            token: decryptedToken,
+            platform: row.platform,
+            is_active: row.is_active,
+            last_successfully_used_at: row.last_successfully_used_at,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+
+    public async updateDistinctId(teamId: number, subscriptionId: string, newDistinctId: string): Promise<void> {
+        const queryString = `UPDATE workflows_pushsubscription
+            SET distinct_id = $1, updated_at = NOW()
+            WHERE id = $2 AND team_id = $3 AND is_active = true`
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            queryString,
+            [newDistinctId, subscriptionId, teamId],
+            'updatePushSubscriptionDistinctId'
         )
     }
 

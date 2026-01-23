@@ -28,8 +28,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -380,33 +379,6 @@ export class HogExecutorService {
                         invocation.hogFunction,
                         invocation.state.globals
                     )
-                }
-
-                // Populate full push_subscriptions data from IDs if needed (IDs are stored to avoid bloating cyclotron DB)
-                if (
-                    globals.push_subscriptions &&
-                    globals.push_subscriptions.length > 0 &&
-                    globals.push_subscriptions[0].id &&
-                    !globals.push_subscriptions[0].token
-                ) {
-                    const subscriptionIds = globals.push_subscriptions.map((sub: any) => sub.id)
-                    const subscriptions = await this.pushSubscriptionsManager.getManyById(
-                        invocation.teamId,
-                        subscriptionIds
-                    )
-                    globals.push_subscriptions = subscriptionIds.map((id: string) => {
-                        const sub = subscriptions[id]
-                        if (sub && sub.is_active) {
-                            return {
-                                id: sub.id,
-                                token: sub.token,
-                                platform: sub.platform,
-                                is_active: sub.is_active,
-                                last_successfully_used_at: sub.last_successfully_used_at,
-                            }
-                        }
-                        return { id }
-                    })
                 }
             } catch (e) {
                 addLog('error', `Error building inputs: ${e}`)
@@ -801,7 +773,7 @@ export class HogExecutorService {
         let fcmToken: string | null = null
         if (invocation.state.globals?.inputs) {
             const pushSubscriptionKey = invocation.hogFunction.inputs_schema?.find(
-                (schema) => schema.type === 'push_subscription'
+                (schema) => schema.type === 'push_subscription_distinct_id'
             )?.key
             if (pushSubscriptionKey && invocation.state.globals.inputs[pushSubscriptionKey]) {
                 fcmToken = invocation.state.globals.inputs[pushSubscriptionKey] || null
