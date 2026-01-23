@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import React, { Children, ReactNode, createContext, isValidElement, useContext, useMemo } from 'react'
 
 import { StepProps, StepsProps } from '@posthog/shared-onboarding/steps'
+import { StepDefinition, StepModifier } from '@posthog/shared-onboarding/steps'
 
 import { CodeSnippet, getLanguage } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -12,7 +13,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-interface OnboardingComponents {
+export interface OnboardingComponents {
     Steps: React.ComponentType<StepsProps>
     Step: React.ComponentType<StepProps>
     CodeBlock: React.ComponentType<{
@@ -400,4 +401,51 @@ export function dedent(strings: TemplateStringsArray | string, ...values: any[])
         .map((line) => (line.length >= indent ? line.slice(indent) : line))
         .join('\n')
         .trim()
+}
+
+/**
+ * Creates an Installation component from a steps function.
+ * Eliminates boilerplate for the standard Installation pattern.
+ *
+ * @example
+ * // Before (15 lines per framework):
+ * export const NodeJSInstallation = (): JSX.Element => {
+ *     const { Steps, Step, CodeBlock, Markdown, ... } = useMDXComponents()
+ *     const steps = getNodeJSSteps(CodeBlock, Markdown, ...)
+ *     return (
+ *         <Steps>
+ *             {steps.map((step, index) => (
+ *                 <Step key={index} title={step.title} badge={step.badge}>
+ *                     {step.content}
+ *                 </Step>
+ *             ))}
+ *         </Steps>
+ *     )
+ * }
+ *
+ * // After (1 line):
+ * export const NodeJSInstallation = createInstallation(getNodeJSSteps)
+ */
+export function createInstallation(
+    getSteps: (ctx: OnboardingComponents) => StepDefinition[]
+): React.ComponentType<StepModifier> {
+    return function Installation({ modifySteps }: StepModifier = {}) {
+        const components = useMDXComponents()
+        const { Steps, Step } = components
+
+        let steps = getSteps(components)
+        if (modifySteps) {
+            steps = modifySteps(steps)
+        }
+
+        return (
+            <Steps>
+                {steps.map((step, index) => (
+                    <Step key={index} title={step.title} badge={step.badge}>
+                        {step.content}
+                    </Step>
+                ))}
+            </Steps>
+        )
+    }
 }
