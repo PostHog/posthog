@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 from contextlib import contextmanager
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -104,7 +105,7 @@ def run_gateway_server(configure_all_providers: bool = False):
 
         # Pre-populate the ModelCostService cache to avoid network calls in CI
         cost_service = ModelCostService.get_instance()
-        cost_service._costs = MOCK_MODEL_COSTS
+        cost_service._costs = cast(dict, MOCK_MODEL_COSTS)
         cost_service._last_refresh = time.monotonic()
 
         with patch("llm_gateway.main.init_db_pool", return_value=mock_db_pool):
