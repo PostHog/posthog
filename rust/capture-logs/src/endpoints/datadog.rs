@@ -247,6 +247,15 @@ pub async fn export_datadog_logs_http(
         },
     };
 
+    if service.token_dropper.should_drop(&token, "") {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Invalid token"})),
+        ));
+    }
+
+    tracing::Span::current().record("token", &token);
+
     let logs: Vec<DatadogLog> = match serde_json::from_slice::<Vec<DatadogLog>>(&body) {
         Ok(logs) => logs,
         Err(_) => match serde_json::from_slice::<DatadogLog>(&body) {
@@ -260,15 +269,6 @@ pub async fn export_datadog_logs_http(
             }
         },
     };
-
-    if service.token_dropper.should_drop(&token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid token"})),
-        ));
-    }
-
-    tracing::Span::current().record("token", &token);
 
     let rows: Vec<KafkaLogRow> = logs
         .into_iter()
