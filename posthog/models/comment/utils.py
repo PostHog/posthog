@@ -79,7 +79,7 @@ def produce_discussion_mention_events(
         if not commenter:
             return
 
-        mentioned_users = User.objects.filter(id__in=mentioned_user_ids)
+        mentioned_users = User.objects.filter(id__in=mentioned_user_ids).exclude(id=commenter.id)
         if not mentioned_users.exists():
             return
 

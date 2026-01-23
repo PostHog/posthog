@@ -564,7 +564,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
-    @mock.patch("posthog.api.comments.produce_internal_event")
+    @mock.patch("posthog.models.comment.utils.produce_internal_event")
     @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
     def test_produces_internal_event_on_comment_create(
         self, mock_send_email: mock.MagicMock, mock_produce_event: mock.MagicMock
@@ -595,7 +595,7 @@ class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
         assert event.properties["scope"] == "Notebook"
         assert event.properties["item_id"] == "123"
 
-    @mock.patch("posthog.api.comments.produce_internal_event")
+    @mock.patch("posthog.models.comment.utils.produce_internal_event")
     @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
     def test_produces_internal_event_on_comment_update(
         self, mock_send_email: mock.MagicMock, mock_produce_event: mock.MagicMock
@@ -622,7 +622,7 @@ class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
         event = mock_produce_event.call_args.kwargs["event"]
         assert event.event == "$discussion_mention_created"
 
-    @mock.patch("posthog.api.comments.produce_internal_event")
+    @mock.patch("posthog.models.comment.utils.produce_internal_event")
     @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
     def test_self_mentions_do_not_produce_events(
         self, mock_send_email: mock.MagicMock, mock_produce_event: mock.MagicMock
@@ -638,7 +638,7 @@ class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
 
         mock_produce_event.assert_not_called()
 
-    @mock.patch("posthog.api.comments.produce_internal_event")
+    @mock.patch("posthog.models.comment.utils.produce_internal_event")
     @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
     def test_event_properties_include_correct_user_data(
         self, mock_send_email: mock.MagicMock, mock_produce_event: mock.MagicMock
