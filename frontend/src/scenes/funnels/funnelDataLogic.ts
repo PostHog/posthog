@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
@@ -88,8 +89,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['aggregationLabel'],
             featureFlagLogic,
             ['featureFlags'],
+            router,
+            ['searchParams'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource'], router, ['push']],
     })),
 
     actions({
@@ -265,8 +268,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         hiddenLegendBreakdowns: [
             (s) => [s.funnelsFilter],
-            (funnelsFilter: FunnelsFilter | null | undefined): string[] | undefined =>
-                funnelsFilter?.hiddenLegendBreakdowns,
+            (funnelsFilter): string[] | undefined => funnelsFilter?.hiddenLegendBreakdowns,
         ],
         breakdownSorting: [
             (s) => [s.funnelsFilter],
@@ -581,4 +583,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             actions.updateInsightFilter({ breakdownSorting })
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        // Sync URL with saved sorting on mount
+        if (values.breakdownSorting && !values.searchParams.order) {
+            actions.push(
+                window.location.pathname,
+                { ...values.searchParams, order: values.breakdownSorting },
+                window.location.hash
+            )
+        }
+    }),
 ])

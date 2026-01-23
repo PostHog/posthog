@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { compare as compareFn } from 'natural-orderby'
-import { useEffect } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonColorButton } from '@posthog/lemon-ui'
@@ -30,8 +28,9 @@ import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, breakdownSorting, getFunnelsColor, isStepOptional } =
-        useValues(funnelDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSorting } = useActions(
         funnelDataLogic(insightProps)
     )
@@ -39,20 +38,10 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
-    const { searchParams } = useValues(router)
-    const { push } = useActions(router)
-
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-
-    // Sync URL with saved sorting on mount
-    useEffect(() => {
-        if (breakdownSorting && !searchParams.order) {
-            push(window.location.pathname, { ...searchParams, order: breakdownSorting }, window.location.hash)
-        }
-    }, [breakdownSorting])
 
     const allChecked = flattenedBreakdowns?.every(
         (b) => !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))

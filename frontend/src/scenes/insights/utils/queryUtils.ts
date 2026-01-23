@@ -174,6 +174,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,
+            breakdownSorting: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined
