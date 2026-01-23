@@ -32,6 +32,7 @@ class DevenvConfig:
     exclude_units: list[str] = field(default_factory=list)
     skip_autostart: list[str] = field(default_factory=list)
     enable_autostart: list[str] = field(default_factory=list)
+    log_to_files: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization."""
@@ -49,6 +50,8 @@ class DevenvConfig:
             data["skip_autostart"] = self.skip_autostart
         if self.enable_autostart:
             data["enable_autostart"] = self.enable_autostart
+        if self.log_to_files:
+            data["log_to_files"] = self.log_to_files
 
         return data
 
@@ -62,6 +65,7 @@ class DevenvConfig:
             exclude_units=data.get("exclude_units", []),
             skip_autostart=data.get("skip_autostart", []),
             enable_autostart=data.get("enable_autostart", []),
+            log_to_files=data.get("log_to_files", False),
         )
 
 
@@ -170,6 +174,10 @@ class MprocsGenerator(ConfigGenerator):
             if name == "docker-compose":
                 proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
 
+            # Add logging wrapper if enabled
+            if source_config and source_config.log_to_files:
+                proc_config = self._add_logging(proc_config, name)
+
             procs[name] = proc_config
 
         # Get global settings from registry
@@ -230,10 +238,31 @@ class MprocsGenerator(ConfigGenerator):
             "shell": f"{message}{up_cmd} && {logs_cmd}",
         }
 
+    def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
+        """Wrap shell command to log output to /tmp/posthog-{name}.log.
+
+        Args:
+            proc_config: The process configuration dict
+            process_name: Name of the process (used in log filename)
+
+        Returns:
+            Modified process configuration with tee logging
+        """
+        shell = proc_config.get("shell", "")
+        if not shell:
+            return proc_config
+
+        log_file = f"/tmp/posthog-{process_name}.log"
+        proc_config["shell"] = f"{shell} 2>&1 | tee {log_file}"
+        return proc_config
+
     def save(self, config: MprocsConfig, output_path: Path) -> Path:
         """Save mprocs configuration to YAML file."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
+            # Add header comment for log mode
+            if config.posthog_config and config.posthog_config.log_to_files:
+                f.write("# Log mode: Output logged to /tmp/posthog-*.log\n")
             yaml.dump(config.to_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
 

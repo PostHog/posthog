@@ -12,11 +12,12 @@ from .registry import create_mprocs_registry
 from .resolver import IntentMap, IntentResolver
 
 
-def run_setup_wizard(intent_map: IntentMap) -> DevenvConfig | None:
+def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> DevenvConfig | None:
     """Run the setup wizard.
 
     Args:
         intent_map: The intent map
+        log_to_files: Whether to log process output to /tmp/posthog-*.log files
 
     Returns:
         The created config, or None if cancelled
@@ -59,6 +60,9 @@ def run_setup_wizard(intent_map: IntentMap) -> DevenvConfig | None:
 
     # Ask about overrides
     config = _configure_overrides(config, registry)
+
+    # Set log mode if requested
+    config.log_to_files = log_to_files
 
     # Show summary
     click.echo("")
@@ -114,6 +118,8 @@ def _show_config_summary(config: DevenvConfig) -> None:
         click.echo(f"  Manual start: {', '.join(config.skip_autostart)}")
     if config.enable_autostart:
         click.echo(f"  Auto-start: {', '.join(config.enable_autostart)}")
+    if config.log_to_files:
+        click.echo("  Log mode: /tmp/posthog-*.log")
 
 
 def _setup_from_preset(intent_map: IntentMap) -> DevenvConfig:
