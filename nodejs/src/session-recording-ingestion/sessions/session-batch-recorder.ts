@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from 'uuid'
 
-import { BaseKeyStore, BaseRecordingEncryptor, SessionKey } from '../../recording-api/types'
+import { BaseKeyStore, BaseRecordingEncryptor, SessionKey } from '../../session-recording-api/types'
 import { logger } from '../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'

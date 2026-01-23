@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
-import { BaseKeyStore, BaseRecordingEncryptor } from '../../recording-api/types'
+import { BaseKeyStore, BaseRecordingEncryptor } from '../../session-recording-api/types'
 import { parseJSON } from '../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'

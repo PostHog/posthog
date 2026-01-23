@@ -10,9 +10,9 @@ import sodium from 'libsodium-wrappers'
 import snappy from 'snappy'
 
 import { parseJSON } from '../utils/json-parse'
+import { RecordingDecryptor } from './decryptor'
+import { RecordingEncryptor } from './encryptor'
 import { InMemoryKeyStore } from './keystore'
-import { RecordingDecryptor } from './recording-decryptor'
-import { RecordingEncryptor } from './recording-encryptor'
 import { SessionKey, SessionKeyDeletedError } from './types'
 
 describe('Recording API encryption integration', () => {

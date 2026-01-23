@@ -1,7 +1,7 @@
 import sodium from 'libsodium-wrappers'
 
 import * as envUtils from '../utils/env-utils'
-import { PassthroughRecordingEncryptor, RecordingEncryptor, getBlockEncryptor } from './recording-encryptor'
+import { PassthroughRecordingEncryptor, RecordingEncryptor, getBlockEncryptor } from './encryptor'
 import { BaseKeyStore, BaseRecordingEncryptor, SessionKey, SessionKeyDeletedError } from './types'
 
 jest.mock('../utils/env-utils', () => ({

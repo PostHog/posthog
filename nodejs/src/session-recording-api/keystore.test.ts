@@ -1,8 +1,8 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
 
-import { RetentionService } from '../session-recording/retention/retention-service'
-import { TeamService } from '../session-recording/teams/team-service'
+import { RetentionService } from '../session-recording-ingestion/retention/retention-service'
+import { TeamService } from '../session-recording-ingestion/teams/team-service'
 import * as envUtils from '../utils/env-utils'
 import { InMemoryKeyStore, KeyStore, PassthroughKeyStore, getKeyStore } from './keystore'
 import { SessionKeyDeletedError } from './types'
