@@ -1,7 +1,14 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+
+if TYPE_CHECKING:
+    from posthog.ducklake.storage import CrossAccountDestination
 
 
 class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -31,6 +38,20 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     bucket = models.CharField(max_length=255)
     bucket_region = models.CharField(max_length=50, default="us-east-1")
 
+    # Cross-account S3 access settings (optional - for writing to customer-owned buckets)
+    cross_account_role_arn = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="ARN of the IAM role to assume for cross-account S3 access",
+    )
+    cross_account_external_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="External ID for cross-account role assumption (recommended for security)",
+    )
+
     class Meta:
         db_table = "posthog_ducklakecatalog"
         verbose_name = "DuckLake catalog"
@@ -50,3 +71,20 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             "DUCKLAKE_S3_ACCESS_KEY": "",
             "DUCKLAKE_S3_SECRET_KEY": "",
         }
+
+    def to_cross_account_destination(self) -> CrossAccountDestination | None:
+        """Convert to a CrossAccountDestination for cross-account S3 access.
+
+        Returns None if cross-account settings are not configured.
+        """
+        if not self.cross_account_role_arn:
+            return None
+
+        from posthog.ducklake.storage import CrossAccountDestination
+
+        return CrossAccountDestination(
+            role_arn=self.cross_account_role_arn,
+            bucket_name=self.bucket,
+            external_id=self.cross_account_external_id or None,
+            region=self.bucket_region or None,
+        )

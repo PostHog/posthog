@@ -9,7 +9,7 @@ import posthog.helpers.encrypted_fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0983_alter_integration_kind"),
+        ("posthog", "0984_clear_temporary_tokens"),
     ]
 
     operations = [
@@ -46,6 +46,24 @@ class Migration(migrations.Migration):
                 ("rds_password", posthog.helpers.encrypted_fields.EncryptedTextField(max_length=500)),
                 ("bucket", models.CharField(max_length=255)),
                 ("bucket_region", models.CharField(default="us-east-1", max_length=50)),
+                (
+                    "cross_account_role_arn",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="ARN of the IAM role to assume for cross-account S3 access",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "cross_account_external_id",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="External ID for cross-account role assumption (recommended for security)",
+                        max_length=255,
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "DuckLake catalog",
