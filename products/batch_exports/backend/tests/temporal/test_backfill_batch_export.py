@@ -17,7 +17,6 @@ import temporalio.testing
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import BatchExport
 from posthog.temporal.tests.utils.datetimes import date_range
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
@@ -211,14 +210,6 @@ async def temporal_schedule_hourly(temporal_client, team):
     yield handle
 
     await adelete_batch_export(batch_export, temporal_client)
-
-
-@pytest.fixture
-async def cleanup_batch_exports(temporal_client):
-    """Cleanup any batch exports created during the test."""
-    yield
-    async for batch_export in BatchExport.objects.all():
-        await adelete_batch_export(batch_export, temporal_client)
 
 
 @pytest.fixture(
@@ -489,9 +480,8 @@ async def test_backfill_schedule_activity(
 )
 async def test_backfill_batch_export_workflow(
     temporal_worker,
-    cleanup_batch_exports,
     temporal_client,
-    team,
+    ateam,
     backfill_timezone,
     interval,
     timezone,
@@ -525,7 +515,7 @@ async def test_backfill_batch_export_workflow(
 
     # first create a batch export with the given interval, timezone and offset
     batch_export = await acreate_batch_export(
-        team_id=team.pk,
+        team_id=ateam.pk,
         name=f"no-op-export-{interval}-{timezone}-{offset_day}-{offset_hour}",
         destination_data={
             "type": "NoOp",
@@ -555,7 +545,7 @@ async def test_backfill_batch_export_workflow(
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
-        team_id=team.pk,
+        team_id=ateam.pk,
         batch_export_id=str(batch_export.id),
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),

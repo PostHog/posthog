@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing
+import logging
 import datetime as dt
 import collections
 
@@ -11,13 +12,19 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 
 from asgiref.sync import async_to_sync
-from temporalio.client import ScheduleDescription, ScheduleRange
+from temporalio.client import (
+    Client as TemporalClient,
+    ScheduleDescription,
+    ScheduleRange,
+)
+from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.management.commands.create_batch_export_from_app import map_plugin_config_to_destination
-from posthog.models import Plugin, PluginAttachment, PluginConfig
+from posthog.models import BatchExport, Plugin, PluginAttachment, PluginConfig
+from posthog.models.team.util import delete_batch_exports
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
@@ -33,7 +40,34 @@ def organization():
 def team(organization):
     team = create_team(organization=organization)
     yield team
+    delete_batch_exports(team_ids=[team.pk])
     team.delete()
+
+
+@async_to_sync
+async def delete_temporal_schedule(temporal: TemporalClient, schedule_id: str):
+    """Delete a Temporal Schedule with the given id."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    await handle.delete()
+
+
+def cleanup_temporal_schedules(temporal: TemporalClient):
+    """Clean up any Temporal Schedules created during the test."""
+    for schedule in BatchExport.objects.all():
+        try:
+            delete_temporal_schedule(temporal, str(schedule.id))
+        except RPCError:
+            # Assume this is fine as we are tearing down, but don't fail silently.
+            logging.warning("Schedule %s has already been deleted, ignoring.", schedule.id)
+            continue
+
+
+@pytest.fixture
+def temporal():
+    """Return a TemporalClient instance."""
+    client = sync_connect()
+    yield client
+    cleanup_temporal_schedules(client)
 
 
 # Used to randomize plugin URLs, to prevent tests stepping on each other, since
@@ -407,6 +441,7 @@ def test_create_batch_export_from_app(
     interval,
     plugin_config,
     disable_plugin_config,
+    temporal,
 ):
     """Test a live run of the create_batch_export_from_app command."""
     args = [
@@ -433,8 +468,6 @@ def test_create_batch_export_from_app(
         "type": export_type,
         "config": config,
     }
-
-    temporal = sync_connect()
 
     schedule = describe_schedule(temporal, str(batch_export_data["id"]))
     if interval == "hour":
@@ -475,6 +508,7 @@ def test_create_batch_export_from_app_with_disabled_plugin(
     interval,
     plugin_config,
     migrate_disabled_plugin_config,
+    temporal,
 ):
     """Test a live run of the create_batch_export_from_app command."""
     args = [
@@ -507,8 +541,6 @@ def test_create_batch_export_from_app_with_disabled_plugin(
         return
 
     assert "id" in batch_export_data
-
-    temporal = sync_connect()
 
     schedule = describe_schedule(temporal, str(batch_export_data["id"]))
     if interval == "hour":

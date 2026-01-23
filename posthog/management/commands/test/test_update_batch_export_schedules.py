@@ -90,7 +90,7 @@ def cleanup_temporal_schedules(temporal: TemporalClient):
             delete_temporal_schedule(temporal, str(schedule.id))
         except RPCError:
             # Assume this is fine as we are tearing down, but don't fail silently.
-            logging.warn("Schedule %s has already been deleted, ignoring.", schedule.id)
+            logging.warning("Schedule %s has already been deleted, ignoring.", schedule.id)
             continue
 
 
