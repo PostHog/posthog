@@ -542,7 +542,6 @@ def team_api_test_factory():
             self.organization_membership.save()
 
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-            organization_name = self.organization.name
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
@@ -578,7 +577,6 @@ def team_api_test_factory():
                 team_ids=[team.pk],
                 user_id=self.user.id,
                 project_name="Default project",
-                organization_name=organization_name,
             )
 
         def test_delete_bulky_postgres_data(self):

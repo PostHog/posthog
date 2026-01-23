@@ -202,7 +202,6 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         project_id = self.project.id
         project_name = self.project.name
         team_id = self.team.id
-        org_name = self.project.organization.name
 
         viewset.perform_destroy(self.project)
 
@@ -214,7 +213,6 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             team_ids=[team_id],
             user_id=self.user.id,
             project_name=project_name,
-            organization_name=org_name,
         )
 
     def test_team_deletion_does_not_cascade_to_persons(self):
