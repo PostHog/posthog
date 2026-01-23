@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    FuzzyInt,
     QueryMatchingTest,
     _create_event,
     _create_person,
@@ -580,13 +579,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-            ],
+            [15, 15, 15, 15, 15],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -1098,8 +1091,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response_data = response.json()
             self.assertEqual(response_data["name"], "insight new name")
-            # tags are a paid feature and safely ignored when not licensed
-            self.assertEqual(sorted(response_data["tags"]), [])
+            self.assertEqual(sorted(response_data["tags"]), ["add", "tags", "these"])
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
             self.assertEqual(
                 response_data["effective_restriction_level"],
@@ -1130,6 +1122,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                     "field": "name",
                                     "before": "insight name",
                                     "after": "insight new name",
+                                },
+                                {
+                                    "type": "Insight",
+                                    "action": "changed",
+                                    "field": "tags",
+                                    "before": [],
+                                    "after": ["add", "tags", "these"],
                                 },
                             ],
                             "trigger": None,
