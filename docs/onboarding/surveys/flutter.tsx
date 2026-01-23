@@ -5,14 +5,11 @@ import { StepDefinition, StepModifier } from '../steps'
 export const getFlutterSteps = (
     CodeBlock: any,
     Markdown: any,
-    CalloutBox: any,
-    Tab: any,
     dedent: any,
-    snippets: any,
     options?: StepModifier
 ): StepDefinition[] => {
 
-    const installationSteps = getFlutterStepsPA(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
+    const installationSteps = getFlutterStepsPA(CodeBlock, Markdown, dedent)
 
     // Add survey steps here if needed
     const surveySteps: StepDefinition[] = [
@@ -71,8 +68,8 @@ export const getFlutterSteps = (
 }
 
 export const FlutterInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-    const steps = getFlutterSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets, { modifySteps })
+    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+    const steps = getFlutterSteps(CodeBlock, Markdown, dedent, { modifySteps })
 
     return (
         <Steps>

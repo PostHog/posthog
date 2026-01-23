@@ -5,14 +5,11 @@ import { StepDefinition, StepModifier } from '../steps'
 export const getIOSSteps = (
     CodeBlock: any,
     Markdown: any,
-    CalloutBox: any,
-    Tab: any,
     dedent: any,
-    snippets: any,
     options?: StepModifier
 ): StepDefinition[] => {
 
-    const installationSteps = getIOSStepsPA(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
+    const installationSteps = getIOSStepsPA(CodeBlock, Markdown, dedent)
 
     // Add survey steps here if needed
     const surveySteps: StepDefinition[] = [
@@ -32,7 +29,7 @@ export const getIOSSteps = (
                                 code: dedent`
                                     let POSTHOG_API_KEY = "<ph_project_api_key>"
                                     let POSTHOG_HOST = "<ph_client_api_host>"
-                                    
+
                                     // Surveys require iOS 15.0 or later
                                     if #available(iOS 15.0, *) {
                                         config.surveys = true
@@ -53,8 +50,8 @@ export const getIOSSteps = (
 }
 
 export const iOSInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-    const steps = getIOSSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets, { modifySteps })
+    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+    const steps = getIOSSteps(CodeBlock, Markdown, dedent, { modifySteps })
 
     return (
         <Steps>

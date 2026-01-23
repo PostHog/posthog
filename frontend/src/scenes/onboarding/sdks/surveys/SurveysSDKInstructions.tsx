@@ -1,5 +1,6 @@
 import { JSEventCapture } from '@posthog/shared-onboarding/product-analytics'
 import {
+    AngularInstallation,
     FlutterInstallation,
     HTMLSnippetInstallation,
     JSWebInstallation,
@@ -24,6 +25,7 @@ const SurveysReactInstructionsWrapper = withOnboardingDocsWrapper(ReactInstallat
 const SurveysReactNativeInstructionsWrapper = withOnboardingDocsWrapper(ReactNativeInstallation)
 const SurveysiOSInstructionsWrapper = withOnboardingDocsWrapper(iOSInstallation)
 const SurveysFlutterInstructionsWrapper = withOnboardingDocsWrapper(FlutterInstallation)
+const SurveysAngularInstructionsWrapper = withOnboardingDocsWrapper(AngularInstallation)
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: SurveysJSWebInstructionsWrapper,
@@ -33,6 +35,7 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REACT_NATIVE]: SurveysReactNativeInstructionsWrapper,
     [SDKKey.IOS]: SurveysiOSInstructionsWrapper,
     [SDKKey.FLUTTER]: SurveysFlutterInstructionsWrapper,
+    [SDKKey.ANGULAR]: SurveysAngularInstructionsWrapper,
     /*
     [SDKKey.ANGULAR]: AngularInstructions,
     [SDKKey.ASTRO]: AstroInstructions,

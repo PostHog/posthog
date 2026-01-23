@@ -5,10 +5,7 @@ import { StepDefinition } from '../steps'
 export const getFlutterSteps = (
     CodeBlock: any,
     Markdown: any,
-    CalloutBox: any,
-    Tab: any,
     dedent: any,
-    snippets: any
 ): StepDefinition[] => {
     return [
         {
@@ -183,8 +180,8 @@ export const getFlutterSteps = (
 }
 
 export const FlutterInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-    const steps = getFlutterSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
+    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+    const steps = getFlutterSteps(CodeBlock, Markdown, dedent)
 
     return (
         <Steps>

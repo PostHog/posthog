@@ -5,10 +5,7 @@ import { StepDefinition } from '../steps'
 export const getIOSSteps = (
     CodeBlock: any,
     Markdown: any,
-    CalloutBox: any,
-    Tab: any,
     dedent: any,
-    snippets: any
 ): StepDefinition[] => {
     return [
         {
@@ -104,7 +101,7 @@ export const getIOSSteps = (
                                         init() {
                                             let POSTHOG_API_KEY = "<ph_project_api_key>"
                                             let POSTHOG_HOST = "<ph_client_api_host>"
-                                            
+
                                             let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
                                             PostHogSDK.shared.setup(config)
                                         }
@@ -150,8 +147,8 @@ export const getIOSSteps = (
 }
 
 export const IOSInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-    const steps = getIOSSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
+    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+    const steps = getIOSSteps(CodeBlock, Markdown, dedent)
 
     return (
         <Steps>
