@@ -4,6 +4,7 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
+from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
 from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES, TodoWriteExample
 from ee.hogai.utils.feature_flags import has_upsert_dashboard_feature_flag
@@ -36,6 +37,8 @@ The assistant used the todo list because:
 3. Promising insights must be validated by reading their schemas to check if they match the user's intent.
 4. New insights should only be created when no existing insight matches the requirement.
 """.strip()
+
+MODE_DESCRIPTION = "General-purpose mode for product analytics tasks."
 
 
 class ProductAnalyticsAgentToolkit(AgentToolkit):
@@ -74,6 +77,15 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
 
 product_analytics_agent = AgentModeDefinition(
     mode=AgentMode.PRODUCT_ANALYTICS,
-    mode_description="General-purpose mode for product analytics tasks.",
+    mode_description=MODE_DESCRIPTION,
     toolkit_class=ProductAnalyticsAgentToolkit,
+)
+
+
+chat_agent_plan_product_analytics_agent = AgentModeDefinition(
+    mode=AgentMode.PRODUCT_ANALYTICS,
+    mode_description=MODE_DESCRIPTION,
+    toolkit_class=ProductAnalyticsAgentToolkit,
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
 )

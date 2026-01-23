@@ -1219,10 +1219,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         except Person.DoesNotExist:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
 
-        success = cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
-
-        if not success:
-            raise NotFound("Person is not part of the cohort")
+        # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
+        cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
 
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
