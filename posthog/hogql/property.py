@@ -701,12 +701,12 @@ def property_to_expr(
                 json_key = parts[-1]
                 # Build the JSONExtractString expression and return early
                 metadata_field = ast.Field(chain=[table, "metadata"])
-                expr = ast.Call(
+                json_expr = ast.Call(
                     name="JSONExtractString",
                     args=[metadata_field, ast.Constant(value=json_key)],
                 )
                 return _expr_to_compare_op(
-                    expr=expr, value=value, operator=operator, property=property, is_json_field=True, team=team
+                    expr=json_expr, value=value, operator=operator, property=property, is_json_field=True, team=team
                 )
             else:
                 *chain, property.key = parts
