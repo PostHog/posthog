@@ -29,16 +29,40 @@ const PROVIDER_SNIPPETS = {
 }
 
 // Manual capture, all event types
-const LLMManualInstructionsWrapper = withOnboardingDocsWrapper(ManualInstallation, MANUAL_SNIPPETS)
+const LLMManualInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ManualInstallation,
+    snippets: MANUAL_SNIPPETS,
+})
 
 // LLM Providers
-const LLMOpenAIInstructionsWrapper = withOnboardingDocsWrapper(OpenAIInstallation, PROVIDER_SNIPPETS)
-const LLMAnthropicInstructionsWrapper = withOnboardingDocsWrapper(AnthropicInstallation, PROVIDER_SNIPPETS)
-const LLMGoogleInstructionsWrapper = withOnboardingDocsWrapper(GoogleInstallation, PROVIDER_SNIPPETS)
-const LLMOpenRouterInstructionsWrapper = withOnboardingDocsWrapper(OpenRouterInstallation, PROVIDER_SNIPPETS)
-const LLMLangChainInstructionsWrapper = withOnboardingDocsWrapper(LangChainInstallation, PROVIDER_SNIPPETS)
-const LLMLiteLLMInstructionsWrapper = withOnboardingDocsWrapper(LiteLLMInstallation, PROVIDER_SNIPPETS)
-const LLMVercelAIInstructionsWrapper = withOnboardingDocsWrapper(VercelAIInstallation, PROVIDER_SNIPPETS)
+const LLMOpenAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMAnthropicInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AnthropicInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMGoogleInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoogleInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMOpenRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenRouterInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLangChainInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LangChainInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLiteLLMInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LiteLLMInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMVercelAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: VercelAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,

@@ -7,15 +7,18 @@ import { SDKKey } from '~/types'
 import SetupWizardBanner from '../sdk-install-instructions/components/SetupWizardBanner'
 import { AdvertiseMobileReplay, AdvertiseMobileReplayContext } from '../session-replay/SessionReplaySDKInstructions'
 
+interface OnboardingDocsWrapperOptions {
+    Installation: React.ComponentType<any>
+    snippets?: Record<string, React.ComponentType<any>>
+    wizardIntegrationName?: string
+}
+
 /**
  * Helper to create wrapped instruction components without recreating snippets on every render.
  * Used by product-analytics, feature-flags, experiments, and llm-analytics onboarding flows.
  */
-export function withOnboardingDocsWrapper(
-    Installation: React.ComponentType<any>,
-    snippets?: Record<string, React.ComponentType<any>>,
-    wizardIntegrationName?: string
-): () => JSX.Element {
+export function withOnboardingDocsWrapper(options: OnboardingDocsWrapperOptions): () => JSX.Element {
+    const { Installation, snippets, wizardIntegrationName } = options
     return function WrappedInstallation() {
         return (
             <>

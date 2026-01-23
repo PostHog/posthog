@@ -78,14 +78,35 @@ const SERVER_SDK_SNIPPETS = {
 }
 
 // Wrappers for SDKs that use Installation components from shared-onboarding
-const FeatureFlagsJSWebInstructionsWrapper = withOnboardingDocsWrapper(JSWebInstallation, JS_WEB_SNIPPETS)
-const FeatureFlagsReactInstructionsWrapper = withOnboardingDocsWrapper(ReactInstallation, REACT_SNIPPETS)
-const FeatureFlagsNodeInstructionsWrapper = withOnboardingDocsWrapper(NodeJSInstallation, NODE_SNIPPETS)
-const FeatureFlagsPythonInstructionsWrapper = withOnboardingDocsWrapper(PythonInstallation, PYTHON_SNIPPETS)
-const FeatureFlagsPHPInstructionsWrapper = withOnboardingDocsWrapper(PHPInstallation, SERVER_SDK_SNIPPETS)
-const FeatureFlagsRubyInstructionsWrapper = withOnboardingDocsWrapper(RubyInstallation, SERVER_SDK_SNIPPETS)
-const FeatureFlagsGoInstructionsWrapper = withOnboardingDocsWrapper(GoInstallation, SERVER_SDK_SNIPPETS)
-const FeatureFlagsAPIInstructionsWrapper = withOnboardingDocsWrapper(APIInstallation)
+const FeatureFlagsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: JSWebInstallation,
+    snippets: JS_WEB_SNIPPETS,
+})
+const FeatureFlagsReactInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactInstallation,
+    snippets: REACT_SNIPPETS,
+})
+const FeatureFlagsNodeInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: NodeJSInstallation,
+    snippets: NODE_SNIPPETS,
+})
+const FeatureFlagsPythonInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PythonInstallation,
+    snippets: PYTHON_SNIPPETS,
+})
+const FeatureFlagsPHPInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PHPInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const FeatureFlagsRubyInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const FeatureFlagsGoInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const FeatureFlagsAPIInstructionsWrapper = withOnboardingDocsWrapper({ Installation: APIInstallation })
 
 // Snippet configuration for flag implementation (used by FlagImplementationSteps)
 const FLAG_IMPLEMENTATION_SNIPPETS = {
@@ -136,27 +157,42 @@ const SSR_FRAMEWORK_SNIPPETS = {
 }
 
 // Wrappers for SDKs using product-analytics Installation components
-const FeatureFlagsAngularInstructionsWrapper = withOnboardingDocsWrapper(
-    AngularInstallation,
-    ANGULAR_WITH_EVENTS_SNIPPETS
-)
-const FeatureFlagsAstroInstructionsWrapper = withOnboardingDocsWrapper(AstroInstallation, JS_WEB_WITH_EVENTS_SNIPPETS)
-const FeatureFlagsBubbleInstructionsWrapper = withOnboardingDocsWrapper(BubbleInstallation, JS_WEB_WITH_EVENTS_SNIPPETS)
-const FeatureFlagsFramerInstructionsWrapper = withOnboardingDocsWrapper(FramerInstallation, JS_WEB_WITH_EVENTS_SNIPPETS)
-const FeatureFlagsVueInstructionsWrapper = withOnboardingDocsWrapper(VueInstallation, JS_WEB_WITH_EVENTS_SNIPPETS)
-const FeatureFlagsWebflowInstructionsWrapper = withOnboardingDocsWrapper(
-    WebflowInstallation,
-    JS_WEB_WITH_EVENTS_SNIPPETS
-)
+const FeatureFlagsAngularInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AngularInstallation,
+    snippets: ANGULAR_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsAstroInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AstroInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsBubbleInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: BubbleInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsFramerInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: FramerInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsVueInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: VueInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsWebflowInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebflowInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
 
 // Python frameworks
-const FeatureFlagsDjangoInstructionsWrapper = withOnboardingDocsWrapper(DjangoInstallation, PYTHON_WITH_EVENTS_SNIPPETS)
+const FeatureFlagsDjangoInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DjangoInstallation,
+    snippets: PYTHON_WITH_EVENTS_SNIPPETS,
+})
 
 // PHP frameworks
-const FeatureFlagsLaravelInstructionsWrapper = withOnboardingDocsWrapper(
-    LaravelInstallation,
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
+const FeatureFlagsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LaravelInstallation,
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
 
 // Wrappers for mobile SDKs with AdvertiseMobileReplay
 const FeatureFlagsAndroidInstructionsWrapper = withMobileReplay({
@@ -185,10 +221,22 @@ const FeatureFlagsRNInstructionsWrapper = withMobileReplay({
 })
 
 // Wrappers for SSR frameworks
-const FeatureFlagsNextJSInstructionsWrapper = withOnboardingDocsWrapper(NextJSInstallation, SSR_FRAMEWORK_SNIPPETS)
-const FeatureFlagsSvelteInstructionsWrapper = withOnboardingDocsWrapper(SvelteInstallation, SSR_FRAMEWORK_SNIPPETS)
-const FeatureFlagsRemixJSInstructionsWrapper = withOnboardingDocsWrapper(RemixInstallation, SSR_FRAMEWORK_SNIPPETS)
-const FeatureFlagsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper(NuxtInstallation, SSR_FRAMEWORK_SNIPPETS)
+const FeatureFlagsNextJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: NextJSInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
+const FeatureFlagsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SvelteInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
+const FeatureFlagsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RemixInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
+const FeatureFlagsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: NuxtInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: FeatureFlagsJSWebInstructionsWrapper,
