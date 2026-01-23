@@ -554,6 +554,8 @@ export interface ParsedURL {
     isValid: boolean
 }
 
+export const faviconUrl = (domain: string): string => `${window.JS_URL}/static/favicons/${domain}`
+
 export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
     try {
         const trimmed = urlString.trim()
