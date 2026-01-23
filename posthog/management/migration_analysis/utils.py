@@ -215,6 +215,7 @@ def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = N
         posthog_namedquery -> NamedQuery
         posthog_old_model -> OldModel
         llm_analytics_evaluation (app=llm_analytics) -> Evaluation
+        posthog_conversations_ticket (app=conversations) -> Ticket
         my_app_some_table -> SomeTable
 
     Args:
@@ -229,9 +230,13 @@ def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = N
     if app_label:
         # app_label might be multi-word (e.g., "llm_analytics")
         app_parts = app_label.split("_") if "_" in app_label else [app_label]
-        # Check if table starts with app parts
+
+        # Check if table starts with app parts (e.g., "llm_analytics_evaluation")
         if parts[: len(app_parts)] == app_parts:
             model_parts = parts[len(app_parts) :]
+        # Check for posthog_{app_label}_{model} pattern (e.g., "posthog_conversations_ticket")
+        elif parts[0] == "posthog" and parts[1 : 1 + len(app_parts)] == app_parts:
+            model_parts = parts[1 + len(app_parts) :]
         else:
             # Fallback: assume single-word app
             model_parts = parts[1:]
