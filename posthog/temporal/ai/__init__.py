@@ -62,7 +62,11 @@ from .video_segment_clustering.activities import (
     persist_reports_activity,
     prime_session_embeddings_activity,
 )
-from .video_segment_clustering.workflow import VideoSegmentClusteringWorkflow
+from .video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
+from .video_segment_clustering.coordinator_workflow import (
+    VideoSegmentClusteringCoordinatorWorkflow,
+    get_proactive_tasks_enabled_team_ids_activity,
+)
 
 WORKFLOWS = [
     SyncVectorsWorkflow,
@@ -74,8 +78,9 @@ WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    # Video segment clustering workflow
+    # Video segment clustering workflows
     VideoSegmentClusteringWorkflow,
+    VideoSegmentClusteringCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
@@ -110,6 +115,7 @@ ACTIVITIES = [
     match_clusters_activity,
     label_clusters_activity,
     persist_reports_activity,
+    get_proactive_tasks_enabled_team_ids_activity,
 ]
 
 __all__ = [
