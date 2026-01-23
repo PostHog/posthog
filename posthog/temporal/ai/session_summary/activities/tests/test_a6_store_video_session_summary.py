@@ -6,7 +6,6 @@ This activity converts video segments to session summary format and stores in da
 
 import json
 import dataclasses
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -19,6 +18,7 @@ from posthog.temporal.ai.session_summary.activities.a6_store_video_session_summa
     _parse_timestamp_to_ms,
     store_video_session_summary_activity,
 )
+from posthog.temporal.ai.session_summary.activities.tests.conftest import create_video_summary_inputs
 from posthog.temporal.ai.session_summary.state import _compress_redis_data
 from posthog.temporal.ai.session_summary.types.video import ConsolidatedVideoAnalysis
 
@@ -223,12 +223,11 @@ class TestStoreVideoSessionSummaryActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
         mock_llm_input: SingleSessionSummaryLlmInputs,
     ):
         """Test that summary is stored with visual_confirmation=True."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         compressed_llm_input = _compress_redis_data(json.dumps(dataclasses.asdict(mock_llm_input)))
         mock_redis_client = MagicMock()
@@ -268,11 +267,10 @@ class TestStoreVideoSessionSummaryActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
     ):
         """Test that existing summary is not overwritten."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Create existing summary
         existing_summary = await SingleSessionSummary.objects.acreate(
@@ -307,12 +305,11 @@ class TestStoreVideoSessionSummaryActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
         mock_llm_input: SingleSessionSummaryLlmInputs,
     ):
         """Test that video timestamps are mapped to real event IDs."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with (
             patch(
@@ -352,11 +349,10 @@ class TestStoreVideoSessionSummaryActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
     ):
         """Test that missing LLM input raises ValueError."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with (
             patch(
@@ -380,12 +376,11 @@ class TestStoreVideoSessionSummaryActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
         mock_llm_input: SingleSessionSummaryLlmInputs,
     ):
         """Test that segment outcomes from video analysis are included."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with (
             patch(

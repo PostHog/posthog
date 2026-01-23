@@ -4,7 +4,6 @@ Tests for Activity 1: export_session_video_activity
 This activity exports a session recording as a video file and returns the ExportedAsset ID.
 """
 
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -18,6 +17,7 @@ from posthog.temporal.ai.session_summary.activities.a1_export_session_video impo
     VIDEO_ANALYSIS_PLAYBACK_SPEED,
     export_session_video_activity,
 )
+from posthog.temporal.ai.session_summary.activities.tests.conftest import create_video_summary_inputs
 
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
@@ -34,11 +34,10 @@ class TestExportSessionVideoActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_session_metadata: dict[str, Any],
     ):
         """Test successful video export creates ExportedAsset and triggers VideoExportWorkflow."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_workflow_handle = MagicMock()
         mock_temporal_client = MagicMock()
@@ -82,11 +81,10 @@ class TestExportSessionVideoActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_exported_asset: ExportedAsset,
     ):
         """Test that existing ExportedAsset is reused instead of creating new one."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with patch(
             "posthog.temporal.ai.session_summary.activities.a1_export_session_video.async_connect"
@@ -104,12 +102,11 @@ class TestExportSessionVideoActivity:
         self,
         ateam: Team,
         auser: User,
-        mock_video_summary_inputs_factory: Callable,
         mock_short_session_metadata: dict[str, Any],
     ):
         """Test that sessions shorter than MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S return None."""
         short_session_id = "00000000-0000-0000-0002-000000000001"
-        inputs = mock_video_summary_inputs_factory(short_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(short_session_id, ateam.id, auser.id)
 
         with (
             patch(
@@ -132,11 +129,10 @@ class TestExportSessionVideoActivity:
         self,
         ateam: Team,
         auser: User,
-        mock_video_summary_inputs_factory: Callable,
     ):
         """Test that existing asset with short duration returns None."""
         short_session_id = "00000000-0000-0000-0002-000000000002"
-        inputs = mock_video_summary_inputs_factory(short_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(short_session_id, ateam.id, auser.id)
 
         # Create asset with short duration
         short_asset = await ExportedAsset.objects.acreate(
@@ -163,11 +159,10 @@ class TestExportSessionVideoActivity:
         self,
         ateam: Team,
         auser: User,
-        mock_video_summary_inputs_factory: Callable,
     ):
         """Test that missing session metadata raises ValueError."""
         session_id = "00000000-0000-0000-0002-000000000003"
-        inputs = mock_video_summary_inputs_factory(session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(session_id, ateam.id, auser.id)
 
         with (
             patch(
@@ -189,11 +184,10 @@ class TestExportSessionVideoActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_session_metadata: dict[str, Any],
     ):
         """Test that export context includes all required fields."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_temporal_client = MagicMock()
         mock_temporal_client.execute_workflow = AsyncMock()

@@ -4,8 +4,6 @@ Tests for Activity 5: embed_and_store_segments_activity
 This activity generates embeddings for video segments and produces to Kafka for ClickHouse storage.
 """
 
-from collections.abc import Callable
-
 import pytest
 from unittest.mock import patch
 
@@ -15,6 +13,7 @@ from posthog.temporal.ai.session_summary.activities.a5_embed_and_store_segments 
     SESSION_SEGMENTS_EMBEDDING_MODEL,
     embed_and_store_segments_activity,
 )
+from posthog.temporal.ai.session_summary.activities.tests.conftest import create_video_summary_inputs
 from posthog.temporal.ai.session_summary.types.video import VideoSegmentOutput
 
 pytestmark = pytest.mark.django_db
@@ -27,11 +26,10 @@ class TestEmbedAndStoreSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
         """Test that embedding requests are emitted for each segment."""
-        inputs = mock_video_summary_inputs_factory(
+        inputs = create_video_summary_inputs(
             mock_video_session_id, ateam.id, auser.id, user_distinct_id_to_log="test_distinct_id"
         )
 
@@ -60,11 +58,10 @@ class TestEmbedAndStoreSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
         """Test that document IDs are formatted correctly."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with patch(
             "posthog.temporal.ai.session_summary.activities.a5_embed_and_store_segments.emit_embedding_request"
@@ -86,12 +83,11 @@ class TestEmbedAndStoreSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
         """Test that metadata is correctly included in embedding requests."""
         distinct_id = "test_user_distinct_id_123"
-        inputs = mock_video_summary_inputs_factory(
+        inputs = create_video_summary_inputs(
             mock_video_session_id, ateam.id, auser.id, user_distinct_id_to_log=distinct_id
         )
 
@@ -119,10 +115,9 @@ class TestEmbedAndStoreSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
     ):
         """Test that empty segment list doesn't emit any requests."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with patch(
             "posthog.temporal.ai.session_summary.activities.a5_embed_and_store_segments.emit_embedding_request"
@@ -140,10 +135,9 @@ class TestEmbedAndStoreSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
     ):
         """Test that segment description is used as embedding content."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         segments = [
             VideoSegmentOutput(
@@ -169,11 +163,10 @@ class TestEmbedAndStoreSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
         """Test that errors from emit_embedding_request are propagated."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with patch(
             "posthog.temporal.ai.session_summary.activities.a5_embed_and_store_segments.emit_embedding_request",

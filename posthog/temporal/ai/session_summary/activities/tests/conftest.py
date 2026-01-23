@@ -6,7 +6,6 @@ and ee/hogai/session_summaries/tests/conftest.py.
 """
 
 import random
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -31,6 +30,8 @@ from posthog.temporal.ai.session_summary.types.video import (
 )
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE, DEFAULT_VIDEO_UNDERSTANDING_MODEL
+
+# Re-use the fixtures of session summaries tests for convenience
 from ee.hogai.session_summaries.tests.conftest import *  # noqa: F401, F403
 
 
@@ -93,28 +94,23 @@ def mock_video_session_id() -> str:
     return "00000000-0000-0000-0002-000000000000"
 
 
-@pytest.fixture
-def mock_video_summary_inputs_factory() -> Callable:
-    """Factory to produce VideoSummarySingleSessionInputs for testing."""
-
-    def _create_inputs(
-        session_id: str,
-        team_id: int,
-        user_id: int,
-        redis_key_base: str = "test_video_key_base",
-        model_to_use: str = DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-        user_distinct_id_to_log: str | None = None,
-    ) -> VideoSummarySingleSessionInputs:
-        return VideoSummarySingleSessionInputs(
-            session_id=session_id,
-            user_id=user_id,
-            team_id=team_id,
-            redis_key_base=redis_key_base,
-            model_to_use=model_to_use,
-            user_distinct_id_to_log=user_distinct_id_to_log,
-        )
-
-    return _create_inputs
+def create_video_summary_inputs(
+    session_id: str,
+    team_id: int,
+    user_id: int,
+    redis_key_base: str = "test_video_key_base",
+    model_to_use: str = DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+    user_distinct_id_to_log: str | None = None,
+) -> VideoSummarySingleSessionInputs:
+    """Create VideoSummarySingleSessionInputs for testing."""
+    return VideoSummarySingleSessionInputs(
+        session_id=session_id,
+        user_id=user_id,
+        team_id=team_id,
+        redis_key_base=redis_key_base,
+        model_to_use=model_to_use,
+        user_distinct_id_to_log=user_distinct_id_to_log,
+    )
 
 
 @pytest.fixture
@@ -266,14 +262,6 @@ def mock_gemini_consolidation_response(mock_consolidated_video_analysis: Consoli
     mock_response = MagicMock()
     mock_response.text = f"```json\n{json.dumps(mock_consolidated_video_analysis.model_dump())}\n```"
     return mock_response
-
-
-@pytest.fixture
-def mock_video_bytes() -> bytes:
-    """Sample video bytes for testing (minimal valid MP4 header)."""
-    # This is a minimal MP4 file header structure
-    # In real tests, you might want to use a small real video file
-    return b"\x00\x00\x00\x1c\x66\x74\x79\x70\x69\x73\x6f\x6d\x00\x00\x02\x00"
 
 
 @pytest_asyncio.fixture

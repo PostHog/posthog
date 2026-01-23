@@ -4,7 +4,6 @@ Tests for Activity 3: analyze_video_segment_activity
 This activity analyzes a segment of the uploaded video with Gemini using video_metadata.
 """
 
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -17,6 +16,7 @@ from posthog.temporal.ai.session_summary.activities.a3_analyze_video_segment imp
     _format_timestamp_as_mm_ss,
     analyze_video_segment_activity,
 )
+from posthog.temporal.ai.session_summary.activities.tests.conftest import create_video_summary_inputs
 from posthog.temporal.ai.session_summary.types.video import UploadedVideo, VideoSegmentSpec
 
 pytestmark = pytest.mark.django_db
@@ -175,12 +175,11 @@ class TestAnalyzeVideoSegmentActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_uploaded_video: UploadedVideo,
         mock_gemini_generate_response: MagicMock,
     ):
         """Test basic video segment analysis without cached event data."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
         segment = VideoSegmentSpec(segment_index=0, start_time=0.0, end_time=15.0)
 
         mock_client = MagicMock()
@@ -223,12 +222,11 @@ class TestAnalyzeVideoSegmentActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_uploaded_video: UploadedVideo,
         mock_gemini_generate_response: MagicMock,
     ):
         """Test analysis when no events fall within segment time range."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
         segment = VideoSegmentSpec(segment_index=5, start_time=75.0, end_time=90.0)
 
         mock_client = MagicMock()
@@ -266,14 +264,13 @@ class TestAnalyzeVideoSegmentActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_uploaded_video: UploadedVideo,
         mock_gemini_generate_response: MagicMock,
     ):
         """Test video segment analysis with correlated tracked events from Redis."""
         from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
         # Segment from 0-15 seconds
         segment = VideoSegmentSpec(segment_index=0, start_time=0.0, end_time=15.0)
 
@@ -379,11 +376,10 @@ class TestAnalyzeVideoSegmentActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_uploaded_video: UploadedVideo,
     ):
         """Test that MM:SS - MM:SS format is parsed correctly from LLM response."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
         segment = VideoSegmentSpec(segment_index=0, start_time=0.0, end_time=15.0)
 
         # Custom response with various timestamp formats
@@ -432,11 +428,10 @@ class TestAnalyzeVideoSegmentActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_uploaded_video: UploadedVideo,
     ):
         """Test that malformed LLM responses return empty list."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
         segment = VideoSegmentSpec(segment_index=0, start_time=0.0, end_time=15.0)
 
         # Response without expected format
@@ -478,11 +473,10 @@ class TestAnalyzeVideoSegmentActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_uploaded_video: UploadedVideo,
     ):
         """Test handling of empty LLM response."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
         segment = VideoSegmentSpec(segment_index=0, start_time=0.0, end_time=15.0)
 
         mock_response = MagicMock()

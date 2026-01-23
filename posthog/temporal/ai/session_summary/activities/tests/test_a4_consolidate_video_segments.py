@@ -5,7 +5,6 @@ This activity consolidates raw video segments into meaningful semantic segments 
 """
 
 import json
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -19,6 +18,7 @@ from posthog.models.user import User
 from posthog.temporal.ai.session_summary.activities.a4_consolidate_video_segments import (
     consolidate_video_segments_activity,
 )
+from posthog.temporal.ai.session_summary.activities.tests.conftest import create_video_summary_inputs
 from posthog.temporal.ai.session_summary.types.video import ConsolidatedVideoAnalysis, VideoSegmentOutput
 
 pytestmark = pytest.mark.django_db
@@ -31,13 +31,12 @@ class TestConsolidateVideoSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
         mock_gemini_consolidation_response: MagicMock,
     ):
         """Test successful consolidation of raw video segments."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_client = MagicMock()
         mock_client.models.generate_content = AsyncMock(return_value=mock_gemini_consolidation_response)
@@ -65,10 +64,9 @@ class TestConsolidateVideoSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
     ):
         """Test that empty segment list raises ApplicationError."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with pytest.raises(ApplicationError, match="No segments extracted"):
             await consolidate_video_segments_activity(
@@ -83,11 +81,10 @@ class TestConsolidateVideoSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
         """Test that consolidation correctly identifies exceptions, confusion, and abandonment."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Response indicating issues were detected
         issue_response = {
@@ -143,12 +140,11 @@ class TestConsolidateVideoSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
     ):
         """Test that JSON is correctly extracted from markdown code block."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Response wrapped in markdown code block
         mock_response = MagicMock()
@@ -175,12 +171,11 @@ class TestConsolidateVideoSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
     ):
         """Test that raw JSON (without markdown block) is also parsed correctly."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Raw JSON response without markdown
         mock_response = MagicMock()
@@ -207,11 +202,10 @@ class TestConsolidateVideoSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
         """Test that invalid JSON in response raises error."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_response = MagicMock()
         mock_response.text = "This is not valid JSON at all"
@@ -236,11 +230,10 @@ class TestConsolidateVideoSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
         """Test that missing required fields in response raises validation error."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Response missing required fields
         incomplete_response: dict[str, Any] = {
@@ -271,11 +264,10 @@ class TestConsolidateVideoSegmentsActivity:
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
-        mock_video_summary_inputs_factory: Callable,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
         """Test that non-blocking exceptions are correctly identified."""
-        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         response_data = {
             "segments": [
