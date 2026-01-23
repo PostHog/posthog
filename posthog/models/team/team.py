@@ -118,9 +118,16 @@ class TeamManager(models.Manager):
     def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
         team = cast("Team", self.create(**kwargs))
 
+        from posthog.models.cohort.cohort import create_system_cohorts
+
+        [test_users_cohort] = create_system_cohorts(team)
+
         if kwargs.get("is_demo"):
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
+            # Set test_account_filters with just the cohort for demo teams
+            team.test_account_filters = [{"key": "id", "type": "cohort", "value": test_users_cohort.id}]
+            team.save()
             team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
@@ -129,7 +136,10 @@ class TeamManager(models.Manager):
 
         team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
 
-        team.test_account_filters = self.set_test_account_filters(organization.id)
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.id},
+            *self.set_test_account_filters(organization.id),
+        ]
 
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
@@ -156,6 +166,7 @@ class TeamManager(models.Manager):
                 description=str(playlist.get("description", "")),
                 type="filters",
             )
+
         team.save()
 
         # Add UserProductList for all users who have access to this new team

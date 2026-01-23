@@ -2080,6 +2080,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
             "type": "String",
         },
+        "$test_user": {
+            "label": "Test user",
+            "description": "Whether this user is marked as a test user. Test users can be filtered out using the 'Test users' cohort.",
+            "examples": [True, False],
+            "system": True,
+            "type": "Boolean",
+        },
         "$virt_initial_channel_type": {
             "description": "What type of acquisition channel this user initially came from. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
             "examples": ["Paid Search", "Organic Video", "Direct"],

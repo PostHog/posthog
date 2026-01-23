@@ -28,8 +28,9 @@ from posthog.models import Action, FeatureFlag, Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortType
+from posthog.models.cohort.cohort import CohortType, SystemCohortType, create_system_cohorts
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.organization import Organization
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
 from posthog.tasks.calculate_cohort import (
@@ -4986,3 +4987,201 @@ Jane Smith,user456,jane@example.com
         # Verify that persons matched by email are NOT in the cohort
         self.assertNotIn(str(person_with_email1.uuid), person_uuids_in_cohort)
         self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
+
+
+class TestSystemCohort(ClickhouseTestMixin, APIBaseTest):
+    def test_system_cohort_cannot_be_updated(self):
+        system_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            description="System cohort",
+            system_type=SystemCohortType.TEST_USERS,
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$test_user",
+                                    "type": "person",
+                                    "value": [True],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{system_cohort.id}",
+            data={"name": "Modified name"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("System cohorts cannot be modified", response.json()["detail"])
+
+    def test_system_cohort_cannot_be_deleted(self):
+        system_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            description="System cohort",
+            system_type=SystemCohortType.TEST_USERS,
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$test_user",
+                                    "type": "person",
+                                    "value": [True],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{system_cohort.id}",
+            data={"deleted": True},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("System cohorts cannot be modified", response.json()["detail"])
+
+    def test_system_cohort_is_read_only_on_get(self):
+        system_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            description="System cohort",
+            system_type=SystemCohortType.TEST_USERS,
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$test_user",
+                                    "type": "person",
+                                    "value": [True],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{system_cohort.id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["system_type"], SystemCohortType.TEST_USERS)
+        self.assertEqual(response.json()["name"], "Test users")
+
+    def test_cannot_set_system_type_on_regular_cohort(self):
+        regular_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Regular cohort",
+            description="A regular cohort",
+            system_type=None,
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["test@example.com"],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{regular_cohort.id}",
+            data={"system_type": SystemCohortType.TEST_USERS},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("system_type field cannot be modified", response.json()["detail"])
+
+        regular_cohort.refresh_from_db()
+        self.assertIsNone(regular_cohort.system_type)
+
+    def test_system_cohort_appears_in_list(self):
+        system_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            description="System cohort",
+            system_type=SystemCohortType.TEST_USERS,
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$test_user",
+                                    "type": "person",
+                                    "value": [True],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        self.assertEqual(response.status_code, 200)
+        cohort_names = [c["name"] for c in response.json()["results"]]
+        self.assertIn("Test users", cohort_names)
+
+        system_cohort_in_list = next((c for c in response.json()["results"] if c["id"] == system_cohort.id), None)
+        self.assertIsNotNone(system_cohort_in_list)
+        self.assertEqual(system_cohort_in_list["system_type"], SystemCohortType.TEST_USERS)
+
+    def test_create_system_cohorts_helper(self):
+        [cohort] = create_system_cohorts(self.team)
+
+        self.assertEqual(cohort.name, "Test users")
+        self.assertEqual(cohort.system_type, SystemCohortType.TEST_USERS)
+        self.assertEqual(cohort.is_static, False)
+        self.assertIn("$test_user", str(cohort.filters))
+
+    def test_new_team_gets_test_users_cohort(self):
+        new_org = Organization.objects.create(name="New Org")
+        new_team = Team.objects.create_with_data(organization=new_org, initiating_user=self.user)
+
+        cohort = Cohort.objects.filter(
+            team=new_team, system_type=SystemCohortType.TEST_USERS, name="Test users"
+        ).first()
+        self.assertIsNotNone(cohort)
+        self.assertEqual(cohort.system_type, SystemCohortType.TEST_USERS)
+
+        # Check that test_account_filters includes the cohort
+        self.assertTrue(
+            any(f.get("type") == "cohort" and f.get("value") == cohort.id for f in new_team.test_account_filters)
+        )

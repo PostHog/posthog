@@ -4977,6 +4977,16 @@
             "description": "The surveys that were activated for this event.",
             "label": "Surveys activated"
         },
+        "$test_user": {
+            "description": "Whether this user is marked as a test user. Test users can be filtered out using the 'Test users' cohort.",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "Test user",
+            "system": true,
+            "type": "Boolean"
+        },
         "$time": {
             "description": "Use the SQL field `timestamp` instead. This field was previously set on some client side events.",
             "examples": [

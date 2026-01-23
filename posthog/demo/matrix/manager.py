@@ -3,7 +3,10 @@
 import json
 import datetime as dt
 from time import sleep
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 from django.conf import settings
 from django.core import exceptions
@@ -90,7 +93,7 @@ class MatrixManager:
                     theme_mode="system",
                     role_at_organization="engineering",
                 )
-                team = self.create_team(organization)
+                team = self.create_team(organization, initiating_user=new_user)
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
@@ -116,9 +119,10 @@ class MatrixManager:
         self._save_analytics_data(master_team)
 
     @staticmethod
-    def create_team(organization: Organization, **kwargs) -> Team:
-        team = Team.objects.create(
+    def create_team(organization: Organization, initiating_user: Optional["User"] = None, **kwargs) -> Team:
+        team = Team.objects.create_with_data(
             organization=organization,
+            initiating_user=initiating_user,
             ingested_event=True,
             completed_snippet_onboarding=True,
             is_demo=True,

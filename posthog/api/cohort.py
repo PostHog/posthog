@@ -365,7 +365,7 @@ class CohortMinimalSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Cohort
-        fields = ["id", "name", "count"]
+        fields = ["id", "name", "count", "system_type"]
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -398,6 +398,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "last_error_message",
             "count",
             "is_static",
+            "system_type",
             "cohort_type",
             "experiment_set",
             "_create_in_folder",
@@ -414,6 +415,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "last_error_message",
             "count",
+            "system_type",
             "experiment_set",
         ]
 
@@ -794,6 +796,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+
+        if cohort.system_type:
+            raise ValidationError("System cohorts cannot be modified.")
+
+        if "system_type" in request.data:
+            raise ValidationError("The system_type field cannot be modified.")
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:

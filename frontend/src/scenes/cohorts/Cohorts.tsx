@@ -3,7 +3,8 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { IconLogomark } from '@posthog/icons'
+import { LemonDialog, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -47,15 +48,24 @@ export function Cohorts(): JSX.Element {
             dataIndex: 'name',
             width: '30%',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
-            render: function Render(name, { id, description }) {
+            render: function Render(name, { id, description, system_type }) {
                 return (
-                    <>
+                    <div className="flex items-center gap-2">
                         <LemonTableLink
                             to={combineUrl(urls.cohort(id), searchParams).url}
-                            title={name ? <>{name}</> : 'Untitled'}
+                            title={
+                                <>
+                                    {system_type && (
+                                        <Tooltip title="System cohort managed by PostHog">
+                                            <IconLogomark className="text-muted text-lg" />
+                                        </Tooltip>
+                                    )}
+                                    {name ? <>{name}</> : 'Untitled'}
+                                </>
+                            }
                             description={description}
                         />
-                    </>
+                    </div>
                 )
             },
         },
@@ -96,7 +106,7 @@ export function Cohorts(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton to={urls.cohort(cohort.id)} fullWidth>
-                                    Edit
+                                    {cohort.system_type ? 'View' : 'Edit'}
                                 </LemonButton>
                                 {cohortId && (
                                     <ViewRecordingsPlaylistButton
@@ -166,6 +176,7 @@ export function Cohorts(): JSX.Element {
                                         })
                                     }}
                                     fullWidth
+                                    disabledReason={cohort.system_type ? 'System cohorts cannot be deleted' : undefined}
                                 >
                                     Delete cohort
                                 </LemonButton>

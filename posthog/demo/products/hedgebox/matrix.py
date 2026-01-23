@@ -225,7 +225,10 @@ class HedgeboxMatrix(Matrix):
                 }
             ],
         )
-        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": real_users_cohort.pk},
+            *team.test_account_filters,
+        ]
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
