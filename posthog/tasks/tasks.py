@@ -955,7 +955,14 @@ def _delete_team_data(team_ids: list[int], user_id: int) -> None:
     )
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=60,
+    retry_backoff_max=300,
+)
 def delete_project_data_and_notify_task(
     team_ids: list[int],
     user_id: int,
@@ -992,7 +999,14 @@ def delete_project_data_and_notify_task(
         raise
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=60,
+    retry_backoff_max=300,
+)
 def delete_organization_data_and_notify_task(
     team_ids: list[int],
     user_id: int,
