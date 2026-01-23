@@ -88,9 +88,4 @@ class Migration(migrations.Migration):
         ),
         # Migrate existing assigned_to data to new table
         migrations.RunPython(migrate_assigned_to_forward, migrate_assigned_to_reverse),
-        # Remove the old assigned_to field from Ticket
-        migrations.RemoveField(
-            model_name="ticket",
-            name="assigned_to",
-        ),
     ]

@@ -9,7 +9,7 @@ import { UnexpectedNeverError, fullName } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { assigneeSelectLogic } from './assigneeSelectLogic'
-import { Assignee, TicketAssignee } from './types'
+import { Assignee, RoleAssignee, TicketAssignee, UserAssignee } from './types'
 
 export interface AssigneeResolverProps {
     children: (props: { assignee: Assignee }) => React.ReactElement
@@ -46,13 +46,15 @@ function getIconClassname(size: 'xsmall' | 'small' | 'medium' | 'large' = 'mediu
 
 export const AssigneeIconDisplay = ({ assignee, size }: AssigneeIconDisplayProps): JSX.Element => {
     return match(assignee)
-        .with({ type: 'role' }, ({ role }) => (
+        .with({ type: 'role' }, ({ role }: RoleAssignee) => (
             <ProfilePicture
                 user={{ first_name: role.name, last_name: undefined, email: undefined }}
                 className={getIconClassname(size)}
             />
         ))
-        .with({ type: 'user' }, ({ user }) => <ProfilePicture user={user} className={getIconClassname(size)} />)
+        .with({ type: 'user' }, ({ user }: UserAssignee) => (
+            <ProfilePicture user={user} className={getIconClassname(size)} />
+        ))
         .otherwise(() => (
             <IconPerson
                 className={cn(
@@ -84,8 +86,10 @@ export const AssigneeLabelDisplay = ({
             })}
         >
             {match(assignee)
-                .with({ type: 'role' }, ({ role }) => role.name)
-                .with({ type: 'user' }, ({ user }) => <span className="ph-no-capture">{fullName(user)}</span>)
+                .with({ type: 'role' }, ({ role }: RoleAssignee) => role.name)
+                .with({ type: 'user' }, ({ user }: UserAssignee) => (
+                    <span className="ph-no-capture">{fullName(user)}</span>
+                ))
                 .otherwise(() => placeholder || 'Unassigned')}
         </span>
     )

@@ -429,7 +429,8 @@ class TestTicketAssignment(BaseConversationsAPITest):
             activity="assigned",
         ).first()
 
-        self.assertIsNotNone(activity)
+        assert activity is not None
+        assert activity.detail is not None
         self.assertEqual(activity.detail["changes"][0]["field"], "assignee")
         self.assertIsNone(activity.detail["changes"][0]["before"])
         self.assertEqual(activity.detail["changes"][0]["after"]["id"], self.user.id)
