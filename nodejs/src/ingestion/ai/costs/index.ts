@@ -69,10 +69,91 @@ const isString = (property: unknown): property is string => {
 }
 
 /**
+ * Extract modality-specific token counts from raw provider usage metadata.
+ * Currently supports Gemini's candidatesTokensDetails for image token breakdown.
+ * Removes $ai_usage from properties after extraction.
+ */
+export const extractModalityTokens = (event: EventWithProperties): EventWithProperties => {
+    const usage = event.properties['$ai_usage']
+
+    if (!usage || typeof usage !== 'object') {
+        return event
+    }
+
+    // Helper function to extract tokens from either array or object format
+    const extractTokensFromDetails = (tokenDetails: unknown): void => {
+        if (!tokenDetails) {
+            return
+        }
+
+        // Array format: [{ modality: "text", tokenCount: 10 }, { modality: "image", tokenCount: 1290 }]
+        // This is what Gemini actually returns
+        if (Array.isArray(tokenDetails)) {
+            for (const detail of tokenDetails) {
+                if (detail && typeof detail === 'object') {
+                    const modality = (detail as Record<string, unknown>)['modality']
+                    const tokenCount = (detail as Record<string, unknown>)['tokenCount']
+
+                    if (modality === 'image' && typeof tokenCount === 'number' && tokenCount > 0) {
+                        event.properties['$ai_image_output_tokens'] = tokenCount
+                    }
+                    if (modality === 'text' && typeof tokenCount === 'number') {
+                        event.properties['$ai_text_output_tokens'] = tokenCount
+                    }
+                }
+            }
+        }
+        // Object format fallback: { textTokens: number, imageTokens: number }
+        // Defensive handling in case format changes or for testing
+        else if (typeof tokenDetails === 'object') {
+            const details = tokenDetails as Record<string, unknown>
+
+            if (typeof details['imageTokens'] === 'number' && details['imageTokens'] > 0) {
+                event.properties['$ai_image_output_tokens'] = details['imageTokens']
+            }
+
+            if (typeof details['textTokens'] === 'number') {
+                event.properties['$ai_text_output_tokens'] = details['textTokens']
+            }
+        }
+    }
+
+    // Handle Gemini's candidatesTokensDetails (or outputTokenDetails in some versions)
+    // Gemini returns: [{ modality: "text", tokenCount: 10 }, { modality: "image", tokenCount: 1290 }]
+    // Also supports object format as defensive fallback: { textTokens: 10, imageTokens: 1290 }
+    const tokenDetails =
+        (usage as Record<string, unknown>)['candidatesTokensDetails'] ??
+        (usage as Record<string, unknown>)['outputTokenDetails']
+
+    extractTokensFromDetails(tokenDetails)
+
+    // Check for Vercel AI SDK structure: { usage: {...}, providerMetadata: { google: {...} } }
+    const providerMetadata = (usage as Record<string, unknown>)['providerMetadata']
+    if (providerMetadata && typeof providerMetadata === 'object') {
+        const googleMetadata = (providerMetadata as Record<string, unknown>)['google']
+        if (googleMetadata && typeof googleMetadata === 'object') {
+            const googleTokenDetails =
+                (googleMetadata as Record<string, unknown>)['candidatesTokensDetails'] ??
+                (googleMetadata as Record<string, unknown>)['outputTokenDetails']
+
+            extractTokensFromDetails(googleTokenDetails)
+        }
+    }
+
+    // Remove raw usage from properties after extraction
+    delete event.properties['$ai_usage']
+
+    return event
+}
+
+/**
  * Process cost calculation for AI generation/embedding events.
  * Calculates input, output, request, and web search costs based on model pricing.
  */
 export const processCost = (event: EventWithProperties): EventWithProperties => {
+    // First, extract modality tokens from raw usage if present
+    extractModalityTokens(event)
+
     const inputCost = event.properties['$ai_input_cost_usd']
     const outputCost = event.properties['$ai_output_cost_usd']
 
