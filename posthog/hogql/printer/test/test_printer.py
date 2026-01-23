@@ -3155,6 +3155,15 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
+    def test_final_keyword_not_supported(self):
+        with self.assertRaises(QueryError) as e:
+            self._select("SELECT * FROM events FINAL")
+        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
+        with self.assertRaises(QueryError) as e:
+            self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
+        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
 
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
