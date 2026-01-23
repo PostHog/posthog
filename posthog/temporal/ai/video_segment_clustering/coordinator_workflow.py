@@ -69,7 +69,7 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                 "total_tasks_updated": 0,
             }
 
-        workflow.logger.debug("Processing teams with proactive tasks enabled", team_count=len(enabled_team_ids))
+        workflow.logger.debug(f"Processing {len(enabled_team_ids)} teams with proactive tasks enabled")
 
         # Track results
         total_tasks_created = 0
@@ -112,16 +112,14 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                         successful_teams.add(team_id)
                     else:
                         workflow.logger.error(
-                            "Video segment clustering failed for team",
-                            team_id=team_id,
-                            error=workflow_result.error,
+                            f"Video segment clustering failed for team {team_id}: {workflow_result.error}"
                         )
                         posthoganalytics.capture_exception(
                             Exception(workflow_result.error), properties={"team_id": team_id}
                         )
                         failed_teams.add(team_id)
                 except Exception:
-                    workflow.logger.exception("Video segment clustering errored for team", team_id=team_id)
+                    workflow.logger.exception(f"Video segment clustering errored for team {team_id}")
                     posthoganalytics.capture_exception(properties={"team_id": team_id})
                     failed_teams.add(team_id)
 
