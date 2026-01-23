@@ -48,6 +48,13 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event schema
 EVENT_NAME_TRACE_SUMMARY = "$ai_trace_summary"
+EVENT_NAME_GENERATION_SUMMARY = "$ai_generation_summary"  # For generation-level summarization
+
+# Document types for embeddings
+GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level embeddings
+
+# Generation-level configuration
+DEFAULT_MAX_GENERATIONS_PER_WINDOW = 50  # Higher than traces - generations are simpler units
 
 # Team allowlist - only these teams will be processed by the coordinator
 # Empty list means no teams will be processed (coordinator skips)
