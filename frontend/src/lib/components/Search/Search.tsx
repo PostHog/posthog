@@ -332,8 +332,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: recents first, then apps, then everything else
-        const orderedCategories = ['recents', 'apps']
+        // Fixed order: apps first, then recents, then everything else
+        const orderedCategories = ['apps', 'recents']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
