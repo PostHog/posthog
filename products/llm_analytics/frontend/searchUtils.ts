@@ -46,7 +46,7 @@ export function findSearchMatches(text: string, searchQuery: string): SearchMatc
  * Check if a text contains a search query (case-insensitive)
  */
 export function containsSearchQuery(text: string, searchQuery: string): boolean {
-    if (!searchQuery.trim()) {
+    if (!text || !searchQuery.trim()) {
         return false
     }
 
