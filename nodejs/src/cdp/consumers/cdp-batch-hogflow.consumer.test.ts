@@ -5,6 +5,7 @@ import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -71,8 +72,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -81,7 +82,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                     filter_test_accounts: false,
@@ -104,7 +105,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: 'non-existent-id',
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -123,8 +124,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -133,7 +134,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: 999999, // Non-existent team
                 hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -162,66 +163,6 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
 
             expect(result).toHaveLength(0)
         })
-
-        it('should filter out messages with draft hogflow status', async () => {
-            const hogFlow = await insertHogFlow(
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withSimpleWorkflow({
-                        trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
-                        },
-                    })
-                    .withStatus('draft')
-                    .build()
-            )
-
-            const batchRequest: BatchHogFlowRequest = {
-                teamId: team.id,
-                hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
-                filters: {
-                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
-                },
-            }
-
-            const messages = [createKafkaMessage(batchRequest)]
-
-            const result = await processor._parseKafkaBatch(messages)
-
-            expect(result).toHaveLength(0)
-        })
-
-        it('should filter out messages with archived hogflow status', async () => {
-            const hogFlow = await insertHogFlow(
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withSimpleWorkflow({
-                        trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
-                        },
-                    })
-                    .withStatus('archived')
-                    .build()
-            )
-
-            const batchRequest: BatchHogFlowRequest = {
-                teamId: team.id,
-                hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
-                filters: {
-                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
-                },
-            }
-
-            const messages = [createKafkaMessage(batchRequest)]
-
-            const result = await processor._parseKafkaBatch(messages)
-
-            expect(result).toHaveLength(0)
-        })
     })
 
     describe('createHogFlowInvocations', () => {
@@ -231,8 +172,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: {} as any,
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -241,7 +182,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {},
             }
 
@@ -260,8 +201,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -287,7 +228,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -304,7 +245,6 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 id: expect.any(String),
                 teamId: team.id,
                 functionId: hogFlow.id,
-                parentRunId: batchRequest.parentRunId,
                 queue: 'hogflow',
                 queuePriority: 1,
                 state: {
@@ -321,7 +261,6 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             expect(result[1]).toMatchObject({
                 id: expect.any(String),
                 teamId: team.id,
-                parentRunId: batchRequest.parentRunId,
                 functionId: hogFlow.id,
                 queue: 'hogflow',
                 queuePriority: 1,
@@ -350,14 +289,96 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             })
         })
 
+        it('should respect rate limits', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            // Mock the personsManager to return some persons
+            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(2)
+            jest.spyOn(processor['personsManager'], 'streamMany').mockResolvedValue()
+
+            // Mock rate limiter to limit
+            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
+                [hogFlow.id, { isRateLimited: true, tokens: 0 }],
+            ])
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            const result = await processor['createHogFlowInvocations']({
+                batchHogFlowRequest: batchRequest,
+                team,
+                hogFlow,
+            })
+
+            expect(result).toHaveLength(0)
+            expect(processor['personsManager'].streamMany).not.toHaveBeenCalled()
+        })
+
+        it('should respect rate limits when tokens are insufficient', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            // Mock the personsManager to return 10 persons
+            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(10)
+            jest.spyOn(processor['personsManager'], 'streamMany').mockResolvedValue()
+
+            // Mock rate limiter with isRateLimited=false but insufficient tokens (5 tokens for 10 persons)
+            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
+                [hogFlow.id, { isRateLimited: false, tokens: 5 }],
+            ])
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                batchJobId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            const result = await processor['createHogFlowInvocations']({
+                batchHogFlowRequest: batchRequest,
+                team,
+                hogFlow,
+            })
+
+            expect(result).toHaveLength(0)
+            expect(processor['personsManager'].streamMany).not.toHaveBeenCalled()
+        })
+
         it('should include default variables from hogFlow', async () => {
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -385,7 +406,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -413,8 +434,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -435,7 +456,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -473,8 +494,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -485,8 +506,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -508,7 +529,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest1: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow1.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test1@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -517,7 +538,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest2: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow2.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test2@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -546,8 +567,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'batch',
-                            filters: { properties: [] },
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                         },
                     })
                     .build()
@@ -571,7 +592,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                parentRunId: new UUIDT().toString(),
+                batchJobId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
