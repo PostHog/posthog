@@ -130,7 +130,16 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
                             <div className="flex gap-1">
-                                <StatusTag status={status} />
+                                {status === ExperimentProgressStatus.Paused ? (
+                                    <Tooltip
+                                        placement="bottom"
+                                        title="Your experiment is paused. The linked flag is disabled and no data is being collected."
+                                    >
+                                        <StatusTag status={status} />
+                                    </Tooltip>
+                                ) : (
+                                    <StatusTag status={status} />
+                                )}
                                 {isSingleVariantShipped && (
                                     <Tooltip
                                         title={`Variant "${shippedVariantKey}" has been rolled out to 100% of users`}
