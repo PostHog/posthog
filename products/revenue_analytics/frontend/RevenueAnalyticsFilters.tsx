@@ -10,7 +10,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -195,10 +194,11 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                         <div className="p-2">
                             <PropertyFilters
                                 disablePopover
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
-                                onChange={(filters) =>
-                                    setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
-                                }
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                                    TaxonomicFilterGroupType.HogQLExpression,
+                                ]}
+                                onChange={(filters) => setRevenueAnalyticsFilters(filters)}
                                 propertyFilters={revenueAnalyticsFilter}
                                 pageKey="revenue-analytics"
                                 buttonSize="small"
