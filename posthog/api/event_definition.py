@@ -158,9 +158,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
 
         return event_definition
 
-    def update(self, event_definition: EventDefinition, validated_data):
-        return super().update(event_definition, validated_data)
-
     def get_is_action(self, obj):
         return hasattr(obj, "action_id") and obj.action_id is not None
 
