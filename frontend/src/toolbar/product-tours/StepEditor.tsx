@@ -164,7 +164,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
         if (editingStep) {
             setEditorWidth(getWidthValue(editingStep.maxWidth))
         }
-    }, [editingStep?.id, editingStep?.maxWidth, editingStep])
+    }, [editingStep?.id, editingStep?.maxWidth])
 
     // Initialize selector and progressionTrigger from selectedElement or editingStep
     useEffect(() => {
@@ -232,7 +232,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     // Update content state when editing a different step
     useEffect(() => {
         setStepContent(editingStep?.content ?? DEFAULT_STEP_CONTENT)
-    }, [editingStep?.id, editingStep.content])
+    }, [editingStep?.id])
 
     const style: React.CSSProperties = {
         position: 'fixed',
