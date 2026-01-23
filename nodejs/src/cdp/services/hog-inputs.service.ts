@@ -267,7 +267,7 @@ export class HogInputsService {
             }
         }
 
-        // TODOdin: Handle missing subscription here or in the hog function run?
+        // If we haven't found a subscription, we will handle that in the hog function run.
         return returnInputs
     }
 }
