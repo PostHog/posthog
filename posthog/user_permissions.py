@@ -202,7 +202,7 @@ class UserTeamPermissions:
         if organization_membership.level >= OrganizationMembership.Level.ADMIN:
             return cast("OrganizationMembership.Level", organization_membership.level)
 
-        # Check for direct member access through AccessControl entries
+        # Check for direct admin access first - highest priority
         user_has_admin_access = any(
             ac["resource_id"] == str(self.team.id)
             and ac["organization_member_id"] == organization_membership.id
@@ -213,6 +213,7 @@ class UserTeamPermissions:
         if user_has_admin_access:
             return OrganizationMembership.Level.ADMIN
 
+        # Check for direct member access
         user_has_member_access = any(
             ac["resource_id"] == str(self.team.id)
             and ac["organization_member_id"] == organization_membership.id
@@ -220,10 +221,7 @@ class UserTeamPermissions:
             for ac in access_controls
         )
 
-        if user_has_member_access:
-            return OrganizationMembership.Level.MEMBER
-
-        # Check for role-based access
+        # Check role-based access before returning any member level
         user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
 
         if user_roles:
@@ -244,6 +242,10 @@ class UserTeamPermissions:
 
             if role_has_member_access:
                 return OrganizationMembership.Level.MEMBER
+
+        # Return direct member access only if no higher role permissions found
+        if user_has_member_access:
+            return OrganizationMembership.Level.MEMBER
 
         # Check if the team is private
         team_is_private = any(
