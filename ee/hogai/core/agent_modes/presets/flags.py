@@ -88,8 +88,8 @@ flags_agent = AgentModeDefinition(
     toolkit_class=FlagsAgentToolkit,
 )
 
-chat_agent_plan_error_tracking_agent = AgentModeDefinition(
-    mode=AgentMode.ERROR_TRACKING,
+chat_agent_plan_flags_agent = AgentModeDefinition(
+    mode=AgentMode.FLAGS,
     mode_description=MODE_DESCRIPTION,
     toolkit_class=FlagsAgentToolkit,
     node_class=ChatAgentPlanExecutable,
