@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytest
@@ -341,7 +342,6 @@ class TestClayWebhookResource:
             resource = ClayWebhookResource(
                 webhook_url="https://api.clay.com/webhook/123",
                 api_key="test-key",
-                batch_size=100,
             )
             data = [{"domain": f"{i}.com"} for i in range(50)]
 
@@ -359,22 +359,24 @@ class TestClayWebhookResource:
             mock_response.status_code = 200
             mock_session.post.return_value = mock_response
 
+            max_bytes = 100
             resource = ClayWebhookResource(
                 webhook_url="https://api.clay.com/webhook/123",
                 api_key="test-key",
-                batch_size=100,
+                max_batch_bytes=max_bytes,
             )
-            data = [{"domain": f"{i}.com"} for i in range(250)]
+            data = [{"domain": f"{i}.com"} for i in range(12)]
 
             responses = resource.send_batched(data)
 
             assert len(responses) == 3
             assert mock_session.post.call_count == 3
-            # Verify batch sizes
-            calls = mock_session.post.call_args_list
-            assert len(calls[0].kwargs["json"]) == 100
-            assert len(calls[1].kwargs["json"]) == 100
-            assert len(calls[2].kwargs["json"]) == 50
+
+            # Verify each batch is under the size limit
+            for call in mock_session.post.call_args_list:
+                batch = call.kwargs["json"]
+                batch_size = len(json.dumps(batch, default=str).encode("utf-8"))
+                assert batch_size <= max_bytes, f"Batch size {batch_size} exceeds limit {max_bytes}"
 
     def test_retry_on_transient_failure_recovers(self):
         """Transient 503 that recovers after retry should succeed."""
@@ -453,3 +455,28 @@ class TestClayWebhookResource:
 
             # Should only attempt once since 400 is not retryable
             assert mock_session.post.call_count == 1
+
+    def test_send_batched_single_oversized_record_raises_error(self):
+        """A single record that exceeds max_batch_bytes should raise ValueError."""
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_batch_bytes=50,  # Very small limit
+        )
+        oversized_record = {"domain": "example.com", "data": "x" * 100}
+
+        with pytest.raises(ValueError, match="Single record exceeds max_batch_bytes"):
+            resource.send_batched([oversized_record])
+
+    def test_send_batched_oversized_record_in_middle_raises_error(self):
+        """An oversized record in the middle of data should raise ValueError before any sends."""
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_batch_bytes=100,
+        )
+        small_record = {"d": "a.com"}
+        oversized_record = {"domain": "example.com", "data": "x" * 200}
+
+        with pytest.raises(ValueError, match="Single record exceeds max_batch_bytes"):
+            resource.send_batched([small_record, oversized_record])

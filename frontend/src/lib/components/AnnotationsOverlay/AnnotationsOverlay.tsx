@@ -65,13 +65,14 @@ export function AnnotationsOverlay({
     const { insightProps } = useValues(insightLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
-    // FIXME: This pollutes insightProps with dates and ticks, which is not ideal
     const annotationsOverlayLogicProps: AnnotationsOverlayLogicProps = {
         ...insightProps,
         dashboardId: insightProps.dashboardId,
         insightNumericId,
         dates,
-        ticks: chart.scales.x.ticks,
+        // Extract only primitive values to avoid retaining Chart.js internal references
+        // (tick objects contain $context which holds references to scales/chart/canvas)
+        ticks: chart.scales.x.ticks.map(({ value }) => ({ value })),
     }
     const { activeBadgeElement, tickDates } = useValues(annotationsOverlayLogic(annotationsOverlayLogicProps))
 
