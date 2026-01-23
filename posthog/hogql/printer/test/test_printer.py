@@ -3950,7 +3950,7 @@ class TestPostgresPrinter(BaseTest):
 
     def _expr(
         self,
-        query: ast.AST | str,
+        query: ast.Expr | str,
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
         backend: HogQLParserBackend = "cpp",
