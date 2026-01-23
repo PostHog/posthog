@@ -33,7 +33,13 @@ const INVALID_TOKEN_VALUES: [unknown, string][] = [
     [false, 'boolean false'],
 ]
 
-const TOKEN_PROPERTIES = ['$ai_input_tokens', '$ai_cache_read_input_tokens'] as const
+const TOKEN_PROPERTIES = [
+    '$ai_input_tokens',
+    '$ai_output_tokens',
+    '$ai_reasoning_tokens',
+    '$ai_cache_read_input_tokens',
+    '$ai_cache_creation_input_tokens',
+] as const
 
 const AI_EVENT_TYPES = ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback']
 
@@ -81,7 +87,13 @@ describe('createValidateAiEventTokensStep', () => {
     }
 
     it.each(NON_AI_EVENT_TYPES)('allows non-AI %s events regardless of invalid token properties', async (eventName) => {
-        const input = createEvent(eventName, { $ai_input_tokens: 'invalid', $ai_cache_read_input_tokens: {} })
+        const input = createEvent(eventName, {
+            $ai_input_tokens: 'invalid',
+            $ai_output_tokens: 'invalid',
+            $ai_reasoning_tokens: 'invalid',
+            $ai_cache_read_input_tokens: {},
+            $ai_cache_creation_input_tokens: {},
+        })
         await expectAllowed(input)
     })
 

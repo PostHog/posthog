@@ -3,7 +3,13 @@ import { AI_EVENT_TYPES } from '../ai'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-const TOKEN_PROPERTIES = ['$ai_input_tokens', '$ai_cache_read_input_tokens'] as const
+const TOKEN_PROPERTIES = [
+    '$ai_input_tokens',
+    '$ai_output_tokens',
+    '$ai_reasoning_tokens',
+    '$ai_cache_read_input_tokens',
+    '$ai_cache_creation_input_tokens',
+] as const
 
 /**
  * Validates that a value can be safely used with js-big-decimal for cost calculations.
