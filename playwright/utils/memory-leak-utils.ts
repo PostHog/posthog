@@ -35,26 +35,32 @@ export interface MemoryLeakReport {
 }
 
 export async function takeHeapSnapshot(page: Page, snapshotDir: string, name: string): Promise<HeapSnapshot> {
-    const client = await page.context().newCDPSession(page)
+    let client: CDPSession | null = null
     const filePath = path.join(snapshotDir, `${name}.heapsnapshot`)
+    
+    try {
+        client = await page.context().newCDPSession(page)
+        const chunks: string[] = []
+        client.on('HeapProfiler.addHeapSnapshotChunk', (params: { chunk: string }) => {
+            chunks.push(params.chunk)
+        })
 
-    const chunks: string[] = []
-    client.on('HeapProfiler.addHeapSnapshotChunk', (params: { chunk: string }) => {
-        chunks.push(params.chunk)
-    })
+        await client.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false })
+        
+        const snapshotData = chunks.join('')
+        fs.writeFileSync(filePath, snapshotData)
 
-    await client.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false })
-    await client.detach()
+        const heapSizeBytes = JSON.parse(snapshotData).snapshot?.meta?.total_size || snapshotData.length
 
-    const snapshotData = chunks.join('')
-    fs.writeFileSync(filePath, snapshotData)
-
-    const heapSizeBytes = JSON.parse(snapshotData).snapshot?.meta?.total_size || snapshotData.length
-
-    return {
-        filePath,
-        heapSizeBytes,
-        timestamp: Date.now(),
+        return {
+            filePath,
+            heapSizeBytes,
+            timestamp: Date.now(),
+        }
+    } finally {
+        if (client) {
+            await client.detach()
+        }
     }
 }
 
