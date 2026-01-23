@@ -6,6 +6,7 @@ import polars as pl
 import dagster
 from dagster import AssetKey, JsonMetadataValue, MetadataValue
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.dags.common import JobOwners
@@ -132,6 +133,7 @@ def job_switchers_to_clay(
         query=query,
         team=team,
         query_type="job_switchers_query",
+        limit_context=LimitContext.SAVED_QUERY,
     )
     results = response.results
 
