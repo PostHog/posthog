@@ -38,7 +38,7 @@ async def get_authenticated_user(
 def get_product_from_request(request: Request) -> str:
     path = request.url.path
     parts = path.strip("/").split("/")
-    if parts and parts[0] in {"array", "wizard", "llm_gateway"}:
+    if parts and parts[0] in {"array", "wizard", "llm_gateway", "django"}:
         return parts[0]
     return "llm_gateway"
 

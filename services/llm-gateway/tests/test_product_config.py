@@ -39,6 +39,10 @@ class TestCheckProductAccess:
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, True, None),
             ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, True, None),
+            # django allows API keys with any model
+            ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            ("django", "personal_api_key", None, "claude-3-opus", True, None),
+            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
