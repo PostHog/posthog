@@ -1,3 +1,13 @@
+# Process registry for the intent-based dev environment.
+#
+# This file defines all available processes and their capabilities.
+# Normally, `hogli dev:generate` creates a tailored config at
+# .posthog/.generated/mprocs.yaml based on your selected intents.
+# This file is used as fallback when hogli isn't available.
+#
+# To customize which processes run, use `hogli dev:setup`.
+# See dev/intent-map.yaml for intent-to-capability mappings.
+
 procs:
     backend:
         shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && bin/check_ducklake_up && ./bin/start-backend'
@@ -22,6 +32,7 @@ procs:
 
     typegen:
         shell: 'cd frontend && pnpm run typegen:watch'
+        autostart: false
         ask_skip: true # wizard asks if user wants to skip this
 
     temporal-worker:

@@ -68,13 +68,14 @@ def run_setup_wizard(intent_map: IntentMap) -> DevenvConfig | None:
 
     # Show what would be started
     if config.preset:
-        resolved = resolver.resolve_preset(config.preset)
+        resolved = resolver.resolve_preset(config.preset, enable_autostart=config.enable_autostart)
     else:
         resolved = resolver.resolve(
             config.intents,
             include_units=config.include_units,
             exclude_units=config.exclude_units,
             skip_autostart=config.skip_autostart,
+            enable_autostart=config.enable_autostart,
         )
     click.echo("")
     click.echo(f"This will start {len(resolved.units)} processes.")
@@ -111,6 +112,8 @@ def _show_config_summary(config: DevenvConfig) -> None:
         click.echo(f"  Exclude: {', '.join(config.exclude_units)}")
     if config.skip_autostart:
         click.echo(f"  Manual start: {', '.join(config.skip_autostart)}")
+    if config.enable_autostart:
+        click.echo(f"  Auto-start: {', '.join(config.enable_autostart)}")
 
 
 def _setup_from_preset(intent_map: IntentMap) -> DevenvConfig:
@@ -165,23 +168,12 @@ def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
 
 
 def _configure_overrides(config: DevenvConfig, registry) -> DevenvConfig:
-    """Optionally configure overrides."""
-    click.echo("")
-    if not click.confirm("Configure additional options?", default=False):
-        return config
-
-    # Exclude units
-    click.echo("")
-    click.echo("Units to exclude (e.g., typegen, dagster):")
-    exclude = click.prompt("Comma-separated, or blank", default="")
-    if exclude.strip():
-        config.exclude_units = [u.strip() for u in exclude.split(",") if u.strip()]
-
-    # Ask about skippable processes
+    """Configure overrides for manual-start processes."""
+    # Ask about manual-start processes (those with ask_skip: true)
     ask_skip_processes = registry.get_ask_skip_processes()
     for process_name in ask_skip_processes:
         click.echo("")
-        if click.confirm(f"Skip auto-start for {process_name}?", default=False):
-            config.skip_autostart.append(process_name)
+        if click.confirm(f"Auto-start {process_name}?", default=False):
+            config.enable_autostart.append(process_name)
 
     return config

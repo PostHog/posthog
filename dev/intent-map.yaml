@@ -172,30 +172,25 @@ intents:
 # Presets for common development scenarios
 presets:
     minimal:
-        intents: [product_analytics]
-        description: 'Frontend-focused minimal stack - fastest startup'
-
-    backend:
         intents: [product_analytics, feature_flags]
-        description: 'Backend development with flags'
-        include_capabilities: [dev_tools]
-
-    replay:
-        intents: [session_replay, error_tracking]
-        description: 'Session replay and error tracking development'
-
-    ai:
-        intents: [llm_analytics, max]
-        description: 'AI/LLM feature development'
+        description: 'Core stack - analytics and feature flags'
 
     full:
         all_intents: true
-        description: 'All products enabled - maximum resource usage'
+        description: 'All products - maximum resource usage'
         include_capabilities: [observability, dev_tools]
 
 # Always-required processes regardless of intent
+# This is the "core" stack - what minimal preset provides
 always_required:
     - backend
     - frontend
     - typegen
     - docker-compose
+    # Core services (minimal preset baseline)
+    - celery-worker
+    - celery-beat
+    - nodejs
+    - capture
+    - feature-flags
+    - property-defs-rs

@@ -163,6 +163,7 @@ def dev_generate(
             include_units=saved_config.include_units,
             exclude_units=saved_config.exclude_units,
             skip_autostart=saved_config.skip_autostart,
+            enable_autostart=saved_config.enable_autostart,
         )
 
         try:
@@ -172,6 +173,7 @@ def dev_generate(
                 exclude_units=exclude_units,
                 include_capabilities=include_caps,
                 skip_autostart=saved_config.skip_autostart,
+                enable_autostart=saved_config.enable_autostart,
             )
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
@@ -318,6 +320,8 @@ def dev_profile() -> None:
         click.echo(f"  Exclude: {', '.join(config.exclude_units)}")
     if config.skip_autostart:
         click.echo(f"  Manual start: {', '.join(config.skip_autostart)}")
+    if config.enable_autostart:
+        click.echo(f"  Auto-start: {', '.join(config.enable_autostart)}")
 
 
 @cli.command(name="dev:setup", help="Interactive wizard to configure your dev environment")

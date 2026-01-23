@@ -128,6 +128,7 @@ class ResolvedEnvironment:
     overrides_applied: dict[str, list[str]] = field(default_factory=dict)
     unit_provenance: dict[str, str] = field(default_factory=dict)  # unit -> reason
     skip_autostart: set[str] = field(default_factory=set)  # units to include but not auto-start
+    enable_autostart: set[str] = field(default_factory=set)  # units to enable autostart (override source)
 
     def get_unit_list(self) -> list[str]:
         """Get sorted list of units for consistent output."""
@@ -159,6 +160,7 @@ class IntentResolver:
         exclude_units: list[str] | None = None,
         include_capabilities: list[str] | None = None,
         skip_autostart: list[str] | None = None,
+        enable_autostart: list[str] | None = None,
     ) -> ResolvedEnvironment:
         """Resolve intents to the minimal set of units.
 
@@ -168,6 +170,7 @@ class IntentResolver:
             exclude_units: Units to exclude (overrides)
             include_capabilities: Additional capabilities to include (for docker profiles, etc.)
             skip_autostart: Units to include but not auto-start
+            enable_autostart: Units to enable autostart (override source autostart: false)
 
         Returns:
             ResolvedEnvironment with the resolved units and metadata
@@ -176,6 +179,7 @@ class IntentResolver:
         exclude_units = exclude_units or []
         include_capabilities = include_capabilities or []
         skip_autostart = skip_autostart or []
+        enable_autostart = enable_autostart or []
 
         # Track provenance: unit -> reason it was included
         unit_provenance: dict[str, str] = {}
@@ -241,6 +245,7 @@ class IntentResolver:
             overrides_applied=overrides_applied,
             unit_provenance=unit_provenance,
             skip_autostart=set(skip_autostart),
+            enable_autostart=set(enable_autostart),
         )
 
     def resolve_preset(
@@ -250,6 +255,7 @@ class IntentResolver:
         exclude_units: list[str] | None = None,
         include_capabilities: list[str] | None = None,
         skip_autostart: list[str] | None = None,
+        enable_autostart: list[str] | None = None,
     ) -> ResolvedEnvironment:
         """Resolve a preset to units.
 
@@ -259,6 +265,7 @@ class IntentResolver:
             exclude_units: Units to exclude
             include_capabilities: Additional capabilities to include
             skip_autostart: Units to include but not auto-start
+            enable_autostart: Units to enable autostart (override source autostart: false)
 
         Returns:
             ResolvedEnvironment with the resolved units
@@ -282,7 +289,9 @@ class IntentResolver:
         if include_capabilities:
             all_include_capabilities.extend(include_capabilities)
 
-        return self.resolve(intents, include_units, exclude_units, all_include_capabilities or None, skip_autostart)
+        return self.resolve(
+            intents, include_units, exclude_units, all_include_capabilities or None, skip_autostart, enable_autostart
+        )
 
     def _intents_to_capabilities(self, intents: list[str]) -> set[str]:
         """Map intents to their required capabilities."""

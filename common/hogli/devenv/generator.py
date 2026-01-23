@@ -31,6 +31,7 @@ class DevenvConfig:
     include_units: list[str] = field(default_factory=list)
     exclude_units: list[str] = field(default_factory=list)
     skip_autostart: list[str] = field(default_factory=list)
+    enable_autostart: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization."""
@@ -46,6 +47,8 @@ class DevenvConfig:
             data["exclude_units"] = self.exclude_units
         if self.skip_autostart:
             data["skip_autostart"] = self.skip_autostart
+        if self.enable_autostart:
+            data["enable_autostart"] = self.enable_autostart
 
         return data
 
@@ -58,6 +61,7 @@ class DevenvConfig:
             include_units=data.get("include_units", []),
             exclude_units=data.get("exclude_units", []),
             skip_autostart=data.get("skip_autostart", []),
+            enable_autostart=data.get("enable_autostart", []),
         )
 
 
@@ -152,6 +156,10 @@ class MprocsGenerator(ConfigGenerator):
             # Set autostart: false for skipped processes
             if name in resolved.skip_autostart:
                 proc_config["autostart"] = False
+
+            # Enable autostart for processes user opted into (overrides source autostart: false)
+            if name in resolved.enable_autostart:
+                proc_config.pop("autostart", None)
 
             # Add startup message for resolved units (not manual-start ones)
             if is_resolved and name not in resolved.skip_autostart:
