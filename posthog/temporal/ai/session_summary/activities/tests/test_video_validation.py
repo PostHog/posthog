@@ -132,6 +132,7 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
 
                 # Verify summary was updated
                 updated_summary = await SingleSessionSummary.objects.aget(id=existing_summary.id)
+                assert updated_summary.run_metadata is not None
                 assert updated_summary.run_metadata["visual_confirmation"] is True
         finally:
             await existing_summary.adelete()
@@ -165,10 +166,9 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
             with patch(
                 "posthog.temporal.ai.session_summary.activities.video_validation.SessionSummaryVideoValidator"
             ) as mock_validator_class:
-                result = await validate_llm_single_session_summary_with_videos_activity(inputs)
+                await validate_llm_single_session_summary_with_videos_activity(inputs)
 
-                # Should return None and not call validator
-                assert result is None
+                # Should not call validator (function returns None implicitly)
                 mock_validator_class.assert_not_called()
         finally:
             await existing_summary.adelete()
@@ -308,12 +308,11 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
             ):
                 mock_activity_info.return_value.workflow_id = "test_workflow_id"
 
-                result = await validate_llm_single_session_summary_with_videos_activity(inputs)
-
-                assert result is None
+                await validate_llm_single_session_summary_with_videos_activity(inputs)
 
                 # Summary should remain unchanged
                 summary = await SingleSessionSummary.objects.aget(id=existing_summary.id)
+                assert summary.run_metadata is not None
                 assert summary.run_metadata["visual_confirmation"] is False
         finally:
             await existing_summary.adelete()
@@ -385,7 +384,6 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
 
         try:
             # Should find the summary with matching context and skip (already confirmed)
-            result = await validate_llm_single_session_summary_with_videos_activity(inputs)
-            assert result is None
+            await validate_llm_single_session_summary_with_videos_activity(inputs)
         finally:
             await existing_summary.adelete()

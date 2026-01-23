@@ -256,6 +256,7 @@ class TestStoreVideoSessionSummaryActivity:
             )
 
             assert summary is not None
+            assert summary.run_metadata is not None
             assert summary.run_metadata["visual_confirmation"] is True
 
             # Cleanup
@@ -295,6 +296,7 @@ class TestStoreVideoSessionSummaryActivity:
 
             # Summary should remain unchanged
             summary = await SingleSessionSummary.objects.aget(id=existing_summary.id)
+            assert summary.run_metadata is not None
             assert summary.run_metadata["visual_confirmation"] is False  # Still the old value
         finally:
             await existing_summary.adelete()

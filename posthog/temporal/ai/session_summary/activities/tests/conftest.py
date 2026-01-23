@@ -1,8 +1,8 @@
 """
 Fixtures for video-based session summary activity tests.
 
-This module provides fixtures that build on the existing test infrastructure
-from posthog/temporal/tests/ai/conftest.py and ee/hogai/session_summaries/tests/conftest.py.
+This module provides fixtures that build on the existing test infrastructure from posthog/temporal/tests/ai/conftest.py
+and ee/hogai/session_summaries/tests/conftest.py.
 """
 
 import random
@@ -277,7 +277,7 @@ def mock_video_bytes() -> bytes:
 
 
 @pytest_asyncio.fixture
-async def mock_exported_asset(ateam, auser, mock_video_session_id: str) -> ExportedAsset:
+async def mock_exported_asset(ateam, auser, mock_video_session_id: str):
     """Create test ExportedAsset with video content."""
     asset = await ExportedAsset.objects.acreate(
         team_id=ateam.id,
@@ -300,7 +300,7 @@ async def mock_exported_asset(ateam, auser, mock_video_session_id: str) -> Expor
 
 
 @pytest.fixture
-def mock_session_metadata() -> dict[str, Any]:
+def mock_video_session_metadata() -> dict[str, Any]:
     """Mock session replay metadata from ClickHouse."""
     return {
         "session_id": "00000000-0000-0000-0002-000000000000",

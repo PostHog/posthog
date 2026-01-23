@@ -35,7 +35,7 @@ class TestExportSessionVideoActivity:
         auser: User,
         mock_video_session_id: str,
         mock_video_summary_inputs_factory: Callable,
-        mock_session_metadata: dict[str, Any],
+        mock_video_session_metadata: dict[str, Any],
     ):
         """Test successful video export creates ExportedAsset and triggers VideoExportWorkflow."""
         inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
@@ -57,7 +57,7 @@ class TestExportSessionVideoActivity:
                 return_value=mock_temporal_client,
             ),
         ):
-            mock_replay_events.return_value.get_metadata.return_value = mock_session_metadata
+            mock_replay_events.return_value.get_metadata.return_value = mock_video_session_metadata
 
             result = await export_session_video_activity(inputs)
 
@@ -66,6 +66,7 @@ class TestExportSessionVideoActivity:
             asset = await ExportedAsset.objects.aget(id=result)
             assert asset.team_id == ateam.id
             assert asset.export_format == DEFAULT_VIDEO_EXPORT_MIME_TYPE
+            assert asset.export_context is not None
             assert asset.export_context["session_recording_id"] == mock_video_session_id
             assert asset.export_context["playback_speed"] == VIDEO_ANALYSIS_PLAYBACK_SPEED
 
@@ -189,7 +190,7 @@ class TestExportSessionVideoActivity:
         auser: User,
         mock_video_session_id: str,
         mock_video_summary_inputs_factory: Callable,
-        mock_session_metadata: dict[str, Any],
+        mock_video_session_metadata: dict[str, Any],
     ):
         """Test that export context includes all required fields."""
         inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
@@ -210,17 +211,18 @@ class TestExportSessionVideoActivity:
                 return_value=mock_temporal_client,
             ),
         ):
-            mock_replay_events.return_value.get_metadata.return_value = mock_session_metadata
+            mock_replay_events.return_value.get_metadata.return_value = mock_video_session_metadata
 
             result = await export_session_video_activity(inputs)
 
             asset = await ExportedAsset.objects.aget(id=result)
 
             # Verify all expected context fields
+            assert asset.export_context is not None
             assert asset.export_context["session_recording_id"] == mock_video_session_id
             assert asset.export_context["timestamp"] == 0
             assert "filename" in asset.export_context
-            assert asset.export_context["duration"] == mock_session_metadata["duration"]
+            assert asset.export_context["duration"] == mock_video_session_metadata["duration"]
             assert asset.export_context["playback_speed"] == VIDEO_ANALYSIS_PLAYBACK_SPEED
             assert asset.export_context["mode"] == "video"
 
