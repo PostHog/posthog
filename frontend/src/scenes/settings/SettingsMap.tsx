@@ -461,7 +461,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <ReplayIntegrations />,
-                flag: 'REPLAY_LINEAR_INTEGRATION',
             },
         ],
     },

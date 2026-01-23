@@ -59,6 +59,10 @@ class EndpointVersion(models.Model):
         related_name="endpoint_versions",
         help_text="The underlying materialized view for this version",
     )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this version is available for execution. Inactive versions cannot be run.",
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"

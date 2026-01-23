@@ -119,6 +119,7 @@ export class TemporalService {
             taskQueue: EVALUATION_TASK_QUEUE,
             workflowId,
             workflowIdConflictPolicy: 'USE_EXISTING',
+            workflowTaskTimeout: '2 minutes',
         })
 
         temporalWorkflowsStarted.labels({ status: 'success' }).inc()

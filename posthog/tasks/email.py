@@ -749,7 +749,17 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             logger.warning("Skipping discussions mentioned email: no valid recipients after filtering")
             return
 
-        href = f"{settings.SITE_URL}{slug}"
+        # Generate href from comment data if slug not provided
+        if not slug:
+            if comment.scope == "Replay":
+                href = f"{settings.SITE_URL}/replay/{comment.item_id}"
+            elif comment.scope == "Notebook":
+                href = f"{settings.SITE_URL}/notebook/{comment.item_id}"
+            else:
+                # Fallback for other scopes
+                href = settings.SITE_URL
+        else:
+            href = f"{settings.SITE_URL}{slug}"
 
         campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
         message = EmailMessage(

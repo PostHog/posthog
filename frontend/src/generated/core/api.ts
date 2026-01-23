@@ -95,7 +95,6 @@ import type {
     PatchedDashboardApi,
     PatchedDashboardTemplateApi,
     PatchedFileSystemApi,
-    PatchedIntegrationApi,
     PatchedOrganizationDomainApi,
     PatchedOrganizationMemberApi,
     PatchedProjectBackwardCompatApi,
@@ -1974,39 +1973,6 @@ export const environmentsIntegrationsClickupWorkspacesRetrieve = async (
     )
 }
 
-export type environmentsIntegrationsEmailPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsIntegrationsEmailPartialUpdateResponseSuccess =
-    environmentsIntegrationsEmailPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsEmailPartialUpdateResponse =
-    environmentsIntegrationsEmailPartialUpdateResponseSuccess
-
-export const getEnvironmentsIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/integrations/${id}/email/`
-}
-
-export const environmentsIntegrationsEmailPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedIntegrationApi: NonReadonly<PatchedIntegrationApi>,
-    options?: RequestInit
-): Promise<environmentsIntegrationsEmailPartialUpdateResponse> => {
-    return apiMutator<environmentsIntegrationsEmailPartialUpdateResponse>(
-        getEnvironmentsIntegrationsEmailPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedIntegrationApi),
-        }
-    )
-}
-
 export type environmentsIntegrationsEmailVerifyCreateResponse200 = {
     data: void
     status: 200
@@ -2122,6 +2088,34 @@ export const environmentsIntegrationsGoogleConversionActionsRetrieve = async (
 ): Promise<environmentsIntegrationsGoogleConversionActionsRetrieveResponse> => {
     return apiMutator<environmentsIntegrationsGoogleConversionActionsRetrieveResponse>(
         getEnvironmentsIntegrationsGoogleConversionActionsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsIntegrationsJiraRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsIntegrationsJiraRetrieveResponseSuccess = environmentsIntegrationsJiraRetrieveResponse200 & {
+    headers: Headers
+}
+export type environmentsIntegrationsJiraRetrieveResponse = environmentsIntegrationsJiraRetrieveResponseSuccess
+
+export const getEnvironmentsIntegrationsJiraRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/environments/${projectId}/integrations/${id}/jira_projects/`
+}
+
+export const environmentsIntegrationsJiraRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<environmentsIntegrationsJiraRetrieveResponse> => {
+    return apiMutator<environmentsIntegrationsJiraRetrieveResponse>(
+        getEnvironmentsIntegrationsJiraRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -6648,34 +6642,6 @@ export const integrationsClickupWorkspacesRetrieve = async (
     )
 }
 
-export type integrationsEmailPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type integrationsEmailPartialUpdateResponseSuccess = integrationsEmailPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type integrationsEmailPartialUpdateResponse = integrationsEmailPartialUpdateResponseSuccess
-
-export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/email/`
-}
-
-export const integrationsEmailPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedIntegrationApi: NonReadonly<PatchedIntegrationApi>,
-    options?: RequestInit
-): Promise<integrationsEmailPartialUpdateResponse> => {
-    return apiMutator<integrationsEmailPartialUpdateResponse>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedIntegrationApi),
-    })
-}
-
 export type integrationsEmailVerifyCreateResponse200 = {
     data: void
     status: 200
@@ -6787,6 +6753,31 @@ export const integrationsGoogleConversionActionsRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export type integrationsJiraProjectsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type integrationsJiraProjectsRetrieveResponseSuccess = integrationsJiraProjectsRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsJiraProjectsRetrieveResponse = integrationsJiraProjectsRetrieveResponseSuccess
+
+export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
+}
+
+export const integrationsJiraProjectsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<integrationsJiraProjectsRetrieveResponse> => {
+    return apiMutator<integrationsJiraProjectsRetrieveResponse>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export type integrationsLinearTeamsRetrieveResponse200 = {

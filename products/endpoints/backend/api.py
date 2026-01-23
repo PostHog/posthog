@@ -318,15 +318,33 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         request=EndpointRequest,
-        description="Update an existing endpoint. Parameters are optional.",
+        description="Update an existing endpoint. Parameters are optional. Use ?version=N to update a specific version's is_active status.",
     )
     def update(self, request: Request, name: str | None = None, *args, **kwargs) -> Response:
-        """Update an existing endpoint."""
+        """Update an existing endpoint.
+
+        Supports version targeting via ?version=N query param.
+        When version is specified with is_active, updates that specific version's activation status.
+        """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
         before_update = Endpoint.objects.get(pk=endpoint.id)
 
+        # Check for version param (query param takes precedence for version-specific updates)
+        version_param = request.query_params.get("version")
+        target_version_number: int | None = None
+        if version_param is not None:
+            try:
+                target_version_number = int(version_param)
+            except (ValueError, TypeError):
+                raise ValidationError({"version": f"Invalid version parameter: {version_param}"})
+
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
+
+        # If targeting a specific version, handle version-specific is_active update
+        if target_version_number is not None:
+            return self._update_version(endpoint, target_version_number, data, request)
+
         self.validate_update_request(data, endpoint=endpoint, strict=False)
 
         try:
@@ -406,6 +424,47 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 },
             )
             raise ValidationError("Failed to update endpoint.")
+
+    def _update_version(
+        self,
+        endpoint: Endpoint,
+        version_number: int,
+        data: EndpointRequest,
+        request: Request,
+    ) -> Response:
+        """Update a specific version's properties."""
+        try:
+            version_obj = endpoint.get_version(version_number)
+        except EndpointVersion.DoesNotExist:
+            return Response(
+                {"error": f"Version {version_number} not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Capture state before update for activity logging
+        before_update = EndpointVersion.objects.get(pk=version_obj.pk)
+
+        # Update is_active if provided
+        if data.is_active is not None:
+            if not isinstance(data.is_active, bool):
+                raise ValidationError({"is_active": "Must be a boolean"})
+            version_obj.is_active = data.is_active
+            version_obj.save(update_fields=["is_active"])
+
+        changes = changes_between("EndpointVersion", previous=before_update, current=version_obj)
+        if changes:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(endpoint.id),
+                scope="EndpointVersion",
+                activity="version_updated",
+                detail=Detail(name=endpoint.name, changes=changes),
+            )
+
+        return Response(self._serialize_endpoint_version(version_obj))
 
     def _enable_materialization(
         self,
@@ -844,6 +903,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query = version.query
         is_materialized = bool(version.is_materialized and version.saved_query)
 
+        if version and not version.is_active:
+            raise ValidationError(f"Version {version.version} is inactive and cannot be executed.")
+
         if query.get("kind") == "HogQLQuery" and (data.query_override):
             raise ValidationError("Only variables and filters_override are allowed when executing a HogQL query")
         if query.get("kind") != "HogQLQuery" and data.variables:
@@ -925,6 +987,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "id": str(version.id),
             "version": version.version,
             "query": version.query,
+            "is_active": version.is_active,
             "created_at": version.created_at.isoformat(),
             "created_by": UserBasicSerializer(version.created_by).data if version.created_by else None,
         }
