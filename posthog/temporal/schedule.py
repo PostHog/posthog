@@ -273,7 +273,7 @@ async def create_purge_deleted_recording_metadata_schedule(client: Client):
     """Create or update the schedule for the purge deleted recording metadata workflow.
 
     This schedule runs daily at 3 AM UTC to permanently delete ClickHouse metadata
-    for recordings that have been crypto-shredded (encryption keys deleted).
+    for recordings that have been deleted.
     """
     purge_deleted_recording_metadata_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
