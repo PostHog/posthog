@@ -1209,6 +1209,9 @@ importers:
       ts-node:
         specifier: ^10.9.1
         version: 10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5)
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
       whatwg-fetch:
         specifier: ^3.6.2
         version: 3.6.2

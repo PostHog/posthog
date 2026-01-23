@@ -1,0 +1,116 @@
+name: Check Generated Docs
+
+on:
+    workflow_call:
+        inputs:
+            source_file:
+                description: 'File that triggers doc regeneration when changed'
+                required: true
+                type: string
+            build_command:
+                description: 'Command to regenerate the docs'
+                required: true
+                type: string
+            output_file:
+                description: 'Generated doc file to check for changes'
+                required: true
+                type: string
+            fail_on_outdated:
+                description: 'Whether to fail the workflow if docs are out of date'
+                required: false
+                type: boolean
+                default: false
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    check-docs-generated:
+        name: Check docs are up to date
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Check if source file changed
+              id: source-check
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  SOURCE_FILE: ${{ inputs.source_file }}
+              run: |
+                  if gh pr diff "$PR_NUMBER" --name-only \
+                      | grep -q "$SOURCE_FILE"; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Checkout
+              if: steps.source-check.outputs.changed == 'true'
+              uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              if: steps.source-check.outputs.changed == 'true'
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Setup Node.js
+              if: steps.source-check.outputs.changed == 'true'
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Install dependencies
+              if: steps.source-check.outputs.changed == 'true'
+              run: pnpm install --frozen-lockfile
+
+            - name: Generate docs
+              if: steps.source-check.outputs.changed == 'true'
+              env:
+                  BUILD_COMMAND: ${{ inputs.build_command }}
+              run: $BUILD_COMMAND
+
+            - name: Check for uncommitted changes
+              id: docs-check
+              if: steps.source-check.outputs.changed == 'true'
+              env:
+                  OUTPUT_FILE: ${{ inputs.output_file }}
+              run: |
+                  if git diff --exit-code "$OUTPUT_FILE"; then
+                      echo "outdated=false" >> $GITHUB_OUTPUT
+                  else
+                      echo "outdated=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Post reminder comment
+              if: steps.docs-check.outputs.outdated == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  SOURCE_FILE: ${{ inputs.source_file }}
+                  BUILD_COMMAND: ${{ inputs.build_command }}
+                  OUTPUT_FILE: ${{ inputs.output_file }}
+              run: |
+                  # Check if reminder comment already exists
+                  if gh pr view "$PR_NUMBER" --json comments \
+                      --jq '.comments[].body' | grep -q 'Generated Docs Update Required'; then
+                      echo "Comment already exists, skipping"
+                      exit 0
+                  fi
+
+                  gh pr comment "$PR_NUMBER" --body "### 📄 Generated Docs Update Required
+
+                  You updated \`${SOURCE_FILE}\` but the generated docs are out of date.
+
+                  Please run:
+                  \`\`\`
+                  ${BUILD_COMMAND}
+                  \`\`\`
+
+                  Then commit the updated \`${OUTPUT_FILE}\` file."
+
+            - name: Fail if docs outdated
+              if: steps.docs-check.outputs.outdated == 'true' && inputs.fail_on_outdated
+              env:
+                  BUILD_COMMAND: ${{ inputs.build_command }}
+              run: |
+                  echo "::error::Generated docs are out of date. Run '${BUILD_COMMAND}' and commit the changes."
+                  exit 1
