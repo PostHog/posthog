@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import aiohttp
 from aiohttp import web
@@ -32,6 +33,10 @@ class CombinedMetricsServer:
         self._app: web.Application | None = None
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
+        # Dedicated single-threaded executor for generate_latest to avoid starving the default executor.
+        # max_workers=1 ensures only one registry collection happens at a time (serialization).
+        # If a collection deadlocks, the timeout will fire and shutdown(wait=False) prevents blocking.
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="metrics-collector")
 
     async def _handle_metrics(self, request: web.Request) -> web.Response:
         """Handle GET /metrics requests by combining Temporal SDK and prometheus_client metrics."""
@@ -41,15 +46,22 @@ class CombinedMetricsServer:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(self._temporal_metrics_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        temporal_output = await resp.read()
+                        if resp.status == 200:
+                            temporal_output = await resp.read()
+                        else:
+                            logger.warning(
+                                "combined_metrics_server.temporal_fetch_failed",
+                                status=resp.status,
+                                error=f"HTTP {resp.status}",
+                            )
             except Exception as e:
                 logger.warning("combined_metrics_server.temporal_fetch_failed", error=str(e))
 
-            # Get prometheus_client metrics in a thread pool to avoid blocking the event loop.
-            # Run with timeout to prevent registry lock issues.
+            # Get prometheus_client metrics in a dedicated thread pool to avoid blocking the event loop
+            # or starving the default executor. Run with timeout to prevent registry lock issues.
             try:
                 client_output = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(None, generate_latest, self._registry),
+                    asyncio.get_running_loop().run_in_executor(self._executor, generate_latest, self._registry),
                     timeout=5.0,
                 )
             except TimeoutError:
@@ -105,4 +117,9 @@ class CombinedMetricsServer:
         self._runner = None
         self._site = None
         self._app = None
+
+        # Shutdown the dedicated executor
+        # wait=False is intentional: if generate_latest is stuck, don't block shutdown
+        self._executor.shutdown(wait=False)
+
         logger.info("combined_metrics_server.stopped")
