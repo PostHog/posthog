@@ -134,11 +134,14 @@ export const projectLogic = kea<projectLogicType>([
                 location.reload()
                 actions.deleteProjectSuccess()
             } catch {
+                lemonToast.error('Failed to delete project. Please try again.')
                 actions.deleteProjectFailure()
             }
         },
         deleteProjectSuccess: () => {
-            lemonToast.success('Project has been deleted')
+            lemonToast.success(
+                "Project deleted. Data cleanup may take a few hours, we'll send you an email when it's complete."
+            )
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
