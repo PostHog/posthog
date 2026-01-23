@@ -78,7 +78,7 @@ async def create_worker(
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
-    enable_metrics_server: bool = True,
+    enable_combined_metrics_server: bool = True,
 ) -> ManagedWorker:
     """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
@@ -107,13 +107,13 @@ async def create_worker(
             If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
         target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
-        enable_metrics_server: Whether to start the combined metrics server. Defaults to True.
+        enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
     """
 
     metrics_server: CombinedMetricsServer | None = None
 
-    if enable_metrics_server:
+    if enable_combined_metrics_server:
         temporal_metrics_port = get_free_port()
         temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
 
