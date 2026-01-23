@@ -2562,6 +2562,7 @@ export enum ChartDisplayType {
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
     CalendarHeatmap = 'CalendarHeatmap',
+    TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -4713,6 +4714,7 @@ export const INTEGRATION_KINDS = [
     'vercel',
     'azure-blob',
     'firebase',
+    'jira',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4749,6 +4751,12 @@ export interface TwilioPhoneNumberType {
 }
 export interface LinearTeamType {
     id: string
+    name: string
+}
+
+export interface JiraProjectType {
+    id: string
+    key: string
     name: string
 }
 

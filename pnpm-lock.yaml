@@ -669,26 +669,26 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
       chart.js:
-        specifier: ^4.4.3
-        version: 4.4.3
+        specifier: ^4.5.1
+        version: 4.5.1
       chartjs-adapter-dayjs-3:
         specifier: ^1.2.3
-        version: 1.2.3(chart.js@4.4.3)(dayjs@1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852))
+        version: 1.2.3(chart.js@4.5.1)(dayjs@1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852))
       chartjs-plugin-annotation:
-        specifier: 2.2.1
-        version: 2.2.1(chart.js@4.4.3)
+        specifier: ^3.1.0
+        version: 3.1.0(chart.js@4.5.1)
       chartjs-plugin-crosshair:
         specifier: 2.0.0
-        version: 2.0.0(patch_hash=b40c879817dfedb5ac7ec8296f1e73d02fd3bdddd18a0a731b441ff05ff62f8a)(chart.js@4.4.3)
+        version: 2.0.0(patch_hash=b40c879817dfedb5ac7ec8296f1e73d02fd3bdddd18a0a731b441ff05ff62f8a)(chart.js@4.5.1)
       chartjs-plugin-datalabels:
         specifier: ^2.2.0
-        version: 2.2.0(chart.js@4.4.3)
+        version: 2.2.0(chart.js@4.5.1)
       chartjs-plugin-stacked100:
-        specifier: ^1.4.0
-        version: 1.4.0(chart.js@4.4.3)
+        specifier: ^1.7.0
+        version: 1.7.0(chart.js@4.5.1)
       chartjs-plugin-trendline:
-        specifier: ^2.1.2
-        version: 2.1.2
+        specifier: ^3.2.0
+        version: 3.2.0
       chokidar:
         specifier: ^3.5.3
         version: 3.6.0
@@ -861,8 +861,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.334.0
-        version: 1.334.0
+        specifier: 1.334.1
+        version: 1.334.1
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1653,8 +1653,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.334.0
-        version: 1.334.0
+        specifier: 1.334.1
+        version: 1.334.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -1844,8 +1844,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.334.0
-        version: 1.334.0
+        specifier: 1.334.1
+        version: 1.334.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -2085,8 +2085,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.334.0
-        version: 1.334.0
+        specifier: 1.334.1
+        version: 1.334.1
       prettier:
         specifier: '*'
         version: 3.6.2
@@ -2170,8 +2170,8 @@ importers:
         specifier: '*'
         version: 5.4.1
       posthog-js:
-        specifier: 1.334.0
-        version: 1.334.0
+        specifier: 1.334.1
+        version: 1.334.1
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2491,8 +2491,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.334.0
-        version: 1.334.0
+        specifier: 1.334.1
+        version: 1.334.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -2563,8 +2563,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.334.0
-        version: 1.334.0
+        specifier: 1.334.1
+        version: 1.334.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -5881,12 +5881,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
 
-  '@opentelemetry/core@2.3.0':
-    resolution: {integrity: sha512-PcmxJQzs31cfD0R2dE91YGFcLxOSN4Bxz7gez5UwSUjCai8BwH/GI5HchfVshHkWdTkUs0qcaPJgVHKXUp7I3A==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.0.0 <1.10.0'
-
   '@opentelemetry/core@2.4.0':
     resolution: {integrity: sha512-KtcyFHssTn5ZgDu6SXmUznS80OFs/wN7y6MyFRRcKU6TOw8hNcGxKvt8hsdaLJfhzUszNSjURetq5Qpkad14Gw==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -6942,8 +6936,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.334.0':
-    resolution: {integrity: sha512-PgXKhnLIa5vTlfUBuwojZq9GVw4ojRJDS3gb3lCmx8qbkYA+5wg03i5ICa9DxEB1pcuP7rYj9b78tdwGitifZw==}
+  '@posthog/types@1.334.1':
+    resolution: {integrity: sha512-ypFnwTO7qbV7icylLbujbamPdQXbJq0a61GUUBnJAeTbBw/qYPIss5IRYICcbCj0uunQrwD7/CGxVb5TOYKWgA==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -11351,8 +11345,8 @@ packages:
   chart.js@3.9.1:
     resolution: {integrity: sha512-Ro2JbLmvg83gXF5F4sniaQ+lTbSv18E+TIf2cOeiH1Iqd2PGFOtem+DUufMZsCJwFE7ywPOpfXFBwRTGq7dh6w==}
 
-  chart.js@4.4.3:
-    resolution: {integrity: sha512-qK1gkGSRYcJzqrrzdR6a+I0vQ4/R+SoODXyAjscQ/4mzuNzySaMCd+hyVxitSY1+L2fjPD1Gbn+ibNqRmwQeLw==}
+  chart.js@4.5.1:
+    resolution: {integrity: sha512-GIjfiT9dbmHRiYi6Nl2yFCq7kkwdkp1W/lp2J99rX0yo9tgJGn3lKQATztIjb5tVtevcBtIdICNWqlq5+E8/Pw==}
     engines: {pnpm: '>=8'}
 
   chartjs-adapter-dayjs-3@1.2.3:
@@ -11362,10 +11356,10 @@ packages:
       chart.js: '>=2.8.0'
       dayjs: ^1.9.7
 
-  chartjs-plugin-annotation@2.2.1:
-    resolution: {integrity: sha512-RL9UtrFr2SXd7C47zD0MZqn6ZLgrcRt3ySC6cYal2amBdANcYB1QcwFXcpKWAYnO4SGJYRok7P5rKDDNgJMA/w==}
+  chartjs-plugin-annotation@3.1.0:
+    resolution: {integrity: sha512-EkAed6/ycXD/7n0ShrlT1T2Hm3acnbFhgkIEJLa0X+M6S16x0zwj1Fv4suv/2bwayCT3jGPdAtI9uLcAMToaQQ==}
     peerDependencies:
-      chart.js: '>=3.7.0'
+      chart.js: '>=4.0.0'
 
   chartjs-plugin-crosshair@2.0.0:
     resolution: {integrity: sha512-Vs6strRvYpzL92v40r/rAWhh+7au8VnfyC/m2ZHXcXeLEWeFjDgMvXjWdX+eARhbgHQo+uGIKyq9fmkS79GIyQ==}
@@ -11377,13 +11371,13 @@ packages:
     peerDependencies:
       chart.js: '>=3.0.0'
 
-  chartjs-plugin-stacked100@1.4.0:
-    resolution: {integrity: sha512-49oWqcja9E++uVgmYE1AY8t1g56vZhhkt9CXO/eCMnuoTRjlJPD3lznMyemkZMEVpRoAujMw07eVLJcJnpcUKA==}
+  chartjs-plugin-stacked100@1.7.0:
+    resolution: {integrity: sha512-5X9kofKrZ4Ve8ya9Zbk1ORsMTm2YX10PwbtCry2ht3nOqbb4wl3rYKd9oC82NpQZHqdXXXKPdUIldTCr0NmQrg==}
     peerDependencies:
       chart.js: '>=3.8.0'
 
-  chartjs-plugin-trendline@2.1.2:
-    resolution: {integrity: sha512-8XmGSI4I1tS3Balm0SsYWQjy4eNtY9aDSpErlD/Z+Zqlhfzir/p8U9zn3ahHsNolfVL/s35MgZ5jM+BCbCGP7A==}
+  chartjs-plugin-trendline@3.2.0:
+    resolution: {integrity: sha512-UQ309v67EPc6KQsEIfn8YEBOclsZGvfddjbK8ZIN9QhEHQKzUrtJPpMc1F8o5G7ErgIFvmtFnt5YP9vkTPswSg==}
 
   check-error@2.1.1:
     resolution: {integrity: sha512-OAlb+T7V4Op9OwdkjmguYRqncdlx5JiofwOAUkmTF+jNdHwzTaTs4sRAGpzLF3oOz5xAyDGrPgeIDFQmDOTiJw==}
@@ -17132,8 +17126,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.334.0:
-    resolution: {integrity: sha512-e+PicdydgU9LnvF/6nJuSFcKMfdd9DIBR2j0tjWfe4ySQrniBMhtQUAejJrJAWHL48B8icMDC/4VCNvhri79JA==}
+  posthog-js@1.334.1:
+    resolution: {integrity: sha512-5cDzLICr2afnwX/cR9fwoLC0vN0Nb5gP5HiCigzHkgHdO+E3WsYefla3EFMQz7U4r01CBPZ+nZ9/srkzeACxtQ==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -25113,11 +25107,6 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/semantic-conventions': 1.39.0
 
-  '@opentelemetry/core@2.3.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/semantic-conventions': 1.36.0
-
   '@opentelemetry/core@2.4.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -25786,7 +25775,7 @@ snapshots:
   '@opentelemetry/sql-common@0.41.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.3.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/core': 2.0.1(@opentelemetry/api@1.9.0)
 
   '@orval/angular@8.0.0-rc.5(typescript@5.2.2)':
     dependencies:
@@ -26762,7 +26751,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.334.0': {}
+  '@posthog/types@1.334.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -29481,7 +29470,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -32292,32 +32281,32 @@ snapshots:
 
   chart.js@3.9.1: {}
 
-  chart.js@4.4.3:
+  chart.js@4.5.1:
     dependencies:
       '@kurkle/color': 0.3.2
 
-  chartjs-adapter-dayjs-3@1.2.3(chart.js@4.4.3)(dayjs@1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)):
+  chartjs-adapter-dayjs-3@1.2.3(chart.js@4.5.1)(dayjs@1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)):
     dependencies:
-      chart.js: 4.4.3
+      chart.js: 4.5.1
       dayjs: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
 
-  chartjs-plugin-annotation@2.2.1(chart.js@4.4.3):
+  chartjs-plugin-annotation@3.1.0(chart.js@4.5.1):
     dependencies:
-      chart.js: 4.4.3
+      chart.js: 4.5.1
 
-  chartjs-plugin-crosshair@2.0.0(patch_hash=b40c879817dfedb5ac7ec8296f1e73d02fd3bdddd18a0a731b441ff05ff62f8a)(chart.js@4.4.3):
+  chartjs-plugin-crosshair@2.0.0(patch_hash=b40c879817dfedb5ac7ec8296f1e73d02fd3bdddd18a0a731b441ff05ff62f8a)(chart.js@4.5.1):
     dependencies:
-      chart.js: 4.4.3
+      chart.js: 4.5.1
 
-  chartjs-plugin-datalabels@2.2.0(chart.js@4.4.3):
+  chartjs-plugin-datalabels@2.2.0(chart.js@4.5.1):
     dependencies:
-      chart.js: 4.4.3
+      chart.js: 4.5.1
 
-  chartjs-plugin-stacked100@1.4.0(chart.js@4.4.3):
+  chartjs-plugin-stacked100@1.7.0(chart.js@4.5.1):
     dependencies:
-      chart.js: 4.4.3
+      chart.js: 4.5.1
 
-  chartjs-plugin-trendline@2.1.2: {}
+  chartjs-plugin-trendline@3.2.0: {}
 
   check-error@2.1.1: {}
 
@@ -35890,6 +35879,25 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
+  jest-cli@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      '@jest/test-result': 29.7.0
+      '@jest/types': 29.6.3
+      chalk: 4.1.2
+      create-jest: 29.7.0(@types/node@25.0.6)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.6)(typescript@5.2.2))
+      exit: 0.1.2
+      import-local: 3.1.0
+      jest-config: 29.7.0(@types/node@25.0.6)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.6)(typescript@5.2.2))
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   jest-cli@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
@@ -36327,7 +36335,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -36607,7 +36615,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -36656,6 +36664,18 @@ snapshots:
       jest-util: 30.0.5
       merge-stream: 2.0.0
       supports-color: 8.1.1
+
+  jest@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      '@jest/types': 29.6.3
+      import-local: 3.1.0
+      jest-cli: 29.7.0
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
 
   jest@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2)):
     dependencies:
@@ -39673,7 +39693,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.334.0:
+  posthog-js@1.334.1:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
@@ -39681,7 +39701,7 @@ snapshots:
       '@opentelemetry/resources': 2.4.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
       '@posthog/core': 1.13.0
-      '@posthog/types': 1.334.0
+      '@posthog/types': 1.334.1
       core-js: 3.40.0
       dompurify: 3.3.1
       fflate: 0.4.8
