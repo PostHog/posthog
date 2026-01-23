@@ -13,6 +13,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+use health::readiness_handler;
 use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
@@ -86,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start HTTP server for metrics and health checks
     let metrics_port = config.metrics_port;
     let health_router = Router::new()
-        .route("/_readiness", get(|| async { "ok" }))
+        .route("/_readiness", get(readiness_handler))
         .route("/_liveness", get(|| async { "ok" }));
     let metrics_router = setup_metrics_routes(health_router);
 
