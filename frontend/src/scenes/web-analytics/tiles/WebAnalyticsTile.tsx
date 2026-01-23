@@ -27,7 +27,13 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { GeographyTab, ProductTab, TileId, webStatsBreakdownToPropertyName } from 'scenes/web-analytics/common'
+import {
+    GeographyTab,
+    ProductTab,
+    TileId,
+    faviconUrl,
+    webStatsBreakdownToPropertyName,
+} from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -323,7 +329,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                     return (
                         <div className="flex items-center gap-2">
                             <img
-                                src={`${window.JS_URL}/static/favicons/${value}`}
+                                src={faviconUrl(value)}
                                 width={24}
                                 height={24}
                                 alt={`Favicon for ${value}`}

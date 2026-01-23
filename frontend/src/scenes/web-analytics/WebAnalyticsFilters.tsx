@@ -36,7 +36,7 @@ import {
     WebPropertyFilters,
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
-import { ProductTab } from './common'
+import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -216,7 +216,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                                 ? {
                                       icon: (
                                           <img
-                                              src={`${window.JS_URL}/favicons/${domain}.png`}
+                                              src={faviconUrl(domain)}
                                               width={16}
                                               height={16}
                                               alt=""
