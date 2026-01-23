@@ -42,7 +42,7 @@ class DeletedRecordingEntry(BaseModel):
 
 
 class DeletionCertificate(BaseModel):
-    """Certificate documenting a GDPR-compliant recording deletion operation."""
+    """Certificate documenting the deletion of a collection of recordings."""
 
     workflow_type: Literal["person", "team", "query"]
     workflow_id: str

@@ -2,8 +2,8 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } fro
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import sodium from 'libsodium-wrappers'
 
-import { RetentionService } from '../session-recording/retention/retention-service'
-import { TeamService } from '../session-recording/teams/team-service'
+import { RetentionService } from '../session-recording-ingestion/retention/retention-service'
+import { TeamService } from '../session-recording-ingestion/teams/team-service'
 import { isCloud } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { BaseKeyStore, SessionKey, SessionKeyDeletedError } from './types'

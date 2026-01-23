@@ -3,10 +3,10 @@ import express from 'ultimate-express'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../config/kafka-topics'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { RetentionService } from '../session-recording/retention/retention-service'
-import { createNoopBlockMetadata } from '../session-recording/sessions/session-block-metadata'
-import { SessionMetadataStore } from '../session-recording/sessions/session-metadata-store'
-import { TeamService } from '../session-recording/teams/team-service'
+import { RetentionService } from '../session-recording-ingestion/retention/retention-service'
+import { createNoopBlockMetadata } from '../session-recording-ingestion/sessions/session-block-metadata'
+import { SessionMetadataStore } from '../session-recording-ingestion/sessions/session-metadata-store'
+import { TeamService } from '../session-recording-ingestion/teams/team-service'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -17,9 +17,9 @@ import {
 } from '../types'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { logger } from '../utils/logger'
+import { getBlockDecryptor } from './decryptor'
 import { getKeyStore } from './keystore'
 import { MemoryCachedKeyStore, RedisCachedKeyStore } from './keystore-cache'
-import { getBlockDecryptor } from './recording-decryptor'
 import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export class RecordingApi {

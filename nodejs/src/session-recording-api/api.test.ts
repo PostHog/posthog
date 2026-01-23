@@ -1,11 +1,11 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
-import { RetentionService } from '../session-recording/retention/retention-service'
-import { TeamService } from '../session-recording/teams/team-service'
+import { RetentionService } from '../session-recording-ingestion/retention/retention-service'
+import { TeamService } from '../session-recording-ingestion/teams/team-service'
 import { Hub } from '../types'
+import { RecordingApi } from './api'
+import { getBlockDecryptor } from './decryptor'
 import { getKeyStore } from './keystore'
-import { RecordingApi } from './recording-api'
-import { getBlockDecryptor } from './recording-decryptor'
 import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
 
 jest.mock('@aws-sdk/client-s3', () => ({
@@ -25,7 +25,7 @@ jest.mock('./keystore-cache', () => ({
     RedisCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
 }))
 
-jest.mock('./recording-decryptor', () => ({
+jest.mock('./decryptor', () => ({
     getBlockDecryptor: jest.fn(),
 }))
 
