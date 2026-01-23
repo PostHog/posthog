@@ -215,7 +215,12 @@ export function Playlist({
                 onClick={() => setPlaylistCollapsed(false)}
                 data-attr="expand-playlist"
             >
-                <LemonButton icon={<IconSidebarClose />} tooltip="Expand playlist" size="xsmall" noPadding />
+                <LemonButton
+                    icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
+                    tooltip="Expand playlist"
+                    size="xsmall"
+                    noPadding
+                />
             </div>
         )
     }
