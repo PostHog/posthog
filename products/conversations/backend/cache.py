@@ -29,7 +29,7 @@ def _make_cache_key(prefix: str, *args: str) -> str:
 
 def get_messages_cache_key(team_id: int, ticket_id: str, after: str | None = None) -> str:
     """Cache key for widget messages endpoint."""
-    after_hash = hashlib.md5((after or "").encode()).hexdigest()[:8] if after else "all"
+    after_hash = hashlib.sha256((after or "").encode()).hexdigest()[:8] if after else "all"
     return _make_cache_key("messages", str(team_id), ticket_id, after_hash)
 
 

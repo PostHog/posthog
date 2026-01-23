@@ -228,11 +228,13 @@ class WidgetMessagesView(APIView):
         if ticket.widget_session_id != widget_session_id:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Check cache (after access control validation)
+        # Check cache (after access control validation, only for default limit)
         after_str = after.isoformat() if after else None
-        cached = get_cached_messages(team.id, ticket_id, after_str)
-        if cached is not None:
-            return Response(cached)
+        use_cache = limit == 50  # Only cache the limit used by widget polling
+        if use_cache:
+            cached = get_cached_messages(team.id, ticket_id, after_str)
+            if cached is not None:
+                return Response(cached)
 
         # Build query - prefetch created_by to avoid N+1 queries
         messages_query = Comment.objects.filter(
@@ -283,8 +285,9 @@ class WidgetMessagesView(APIView):
             "has_more": len(messages) == limit,  # Hint if there are more messages
         }
 
-        # Cache the response
-        set_cached_messages(team.id, ticket_id, response_data, after_str)
+        # Cache the response (only for default limit)
+        if use_cache:
+            set_cached_messages(team.id, ticket_id, response_data, after_str)
 
         return Response(response_data)
 
