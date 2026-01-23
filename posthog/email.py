@@ -106,6 +106,8 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "passkey_added": "51",
     "passkey_removed": "52",
     "new_conversation_ticket": "53",
+    "project_deleted": "54",
+    "organization_deleted": "55",
 }
 
 
