@@ -147,10 +147,11 @@ async def load_recordings_with_query(input: RecordingsWithQueryInput) -> list[st
 
 @activity.defn(name="purge-deleted-metadata")
 async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
-    """Purge metadata from ClickHouse for recordings that have been deleted (crypto shredded).
+    """Purge metadata from ClickHouse for recordings that have been deleted.
 
-    This runs nightly to clean up metadata after a grace period has passed since deletion.
-    Uses lightweight DELETE to remove rows where is_deleted=1 and sufficient time has passed.
+    This runs nightly to clean up metadata.
+    Uses lightweight DELETE to remove rows where is_deleted=1 and older than the grace period.
+    The grace period provides a safety buffer for recovery if needed.
     """
     from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -159,88 +160,39 @@ async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDelet
     logger.info(
         "Starting metadata purge for deleted recordings",
         grace_period_days=input.grace_period_days,
-        batch_size=input.batch_size,
     )
 
-    rows_deleted = 0
-    batches_processed = 0
+    query_id = str(uuid4())
 
+    delete_query = f"""
+        DELETE FROM sharded_session_replay_events
+        ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        WHERE is_deleted = 1
+          AND _timestamp < now() - INTERVAL {input.grace_period_days} DAY
+    """
+
+    logger.info("Executing delete query", query_id=query_id)
     async with get_client() as client:
-        while True:
-            query_id = str(uuid4())
-
-            # Delete rows where is_deleted=1 and the deletion happened more than grace_period_days ago
-            # _timestamp is updated when the deletion event is written, so it serves as a proxy for deletion time
-            delete_query = f"""
-                DELETE FROM sharded_session_replay_events
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                WHERE is_deleted = 1
-                  AND _timestamp < now() - INTERVAL %(grace_period_days)s DAY
-                LIMIT %(batch_size)s
-            """
-
-            parameters = {
-                "grace_period_days": input.grace_period_days,
-                "batch_size": input.batch_size,
-            }
-
-            logger.info(f"Executing delete batch {batches_processed + 1}", query_id=query_id)
-            await client.execute_query(
-                delete_query,
-                query_parameters=parameters,
-                query_id=query_id,
-            )
-
-            # Check how many rows were affected by querying count before next batch
-            count_query = """
-                SELECT count() as cnt
-                FROM sharded_session_replay_events
-                WHERE is_deleted = 1
-                  AND _timestamp < now() - INTERVAL %(grace_period_days)s DAY
-                FORMAT JSON
-            """
-
-            count_result = await client.read_query(
-                count_query,
-                query_parameters={"grace_period_days": input.grace_period_days},
-                query_id=f"{query_id}-count",
-            )
-
-            batches_processed += 1
-            rows_deleted += input.batch_size  # Approximate, as DELETE doesn't return affected rows
-
-            # Parse the count to see if there are more rows to delete
-            try:
-                result = json.loads(count_result)
-                remaining = int(result["data"][0]["cnt"])
-                logger.info(f"Batch {batches_processed} completed", remaining_rows=remaining)
-
-                if remaining == 0:
-                    break
-            except (json.JSONDecodeError, KeyError, IndexError) as e:
-                logger.warning("Could not parse count result, stopping batch loop", error=str(e))
-                break
+        await client.execute_query(
+            delete_query,
+            query_id=query_id,
+        )
 
     completed_at = datetime.now(UTC)
     logger.info(
         "Metadata purge completed",
-        batches_processed=batches_processed,
-        rows_deleted_approx=rows_deleted,
         duration_seconds=(completed_at - started_at).total_seconds(),
     )
 
     return PurgeDeletedMetadataResult(
         started_at=started_at,
         completed_at=completed_at,
-        rows_deleted=rows_deleted,
-        batches_processed=batches_processed,
-        grace_period_days=input.grace_period_days,
     )
 
 
 @activity.defn(name="bulk-delete-recordings")
 async def bulk_delete_recordings(input: BulkDeleteInput) -> BulkDeleteResult:
-    """Call the recording API delete endpoint repeatedly for each recording (crypto shredding)."""
+    """Call the recording API delete endpoint for each recording."""
     bind_contextvars(team_id=input.team_id, session_count=len(input.session_ids))
     logger = LOGGER.bind()
     logger.info("Deleting recordings via recording API")

@@ -4,7 +4,7 @@
  * Tests the full round-trip of:
  * 1. Encrypting block data
  * 2. Decrypting block data
- * 3. Handling deleted sessions (crypto shredding)
+ * 3. Handling deleted sessions
  */
 import sodium from 'libsodium-wrappers'
 import snappy from 'snappy'
@@ -146,7 +146,7 @@ describe('Recording API encryption integration', () => {
         })
     })
 
-    describe('crypto shredding (key deletion)', () => {
+    describe('key deletion', () => {
         it('should throw SessionKeyDeletedError after key is deleted', async () => {
             const sessionId = 'to-be-deleted'
             const teamId = 42

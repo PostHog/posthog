@@ -76,10 +76,7 @@ class LoadRecordingError(Exception):
 class PurgeDeletedMetadataInput(BaseModel):
     """Input for the nightly metadata purge workflow."""
 
-    # How long after deletion to wait before purging metadata (in days)
     grace_period_days: int = 7
-    # Maximum number of rows to delete per batch
-    batch_size: int = 10000
 
 
 class PurgeDeletedMetadataResult(BaseModel):
@@ -87,6 +84,3 @@ class PurgeDeletedMetadataResult(BaseModel):
 
     started_at: datetime
     completed_at: datetime
-    rows_deleted: int
-    batches_processed: int
-    grace_period_days: int

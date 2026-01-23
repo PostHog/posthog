@@ -26,6 +26,7 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import cache_key_for_team_token
 from posthog.models.team.team import DEPRECATED_ATTRS
+from posthog.storage.recordings import file_storage
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.export_recording.types import ExportRecordingInput
 from posthog.temporal.import_recording.types import ImportRecordingInput
@@ -523,8 +524,6 @@ class TeamAdmin(admin.ModelAdmin):
         return render(request, "admin/posthog/team/export_history.html", context)
 
     def download_export_view(self, request, object_id, export_id):
-        from posthog.storage import session_recording_v2_object_storage
-
         team = Team.objects.get(pk=object_id)
         try:
             export = ExportedRecording.objects.get(id=export_id, team=team)
@@ -533,12 +532,7 @@ class TeamAdmin(admin.ModelAdmin):
                 messages.error(request, "Export content not available yet")
                 return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
-            storage = session_recording_v2_object_storage.client()
-            content = storage.read_all_bytes(export.export_location)
-
-            if not content:
-                messages.error(request, "Failed to read export content from storage")
-                return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
+            content = file_storage.file_storage().download_file(export.export_location)
 
             response = HttpResponse(content, content_type="application/zip")
             filename = f"export-{export.session_id}.zip"

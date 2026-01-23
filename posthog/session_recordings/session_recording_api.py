@@ -80,14 +80,9 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.storage import session_recording_v2_object_storage
-from posthog.storage.session_recording_v2_object_storage import (
-    BlockFetchError,
-    BlockStorage,
-    RecordingApiFetchError,
-    RecordingDeletedError,
-    encrypted_block_storage,
-)
+from posthog.storage.recordings.block_storage import BlockStorage, cleartext_block_storage, encrypted_block_storage
+from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.file_storage import async_file_storage
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
@@ -1243,12 +1238,12 @@ class SessionRecordingViewSet(
                 tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
             ):
                 posthoganalytics.tag("lts_v2_blob_key", blob_key)
-                storage_client = session_recording_v2_object_storage.client()
                 content: str | bytes
-                if decompress:
-                    content = await asyncio.to_thread(storage_client.fetch_file, blob_key)
-                else:
-                    content = await asyncio.to_thread(storage_client.fetch_file_bytes, blob_key)
+                async with async_file_storage() as storage:
+                    if decompress:
+                        content = await storage.download_file_decompressed(blob_key)
+                    else:
+                        content = await storage.download_file(blob_key)
 
             twenty_four_hours_in_seconds = 60 * 60 * 24
             response = HttpResponse(
@@ -1340,14 +1335,16 @@ class SessionRecordingViewSet(
                 block = blocks[block_index]
                 content: str | bytes
                 if decompress:
-                    content = await block_storage.fetch_block(block.url, recording.session_id, self.team.id)
+                    content = await block_storage.fetch_decompressed_block(
+                        block.url, recording.session_id, self.team.id
+                    )
                 else:
-                    content = await block_storage.fetch_block_bytes(block.url, recording.session_id, self.team.id)
+                    content = await block_storage.fetch_compressed_block(block.url, recording.session_id, self.team.id)
                 return block_index, content
             except RecordingDeletedError:
                 # Let this propagate up to return a 410 response
                 raise
-            except (BlockFetchError, RecordingApiFetchError):
+            except BlockFetchError:
                 logger.exception(
                     "Failed to fetch block",
                     recording_id=recording.session_id,
@@ -1386,7 +1383,7 @@ class SessionRecordingViewSet(
         use_recording_api = self._should_use_recording_api()
 
         if use_recording_api:
-            async with encrypted_block_storage() as block_storage:
+            async with encrypted_block_storage() as storage:
                 with (
                     timer("fetch_blocks_via_recording_api"),
                     tracer.start_as_current_span("fetch_blocks_via_recording_api"),
@@ -1396,11 +1393,11 @@ class SessionRecordingViewSet(
                         min_blob_key,
                         max_blob_key,
                         recording,
-                        block_storage,
+                        storage,
                         decompress=True,
                     )
         else:
-            async with session_recording_v2_object_storage.async_client() as block_storage:
+            async with cleartext_block_storage() as storage:
                 with (
                     timer("fetch_blocks_via_s3"),
                     tracer.start_as_current_span("fetch_blocks_via_s3"),
@@ -1410,7 +1407,7 @@ class SessionRecordingViewSet(
                         min_blob_key,
                         max_blob_key,
                         recording,
-                        block_storage,
+                        storage,
                         decompress=True,
                     )
 
@@ -1437,7 +1434,7 @@ class SessionRecordingViewSet(
         use_recording_api = self._should_use_recording_api()
 
         if use_recording_api:
-            async with encrypted_block_storage() as block_storage:
+            async with encrypted_block_storage() as storage:
                 with (
                     timer("fetch_compressed_blocks_via_recording_api"),
                     tracer.start_as_current_span("fetch_compressed_blocks_via_recording_api"),
@@ -1447,11 +1444,11 @@ class SessionRecordingViewSet(
                         min_blob_key,
                         max_blob_key,
                         recording,
-                        block_storage,
+                        storage,
                         decompress=False,
                     )
         else:
-            async with session_recording_v2_object_storage.async_client() as block_storage:
+            async with cleartext_block_storage() as storage:
                 with (
                     timer("fetch_compressed_blocks_via_s3"),
                     tracer.start_as_current_span("fetch_compressed_blocks_via_s3"),
@@ -1461,7 +1458,7 @@ class SessionRecordingViewSet(
                         min_blob_key,
                         max_blob_key,
                         recording,
-                        block_storage,
+                        storage,
                         decompress=False,
                     )
 

@@ -206,15 +206,13 @@ def test_deletion_certificate_dry_run():
 
 
 def test_purge_deleted_metadata_input_creation():
-    input = PurgeDeletedMetadataInput(grace_period_days=14, batch_size=5000)
+    input = PurgeDeletedMetadataInput(grace_period_days=14)
     assert input.grace_period_days == 14
-    assert input.batch_size == 5000
 
 
 def test_purge_deleted_metadata_input_defaults():
     input = PurgeDeletedMetadataInput()
     assert input.grace_period_days == 7
-    assert input.batch_size == 10000
 
 
 def test_purge_deleted_metadata_result_creation():
@@ -224,16 +222,10 @@ def test_purge_deleted_metadata_result_creation():
     result = PurgeDeletedMetadataResult(
         started_at=started_at,
         completed_at=completed_at,
-        rows_deleted=50000,
-        batches_processed=5,
-        grace_period_days=30,
     )
 
     assert result.started_at == started_at
     assert result.completed_at == completed_at
-    assert result.rows_deleted == 50000
-    assert result.batches_processed == 5
-    assert result.grace_period_days == 30
 
 
 def test_purge_deleted_metadata_result_no_rows():
@@ -243,10 +235,7 @@ def test_purge_deleted_metadata_result_no_rows():
     result = PurgeDeletedMetadataResult(
         started_at=started_at,
         completed_at=completed_at,
-        rows_deleted=0,
-        batches_processed=1,
-        grace_period_days=30,
     )
 
-    assert result.rows_deleted == 0
-    assert result.batches_processed == 1
+    assert result.started_at == started_at
+    assert result.completed_at == completed_at

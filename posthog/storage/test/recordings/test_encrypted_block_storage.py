@@ -4,11 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import snappy
 import aiohttp
 
-from posthog.storage.session_recording_v2_object_storage import (
-    EncryptedBlockStorage,
-    RecordingApiFetchError,
-    encrypted_block_storage,
-)
+from posthog.storage.recordings.block_storage import EncryptedBlockStorage, encrypted_block_storage
+from posthog.storage.recordings.errors import BlockFetchError
 
 
 class TestEncryptedBlockStorage:
@@ -48,7 +45,7 @@ class TestFetchBlockBytes:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        result = await client.fetch_block_bytes(
+        result = await client.fetch_compressed_block(
             "s3://bucket/key?range=bytes=0-100",
             "session-123",
             1,
@@ -69,8 +66,8 @@ class TestFetchBlockBytes:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        with pytest.raises(RecordingApiFetchError, match="Block not found"):
-            await client.fetch_block_bytes(
+        with pytest.raises(BlockFetchError, match="Block not found"):
+            await client.fetch_compressed_block(
                 "s3://bucket/key?range=bytes=0-100",
                 "session-123",
                 1,
@@ -92,8 +89,8 @@ class TestFetchBlockBytes:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        with pytest.raises(RecordingApiFetchError, match="Failed to fetch block from Recording API"):
-            await client.fetch_block_bytes(
+        with pytest.raises(BlockFetchError, match="Failed to fetch block from Recording API"):
+            await client.fetch_compressed_block(
                 "s3://bucket/key?range=bytes=0-100",
                 "session-123",
                 1,
@@ -123,7 +120,7 @@ class TestFetchBlock:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        result = await client.fetch_block(
+        result = await client.fetch_decompressed_block(
             "s3://bucket/key?range=bytes=0-100",
             "session-123",
             1,
@@ -145,7 +142,7 @@ class TestFetchBlock:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        result = await client.fetch_block(
+        result = await client.fetch_decompressed_block(
             "s3://bucket/key?range=bytes=0-100",
             "session-123",
             1,
@@ -164,8 +161,8 @@ class TestFetchBlock:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        with pytest.raises(RecordingApiFetchError, match="Failed to decompress block"):
-            await client.fetch_block(
+        with pytest.raises(BlockFetchError, match="Failed to decompress block"):
+            await client.fetch_decompressed_block(
                 "s3://bucket/key?range=bytes=0-100",
                 "session-123",
                 1,
@@ -180,8 +177,8 @@ class TestFetchBlock:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        with pytest.raises(RecordingApiFetchError, match="Block not found"):
-            await client.fetch_block(
+        with pytest.raises(BlockFetchError, match="Block not found"):
+            await client.fetch_decompressed_block(
                 "s3://bucket/key?range=bytes=0-100",
                 "session-123",
                 1,
@@ -221,7 +218,7 @@ class TestDeleteRecording:
 
         mock_session.delete = MagicMock(return_value=mock_response)
 
-        with pytest.raises(RecordingApiFetchError, match="Recording key not found"):
+        with pytest.raises(BlockFetchError, match="Recording key not found"):
             await client.delete_recording("session-123", 1)
 
     @pytest.mark.asyncio
@@ -240,14 +237,14 @@ class TestDeleteRecording:
 
         mock_session.delete = MagicMock(return_value=mock_response)
 
-        with pytest.raises(RecordingApiFetchError, match="Failed to delete recording"):
+        with pytest.raises(BlockFetchError, match="Failed to delete recording"):
             await client.delete_recording("session-123", 1)
 
 
 class TestEncryptedBlockStorageContextManager:
     @pytest.mark.asyncio
     async def test_raises_error_when_url_not_configured(self):
-        with patch("posthog.storage.session_recording_v2_object_storage.settings") as mock_settings:
+        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = None
 
             with pytest.raises(RuntimeError, match="RECORDING_API_URL is not configured"):
@@ -256,7 +253,7 @@ class TestEncryptedBlockStorageContextManager:
 
     @pytest.mark.asyncio
     async def test_raises_error_when_url_is_empty_string(self):
-        with patch("posthog.storage.session_recording_v2_object_storage.settings") as mock_settings:
+        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = ""
 
             with pytest.raises(RuntimeError, match="RECORDING_API_URL is not configured"):
@@ -265,20 +262,18 @@ class TestEncryptedBlockStorageContextManager:
 
     @pytest.mark.asyncio
     async def test_creates_client_with_configured_url(self):
-        with patch("posthog.storage.session_recording_v2_object_storage.settings") as mock_settings:
+        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
 
-            with patch(
-                "posthog.storage.session_recording_v2_object_storage.aiohttp.ClientSession"
-            ) as mock_client_session:
+            with patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session:
                 mock_session = AsyncMock()
                 mock_session.__aenter__ = AsyncMock(return_value=mock_session)
                 mock_session.__aexit__ = AsyncMock(return_value=None)
                 mock_client_session.return_value = mock_session
 
-                async with encrypted_block_storage() as client:
-                    assert client.base_url == "http://test-api:8080"
-                    assert client.session == mock_session
+                async with encrypted_block_storage() as storage:
+                    assert storage.base_url == "http://test-api:8080"
+                    assert storage.session == mock_session
 
                 mock_client_session.assert_called_once()
                 call_kwargs = mock_client_session.call_args[1]
