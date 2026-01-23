@@ -7,10 +7,10 @@ import {
     IconDatabase,
     IconEllipsis,
     IconExpand45,
-    IconExternal,
     IconFeatures,
     IconGear,
     IconLive,
+    IconOpenSidebar,
     IconQuestion,
     IconServer,
     IconShieldLock,
@@ -92,7 +92,7 @@ export function HelpMenu(): JSX.Element {
                             </span>
                             <span className="text-sm font-medium">Ask PostHog AI</span>
                             <span className="text-xs text-tertiary text-center text-pretty">
-                                PostHog AI can now answer 80%+ of the support questions we receive!
+                                PostHog AI answers 80%+ of support questions we receive!
                             </span>
                         </Link>
                     </DropdownMenuItem>
@@ -102,13 +102,21 @@ export function HelpMenu(): JSX.Element {
                         <ButtonPrimitive menuItem onClick={() => openSidePanel(SidePanelTab.Support)}>
                             <IconSupport />
                             Support
+                            <IconOpenSidebar className="size-3" />
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <Link to="https://posthog.com/docs" buttonProps={{ menuItem: true }} target="_blank">
+                        <Link
+                            to="https://posthog.com/docs"
+                            buttonProps={{ menuItem: true }}
+                            target="_blank"
+                            targetBlankIcon
+                            disableDocsPanel
+                            tooltip="Open docs in new tab"
+                            tooltipPlacement="right"
+                        >
                             <IconBook />
                             Docs
-                            <IconExternal className="size-3" />
                         </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
@@ -118,7 +126,12 @@ export function HelpMenu(): JSX.Element {
                         </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <Link targetBlankIcon to="https://posthog.com/roadmap" buttonProps={{ menuItem: true }}>
+                        <Link
+                            targetBlankIcon
+                            target="_blank"
+                            buttonProps={{ menuItem: true }}
+                            to="https://posthog.com/roadmap"
+                        >
                             <IconCloud />
                             PostHog Status
                         </Link>
@@ -128,6 +141,7 @@ export function HelpMenu(): JSX.Element {
                             tooltip="View our changelog"
                             tooltipPlacement="right"
                             targetBlankIcon
+                            target="_blank"
                             buttonProps={{ menuItem: true }}
                             to="https://posthog.com/roadmap"
                         >
