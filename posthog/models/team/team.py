@@ -579,6 +579,15 @@ class Team(UUIDTClassicModel):
         help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
     )
 
+    default_experiment_stats_method = models.CharField(
+        max_length=20,
+        choices=Organization.DefaultExperimentStatsMethod.choices,
+        default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
+        help_text="Default statistical method for new experiments in this environment.",
+        null=True,
+        blank=True,
+    )
+
     business_model = models.CharField(
         max_length=10,
         choices=BusinessModel.choices,
