@@ -15,7 +15,7 @@ from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agen
 from ee.hogai.core.agent_modes.presets.sql import sql_agent
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
-from ee.hogai.utils.feature_flags import has_error_tracking_mode_feature_flag, has_onboarding_mode_feature_flag
+from ee.hogai.utils.feature_flags import has_error_tracking_mode_feature_flag
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 # Default mode registry for normal chat agent operation
@@ -49,8 +49,10 @@ class ChatAgentModeManager(AgentModeManager):
         registry = dict(DEFAULT_CHAT_AGENT_MODE_REGISTRY)
         if has_error_tracking_mode_feature_flag(self._team, self._user):
             registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
-        if has_onboarding_mode_feature_flag(self._team, self._user):
-            registry[AgentMode.ONBOARDING] = onboarding_agent
+        # Always include onboarding agent - the frontend guards the UI behind the feature flag,
+        # and the mode is explicitly requested by the client. This allows browser-side feature
+        # flag overrides to work without requiring server-side configuration.
+        registry[AgentMode.ONBOARDING] = onboarding_agent
         return registry
 
     @property
