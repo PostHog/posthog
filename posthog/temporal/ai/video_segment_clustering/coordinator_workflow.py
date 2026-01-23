@@ -120,7 +120,7 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                             Exception(workflow_result.error), properties={"team_id": team_id}
                         )
                         failed_teams.add(team_id)
-                except:
+                except Exception:
                     workflow.logger.exception("Video segment clustering errored for team", team_id=team_id)
                     posthoganalytics.capture_exception(properties={"team_id": team_id})
                     failed_teams.add(team_id)
