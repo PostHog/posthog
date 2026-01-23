@@ -1,13 +1,15 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -32,6 +34,10 @@ import { Endpoint } from './output-pane-tabs/Endpoint'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { QueryVariables } from './output-pane-tabs/QueryVariables'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+
+const MINIMUM_VARIABLES_PANEL_WIDTH = 260
+const VARIABLES_PANEL_DEFAULT_WIDTH = 360
+const MAXIMUM_VARIABLES_PANEL_WIDTH = 640
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -66,6 +72,18 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const { queryPaneHeight } = useValues(editorSizingLogic)
     const { activeTab: activeOutputTab } = useValues(outputPaneLogic)
     const [isQueryOpen, setIsQueryOpen] = useState(true)
+    const [isVariablesPanelOpen, setIsVariablesPanelOpen] = useState(true)
+    const variablesPanelRef = useRef<HTMLDivElement>(null)
+    const variablesPanelResizerProps = useMemo(
+        () => ({
+            containerRef: variablesPanelRef,
+            logicKey: 'sql-editor-variables-panel',
+            placement: 'left' as const,
+            persistent: true,
+        }),
+        []
+    )
+    const { desiredSize: variablesPanelDesiredSize } = useValues(resizerLogic(variablesPanelResizerProps))
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
             return ['Saving...', Spinner]
@@ -84,6 +102,12 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
     const isMaterializedView = editingView?.is_materialized === true
     const isEndpointEditing = featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeOutputTab === OutputTab.Endpoint
+    const showVariablesToggle = !editingView && !isEndpointEditing
+    const isVariablesPanelVisible = showVariablesToggle ? isVariablesPanelOpen : true
+    const variablesPanelWidth = Math.min(
+        Math.max(variablesPanelDesiredSize ?? VARIABLES_PANEL_DEFAULT_WIDTH, MINIMUM_VARIABLES_PANEL_WIDTH),
+        MAXIMUM_VARIABLES_PANEL_WIDTH
+    )
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -251,6 +275,17 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             </AppShortcut>
                         )}
                         <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
+                        {showVariablesToggle && (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                onClick={() => {
+                                    setIsVariablesPanelOpen((prev) => !prev)
+                                }}
+                            >
+                                {isVariablesPanelOpen ? 'Hide variables' : 'Show variables'}
+                            </LemonButton>
+                        )}
                     </>
                 }
             >
@@ -289,19 +324,25 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             }}
                         />
                     </div>
-                    <div
-                        className="w-[360px] min-w-[320px] border-l bg-bg-light dark:bg-black p-4 overflow-y-auto"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${queryPaneHeight}px` }}
-                    >
-                        {editingView ? (
-                            <QueryInfo tabId={tabId} />
-                        ) : isEndpointEditing ? (
-                            <Endpoint tabId={tabId} />
-                        ) : (
-                            <QueryVariables />
-                        )}
-                    </div>
+                    {isVariablesPanelVisible && (
+                        <div
+                            className="relative shrink-0 border-l bg-bg-light dark:bg-black"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ height: `${queryPaneHeight}px`, width: `${variablesPanelWidth}px` }}
+                            ref={variablesPanelRef}
+                        >
+                            <div className="h-full overflow-y-auto p-4">
+                                {editingView ? (
+                                    <QueryInfo tabId={tabId} />
+                                ) : isEndpointEditing ? (
+                                    <Endpoint tabId={tabId} />
+                                ) : (
+                                    <QueryVariables />
+                                )}
+                            </div>
+                            <Resizer {...variablesPanelResizerProps} />
+                        </div>
+                    )}
                 </div>
             </CollapsibleSection>
             <InternalQueryWindow />
