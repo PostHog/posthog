@@ -217,7 +217,7 @@ class TestRateLimitCallback:
         with patch("llm_gateway.callbacks.rate_limiting.record_cost", new_callable=AsyncMock) as mock_record:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            mock_record.assert_called_once_with(cost)
+            mock_record.assert_called_once_with(cost, None)
 
 
 class TestDefaultFallbackCost:

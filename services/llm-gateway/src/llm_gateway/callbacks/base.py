@@ -19,22 +19,51 @@ class InstrumentedCallback(CustomLogger):
         """Extract end_user_id from request data.
 
         - OAuth: returns user_id (token holder)
-        - Personal API key: returns 'user' param from request (end_user)
+        - Personal API key: returns 'user' param from request
         - Anthropic: falls back to metadata.user_id
+
+        The client can pass anything here, so it's up to them to ensure that it's actually an end user ID, and it should not be trusted.
         """
         auth_user = get_auth_user()
         if auth_user and auth_user.auth_method == "oauth_access_token":
+            logger.debug(
+                "end_user_id_from_oauth",
+                user_id=auth_user.user_id,
+                auth_method=auth_user.auth_method,
+            )
             return str(auth_user.user_id)
 
+        # OpenAI 'user' param is stored directly in kwargs by litellm
+        if user := kwargs.get("user"):
+            logger.debug(
+                "end_user_id_from_kwargs",
+                user=user,
+                source="kwargs.user",
+            )
+            return user
+
+        # Fallback: check standard_logging_object.end_user (may be populated by some providers)
         standard_logging_object = kwargs.get("standard_logging_object", {})
         if end_user := standard_logging_object.get("end_user"):
+            logger.debug(
+                "end_user_id_from_slo",
+                end_user=end_user,
+                source="standard_logging_object.end_user",
+            )
             return end_user
 
+        # Fallback: Anthropic stores user in metadata.user_id
         litellm_params = kwargs.get("litellm_params") or {}
         metadata = litellm_params.get("metadata") or {}
         if user_id := metadata.get("user_id"):
+            logger.debug(
+                "end_user_id_from_metadata",
+                user_id=user_id,
+                source="litellm_params.metadata.user_id",
+            )
             return user_id
 
+        logger.debug("end_user_id_not_found", auth_method=auth_user.auth_method if auth_user else None)
         return None
 
     async def async_log_success_event(
