@@ -84,39 +84,7 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         with self.settings(**settings_override):
             storage_client = client()
             patched_s3_client.assert_not_called()
-            assert storage_client.read_bytes("any_key", 0, 100) is None
-
-    def test_read_bytes_with_byte_range(self):
-        mock_client = MagicMock()
-        mock_body = MagicMock()
-        mock_body.read.return_value = b"test content"
-        mock_client.get_object.return_value = {"Body": mock_body}
-        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        storage.read_bytes("test-key", 5, 10)
-        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-key", Range="bytes=5-10")
-
-    def test_read_specific_byte_range(self):
-        mock_client = MagicMock()
-        mock_body = MagicMock()
-        mock_body.read.return_value = b"bcdefghijab"
-        mock_client.get_object.return_value = {"Body": mock_body}
-        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        result = storage.read_bytes("test-key", 91, 101)
-
-        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-key", Range="bytes=91-101")
-        assert result == b"bcdefghijab"
-        assert len(result) == 11
-
-    def test_read_returns_none_on_error(self):
-        mock_client = MagicMock()
-        mock_client.get_object.side_effect = Exception("error")
-        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        result = storage.read_bytes("non_existent_file", 0, 100)
-        assert result is None
-        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="non_existent_file", Range="bytes=0-100")
+            assert isinstance(storage_client, UnavailableSessionRecordingV2ObjectStorage)
 
     def test_fetch_block_success(self):
         mock_client = MagicMock()
@@ -270,38 +238,6 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
                     pass
 
             client_mock.assert_not_called()
-
-    async def test_read_bytes_with_byte_range(self):
-        mock_client = AsyncMock()
-        mock_body = AsyncMock()
-        mock_body.read.return_value = b"test content"
-        mock_client.get_object.return_value = {"Body": mock_body}
-        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        await storage.read_bytes("test-key-1", 5, 10)
-        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-key-1", Range="bytes=5-10")
-
-    async def test_read_specific_byte_range(self):
-        mock_client = AsyncMock()
-        mock_body = AsyncMock()
-        mock_body.read.return_value = b"bcdefghijab"
-        mock_client.get_object.return_value = {"Body": mock_body}
-        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        result = await storage.read_bytes("test-key-2", 91, 101)
-
-        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-key-2", Range="bytes=91-101")
-        assert result == b"bcdefghijab"
-        assert len(result) == 11
-
-    async def test_read_returns_none_on_error(self):
-        mock_client = AsyncMock()
-        mock_client.get_object.side_effect = Exception("error")
-        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        result = await storage.read_bytes("non_existent_file", 0, 100)
-        assert result is None
-        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="non_existent_file", Range="bytes=0-100")
 
     async def test_fetch_block_success(self):
         mock_client = AsyncMock()

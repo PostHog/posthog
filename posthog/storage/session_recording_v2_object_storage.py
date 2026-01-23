@@ -21,15 +21,7 @@ class BlockFetchError(Exception):
     pass
 
 
-class FileDownloadError(Exception):
-    pass
-
-
 class FileUploadError(Exception):
-    pass
-
-
-class FileDeleteError(Exception):
     pass
 
 
@@ -68,19 +60,7 @@ class BlockStorage(Protocol):
 
 class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
-        pass
-
-    @abc.abstractmethod
-    def read_all_bytes(self, key: str) -> bytes | None:
-        pass
-
-    @abc.abstractmethod
     def write(self, key: str, data: bytes) -> None:
-        pass
-
-    @abc.abstractmethod
-    def is_enabled(self) -> bool:
         pass
 
     @abc.abstractmethod
@@ -94,30 +74,13 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def download_file(self, key: str, filename: str) -> None:
-        pass
-
-    @abc.abstractmethod
     def upload_file(self, key: str, filename: str) -> None:
-        pass
-
-    @abc.abstractmethod
-    def delete_file(self, key: str) -> None:
         pass
 
 
 class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
-    def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
-        return None
-
-    def read_all_bytes(self, key: str) -> bytes | None:
-        pass
-
     def write(self, key: str, data: bytes) -> None:
         pass
-
-    def is_enabled(self) -> bool:
-        return False
 
     def fetch_block(self, block_url: str) -> str:
         raise BlockFetchError("Storage not available")
@@ -131,61 +94,14 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
     def is_lts_enabled(self) -> bool:
         return False
 
-    def download_file(self, key: str, filename: str) -> None:
-        raise FileDownloadError("Storage not available")
-
     def upload_file(self, key: str, filename: str) -> None:
         raise FileUploadError("Storage not available")
-
-    def delete_file(self, key: str) -> None:
-        raise FileDeleteError("Storage not available")
 
 
 class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def __init__(self, aws_client, bucket: str) -> None:
         self.aws_client = aws_client
         self.bucket = bucket
-
-    def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
-        s3_response = {}
-        try:
-            kwargs = {
-                "Bucket": self.bucket,
-                "Key": key,
-                "Range": f"bytes={first_byte}-{last_byte}",
-            }
-            s3_response = self.aws_client.get_object(**kwargs)
-            return s3_response["Body"].read()
-        except Exception as e:
-            logger.exception(
-                "recording_block_storage.read_bytes_failed",
-                bucket=self.bucket,
-                file_name=key,
-                error=e,
-                exc_info=False,
-                s3_response=s3_response,
-            )
-            return None
-
-    def read_all_bytes(self, key: str) -> bytes | None:
-        s3_response = {}
-        try:
-            kwargs = {
-                "Bucket": self.bucket,
-                "Key": key,
-            }
-            s3_response = self.aws_client.get_object(**kwargs)
-            return s3_response["Body"].read()
-        except Exception as e:
-            logger.exception(
-                "recording_block_storage.read_all_bytes_failed",
-                bucket=self.bucket,
-                file_name=key,
-                error=e,
-                exc_info=False,
-                s3_response=s3_response,
-            )
-            return None
 
     def write(self, key: str, data: bytes) -> None:
         s3_response = {}
@@ -206,12 +122,8 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
             raise Exception("Failed to write recording data") from e
 
-    def is_enabled(self) -> bool:
-        return True
-
     def _fetch_compressed_block(self, block_url: str) -> bytes:
         """Internal method to fetch and validate compressed block"""
-        # Parse URL and extract key and byte range
         parsed_url = urlparse(block_url)
         key = parsed_url.path.lstrip("/")
         query_params = parse_qs(parsed_url.query)
@@ -222,7 +134,23 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             raise BlockFetchError("Invalid byte range in block URL")
 
         expected_length = end_byte - start_byte + 1
-        compressed_block = self.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
+
+        try:
+            s3_response = self.aws_client.get_object(
+                Bucket=self.bucket,
+                Key=key,
+                Range=f"bytes={start_byte}-{end_byte}",
+            )
+            compressed_block = s3_response["Body"].read()
+        except Exception as e:
+            logger.exception(
+                "recording_block_storage.fetch_compressed_block_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+                exc_info=False,
+            )
+            raise BlockFetchError("Block content not found") from e
 
         if not compressed_block:
             raise BlockFetchError("Block content not found")
@@ -271,23 +199,6 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
-    def download_file(self, key: str, filename: str) -> None:
-        try:
-            self.aws_client.download_file(
-                Bucket=self.bucket,
-                Key=key,
-                Filename=filename,
-            )
-        except Exception as e:
-            logger.exception(
-                "recording_block_storage.download_file_failed",
-                bucket=self.bucket,
-                key=key,
-                error=e,
-                exc_info=False,
-            )
-            raise FileDownloadError(f"Failed to download file: {str(e)}")
-
     def upload_file(self, key: str, filename: str) -> None:
         try:
             self.aws_client.upload_file(
@@ -305,68 +216,11 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
 
-    def delete_file(self, key: str) -> None:
-        try:
-            self.aws_client.delete_object(
-                Bucket=self.bucket,
-                Key=key,
-            )
-        except Exception as e:
-            logger.exception(
-                "recording_block_storage.delete_file_failed",
-                bucket=self.bucket,
-                key=key,
-                error=e,
-                exc_info=False,
-            )
-            raise FileDeleteError(f"Failed to delete file: {str(e)}")
-
 
 class AsyncSessionRecordingV2ObjectStorage:
     def __init__(self, aws_client, bucket: str) -> None:
         self.aws_client = aws_client
         self.bucket = bucket
-
-    async def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
-        s3_response = {}
-        try:
-            kwargs = {
-                "Bucket": self.bucket,
-                "Key": key,
-                "Range": f"bytes={first_byte}-{last_byte}",
-            }
-            s3_response = await self.aws_client.get_object(**kwargs)
-            return await s3_response["Body"].read()
-        except Exception as e:
-            logger.exception(
-                "async_recording_block_storage.read_bytes_failed",
-                bucket=self.bucket,
-                file_name=key,
-                error=e,
-                exc_info=False,
-                s3_response=s3_response,
-            )
-            return None
-
-    async def read_all_bytes(self, key: str) -> bytes | None:
-        s3_response = {}
-        try:
-            kwargs = {
-                "Bucket": self.bucket,
-                "Key": key,
-            }
-            s3_response = await self.aws_client.get_object(**kwargs)
-            return await s3_response["Body"].read()
-        except Exception as e:
-            logger.exception(
-                "async_recording_block_storage.read_all_bytes_failed",
-                bucket=self.bucket,
-                file_name=key,
-                error=e,
-                exc_info=False,
-                s3_response=s3_response,
-            )
-            return None
 
     async def write(self, key: str, data: bytes) -> None:
         s3_response = {}
@@ -387,12 +241,8 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
             raise Exception("Failed to write recording data") from e
 
-    def is_enabled(self) -> bool:
-        return True
-
     async def _fetch_compressed_block(self, block_url: str) -> bytes:
         """Internal method to fetch and validate compressed block"""
-        # Parse URL and extract key and byte range
         parsed_url = urlparse(block_url)
         key = parsed_url.path.lstrip("/")
         query_params = parse_qs(parsed_url.query)
@@ -403,7 +253,23 @@ class AsyncSessionRecordingV2ObjectStorage:
             raise BlockFetchError("Invalid byte range in block URL")
 
         expected_length = end_byte - start_byte + 1
-        compressed_block = await self.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
+
+        try:
+            s3_response = await self.aws_client.get_object(
+                Bucket=self.bucket,
+                Key=key,
+                Range=f"bytes={start_byte}-{end_byte}",
+            )
+            compressed_block = await s3_response["Body"].read()
+        except Exception as e:
+            logger.exception(
+                "async_recording_block_storage.fetch_compressed_block_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+                exc_info=False,
+            )
+            raise BlockFetchError("Block content not found") from e
 
         if not compressed_block:
             raise BlockFetchError("Block content not found")
@@ -454,23 +320,6 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
-    async def download_file(self, key: str, filename: str) -> None:
-        try:
-            await self.aws_client.download_file(
-                Bucket=self.bucket,
-                Key=key,
-                Filename=filename,
-            )
-        except Exception as e:
-            logger.exception(
-                "async_recording_block_storage.download_file_failed",
-                bucket=self.bucket,
-                key=key,
-                error=e,
-                exc_info=False,
-            )
-            raise FileDownloadError(f"Failed to download file: {str(e)}")
-
     async def upload_file(self, key: str, filename: str) -> None:
         try:
             await self.aws_client.upload_file(
@@ -487,22 +336,6 @@ class AsyncSessionRecordingV2ObjectStorage:
                 exc_info=False,
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
-
-    async def delete_file(self, key: str) -> None:
-        try:
-            await self.aws_client.delete_object(
-                Bucket=self.bucket,
-                Key=key,
-            )
-        except Exception as e:
-            logger.exception(
-                "async_recording_block_storage.delete_file_failed",
-                bucket=self.bucket,
-                key=key,
-                error=e,
-                exc_info=False,
-            )
-            raise FileDeleteError(f"Failed to delete file: {str(e)}")
 
 
 _client: SessionRecordingV2ObjectStorageBase = UnavailableSessionRecordingV2ObjectStorage()
