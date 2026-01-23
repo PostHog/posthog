@@ -5,6 +5,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { Intro } from '../Intro'
 import { Thread } from '../Thread'
@@ -53,13 +54,12 @@ interface ChatAreaProps {
 
 function ChatArea({ threadVisible, conversationId, conversation, onStartNewConversation }: ChatAreaProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
-    const bottomSentinelRef = useRef<HTMLDivElement>(null)
     const inputContainerRef = useRef<HTMLDivElement>(null)
     const lastHumanMessageNodeRef = useRef<HTMLDivElement | null>(null)
     const [showScrollButton, setShowScrollButton] = useState(false)
     const [pendingScroll, setPendingScroll] = useState(false)
     const [responseMinHeight, setResponseMinHeight] = useState<number>(0)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped } = useValues(maxThreadLogic)
     const prevHumanMessageCount = useRef(0)
 
     const hasMessages = threadVisible
@@ -120,28 +120,41 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
         lastHumanMessageNodeRef.current = node
     }, [])
 
-    // Track if there's content below the viewport using IntersectionObserver
+    // Track if there's content below the viewport using scroll events
     useEffect(() => {
-        const sentinel = bottomSentinelRef.current
         const container = containerRef.current
-        if (!sentinel || !container || !hasMessages) {
+        if (!container || !hasMessages) {
             return
         }
 
-        const observer = new IntersectionObserver(
-            ([entry]) => {
-                // Show button when sentinel is NOT visible (content below viewport)
-                setShowScrollButton(!entry.isIntersecting)
-            },
-            {
-                root: container,
-                threshold: 0,
-                rootMargin: '0px',
-            }
-        )
+        const checkScrollPosition = (): void => {
+            const scrollBottom = container.scrollTop + container.clientHeight
+            const contentHeight = container.scrollHeight
+            // Show button if not scrolled to bottom (small tolerance for rounding)
+            const isAtBottom = scrollBottom >= contentHeight - 20
+            setShowScrollButton(!isAtBottom)
+        }
 
-        observer.observe(sentinel)
-        return () => observer.disconnect()
+        // Check initially and on scroll
+        checkScrollPosition()
+        container.addEventListener('scroll', checkScrollPosition)
+
+        // Watch for content size changes via MutationObserver
+        const mutationObserver = new MutationObserver(checkScrollPosition)
+        mutationObserver.observe(container, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+        })
+
+        // Also poll during streaming since mutations might not catch everything
+        const interval = setInterval(checkScrollPosition, 500)
+
+        return () => {
+            container.removeEventListener('scroll', checkScrollPosition)
+            mutationObserver.disconnect()
+            clearInterval(interval)
+        }
     }, [hasMessages])
 
     // Reset scroll button when starting a new conversation
@@ -196,33 +209,36 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
                 </>
             )}
 
-            {/* Bottom sentinel - used to detect if there's content below the viewport */}
-            <div ref={bottomSentinelRef} className="h-px w-full shrink-0" />
+            {/* Input area wrapper for sticky positioning */}
+            <div className={`${hasMessages ? 'sticky bottom-0' : ''} z-50`}>
+                {/* Scroll to bottom button - above input */}
+                <div
+                    className={`
+                        flex justify-center pb-2 bg-gradient-to-t from-primary to-transparent pt-4 w-full
+                        transition-all duration-300
+                        ${showScrollButton && hasMessages ? 'opacity-100 pointer-events-auto translate-y-0' : 'opacity-0 pointer-events-none translate-y-full'}
+                    `}
+                    style={{ position: 'static' }}
+                >
+                    <ButtonPrimitive
+                        onClick={handleScrollToBottom}
+                        className="shadow-md bg-surface-primary rounded-full"
+                    >
+                        <IconChevronDown />
+                    </ButtonPrimitive>
+                </div>
 
-            {/* Input area with scroll button */}
-            <div
-                ref={inputContainerRef}
-                className={`w-full max-w-3xl mx-auto px-4 transition-all duration-300 ease-out z-50 ${
-                    hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
-                }`}
-            >
-                {/* Scroll to bottom button - appears above input when content overflows */}
-                {showScrollButton && hasMessages && (
-                    <div className="flex justify-center mb-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconChevronDown />}
-                            onClick={handleScrollToBottom}
-                            className="shadow-md"
-                        >
-                            {streamingActive ? 'Scroll to response' : 'Scroll to bottom'}
-                        </LemonButton>
-                    </div>
-                )}
-                {!conversation?.has_unsupported_content && (
-                    <SidebarQuestionInputWithSuggestions hideSuggestions={hasMessages} />
-                )}
+                {/* Input container */}
+                <div
+                    ref={inputContainerRef}
+                    className={`w-full max-w-3xl mx-auto transition-all duration-300 ease-out ${
+                        hasMessages ? 'bg-primary pb-2 max-w-none' : 'pb-4'
+                    }`}
+                >
+                    {!conversation?.has_unsupported_content && (
+                        <SidebarQuestionInputWithSuggestions hideSuggestions={hasMessages} />
+                    )}
+                </div>
             </div>
 
             {/* Bottom spacer - fills space below content, shrinks when messages appear */}
