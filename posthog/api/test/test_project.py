@@ -191,25 +191,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Name")
 
-    @patch("posthog.api.project.delete_batch_exports")
-    def test_project_deletion_deletes_persons_manually(self, mock_batch_exports):
-        """Verify that project deletion deletes Persons via manual delete, not CASCADE."""
-        # Create a Person
-        person = Person.objects.create(team=self.team)
-
-        # Delete project via API (which calls delete_bulky_postgres_data)
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_project_deletion_queues_async_task(self, mock_delete_task):
+        """Verify that project deletion deletes project and queues data cleanup task."""
         viewset = ProjectViewSet()
         request = MagicMock()
         request.user = self.user
         viewset.request = request
 
+        project_id = self.project.id
+        project_name = self.project.name
+        team_id = self.team.id
+        org_name = self.project.organization.name
+
         viewset.perform_destroy(self.project)
 
-        # Verify Person was deleted (by manual delete, not CASCADE)
-        self.assertFalse(Person.objects.filter(id=person.id).exists())
+        # Project is deleted immediately
+        self.assertFalse(Project.objects.filter(id=project_id).exists())
 
-        # Verify project was deleted
-        self.assertFalse(Project.objects.filter(id=self.project.id).exists())
+        # Verify async task was queued for data cleanup
+        mock_delete_task.delay.assert_called_once_with(
+            team_ids=[team_id],
+            user_id=self.user.id,
+            project_name=project_name,
+            organization_name=org_name,
+        )
 
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
