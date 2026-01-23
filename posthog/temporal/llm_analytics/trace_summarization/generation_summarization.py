@@ -200,7 +200,7 @@ async def generate_and_save_generation_summary_activity(
             "$ai_summary_bullets": summary_bullets_json,
             "$ai_summary_interesting_notes": summary_notes_json,
             "$ai_text_repr_length": len(text_repr),
-            "generation_timestamp": generation_timestamp,
+            "trace_timestamp": generation_timestamp,
         }
 
         create_event(

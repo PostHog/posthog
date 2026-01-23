@@ -28,7 +28,7 @@ export interface TraceWithSummary {
 
 export interface ScatterDataset {
     label: string
-    data: Array<{ x: number; y: number; traceId?: string; timestamp?: string }>
+    data: Array<{ x: number; y: number; traceId?: string; generationId?: string; timestamp?: string }>
     backgroundColor: string
     borderColor: string
     borderWidth: number
@@ -221,10 +221,13 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
                 const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
 
-                const tracePoints = Object.entries(cluster.traces).map(([traceId, traceInfo]) => ({
+                const tracePoints = Object.entries(cluster.traces).map(([itemKey, traceInfo]) => ({
                     x: traceInfo.x,
                     y: traceInfo.y,
-                    traceId,
+                    // Use explicit trace_id/generation_id from backend if available
+                    // Fall back to itemKey for backwards compatibility
+                    traceId: traceInfo.trace_id || itemKey,
+                    generationId: traceInfo.generation_id,
                     timestamp: traceInfo.timestamp,
                 }))
 

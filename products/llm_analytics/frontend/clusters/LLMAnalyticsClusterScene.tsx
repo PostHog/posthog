@@ -5,6 +5,7 @@ import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/ico
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -232,7 +233,13 @@ function TraceListItem({
                     to={urls.llmAnalyticsTrace(
                         clusteringLevel === 'generation' ? traceInfo.trace_id : traceId,
                         clusteringLevel === 'generation'
-                            ? { event: traceInfo.generation_id, timestamp: traceInfo.timestamp }
+                            ? {
+                                  event: traceInfo.generation_id,
+                                  // Use timestamp - 24h buffer to ensure trace view captures all events before the generation
+                                  ...(traceInfo.timestamp
+                                      ? { timestamp: dayjs(traceInfo.timestamp).subtract(24, 'hour').toISOString() }
+                                      : {}),
+                              }
                             : traceInfo.timestamp
                               ? { timestamp: traceInfo.timestamp }
                               : {}

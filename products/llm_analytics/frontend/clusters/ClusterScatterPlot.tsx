@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { Chart } from 'lib/Chart'
+import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +14,7 @@ interface ScatterPoint {
     x: number
     y: number
     traceId?: string
+    generationId?: string
     clusterId?: number
     timestamp?: string
 }
@@ -22,7 +24,8 @@ interface ClusterScatterPlotProps {
 }
 
 export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps): JSX.Element {
-    const { scatterPlotDatasets, traceToClusterTitle, sortedClusters, effectiveRunId } = useValues(clustersLogic)
+    const { scatterPlotDatasets, traceToClusterTitle, sortedClusters, effectiveRunId, clusteringLevel } =
+        useValues(clustersLogic)
 
     const handleClick = (
         _event: MouseEvent,
@@ -49,14 +52,27 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
             return
         }
 
-        // Navigate to trace page for trace clicks
+        // Navigate to trace page for trace/generation clicks
         if (point?.traceId) {
-            router.actions.push(
-                urls.llmAnalyticsTrace(point.traceId, {
-                    tab: 'summary',
-                    ...(point.timestamp ? { timestamp: point.timestamp } : {}),
-                })
-            )
+            if (clusteringLevel === 'generation' && point.generationId) {
+                router.actions.push(
+                    urls.llmAnalyticsTrace(point.traceId, {
+                        tab: 'summary',
+                        event: point.generationId,
+                        // Use timestamp - 24h buffer to ensure trace view captures all events before the generation
+                        ...(point.timestamp
+                            ? { timestamp: dayjs(point.timestamp).subtract(24, 'hour').toISOString() }
+                            : {}),
+                    })
+                )
+            } else {
+                router.actions.push(
+                    urls.llmAnalyticsTrace(point.traceId, {
+                        tab: 'summary',
+                        ...(point.timestamp ? { timestamp: point.timestamp } : {}),
+                    })
+                )
+            }
         }
     }
 

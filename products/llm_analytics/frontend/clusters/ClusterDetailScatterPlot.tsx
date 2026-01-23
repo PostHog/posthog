@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { Chart } from 'lib/Chart'
+import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
@@ -12,11 +13,12 @@ interface ScatterPoint {
     x: number
     y: number
     traceId?: string
+    generationId?: string
     timestamp?: string
 }
 
 export function ClusterDetailScatterPlot(): JSX.Element {
-    const { cluster, traceSummaries, scatterPlotDatasets } = useValues(clusterDetailLogic)
+    const { cluster, traceSummaries, scatterPlotDatasets, clusteringLevel } = useValues(clusterDetailLogic)
 
     const handleClick = (
         _event: MouseEvent,
@@ -35,12 +37,25 @@ export function ClusterDetailScatterPlot(): JSX.Element {
 
         const point = dataset.data?.[element.index] as ScatterPoint | undefined
         if (point?.traceId) {
-            router.actions.push(
-                urls.llmAnalyticsTrace(point.traceId, {
-                    tab: 'summary',
-                    ...(point.timestamp ? { timestamp: point.timestamp } : {}),
-                })
-            )
+            if (clusteringLevel === 'generation' && point.generationId) {
+                router.actions.push(
+                    urls.llmAnalyticsTrace(point.traceId, {
+                        tab: 'summary',
+                        event: point.generationId,
+                        // Use timestamp - 24h buffer to ensure trace view captures all events before the generation
+                        ...(point.timestamp
+                            ? { timestamp: dayjs(point.timestamp).subtract(24, 'hour').toISOString() }
+                            : {}),
+                    })
+                )
+            } else {
+                router.actions.push(
+                    urls.llmAnalyticsTrace(point.traceId, {
+                        tab: 'summary',
+                        ...(point.timestamp ? { timestamp: point.timestamp } : {}),
+                    })
+                )
+            }
         }
     }
 
@@ -120,7 +135,9 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                                     }
                                     const point = context[0]?.raw as ScatterPoint
                                     if (point?.traceId) {
-                                        return 'click to view trace'
+                                        return clusteringLevel === 'generation'
+                                            ? 'click to view generation'
+                                            : 'click to view trace'
                                     }
                                     return ''
                                 },
