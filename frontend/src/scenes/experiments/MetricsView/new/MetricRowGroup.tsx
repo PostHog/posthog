@@ -22,6 +22,7 @@ import {
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { useColumnWidthSync } from '../hooks/useColumnWidthSync'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { MetricHeader } from '../shared/MetricHeader'
@@ -90,11 +91,18 @@ function CollapsibleBreakdownSection({
     handleTooltipMouseLeave,
     handleTooltipMouseMove,
 }: CollapsibleBreakdownSectionProps): JSX.Element {
-    const [_, setIsExpanded] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(false)
     const mainTableRef = useRef<HTMLTableRowElement>(null)
     const nestedTableRef = useRef<HTMLTableElement>(null)
 
     const totalRows = 1 + (breakdownResults[0]?.variants?.length || 0)
+
+    // Sync nested breakdown table column widths with parent table (only when expanded)
+    useColumnWidthSync({
+        parentRowRef: mainTableRef,
+        nestedTableRef,
+        deps: [breakdownResults, axisRange, isExpanded],
+    })
 
     const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
         return (
@@ -770,7 +778,7 @@ export function MetricRowGroup({
 
                 {/* Details column - with rowspan */}
                 <td
-                    className={`pt-3 align-top relative overflow-hidden border-b ${
+                    className={`w-20 pt-3 align-top relative overflow-hidden border-b ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                     rowSpan={totalRows}
