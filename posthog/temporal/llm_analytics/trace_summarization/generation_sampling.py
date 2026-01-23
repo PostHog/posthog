@@ -48,14 +48,12 @@ async def query_generations_in_window_activity(inputs: BatchSummarizationInputs)
         query = parse_select(
             """
             SELECT
-                properties.$ai_span_id as generation_id,
+                id as generation_id,
                 properties.$ai_trace_id as trace_id
             FROM events
             WHERE event = '$ai_generation'
                 AND timestamp >= toDateTime({start_dt})
                 AND timestamp < toDateTime({end_dt})
-                AND isNotNull(properties.$ai_span_id)
-                AND properties.$ai_span_id != ''
                 AND isNotNull(properties.$ai_trace_id)
                 AND properties.$ai_trace_id != ''
             ORDER BY rand()
