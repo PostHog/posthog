@@ -184,6 +184,8 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               working-directory: rust
@@ -258,6 +260,9 @@ jobs:
 
                   # Run Rust migrations for test databases
                   cd nodejs && pnpm run setup:test:rust
+
+                  # Set up ClickHouse test database and schema
+                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
 
             - name: Set up databases (slow path - run migrations)
               if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'

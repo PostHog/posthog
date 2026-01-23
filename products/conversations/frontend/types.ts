@@ -1,3 +1,5 @@
+import type { TicketAssignee } from './components/Assignee'
+
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
 export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
@@ -5,6 +7,7 @@ export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type SidePanelViewState = 'list' | 'ticket' | 'new'
+export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 export interface UserBasic {
     id: number
@@ -22,8 +25,7 @@ export interface Ticket {
     distinct_id: string
     status: TicketStatus
     priority?: TicketPriority
-    assigned_to?: number | null
-    assigned_to_user?: UserBasic | null
+    assignee?: TicketAssignee
     channel_source: TicketChannel
     anonymous_traits: Record<string, any>
     ai_resolved: boolean

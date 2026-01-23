@@ -108,6 +108,10 @@ pub const STORE_CREATION_EVENTS: &str = "store_creation_events_total";
 /// Gauge for active store count
 pub const ACTIVE_STORE_COUNT: &str = "active_store_count";
 
+/// Gauge for number of overlapping rebalances in progress
+/// Value > 0 means rebalance async work is ongoing; used to block orphan cleanup
+pub const REBALANCING_COUNT: &str = "rebalancing_count";
+
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)
 pub const PARTITION_BATCH_PROCESSING_DURATION_MS: &str = "partition_batch_processing_duration_ms";

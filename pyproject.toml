@@ -284,6 +284,7 @@ profile = "black"
 line-length = 120
 exclude = [
     ".git",
+    "./.semgrep",
     "./nodejs/node_modules/",
     "./plugins/node_modules/",
     "./env",

@@ -1,3 +1,4 @@
+import json
 import asyncio
 from collections.abc import Generator
 from urllib.parse import urlparse
@@ -158,7 +159,7 @@ class ClayWebhookResource(dagster.ConfigurableResource):
     webhook_url: str
     api_key: str
     timeout: int = 60
-    batch_size: int = 100
+    max_batch_bytes: int = 90_000  # 90KB, leaving margin under Clay's 100KB limit
     max_retries: int = 3
 
     def _post(self, session: requests.Session, data: list[dict]) -> requests.Response:
@@ -191,13 +192,32 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         with requests.Session() as session:
             return self._send_with_retry(session, data)
 
+    def _get_batch_size(self, batch: list[dict]) -> int:
+        """Get the serialized size of a batch in bytes."""
+        return len(json.dumps(batch, default=str).encode("utf-8"))
+
     def send_batched(self, data: list[dict]) -> list[requests.Response]:
-        """Send data to Clay webhook in batches to avoid payload size limits."""
+        """Send data to Clay webhook in size-aware batches to stay under payload limits."""
         if not data:
             return []
+
+        responses = []
+        current_batch: list[dict] = []
+
         with requests.Session() as session:
-            responses = []
-            for i in range(0, len(data), self.batch_size):
-                batch = data[i : i + self.batch_size]
-                responses.append(self._send_with_retry(session, batch))
-            return responses
+            for record in data:
+                record_size = self._get_batch_size([record])
+                if record_size > self.max_batch_bytes:
+                    raise ValueError(f"Single record exceeds max_batch_bytes ({record_size} > {self.max_batch_bytes})")
+
+                candidate_batch = [*current_batch, record]
+                if current_batch and self._get_batch_size(candidate_batch) > self.max_batch_bytes:
+                    responses.append(self._send_with_retry(session, current_batch))
+                    current_batch = [record]
+                else:
+                    current_batch = candidate_batch
+
+            if current_batch:
+                responses.append(self._send_with_retry(session, current_batch))
+
+        return responses

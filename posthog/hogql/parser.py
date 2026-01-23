@@ -24,7 +24,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS, HogQLParserBackend
-from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
+from posthog.hogql.errors import BaseHogQLError, NotImplementedError, QueryError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.json_ast import deserialize_ast
@@ -138,6 +138,12 @@ def _compare_with_cpp_json(
                 parsed_ast=repr(parsed_ast),
                 cpp_json_ast=repr(cpp_json_ast),
             )
+
+    except QueryError:
+        pass
+    except ValueError:
+        pass
+
     except Exception as err:
         logger.warning("hogql_cpp_json_comparison_error", rule=rule, backend=backend, query=source, error=str(err))
 

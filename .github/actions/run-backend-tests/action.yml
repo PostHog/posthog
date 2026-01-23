@@ -31,6 +31,14 @@ inputs:
     token:
         required: false
         description: GitHub token
+    skip-plugin-transpiler:
+        required: false
+        default: 'false'
+        description: Skip building plugin transpiler (avoids esbuild, useful for tests that don't need it)
+    snapshot-warn-unused:
+        required: false
+        default: 'false'
+        description: Use --snapshot-warn-unused instead of failing on unused snapshots (useful for compat tests that run a subset)
 
 runs:
     using: 'composite'
@@ -117,6 +125,7 @@ runs:
         - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
         - name: Install plugin_transpiler
+          if: inputs.skip-plugin-transpiler != 'true'
           shell: bash
           run: |
               pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
@@ -160,6 +169,8 @@ runs:
 
         - name: Cache Rust dependencies
           uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+          with:
+              workspaces: rust
 
         - name: Install sqlx-cli
           shell: bash
@@ -190,6 +201,13 @@ runs:
           if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
+
+        - name: Add --snapshot-warn-unused for compat tests
+          # Compat tests run a subset of snapshot tests, so unused snapshots are expected
+          # This makes unused snapshots non-fatal (warning only)
+          if: inputs.snapshot-warn-unused == 'true'
+          shell: bash
+          run: echo "PYTEST_ARGS=$PYTEST_ARGS --snapshot-warn-unused" >> $GITHUB_ENV
 
         # Tests
         - name: Run Core tests

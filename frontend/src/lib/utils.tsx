@@ -1281,9 +1281,13 @@ export function dateFilterToText(
     dateTo = (dateTo || undefined) as string | undefined
 
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
-        return isDateFormatted
-            ? formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
-            : `${dateFrom} - ${dateTo}`
+        if (isDateFormatted) {
+            return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
+        }
+        if (dateFrom?.includes('T') || dateTo?.includes('T')) {
+            return formatDateTimeRange(dayjs(dateFrom), dayjs(dateTo))
+        }
+        return `${dateFrom} - ${dateTo}`
     }
 
     // From date to today
