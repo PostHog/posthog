@@ -30,41 +30,6 @@ const manualProviderCosts: ModelCostRow[] = [
             },
         },
     },
-    // Gemini 2.5 Flash Image - native image generation model
-    // Input: $0.30/1M tokens, Text output: $2.50/1M tokens (same as 2.5 Flash), Image output: $30/1M tokens
-    // 1290 tokens per 1024x1024 image = $0.039/image
-    {
-        model: 'gemini-2.5-flash-image',
-        cost: {
-            default: {
-                prompt_token: 0.0000003,
-                completion_token: 0.0000025,
-                image_output: 0.00003,
-            },
-        },
-    },
-    // Gemini 2.0 Flash image generation models (experimental/preview)
-    // Using same pricing as 2.5 Flash Image
-    {
-        model: 'gemini-2.0-flash-preview-image-generation',
-        cost: {
-            default: {
-                prompt_token: 0.0000003,
-                completion_token: 0.0000025,
-                image_output: 0.00003,
-            },
-        },
-    },
-    {
-        model: 'gemini-2.0-flash-exp-image-generation',
-        cost: {
-            default: {
-                prompt_token: 0.0000003,
-                completion_token: 0.0000025,
-                image_output: 0.00003,
-            },
-        },
-    },
     // Other
     {
         model: 'deepseek-v3-fireworks',
