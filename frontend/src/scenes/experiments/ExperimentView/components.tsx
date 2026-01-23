@@ -343,9 +343,9 @@ export function PageHeaderCustom(): JSX.Element {
         createExperimentDashboard,
         updateExperiment,
         setHogfettiTrigger,
-        resumeExperiment,
     } = useActions(experimentLogic)
-    const { openShipVariantModal, openStopExperimentModal, openPauseExperimentModal } = useActions(modalsLogic)
+    const { openShipVariantModal, openStopExperimentModal, openPauseExperimentModal, openResumeExperimentModal } =
+        useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
@@ -536,7 +536,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 <ButtonPrimitive
                                     menuItem
                                     data-attr="resume-experiment"
-                                    onClick={() => resumeExperiment()}
+                                    onClick={() => openResumeExperimentModal()}
                                 >
                                     <IconPlay /> Resume experiment
                                 </ButtonPrimitive>
@@ -553,6 +553,7 @@ export function PageHeaderCustom(): JSX.Element {
                             </ButtonPrimitive>
                         )}
                         <PauseExperimentModal />
+                        <ResumeExperimentModal />
                     </ScenePanelActionsSection>
                 </ScenePanel>
             )}
@@ -754,6 +755,44 @@ export function PauseExperimentModal(): JSX.Element {
                     experiment variants. This is useful when you need to quickly stop exposing users to the experiment.
                 </div>
                 <div>The experiment can be resumed at any time. All collected data will be preserved.</div>
+            </div>
+        </LemonModal>
+    )
+}
+
+export function ResumeExperimentModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { resumeExperiment } = useActions(experimentLogic)
+    const { closeResumeExperimentModal } = useActions(modalsLogic)
+    const { isResumeExperimentModalOpen } = useValues(modalsLogic)
+
+    return (
+        <LemonModal
+            isOpen={isResumeExperimentModalOpen}
+            onClose={closeResumeExperimentModal}
+            title="Resume experiment"
+            width={600}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={closeResumeExperimentModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => resumeExperiment()}
+                        type="primary"
+                        disabledReason={!experiment.feature_flag && 'No feature flag linked'}
+                    >
+                        Resume experiment
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div>
+                    Resuming the experiment will <b>enable the feature flag</b>, allowing users to see the experiment
+                    variants again. This will continue the experiment from where it was paused.
+                </div>
+                <div>All previously collected data is preserved and new events will be tracked.</div>
             </div>
         </LemonModal>
     )

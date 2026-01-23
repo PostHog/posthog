@@ -360,6 +360,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'openStopExperimentModal',
                 'closeStopExperimentModal',
                 'closePauseExperimentModal',
+                'closeResumeExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
             ],
@@ -1136,6 +1137,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         resumeExperiment: async () => {
             await actions.setFeatureFlagActiveAndReload(true)
+            actions.closeResumeExperimentModal()
             lemonToast.success('The feature flag has been enabled')
             values.experiment && eventUsageLogic.actions.reportExperimentResumed(values.experiment)
         },
