@@ -10,6 +10,7 @@ from django.test import override_settings
 from django.utils.timezone import now
 
 from dateutil.parser import isoparse
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
@@ -1007,6 +1008,38 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         after_duplication_tile_id = duplicate_response["tiles"][1]["text"]["id"]
         assert after_duplication_tile_id != dashboard_with_tiles["tiles"][1]["text"]["id"]
+
+    @parameterized.expand(
+        [
+            ("with_layouts", {"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}, {"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}),
+            ("without_layouts", None, {}),
+        ]
+    )
+    def test_duplicate_tile_within_dashboard_uses_provided_layouts(
+        self, _name: str, input_layouts: dict | None, expected_layouts: dict
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+        insight = Insight.objects.create(filters={"name": "test"}, team=self.team, last_refresh=now())
+        original_tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+        )
+
+        duplicate_request: dict = {"id": original_tile.id}
+        if input_layouts is not None:
+            duplicate_request["layouts"] = input_layouts
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard.id,
+            {"duplicate_tiles": [duplicate_request]},
+        )
+
+        tiles = response["tiles"]
+        assert len(tiles) == 2
+
+        new_tile = next(t for t in tiles if t["id"] != original_tile.id)
+        assert new_tile["layouts"] == expected_layouts
 
     def test_dashboard_duplication_can_duplicate_tiles_without_editing_name_if_there_is_none(self) -> None:
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::pipeline::{PipelineCommand, PipelineResult};
 use crate::{Client, CustomRedisError, RedisValueFormat};
 
 #[derive(Clone)]
@@ -54,6 +55,33 @@ impl MockRedisClient {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         }
+    }
+
+    /// Record a call to the mock client for later inspection.
+    fn record_call(&self, op: &str, key: impl Into<String>, value: MockRedisValue) {
+        self.lock_calls().push(MockRedisCall {
+            op: op.to_string(),
+            key: key.into(),
+            value,
+        });
+    }
+
+    /// Lookup a result from a HashMap, returning NotFound if not configured.
+    fn lookup_or_not_found<T: Clone>(
+        map: &HashMap<String, Result<T, CustomRedisError>>,
+        key: &str,
+    ) -> Result<T, CustomRedisError> {
+        map.get(key)
+            .cloned()
+            .unwrap_or(Err(CustomRedisError::NotFound))
+    }
+
+    /// Lookup a result from a HashMap, returning Ok(()) if not configured.
+    fn lookup_or_ok(
+        map: &HashMap<String, Result<(), CustomRedisError>>,
+        key: &str,
+    ) -> Result<(), CustomRedisError> {
+        map.get(key).cloned().unwrap_or(Ok(()))
     }
 
     pub fn zrangebyscore_ret(&mut self, key: &str, ret: Vec<String>) -> Self {
@@ -500,5 +528,111 @@ impl Client for MockRedisClient {
             value: MockRedisValue::VecString(keys),
         });
         Ok(())
+    }
+
+    async fn execute_pipeline(
+        &self,
+        commands: Vec<PipelineCommand>,
+    ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError> {
+        let results = commands
+            .into_iter()
+            .map(|cmd| self.execute_pipeline_command(cmd))
+            .collect();
+        Ok(results)
+    }
+}
+
+impl MockRedisClient {
+    /// Execute a single pipeline command and return its result.
+    fn execute_pipeline_command(
+        &self,
+        cmd: PipelineCommand,
+    ) -> Result<PipelineResult, CustomRedisError> {
+        match cmd {
+            PipelineCommand::Get { key, .. } => {
+                self.record_call("pipeline_get", &key, MockRedisValue::None);
+                Self::lookup_or_not_found(&self.get_ret, &key).map(PipelineResult::String)
+            }
+            PipelineCommand::GetRawBytes { key } => {
+                self.record_call("pipeline_get_raw_bytes", &key, MockRedisValue::None);
+                // Try raw bytes first, fall back to string conversion
+                if let Some(result) = self.get_raw_bytes_ret.get(&key) {
+                    result.clone().map(PipelineResult::Bytes)
+                } else {
+                    Self::lookup_or_not_found(&self.get_ret, &key)
+                        .map(|s| PipelineResult::Bytes(s.into_bytes()))
+                }
+            }
+            PipelineCommand::Set { key, value, format } => {
+                self.record_call(
+                    "pipeline_set",
+                    &key,
+                    MockRedisValue::StringWithFormat(value, format),
+                );
+                Self::lookup_or_ok(&self.set_ret, &key).map(|_| PipelineResult::Ok)
+            }
+            PipelineCommand::SetEx {
+                key,
+                value,
+                seconds,
+                format,
+            } => {
+                self.record_call(
+                    "pipeline_setex",
+                    &key,
+                    MockRedisValue::StringWithTTLAndFormat(value, seconds, format),
+                );
+                Self::lookup_or_ok(&self.set_ret, &key).map(|_| PipelineResult::Ok)
+            }
+            PipelineCommand::SetNxEx {
+                key,
+                value,
+                seconds,
+                format,
+            } => {
+                self.record_call(
+                    "pipeline_set_nx_ex",
+                    &key,
+                    MockRedisValue::StringWithTTLAndFormat(value, seconds, format),
+                );
+                Self::lookup_or_not_found(&self.set_nx_ex_ret, &key).map(PipelineResult::Bool)
+            }
+            PipelineCommand::Del { key } => {
+                self.record_call("pipeline_del", &key, MockRedisValue::None);
+                Self::lookup_or_ok(&self.del_ret, &key).map(|_| PipelineResult::Ok)
+            }
+            PipelineCommand::HGet { key, field } => {
+                self.record_call(
+                    "pipeline_hget",
+                    format!("{key}:{field}"),
+                    MockRedisValue::None,
+                );
+                Self::lookup_or_not_found(&self.hget_ret, &key).map(PipelineResult::String)
+            }
+            PipelineCommand::HIncrBy { key, field, count } => {
+                self.record_call(
+                    "pipeline_hincrby",
+                    format!("{key}:{field}"),
+                    MockRedisValue::I32(count),
+                );
+                Self::lookup_or_ok(&self.hincrby_ret, &key).map(|_| PipelineResult::Ok)
+            }
+            PipelineCommand::Scard { key } => {
+                self.record_call("pipeline_scard", &key, MockRedisValue::None);
+                Self::lookup_or_not_found(&self.scard_ret, &key).map(PipelineResult::Count)
+            }
+            PipelineCommand::ZRangeByScore { key, min, max } => {
+                self.record_call(
+                    "pipeline_zrangebyscore",
+                    &key,
+                    MockRedisValue::MinMax(min, max),
+                );
+                self.zrangebyscore_ret
+                    .get(&key)
+                    .cloned()
+                    .map(PipelineResult::Strings)
+                    .ok_or(CustomRedisError::NotFound)
+            }
+        }
     }
 }

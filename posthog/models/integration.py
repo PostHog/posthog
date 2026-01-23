@@ -110,6 +110,8 @@ class Integration(models.Model):
         VERCEL = "vercel"
         DATABRICKS = "databricks"
         AZURE_BLOB = "azure-blob"
+        FIREBASE = "firebase"
+        JIRA = "jira"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -200,6 +202,7 @@ class OauthIntegration:
         "intercom",
         "linear",
         "clickup",
+        "jira",
     ]
     integration: Integration
 
@@ -449,6 +452,22 @@ class OauthIntegration:
                 id_path="user.id",
                 name_path="user.email",
             )
+        elif kind == "jira":
+            if not settings.ATLASSIAN_APP_CLIENT_ID or not settings.ATLASSIAN_APP_CLIENT_SECRET:
+                raise NotImplementedError("Atlassian/Jira app not configured")
+
+            return OauthConfig(
+                authorize_url="https://auth.atlassian.com/authorize",
+                additional_authorize_params={"audience": "api.atlassian.com", "prompt": "consent"},
+                token_url="https://auth.atlassian.com/oauth/token",
+                token_info_url="https://api.atlassian.com/oauth/token/accessible-resources",
+                token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
+                client_id=settings.ATLASSIAN_APP_CLIENT_ID,
+                client_secret=settings.ATLASSIAN_APP_CLIENT_SECRET,
+                scope="read:jira-work write:jira-work offline_access",
+                id_path="cloud_id",
+                name_path="site_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -570,9 +589,32 @@ class OauthIntegration:
 
             if token_info_res.status_code == 200:
                 data = token_info_res.json()
-                if oauth_config.token_info_config_fields:
+
+                # Jira returns an array of accessible resources, extract the first one
+                if kind == "jira" and isinstance(data, list):
+                    if len(data) > 0:
+                        site = data[0]
+                        config["cloud_id"] = site.get("id")
+                        config["site_name"] = site.get("name")
+                        config["site_url"] = site.get("url")
+                    else:
+                        logger.error(
+                            "Jira OAuth returned empty accessible resources array - user may not have access to any Jira sites",
+                            kind=kind,
+                        )
+                        raise ValidationError(
+                            "No accessible Jira sites found. Please ensure your Atlassian account has access to at least one Jira site."
+                        )
+                elif oauth_config.token_info_config_fields:
                     for field in oauth_config.token_info_config_fields:
                         config[field] = dot_get(data, field)
+            else:
+                logger.error(
+                    f"OAuth token_info request failed for {kind}",
+                    token_info_url=oauth_config.token_info_url,
+                    status_code=token_info_res.status_code,
+                    response=token_info_res.text[:500],
+                )
 
         integration_id = dot_get(config, oauth_config.id_path)
 
@@ -634,7 +676,7 @@ class OauthIntegration:
             integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
-            raise Exception("Oauth error")
+            raise Exception(f"Oauth error: failed to extract integration ID for {kind}")
 
         # Handle TikTok's nested response format
         if kind == "tiktok-ads":
@@ -1108,6 +1150,91 @@ class GoogleCloudIntegration:
         logger.info(f"Refreshed access token for {self}")
 
 
+class FirebaseIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "firebase":
+            raise Exception("FirebaseIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_key(cls, key_info: dict, team_id: int, created_by: User | None = None) -> "Integration":
+        scope = "https://www.googleapis.com/auth/firebase.messaging"
+
+        try:
+            credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
+            credentials.refresh(GoogleRequest())
+        except Exception:
+            raise ValidationError("Failed to authenticate with provided Firebase service account key")
+
+        project_id = key_info.get("project_id")
+        if not project_id:
+            raise ValidationError("Service account key must contain a project_id")
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="firebase",
+            integration_id=project_id,
+            defaults={
+                "config": {
+                    "project_id": project_id,
+                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                    "refreshed_at": int(time.time()),
+                },
+                "sensitive_config": {
+                    "key_info": key_info,
+                    "access_token": credentials.token,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @property
+    def project_id(self) -> str:
+        return self.integration.config.get("project_id", "")
+
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be really safe we refresh if its half way through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self) -> None:
+        scope = "https://www.googleapis.com/auth/firebase.messaging"
+        key_info = self.integration.sensitive_config.get("key_info", {})
+
+        credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
+
+        try:
+            credentials.refresh(GoogleRequest())
+        except Exception:
+            raise ValidationError("Failed to authenticate with provided Firebase service account key")
+
+        self.integration.config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
+        self.integration.config["refreshed_at"] = int(time.time())
+        self.integration.sensitive_config["access_token"] = credentials.token
+        self.integration.save()
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+
+        logger.info(f"Refreshed access token for FirebaseIntegration {self.integration.id}")
+
+    def get_access_token(self) -> str:
+        if self.access_token_expired():
+            self.refresh_access_token()
+        return self.integration.sensitive_config.get("access_token", "")
+
+
 class LinkedInAdsIntegration:
     integration: Integration
 
@@ -1356,6 +1483,121 @@ class LinearIntegration:
             json={"query": query},
         )
         return response.json()
+
+
+class JiraIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "jira":
+            raise Exception("JiraIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def cloud_id(self) -> str | None:
+        """Get the Atlassian cloud ID from the integration config"""
+        return dot_get(self.integration.config, "cloud_id")
+
+    def site_name(self) -> str | None:
+        """Get the Jira site name from the integration config"""
+        return dot_get(self.integration.config, "site_name")
+
+    def site_url(self) -> str:
+        """Get the Jira site URL from the integration config"""
+        return dot_get(self.integration.config, "site_url", "")
+
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+        """Check if the Atlassian access token has expired or is close to expiring"""
+        refresh_token = self.integration.sensitive_config.get("refresh_token")
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+
+        if not refresh_token:
+            return False
+
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be safe we refresh if it's halfway through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self) -> None:
+        """Refresh the Atlassian access token using the refresh token"""
+        oauth_integration = OauthIntegration(self.integration)
+        oauth_integration.refresh_access_token()
+
+    def _ensure_token_valid(self) -> None:
+        """Proactively refresh token if it's close to expiring to avoid intermittent 401s"""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
+
+    def list_projects(self) -> list[dict]:
+        """List all Jira projects accessible to the user"""
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/project/search",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+        )
+        body = response.json()
+        projects = body.get("values", [])
+        return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
+
+    def create_issue(self, config: dict[str, str]) -> dict[str, str]:
+        """Create a Jira issue and return the issue key"""
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        title = config.get("title")
+        description = config.get("description")
+        project_key = config.get("project_key")
+
+        # Jira uses Atlassian Document Format (ADF) for description
+        payload = {
+            "fields": {
+                "project": {"key": project_key},
+                "summary": title,
+                "description": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": description}],
+                        }
+                    ],
+                },
+                "issuetype": {"name": "Task"},
+            }
+        }
+
+        response = requests.post(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+        issue = response.json()
+        return {"key": issue.get("key", ""), "id": issue.get("id", "")}
 
 
 class GitHubIntegration:

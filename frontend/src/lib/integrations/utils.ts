@@ -6,6 +6,7 @@ import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconDatabricks from 'public/services/databricks.png'
+import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -14,6 +15,7 @@ import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
+import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
@@ -50,6 +52,8 @@ export const ICONS: Record<IntegrationKind, any> = {
     'bing-ads': IconBingAds,
     vercel: IconVercel,
     'azure-blob': IconAzureBlob,
+    firebase: IconFirebase,
+    jira: IconJira,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -74,6 +78,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'firebase':
+            return 'Firebase'
         default:
             return capitalizeFirstLetter(kind)
     }

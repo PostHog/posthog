@@ -27,11 +27,13 @@ from posthog.models.integration import (
     DatabricksIntegration,
     DatabricksIntegrationError,
     EmailIntegration,
+    FirebaseIntegration,
     GitHubIntegration,
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     Integration,
+    JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
@@ -68,6 +70,14 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = GoogleCloudIntegration.integration_from_key(
                 validated_data["kind"], key_info, team_id, request.user
             )
+            return instance
+
+        elif validated_data["kind"] == "firebase":
+            key_file = request.FILES.get("key")
+            if not key_file:
+                raise ValidationError("Firebase service account key file not provided")
+            key_info = json.loads(key_file.read().decode("utf-8"))
+            instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
             return instance
 
         elif validated_data["kind"] == "email":
@@ -464,6 +474,11 @@ class IntegrationViewSet(
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         github = GitHubIntegration(self.get_object())
         return Response({"repositories": github.list_repositories()})
+
+    @action(methods=["GET"], detail=True, url_path="jira_projects")
+    def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        jira = JiraIntegration(self.get_object())
+        return Response({"projects": jira.list_projects()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
