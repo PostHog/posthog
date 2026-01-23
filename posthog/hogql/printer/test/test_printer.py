@@ -32,7 +32,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect, HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import (
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLParserBackend,
+    HogQLQuerySettings,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
@@ -70,8 +76,9 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp",
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -2949,14 +2956,16 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            printed = self._select(
+                """
                                    WITH some_remote_table AS
                                             (SELECT e.event, t.id
                                              FROM events e
                                                       JOIN test_table t on toString(t.id) = e.event)
                                    SELECT some_remote_table.event
                                    FROM events
-                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)"""
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed
@@ -2980,11 +2989,13 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            printed = self._select(
+                """
                                    SELECT e.event, s.event, t.id
                                    FROM events e
                                             JOIN (SELECT event from events) as s ON e.event = s.event
-                                            LEFT JOIN test_table t on e.event = toString(t.id)""")
+                                            LEFT JOIN test_table t on e.event = toString(t.id)"""
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed  # Join #1
@@ -3011,11 +3022,13 @@ class TestPrinter(BaseTest):
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
 
-            printed = self._select("""
+            printed = self._select(
+                """
                                    SELECT event
                                    FROM events
                                    WHERE properties.$browser IN (SELECT id
-                                                                 FROM test_table)""")
+                                                                 FROM test_table)"""
+            )
 
             if using_global_joins:
                 assert "globalIn" in printed
@@ -3140,6 +3153,46 @@ class TestPrinter(BaseTest):
         result = self._select("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub", context)
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand(
+        [
+            # Integer types
+            ("int", "event::int", "toInt64(events.event)"),
+            ("integer", "event::integer", "toInt64(events.event)"),
+            ("int_upper", "event::INT", "toInt64(events.event)"),
+            # Float types
+            ("float", "event::float", "toFloat64(events.event)"),
+            ("double", "event::double", "toFloat64(events.event)"),
+            ("double_precision", 'event::"double precision"', "toFloat64(events.event)"),
+            ("real", "event::real", "toFloat64(events.event)"),
+            # String types
+            ("text", "event::text", "toString(events.event)"),
+            ("varchar", "event::varchar", "toString(events.event)"),
+            ("char", "event::char", "toString(events.event)"),
+            ("string", "event::string", "toString(events.event)"),
+            # Boolean types
+            ("boolean", "event::boolean", "toBoolean(events.event)"),
+            ("bool", "event::bool", "toBoolean(events.event)"),
+            # Date type
+            ("date", "event::date", "toDate(events.event)"),
+            # Constant cast
+            ("const_int", "'123'::int", "toInt64(%(hogql_val_0)s)"),
+            ("const_float", "123.45::float", "toFloat64(123.45)"),
+        ]
+    )
+    def test_postgres_style_cast(self, name, expr, expected):
+        self.assertEqual(self._expr(expr, backend="cpp-json"), expected)
+
+    def test_postgres_style_cast_datetime(self):
+        # DateTime types include timezone, test separately
+        self.assertIn("toDateTime(events.event", self._expr("event::datetime", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamp", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz", backend="cpp-json"))
+
+    def test_postgres_style_cast_unsupported_type(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("event::unsupported_type", backend="cpp-json")
+        self.assertIn("Unsupported Postgres type cast", str(ctx.exception))
 
 
 @snapshot_clickhouse_queries
@@ -3882,8 +3935,9 @@ class TestPostgresPrinter(BaseTest):
         query: str,
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp",
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -4057,3 +4111,13 @@ class TestPostgresPrinter(BaseTest):
                 stack=[prepared_select_query],
             ),
         )
+
+    def test_postgres_style_cast(self):
+        self.assertEqual(self._expr("123::int", backend="cpp-json"), "CAST(123 AS int)")
+        self.assertEqual(self._expr("123.45::float", backend="cpp-json"), "CAST(123.45 AS float)")
+        self.assertEqual(self._expr("'2024-01-01'::date", backend="cpp-json"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("event::int", backend="cpp-json"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("event::text", backend="cpp-json"), "CAST(events.event AS text)")
+        self.assertEqual(self._expr("event::boolean", backend="cpp-json"), "CAST(events.event AS boolean)")
+        self.assertEqual(self._expr("event::INT", backend="cpp-json"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("(1 + 2)::int", backend="cpp-json"), "CAST((1 + 2) AS int)")

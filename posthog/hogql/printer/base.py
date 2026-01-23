@@ -1397,7 +1397,7 @@ class HogQLPrinter(Visitor[str]):
         )
 
     def visit_pgcast(self, node: ast.PGCast):
-        match node.to_type.lower():
+        match node.type_name.lower():
             case "int" | "integer":
                 return f"toInt64({self.visit(node.expr)})"
             case "float" | "double" | "double precision" | "real":
@@ -1408,7 +1408,7 @@ class HogQLPrinter(Visitor[str]):
                 return f"toBoolean({self.visit(node.expr)})"
             case "date":
                 return f"toDate({self.visit(node.expr)})"
-            case "timestamp" | "timestamptz" | "timestamp with time zone" | "timestamp without time zone":
+            case "datetime" | "timestamp" | "timestamptz":
                 return f"toDateTime({self.visit(node.expr)}, '{self._get_timezone()}')"
             case _:
-                raise QueryError(f"Unsupported Postgres type cast to '{node.to_type}'")
+                raise QueryError(f"Unsupported Postgres type cast to '{node.type_name}'")

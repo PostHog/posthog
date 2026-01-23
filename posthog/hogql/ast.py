@@ -33,7 +33,7 @@ class PGCast(Expr):
     """A Postgres type cast expression."""
 
     expr: Expr
-    to_type: str
+    type_name: str
 
 
 @dataclass(kw_only=True)

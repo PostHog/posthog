@@ -988,7 +988,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprPgCast(self, ctx: HogQLParser.ColumnExprPgCastContext):
-        return ast.PGCast(expr=self.visit(ctx.columnExpr()), to_type=self.visit(ctx.identifier()))
+        return ast.PGCast(expr=self.visit(ctx.columnExpr()), type_name=self.visit(ctx.identifier()))
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         expr = self.visit(ctx.columnExpr(0))
