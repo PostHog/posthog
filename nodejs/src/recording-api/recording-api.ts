@@ -4,6 +4,8 @@ import express from 'ultimate-express'
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../config/kafka-topics'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { RetentionService } from '../session-recording/retention/retention-service'
+import { createNoopBlockMetadata } from '../session-recording/sessions/session-block-metadata'
+import { SessionMetadataStore } from '../session-recording/sessions/session-metadata-store'
 import { TeamService } from '../session-recording/teams/team-service'
 import {
     HealthCheckResult,
@@ -12,11 +14,9 @@ import {
     Hub,
     PluginServerService,
     RedisPool,
-    TimestampFormat,
 } from '../types'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { logger } from '../utils/logger'
-import { castTimestampOrNow } from '../utils/utils'
 import { getKeyStore } from './keystore'
 import { MemoryCachedKeyStore, RedisCachedKeyStore } from './keystore-cache'
 import { getBlockDecryptor } from './recording-decryptor'
@@ -29,6 +29,7 @@ export class RecordingApi {
     private decryptor: BaseRecordingDecryptor | null = null
     private keystoreRedisPool: RedisPool | null = null
     private kafkaProducer: KafkaProducerWrapper | null = null
+    private metadataStore: SessionMetadataStore | null = null
 
     constructor(private hub: Hub) {}
 
@@ -97,8 +98,9 @@ export class RecordingApi {
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
 
-        // Initialize Kafka producer for emitting deletion events
+        // Initialize metadata store for emitting deletion events
         this.kafkaProducer = await KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK)
+        this.metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
 
         logger.info('[RecordingApi] Started successfully')
     }
@@ -127,8 +129,8 @@ export class RecordingApi {
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
         }
-        if (!this.kafkaProducer) {
-            uninitializedComponents.push('kafkaProducer')
+        if (!this.metadataStore) {
+            uninitializedComponents.push('metadataStore')
         }
 
         if (uninitializedComponents.length > 0) {
@@ -278,8 +280,8 @@ export class RecordingApi {
             return
         }
 
-        if (!this.kafkaProducer) {
-            res.status(503).json({ error: 'Kafka producer not initialized' })
+        if (!this.metadataStore) {
+            res.status(503).json({ error: 'Metadata store not initialized' })
             return
         }
 
@@ -287,7 +289,6 @@ export class RecordingApi {
             const deleted = await this.keyStore.deleteKey(session_id, parseInt(team_id))
             logger.debug('[RecordingApi] deleteKey result', { team_id, session_id, deleted })
             if (deleted) {
-                // Emit Kafka event to mark the recording as deleted in ClickHouse
                 await this.emitDeletionEvent(session_id, parseInt(team_id))
                 res.json({ team_id, session_id, status: 'deleted' })
             } else {
@@ -313,49 +314,17 @@ export class RecordingApi {
     }
 
     private async emitDeletionEvent(sessionId: string, teamId: number): Promise<void> {
-        if (!this.kafkaProducer) {
-            throw new Error('Kafka producer not initialized')
-        }
-
-        const now = castTimestampOrNow(null, TimestampFormat.ClickHouse)
-
-        const deletionEvent = {
-            session_id: sessionId,
-            team_id: teamId,
-            distinct_id: '',
-            first_timestamp: now,
-            last_timestamp: now,
-            first_url: null,
-            urls: [],
-            click_count: 0,
-            keypress_count: 0,
-            mouse_activity_count: 0,
-            active_milliseconds: 0,
-            console_log_count: 0,
-            console_warn_count: 0,
-            console_error_count: 0,
-            size: 0,
-            message_count: 0,
-            event_count: 0,
-            snapshot_source: null,
-            snapshot_library: null,
-            retention_period_days: null,
-            is_deleted: 1,
+        if (!this.metadataStore) {
+            throw new Error('Metadata store not initialized')
         }
 
         logger.debug('[RecordingApi] Emitting deletion event to Kafka', {
             session_id: sessionId,
             team_id: teamId,
-            topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         })
 
-        await this.kafkaProducer.produce({
-            topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-            key: Buffer.from(sessionId),
-            value: Buffer.from(JSON.stringify(deletionEvent)),
-        })
-
-        await this.kafkaProducer.flush()
+        const deletionMetadata = { ...createNoopBlockMetadata(sessionId, teamId), isDeleted: true }
+        await this.metadataStore.storeSessionBlocks([deletionMetadata])
 
         logger.info('[RecordingApi] Deletion event emitted to Kafka', {
             session_id: sessionId,

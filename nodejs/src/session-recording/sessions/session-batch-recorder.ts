@@ -339,6 +339,7 @@ export class SessionBatchRecorder {
                         batchId,
                         eventCount,
                         retentionPeriodDays,
+                        isDeleted: false,
                     })
 
                     totalEvents += eventCount

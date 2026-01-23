@@ -225,9 +225,8 @@ class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
 class PurgeDeletedRecordingMetadataWorkflow(PostHogWorkflow):
     """Nightly workflow to purge metadata from ClickHouse for deleted recordings.
 
-    After recordings are crypto-shredded (encryption keys deleted), the metadata
-    remains in ClickHouse with is_deleted=1. This workflow runs nightly to clean
-    up that metadata after a grace period has passed.
+    After recordings are deleted, the metadata remain in ClickHouse with is_deleted=1.
+    This workflow runs nightly to clean up that metadata after a grace period has passed.
     """
 
     @staticmethod

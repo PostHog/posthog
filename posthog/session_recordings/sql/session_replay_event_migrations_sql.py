@@ -328,7 +328,7 @@ ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SE
 )
 
 # =========================
-# MIGRATION: Add is_deleted column to support crypto shredding
+# MIGRATION: Add is_deleted column to support metadata deletion
 # When a recording is deleted via the recording-api, we mark it as deleted in ClickHouse
 # so it no longer appears in session recording lists.
 # Using SimpleAggregateFunction(max, UInt8) ensures that once is_deleted=1 is written,
