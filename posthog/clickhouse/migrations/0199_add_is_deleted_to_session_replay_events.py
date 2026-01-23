@@ -17,12 +17,26 @@ operations = [
     run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
     # Add is_deleted column to the target tables
-    run_sql_with_exceptions(ADD_IS_DELETED_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
+    # Writable table - Distributed engine (not replicated MergeTree)
+    run_sql_with_exceptions(
+        ADD_IS_DELETED_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        sharded=False,
+        is_alter_on_replicated_table=False,
+    ),
+    # Distributed table for reads - Distributed engine
     run_sql_with_exceptions(
         ADD_IS_DELETED_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        sharded=False,
+        is_alter_on_replicated_table=False,
     ),
-    run_sql_with_exceptions(ADD_IS_DELETED_SESSION_REPLAY_EVENTS_TABLE_SQL(), sharded=True),
+    # Sharded table - ReplicatedAggregatingMergeTree
+    run_sql_with_exceptions(
+        ADD_IS_DELETED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        node_roles=[NodeRole.DATA],
+        sharded=True,
+        is_alter_on_replicated_table=True,
+    ),
     # Recreate the Kafka table and MV
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),

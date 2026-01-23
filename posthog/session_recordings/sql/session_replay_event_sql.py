@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_source LowCardinality(Nullable(String)),
     snapshot_library Nullable(String),
     retention_period_days Nullable(Int64),
-    is_deleted UInt8 DEFAULT 0,
+    is_deleted UInt8,
 ) ENGINE = {engine}
 """
 
