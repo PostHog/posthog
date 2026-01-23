@@ -3,9 +3,7 @@ use std::sync::Arc;
 use axum::async_trait;
 use axum::{body::Body, http::Request};
 
-use cymbal::{
-    app_context::AppContext, config::Config, error::UnhandledError, router::processing_router,
-};
+use cymbal::{app_context::AppContext, config::Config, error::UnhandledError, router::get_router};
 
 use cymbal::symbol_store::BlobClient;
 use mockall::mock;
@@ -41,11 +39,7 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
 
     let ctx = Arc::new(app_ctx);
 
-    let res = processing_router()
-        .with_state(ctx)
-        .oneshot(request_factory())
-        .await
-        .unwrap();
+    let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
 
     let status = res.status();
 
