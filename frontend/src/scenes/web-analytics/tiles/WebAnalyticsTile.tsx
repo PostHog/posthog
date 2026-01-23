@@ -332,7 +332,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                                 src={faviconUrl(value)}
                                 width={24}
                                 height={24}
-                                alt={`Favicon for ${value}`}
+                                alt={`${value} favicon`}
                                 onError={(e) => (e.currentTarget.style.display = 'none')}
                             />
                             {value}

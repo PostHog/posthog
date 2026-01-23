@@ -219,7 +219,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                                               src={faviconUrl(domain)}
                                               width={16}
                                               height={16}
-                                              alt=""
+                                              alt={`${domain} favicon`}
                                               onError={(e) => (e.currentTarget.style.display = 'none')}
                                           />
                                       ),
