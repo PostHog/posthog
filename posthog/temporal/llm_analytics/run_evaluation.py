@@ -210,7 +210,7 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
         if config.trial_evals_used >= config.trial_eval_limit:
             raise ApplicationError(
                 f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own OpenAI API key to continue.",
-                {"error_type": "trial_limit_reached"},
+                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
                 non_retryable=True,
             )
 
@@ -224,6 +224,8 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     # Build context from event
     event_type = event_data["event"]
     properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
 
     # Extract input/output based on event type
     if event_type == "$ai_generation":
@@ -260,6 +262,9 @@ Output: {output_data}"""
     )
 
     try:
+        # Signal that we're about to make a potentially long-running LLM call
+        if temporalio.activity.in_activity():
+            temporalio.activity.heartbeat("starting LLM judge call")
         response = client.complete(
             CompletionRequest(
                 model=DEFAULT_JUDGE_MODEL,
@@ -364,7 +369,11 @@ async def emit_evaluation_event_activity(
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
-            "$ai_trace_id": event_data["properties"].get("$ai_trace_id"),
+            "$ai_trace_id": (
+                json.loads(event_data["properties"])
+                if isinstance(event_data["properties"], str)
+                else event_data["properties"]
+            ).get("$ai_trace_id"),
             "$ai_evaluation_key_type": "byok" if result.get("is_byok") else "posthog",
             "$ai_evaluation_key_id": result.get("key_id"),
         }
@@ -451,26 +460,31 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # Normalize event_data: ensure properties is a dict, not a string
-        event_data = inputs.event_data.copy()
-        if isinstance(event_data.get("properties"), str):
-            event_data["properties"] = json.loads(event_data["properties"])
-
         # Activity 2: Execute LLM judge (fetches API key internally)
         try:
             result = await temporalio.workflow.execute_activity(
                 execute_llm_judge_activity,
-                args=[evaluation, event_data],
+                args=[evaluation, inputs.event_data],
                 schedule_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, ApplicationError) and e.cause.details:
                 details = e.cause.details[0]
-                key_id = details.get("key_id")
                 error_type = details.get("error_type")
 
-                # Only update key state for errors related to the key itself
+                # Handle skippable errors - return success with skip info
+                if error_type in ("trial_limit_reached", "key_invalid"):
+                    return {
+                        "verdict": None,
+                        "skipped": True,
+                        "skip_reason": error_type,
+                        "message": e.cause.message,
+                        "evaluation_id": evaluation["id"],
+                    }
+
+                # Update key state for API-related errors
+                key_id = details.get("key_id")
                 if key_id and error_type in ("auth_error", "permission_error", "quota_error"):
                     new_state = (
                         LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
@@ -496,7 +510,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # Activity 4: Emit evaluation event
         await temporalio.workflow.execute_activity(
             emit_evaluation_event_activity,
-            args=[evaluation, event_data, result, start_time],
+            args=[evaluation, inputs.event_data, result, start_time],
             schedule_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -504,7 +518,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # Activity 5: Emit internal telemetry (fire-and-forget)
         await temporalio.workflow.execute_activity(
             emit_internal_telemetry_activity,
-            args=[evaluation, event_data["team_id"], result],
+            args=[evaluation, evaluation["team_id"], result],
             schedule_to_close_timeout=timedelta(seconds=30),
         )
 

@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 
 class GeminiConfig:
     TEMPERATURE: float = 0
-    # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
+    # Timeout in milliseconds for API calls. Set high to accommodate slow reasoning models.
     # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
-    TIMEOUT: int = 300
+    TIMEOUT: int = 300_000
 
     SUPPORTED_MODELS: list[str] = [
         "gemini-3-flash-preview",

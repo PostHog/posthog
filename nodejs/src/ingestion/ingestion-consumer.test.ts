@@ -863,6 +863,67 @@ describe.each([
             expect(recentEventMessage).toBeDefined()
             expect(recentEventMessage?.value.historical_migration).toBeUndefined()
         })
+
+        it('should drop AI events with invalid token properties', async () => {
+            const events = [
+                createEvent({
+                    distinct_id: 'user-valid-ai',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_input_tokens: 100,
+                        $ai_cache_read_input_tokens: 50,
+                        $ai_model: 'gpt-4',
+                    },
+                }),
+                createEvent({
+                    distinct_id: 'user-invalid-ai',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_input_tokens: 'invalid-not-a-number',
+                        $ai_model: 'gpt-4',
+                    },
+                }),
+                createEvent({
+                    distinct_id: 'user-invalid-ai-cache',
+                    event: '$ai_embedding',
+                    properties: {
+                        $ai_input_tokens: 100,
+                        $ai_cache_read_input_tokens: { nested: 'object' },
+                        $ai_model: 'text-embedding-3-small',
+                    },
+                }),
+                createEvent({
+                    distinct_id: 'user-non-ai',
+                    event: '$pageview',
+                    properties: {
+                        $ai_input_tokens: 'invalid-but-not-ai-event',
+                    },
+                }),
+            ]
+
+            const messages = createKafkaMessages(events)
+            await ingester.handleKafkaBatch(messages)
+
+            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
+            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
+
+            // Valid AI event should be processed
+            const validAiEvent = eventsTopicMessages.find((m) => m.value.event === '$ai_generation')
+            expect(validAiEvent).toBeDefined()
+            expect(validAiEvent?.value.distinct_id).toBe('user-valid-ai')
+
+            // Invalid AI events should be dropped (not in the output)
+            const invalidAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai')
+            expect(invalidAiEvent).toBeUndefined()
+
+            const invalidCacheEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai-cache')
+            expect(invalidCacheEvent).toBeUndefined()
+
+            // Non-AI event with invalid token property should still be processed (validation only applies to AI events)
+            const nonAiEvent = eventsTopicMessages.find((m) => m.value.event === '$pageview')
+            expect(nonAiEvent).toBeDefined()
+            expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
+        })
     })
 
     describe('error handling', () => {

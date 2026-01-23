@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { IconClock } from '@posthog/icons'
+
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,9 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { getTreeItemsProducts } from '~/products'
+import { getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
-import { Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { ActivityTab, Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
 
@@ -305,7 +307,7 @@ export const searchLogic = kea<searchLogicType>([
                     return true
                 })
 
-                const items = filteredProducts.map((product) => ({
+                const items: SearchItem[] = filteredProducts.map((product) => ({
                     id: `app-${product.path}`,
                     name: product.path,
                     displayName: product.path,
@@ -319,6 +321,72 @@ export const searchLogic = kea<searchLogicType>([
                         type: product.type || product.iconType,
                         iconType: product.iconType,
                         iconColor: product.iconColor,
+                    },
+                }))
+
+                // Add Activity manually
+                const activityHref = urls.activity(ActivityTab.ExploreEvents)
+                items.push({
+                    id: 'app-activity',
+                    name: 'Activity',
+                    displayName: 'Activity',
+                    category: 'apps',
+                    productCategory: null,
+                    href: activityHref,
+                    icon: <IconClock />,
+                    itemType: null,
+                    tags: undefined,
+                    lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
+                    record: {
+                        type: 'activity',
+                        iconType: undefined,
+                        iconColor: undefined,
+                    },
+                })
+
+                // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
+                return items.sort((a, b) => {
+                    if (!a.lastViewedAt && !b.lastViewedAt) {
+                        return a.name.localeCompare(b.name)
+                    }
+                    if (!a.lastViewedAt) {
+                        return 1
+                    }
+                    if (!b.lastViewedAt) {
+                        return -1
+                    }
+                    return new Date(b.lastViewedAt).getTime() - new Date(a.lastViewedAt).getTime()
+                })
+            },
+        ],
+        dataManagementItems: [
+            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
+            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+                const allMetadata = getTreeItemsMetadata()
+                const filteredMetadata = allMetadata.filter((item) => {
+                    if (!isDev && item.category === 'Unreleased') {
+                        return false
+                    }
+                    if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
+                        return false
+                    }
+                    return true
+                })
+
+                const items = filteredMetadata.map((item) => ({
+                    id: `data-management-${item.path}`,
+                    name: item.path,
+                    displayName: item.path,
+                    category: 'data-management',
+                    productCategory: item.category || null,
+                    href: item.href || '#',
+                    itemType: item.iconType || item.type || null,
+                    tags: item.tags,
+                    lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
+                    record: {
+                        type: item.type || item.iconType,
+                        iconType: item.iconType,
+                        iconColor: item.iconColor,
                     },
                 }))
 
@@ -496,6 +564,7 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [
                 s.recentItems,
                 s.appsItems,
+                s.dataManagementItems,
                 s.personItems,
                 s.groupItems,
                 s.playlistItems,
@@ -513,6 +582,7 @@ export const searchLogic = kea<searchLogicType>([
             (
                 recentItems,
                 appsItems,
+                dataManagementItems,
                 personItems,
                 groupItems,
                 playlistItems,
@@ -530,6 +600,21 @@ export const searchLogic = kea<searchLogicType>([
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
+                // Filter items by search term
+                const filterBySearch = (items: SearchItem[]): SearchItem[] => {
+                    if (!hasSearch) {
+                        return items
+                    }
+                    const searchLower = search.toLowerCase()
+                    const searchChunks = searchLower.split(' ').filter((s) => s)
+                    return items.filter((item) =>
+                        searchChunks.every(
+                            (chunk) =>
+                                item.name.toLowerCase().includes(chunk) || item.category.toLowerCase().includes(chunk)
+                        )
+                    )
+                }
+
                 // Always show recents first - show loading skeleton until first load completes
                 const isRecentsLoading = recentsLoading || !recentsHasLoaded
                 categories.push({
@@ -538,13 +623,28 @@ export const searchLogic = kea<searchLogicType>([
                     isLoading: isRecentsLoading,
                 })
 
-                // Always show apps - show loading skeleton until sceneLogViews loads (for lastViewedAt sorting)
+                // Filter apps and data management by search
                 const isAppsLoading = sceneLogViewsLoading || !sceneLogViewsHasLoaded
-                categories.push({
-                    key: 'apps',
-                    items: isAppsLoading ? [] : appsItems,
-                    isLoading: isAppsLoading,
-                })
+                const filteredApps = filterBySearch(appsItems)
+                const filteredDataManagement = filterBySearch(dataManagementItems)
+
+                // Show apps if not searching or has matching results
+                if (!hasSearch || filteredApps.length > 0) {
+                    categories.push({
+                        key: 'apps',
+                        items: isAppsLoading ? [] : filteredApps,
+                        isLoading: isAppsLoading,
+                    })
+                }
+
+                // Show data management if not searching or has matching results
+                if (!hasSearch || filteredDataManagement.length > 0) {
+                    categories.push({
+                        key: 'data-management',
+                        items: isAppsLoading ? [] : filteredDataManagement,
+                        isLoading: isAppsLoading,
+                    })
+                }
 
                 // Only show unified search results when searching
                 if (hasSearch) {

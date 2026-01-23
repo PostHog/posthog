@@ -140,7 +140,7 @@ jobs:
 
             - name: Report failure
               if: failure()
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'node-image-build'

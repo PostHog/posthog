@@ -1174,6 +1174,24 @@ export function IconSkipBackward(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconSkipStart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="4" y="6" width="2" height="12" rx="0.5" fill="currentColor" />
+            <path d="M9 12L17 6.5V17.5L9 12Z" fill="currentColor" />
+        </LemonIconBase>
+    )
+}
+
+export function IconSkipEnd(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="18" y="6" width="2" height="12" rx="0.5" fill="currentColor" />
+            <path d="M15 12L7 6.5V17.5L15 12Z" fill="currentColor" />
+        </LemonIconBase>
+    )
+}
+
 /* Material design robot-outline icon https://pictogrammers.com/library/mdi/icon/robot-outline */
 export function IconRobot(props: LemonIconProps): JSX.Element {
     return (

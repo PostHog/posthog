@@ -12,8 +12,7 @@ This prevents users from accessing others' chats by knowing their email.
 
 import logging
 
-from django.db.models import CharField, Count, F, OuterRef, Q, Subquery
-from django.db.models.functions import Cast
+from django.db.models import F, Q
 
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
@@ -318,46 +317,7 @@ class WidgetTicketsView(APIView):
         if status_filter:
             tickets_query = tickets_query.filter(status=status_filter)
 
-        # Add annotations to avoid N+1 queries
-        message_count_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .values("item_id")
-            .annotate(count=Count("id"))
-            .values("count")
-        )
-
-        last_message_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("content")[:1]
-        )
-
-        last_message_at_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("created_at")[:1]
-        )
-
-        tickets_query = tickets_query.annotate(
-            message_count=Subquery(message_count_subquery),
-            last_message=Subquery(last_message_subquery),
-            last_message_at=Subquery(last_message_at_subquery),
-        )
+        # message_count, last_message_at, last_message_text are now denormalized on Ticket model
 
         # Order and paginate
         tickets = tickets_query.order_by("-created_at")[offset : offset + limit]
@@ -371,9 +331,9 @@ class WidgetTicketsView(APIView):
                     "id": str(ticket.id),
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
-                    "last_message": ticket.last_message,
+                    "last_message": ticket.last_message_text,  # Now from denormalized field
                     "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
-                    "message_count": ticket.message_count or 0,
+                    "message_count": ticket.message_count,
                     "created_at": ticket.created_at.isoformat(),
                 }
             )

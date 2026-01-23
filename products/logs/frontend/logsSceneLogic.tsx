@@ -49,7 +49,6 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
     VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
-const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
@@ -127,9 +126,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             }
 
             // Non-filter params handled separately
-            if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
-                actions.setHighlightedLogId(params.highlightedLogId)
-            }
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
             }
@@ -160,24 +156,9 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
-                updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
                 actions.runQuery()
-                return params
-            })
-        }
-
-        const updateHighlightURL = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
                 return params
             })
         }
@@ -215,14 +196,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             fetchLogsSuccess: () => clearInitialLogsLimit(),
             syncUrlAndRunQuery: () => buildUrlAndRunQuery(),
             syncUrlWithPageSize: () => updateUrlWithPageSize(),
-            syncUrlWithHighlight: () => updateHighlightURL(),
         }
     }),
 
     actions({
         syncUrlAndRunQuery: true,
         syncUrlWithPageSize: true,
-        syncUrlWithHighlight: true,
         runQuery: (debounce?: integer) => ({ debounce }),
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
@@ -268,13 +247,9 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             operator,
             propertyType,
         }),
-        setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
         setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
         setInitialLogsLimit: (initialLogsLimit: number | null) => ({ initialLogsLimit }),
-        copyLinkToLog: (logId: string) => ({ logId }),
-        highlightNextLog: true,
-        highlightPreviousLog: true,
         toggleExpandLog: (logId: string) => ({ logId }),
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
@@ -448,12 +423,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS as number,
             {
                 setLiveTailInterval: (_, { interval }) => interval,
-            },
-        ],
-        highlightedLogId: [
-            DEFAULT_HIGHLIGHTED_LOG_ID,
-            {
-                setHighlightedLogId: (_, { highlightedLogId }) => highlightedLogId,
             },
         ],
         hasMoreLogsToLoad: [
@@ -908,9 +877,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         setLogsPageSize: () => {
             actions.syncUrlWithPageSize()
         },
-        setHighlightedLogId: () => {
-            actions.syncUrlWithHighlight()
-        },
         setLiveTailRunning: async ({ enabled }) => {
             if (enabled) {
                 posthog.capture('logs live tail started')
@@ -1035,40 +1001,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             } else if (logsPageSize < currentCount) {
                 actions.truncateLogs(logsPageSize)
                 actions.setHasMoreLogsToLoad(true)
-            }
-        },
-        highlightNextLog: () => {
-            const logs = values.parsedLogs
-            if (logs.length === 0) {
-                return
-            }
-
-            const currentIndex = values.highlightedLogId
-                ? logs.findIndex((log) => log.uuid === values.highlightedLogId)
-                : -1
-
-            if (currentIndex === -1) {
-                actions.setHighlightedLogId(logs[0].uuid)
-            } else if (currentIndex < logs.length - 1) {
-                actions.setHighlightedLogId(logs[currentIndex + 1].uuid)
-            } else if (values.hasMoreLogsToLoad && !values.logsLoading) {
-                actions.fetchNextLogsPage()
-            }
-        },
-        highlightPreviousLog: () => {
-            const logs = values.parsedLogs
-            if (logs.length === 0) {
-                return
-            }
-
-            const currentIndex = values.highlightedLogId
-                ? logs.findIndex((log) => log.uuid === values.highlightedLogId)
-                : -1
-
-            if (currentIndex === -1) {
-                actions.setHighlightedLogId(logs[logs.length - 1].uuid)
-            } else if (currentIndex > 0) {
-                actions.setHighlightedLogId(logs[currentIndex - 1].uuid)
             }
         },
         pollForNewLogs: async () => {

@@ -65,6 +65,9 @@ export function VariantTimeseriesChart({
                             callbacks: {
                                 label: function (context) {
                                     const value = context.parsed.y
+                                    if (value === null) {
+                                        return ''
+                                    }
                                     const formattedValue = `${(value * 100).toFixed(2)}%`
                                     return `${context.dataset.label}: ${formattedValue}`
                                 },

@@ -10,12 +10,23 @@ from abc import ABC, abstractmethod
 POSTHOG_OWNED_APPS = ["posthog", "ee"]
 
 
-def is_posthog_app(app_label: str) -> bool:
-    """Check if app is owned by PostHog (vs third-party dependency)."""
+def is_posthog_app(app_label: str, migration=None) -> bool:
+    """Check if app is owned by PostHog (vs third-party dependency).
+
+    Args:
+        app_label: The Django app label (e.g., 'posthog', 'endpoints')
+        migration: Optional migration class to check module path for product apps
+    """
     if app_label in POSTHOG_OWNED_APPS:
         return True
-    if app_label.startswith("products."):
-        return True
+
+    # Product apps have short labels like 'endpoints' but modules under 'products.*'
+    # Check the migration's module path to detect product apps
+    if migration is not None:
+        module = getattr(migration, "__module__", "")
+        if module.startswith("products."):
+            return True
+
     return False
 
 
@@ -74,7 +85,7 @@ class UUIDPrimaryKeyPolicy(MigrationPolicy):
 
     def check_migration(self, migration) -> list[str]:
         """Only enforce on PostHog-owned apps."""
-        if not is_posthog_app(migration.app_label):
+        if not is_posthog_app(migration.app_label, migration):
             return []
 
         violations = []
@@ -104,7 +115,7 @@ class AtomicFalsePolicy(MigrationPolicy):
         return []  # Checked at migration level
 
     def check_migration(self, migration) -> list[str]:
-        if not is_posthog_app(migration.app_label):
+        if not is_posthog_app(migration.app_label, migration):
             return []
 
         is_atomic = getattr(migration, "atomic", True)

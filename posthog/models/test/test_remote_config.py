@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.action.action import Action
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -566,7 +567,8 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         # TODO: Come up with a good way of solidly testing this...
         assert js == self.snapshot
 
-    def test_renders_js_including_site_apps(self):
+    @patch("posthog.models.plugin.transpile", side_effect=mock_transpile)
+    def test_renders_js_including_site_apps(self, mock_transpile_fn):
         files = [
             "(function () { return { inject: (data) => console.log('injected!', data)}; })",
             "(function () { return { inject: (data) => console.log('injected 2!', data)}; })",
@@ -602,7 +604,8 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
         assert js == self.snapshot
 
-    def test_renders_js_including_site_functions(self):
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_renders_js_including_site_functions(self, mock_transpile_fn):
         non_site_app = HogFunction.objects.create(
             name="Non site app",
             type=HogFunctionType.DESTINATION,
@@ -648,7 +651,8 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
         assert js == self.snapshot
 
-    def test_removes_deleted_site_functions(self):
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_removes_deleted_site_functions(self, mock_transpile_fn):
         site_destination = HogFunction.objects.create(
             name="Site destination",
             type=HogFunctionType.SITE_DESTINATION,

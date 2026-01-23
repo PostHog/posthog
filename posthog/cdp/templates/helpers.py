@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any, Optional, cast
 
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import STPyV8
 
@@ -16,6 +16,45 @@ from posthog.models.utils import uuid7
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
+
+
+def mock_transpile(code: str, type: str = "site") -> str:
+    """Mock transpile function that returns simple JavaScript without calling Node.js"""
+    if type == "site":
+        # Site functions transpilation expects an IIFE that returns { onLoad, onEvent }
+        code = code.replace("export function onLoad", "function onLoad")
+        code = code.replace("export function onEvent", "function onEvent")
+        code = code.replace("export const", "const")
+        code = code.replace("export let", "let")
+
+        # Only include functions that are actually defined
+        has_onload = "function onLoad" in code
+        has_onevent = "function onEvent" in code
+
+        # Build the return object dynamically
+        returns = []
+        if has_onload:
+            returns.append("onLoad: onLoad")
+        if has_onevent:
+            returns.append("onEvent: onEvent")
+
+        return_obj = "{" + ", ".join(returns) + "}" if returns else "{}"
+
+        # Return an IIFE that returns an object with the exported functions
+        return (
+            """(function() {
+            """
+            + code
+            + f"""
+            return {return_obj};
+        }}"""
+            + ")"
+        )
+    elif type == "frontend":
+        return (
+            f'"use strict";\nexport function getFrontendApp (require) {{ let exports = {{}}; {code}; return exports; }}'
+        )
+    return code
 
 
 # TODO this test class only tests part of the template. The hog code is tested, the default mappings are not
@@ -116,6 +155,12 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
         self.organization.available_product_features = [{"name": "data_pipelines", "key": "data_pipelines"}]
         self.organization.save()
 
+        # Mock the plugin server status endpoint to avoid connection errors
+        # Patch where it's used (in hog_function.py) not where it's defined
+        self.mock_get_status = patch("posthog.models.hog_functions.hog_function.get_hog_function_status").start()
+        self.mock_get_status.return_value = MagicMock(status_code=200, json=lambda: {"state": "idle", "tokens": 0})
+        self.addCleanup(self.mock_get_status.stop)
+
     @functools.lru_cache  # noqa: B019 - TODO: refactor to avoid method cache
     def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None):
         # TODO do this without calling the API. There's a lot of logic in the endpoint which would need to be extracted
@@ -141,17 +186,20 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
         }
         if edit_payload:
             payload = edit_payload(payload)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data=payload,
-        )
-        assert response.status_code in (200, 201)
-        function_id = response.json()["id"]
 
-        # load from the DB based on the created ID
-        hog_function = HogFunction.objects.get(id=function_id)
+        # Mock the transpile function to avoid Node.js/pnpm dependency
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data=payload,
+            )
+            assert response.status_code in (200, 201)
+            function_id = response.json()["id"]
 
-        return get_transpiled_function(hog_function)
+            # load from the DB based on the created ID
+            hog_function = HogFunction.objects.get(id=function_id)
+
+            return get_transpiled_function(hog_function)
 
     def _process_event(
         self,

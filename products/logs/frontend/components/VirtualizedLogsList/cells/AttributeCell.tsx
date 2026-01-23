@@ -1,13 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
+import ViewRecordingButton, {
+    RecordingPlayerType,
+    ViewRecordingButtonVariant,
+} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { LogsViewerCellPopover } from 'products/logs/frontend/components/LogsViewer/LogsViewerCellPopover'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
-import { isDistinctIdKey } from 'products/logs/frontend/utils'
+import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 
 export interface AttributeCellProps {
     attributeKey: string
@@ -42,9 +46,17 @@ export const AttributeCell = memo(function AttributeCell({
                         <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
                             <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
                         </span>
+                    ) : isSessionIdKey(attributeKey) && value ? (
+                        <ViewRecordingButton
+                            sessionId={value}
+                            openPlayerIn={RecordingPlayerType.Modal}
+                            label={value}
+                            variant={ViewRecordingButtonVariant.Link}
+                            className="font-mono text-xs whitespace-nowrap pr-24"
+                        />
                     ) : (
                         <span className="font-mono text-xs text-muted whitespace-nowrap pr-24" title={value}>
-                            {value}
+                            {value || '-'}
                         </span>
                     )}
                 </div>

@@ -155,17 +155,26 @@ jobs:
             - name: Run hogli tests
               shell: bash
               run: |
-                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
+                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term --junitxml=junit-hogli.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-hogli
+                  path: junit-hogli.xml
 
             - name: Run dependency detection script tests
               shell: bash
               run: |
-                  pytest bin/test/test_find_python_dependencies.py -v
+                  pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
 
-            - name: Run sync_clickhouse script tests
-              shell: bash
-              run: |
-                  pytest .github/scripts/test_sync_clickhouse.py -v
+            - name: Upload test results for dependency detection
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-dependency-detection
+                  path: junit-dependency-detection.xml
 
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'
