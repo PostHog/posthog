@@ -14,22 +14,12 @@ import { AccessControlResourceType } from '~/types'
 export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean }): JSX.Element | null {
     const logic = sdkPolicyConfigLogic({ logicKey: 'error-tracking' })
 
-    const {
-        policy,
-        triggers,
-        matchType,
-        sampleRate,
-        minimumDurationMilliseconds,
-        linkedFeatureFlag,
-        eventTriggers,
-        urlTriggers,
-        urlBlocklist,
-    } = useValues(logic)
+    const { policy, triggers, matchType, sampleRate, linkedFeatureFlag, eventTriggers, urlTriggers, urlBlocklist } =
+        useValues(logic)
     const {
         loadPolicy,
         setMatchType,
         setSampleRate,
-        setMinimumDurationMilliseconds,
         setLinkedFeatureFlag,
         setEventTriggers,
         setUrlTriggers,
@@ -83,10 +73,6 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
                         <EventTriggers value={eventTriggers} onChange={setEventTriggers} />
                         <LinkedFlagSelector value={linkedFeatureFlag} onChange={setLinkedFeatureFlag} />
                         <Sampling initialValue={sampleRate} onChange={setSampleRate} />
-                        <MinDuration
-                            value={minimumDurationMilliseconds}
-                            onChange={(v) => setMinimumDurationMilliseconds(v ?? null)}
-                        />
                     </div>
                 </div>
             </div>
@@ -106,22 +92,6 @@ const Sampling = ({
             <LemonLabel className="text-base">Sampling</LemonLabel>
             <IngestionControls.SamplingTrigger initialSampleRate={initialValue * 100} onChange={onChange} />
             <p>Choose how many exceptions to capture. 100% = capture every exception, 50% = capture roughly half.</p>
-        </div>
-    )
-}
-
-const MinDuration = ({
-    value,
-    onChange,
-}: {
-    value: SDKPolicyConfig['minimum_duration_milliseconds']
-    onChange: (minimumDurationMilliseconds: number | null | undefined) => void
-}): JSX.Element => {
-    return (
-        <div className="space-y-2">
-            <LemonLabel className="text-base">Minimum duration (seconds)</LemonLabel>
-            <IngestionControls.MinDuration value={value} onChange={onChange} />
-            <p>Only capture exceptions from sessions that have been active for at least this long.</p>
         </div>
     )
 }
