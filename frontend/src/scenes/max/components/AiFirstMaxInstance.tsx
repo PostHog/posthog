@@ -98,8 +98,9 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
                 const messageHeight = node.offsetHeight
                 const inputHeight = inputContainerRef.current?.offsetHeight ?? 0
 
-                // Calculate min-height for AI response: container - human message - input - padding
-                const minHeight = containerHeight - messageHeight - inputHeight - 32
+                // AI response wrapper min-height = container - human message - input
+                // Human message at top, AI responses fill middle, input at bottom
+                const minHeight = containerHeight - messageHeight - inputHeight
                 setResponseMinHeight(Math.max(0, minHeight))
 
                 // Scroll so human message is at top
@@ -120,42 +121,53 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
         lastHumanMessageNodeRef.current = node
     }, [])
 
-    // Track if there's content below the viewport using scroll events
+    // Track content overflow and manage scroll button + min-height
     useEffect(() => {
         const container = containerRef.current
         if (!container || !hasMessages) {
             return
         }
 
-        const checkScrollPosition = (): void => {
-            const scrollBottom = container.scrollTop + container.clientHeight
-            const contentHeight = container.scrollHeight
-            // Show button if not scrolled to bottom (small tolerance for rounding)
-            const isAtBottom = scrollBottom >= contentHeight - 20
-            setShowScrollButton(!isAtBottom)
+        const checkContentOverflow = (): void => {
+            const hasOverflow = container.scrollHeight > container.clientHeight + 5
+
+            // If content overflows, remove min-height (it's no longer needed)
+            if (hasOverflow && responseMinHeight > 0) {
+                setResponseMinHeight(0)
+            }
+
+            // Show scroll button only when there's real overflow AND not at bottom
+            if (hasOverflow) {
+                const scrollBottom = container.scrollTop + container.clientHeight
+                const isAtBottom = scrollBottom >= container.scrollHeight - 20
+                setShowScrollButton(!isAtBottom)
+            } else {
+                setShowScrollButton(false)
+            }
         }
 
         // Check initially and on scroll
-        checkScrollPosition()
-        container.addEventListener('scroll', checkScrollPosition)
+        checkContentOverflow()
+        container.addEventListener('scroll', checkContentOverflow)
 
-        // Watch for content size changes via MutationObserver
-        const mutationObserver = new MutationObserver(checkScrollPosition)
+        // Watch for content size changes
+        const mutationObserver = new MutationObserver(checkContentOverflow)
         mutationObserver.observe(container, {
             childList: true,
             subtree: true,
             characterData: true,
         })
 
-        // Also poll during streaming since mutations might not catch everything
-        const interval = setInterval(checkScrollPosition, 500)
+        // ResizeObserver for container size changes
+        const resizeObserver = new ResizeObserver(checkContentOverflow)
+        resizeObserver.observe(container)
 
         return () => {
-            container.removeEventListener('scroll', checkScrollPosition)
+            container.removeEventListener('scroll', checkContentOverflow)
             mutationObserver.disconnect()
-            clearInterval(interval)
+            resizeObserver.disconnect()
         }
-    }, [hasMessages])
+    }, [hasMessages, responseMinHeight])
 
     // Reset scroll button when starting a new conversation
     useEffect(() => {
