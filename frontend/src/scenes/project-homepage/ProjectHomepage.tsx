@@ -2,7 +2,7 @@ import './ProjectHomepage.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconHome } from '@posthog/icons'
 
@@ -38,6 +38,18 @@ function HomePageContent(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
     const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
+
+    // DELIBERATE MEMORY LEAK FOR TESTING - TODO: Remove after validating leak detection
+    useEffect(() => {
+        const bigArray = Array(1024 * 1024 * 2).fill(0)
+        const eventHandler = () => {
+            // The eventHandler closure keeps a reference to bigArray in the outer scope
+            console.log('Using bigArray', bigArray.length)
+        }
+        // Event listener is never unregistered, creating a memory leak
+        window.addEventListener('custom-memory-leak-test', eventHandler)
+        // Missing cleanup: return () => window.removeEventListener('custom-memory-leak-test', eventHandler)
+    }, [])
 
     return (
         <SceneContent className="ProjectHomepage">
