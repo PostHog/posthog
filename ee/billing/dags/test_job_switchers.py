@@ -342,6 +342,7 @@ class TestClayWebhookResource:
             resource = ClayWebhookResource(
                 webhook_url="https://api.clay.com/webhook/123",
                 api_key="test-key",
+                max_records_per_batch=100,  # High limit to ensure single batch
             )
             data = [{"domain": f"{i}.com"} for i in range(50)]
 
@@ -364,6 +365,7 @@ class TestClayWebhookResource:
                 webhook_url="https://api.clay.com/webhook/123",
                 api_key="test-key",
                 max_batch_bytes=max_bytes,
+                max_records_per_batch=100,  # High limit so bytes constraint wins
             )
             data = [{"domain": f"{i}.com"} for i in range(12)]
 
@@ -456,27 +458,242 @@ class TestClayWebhookResource:
             # Should only attempt once since 400 is not retryable
             assert mock_session.post.call_count == 1
 
-    def test_send_batched_single_oversized_record_raises_error(self):
-        """A single record that exceeds max_batch_bytes should raise ValueError."""
+    def test_send_batched_skips_single_oversized_record(self):
+        """A single record that exceeds max_batch_bytes should be skipped."""
+        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
+            resource = ClayWebhookResource(
+                webhook_url="https://api.clay.com/webhook/123",
+                api_key="test-key",
+                max_batch_bytes=50,  # Very small limit
+            )
+            oversized_record = {"domain": "example.com", "data": "x" * 100}
+
+            responses = resource.send_batched([oversized_record])
+
+            # Should return empty list since the only record was skipped
+            assert responses == []
+            mock_session_class.return_value.__enter__.return_value.post.assert_not_called()
+
+    def test_send_batched_skips_oversized_record_sends_others(self):
+        """An oversized record should be skipped while other records are sent."""
+        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session_class.return_value.__enter__.return_value = mock_session
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_session.post.return_value = mock_response
+
+            resource = ClayWebhookResource(
+                webhook_url="https://api.clay.com/webhook/123",
+                api_key="test-key",
+                max_batch_bytes=100,
+                max_records_per_batch=100,  # High limit so bytes constraint wins
+            )
+            small_record = {"d": "a.com"}
+            oversized_record = {"domain": "example.com", "data": "x" * 200}
+
+            responses = resource.send_batched([small_record, oversized_record, small_record])
+
+            # Should send only the small records, skipping the oversized one
+            assert len(responses) == 1
+            sent_data = mock_session.post.call_args.kwargs["json"]
+            assert len(sent_data) == 2
+            assert all(r["d"] == "a.com" for r in sent_data)
+
+    def test_send_batched_truncates_oversized_array_fields(self):
+        """Records with oversized array fields should be truncated to fit."""
+        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session_class.return_value.__enter__.return_value = mock_session
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_session.post.return_value = mock_response
+
+            resource = ClayWebhookResource(
+                webhook_url="https://api.clay.com/webhook/123",
+                api_key="test-key",
+                max_batch_bytes=500,
+            )
+            # Create a record with a large array in a truncatable field
+            oversized_record = {
+                "domain": "example.com",
+                "emails": [f"user{i}@example.com" for i in range(100)],
+            }
+            original_size = len(json.dumps([oversized_record]).encode("utf-8"))
+            assert original_size > 500  # Verify it's actually oversized
+
+            responses = resource.send_batched([oversized_record])
+
+            # Should succeed without raising
+            assert len(responses) == 1
+            # The sent record should have truncated emails
+            sent_data = mock_session.post.call_args.kwargs["json"]
+            assert len(sent_data) == 1
+            assert len(sent_data[0]["emails"]) < 100  # Should be truncated
+            # Verify it fits in the limit
+            sent_size = len(json.dumps(sent_data).encode("utf-8"))
+            assert sent_size <= 500
+
+    def test_send_batched_invokes_callback_per_batch(self):
+        """on_batch_sent callback should be called for each successfully sent batch."""
+        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session_class.return_value.__enter__.return_value = mock_session
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_session.post.return_value = mock_response
+
+            resource = ClayWebhookResource(
+                webhook_url="https://api.clay.com/webhook/123",
+                api_key="test-key",
+                max_records_per_batch=2,
+                max_batch_bytes=100_000,  # High limit so record count wins
+            )
+            data = [{"domain": f"{i}.com"} for i in range(5)]
+
+            callback_calls: list[list[dict]] = []
+            responses = resource.send_batched(data, on_batch_sent=lambda batch: callback_calls.append(batch))
+
+            # Should have 3 batches: 2 + 2 + 1
+            assert len(responses) == 3
+            assert len(callback_calls) == 3
+            # Verify callback received the actual batch data
+            assert len(callback_calls[0]) == 2
+            assert len(callback_calls[1]) == 2
+            assert len(callback_calls[2]) == 1
+            # Verify the data matches
+            assert callback_calls[0][0]["domain"] == "0.com"
+            assert callback_calls[2][0]["domain"] == "4.com"
+
+
+class TestClayWebhookResourceCreateBatches:
+    """Tests for the create_batches method."""
+
+    def test_create_batches_empty_data(self):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+        )
+
+        batches = resource.create_batches([])
+
+        assert batches == []
+
+    def test_create_batches_respects_record_count_limit(self):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_records_per_batch=3,
+            max_batch_bytes=100_000,  # High limit so record count wins
+        )
+        data = [{"domain": f"{i}.com"} for i in range(10)]
+
+        batches = resource.create_batches(data)
+
+        assert len(batches) == 4  # 3 + 3 + 3 + 1
+        assert len(batches[0]) == 3
+        assert len(batches[1]) == 3
+        assert len(batches[2]) == 3
+        assert len(batches[3]) == 1
+
+    def test_create_batches_respects_byte_limit(self):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_records_per_batch=100,  # High limit so bytes constraint wins
+            max_batch_bytes=100,
+        )
+        data = [{"domain": f"{i}.com"} for i in range(10)]
+
+        batches = resource.create_batches(data)
+
+        # Verify each batch is under the byte limit
+        for batch in batches:
+            batch_size = len(json.dumps(batch, default=str).encode("utf-8"))
+            assert batch_size <= 100
+
+    def test_create_batches_truncates_oversized_records(self):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_batch_bytes=500,
+            max_records_per_batch=10,
+        )
+        # Create a record with a large array in a truncatable field
+        oversized_record = {
+            "domain": "example.com",
+            "emails": [f"user{i}@example.com" for i in range(100)],
+        }
+        original_size = len(json.dumps([oversized_record]).encode("utf-8"))
+        assert original_size > 500  # Verify it's actually oversized
+
+        batches = resource.create_batches([oversized_record])
+
+        assert len(batches) == 1
+        assert len(batches[0]) == 1
+        # The record should have truncated emails
+        assert len(batches[0][0]["emails"]) < 100
+        # Verify it fits in the limit
+        batch_size = len(json.dumps(batches[0]).encode("utf-8"))
+        assert batch_size <= 500
+
+    def test_create_batches_skips_untruncatable_oversized_records(self):
         resource = ClayWebhookResource(
             webhook_url="https://api.clay.com/webhook/123",
             api_key="test-key",
             max_batch_bytes=50,  # Very small limit
+            max_records_per_batch=10,
         )
+        # Record that can't be truncated to fit (no truncatable array fields)
         oversized_record = {"domain": "example.com", "data": "x" * 100}
 
-        with pytest.raises(ValueError, match="Single record exceeds max_batch_bytes"):
-            resource.send_batched([oversized_record])
+        batches = resource.create_batches([oversized_record])
 
-    def test_send_batched_oversized_record_in_middle_raises_error(self):
-        """An oversized record in the middle of data should raise ValueError before any sends."""
+        assert batches == []  # Record was skipped
+
+    def test_create_batches_mixed_sizes(self):
         resource = ClayWebhookResource(
             webhook_url="https://api.clay.com/webhook/123",
             api_key="test-key",
             max_batch_bytes=100,
+            max_records_per_batch=10,
         )
         small_record = {"d": "a.com"}
         oversized_record = {"domain": "example.com", "data": "x" * 200}
 
-        with pytest.raises(ValueError, match="Single record exceeds max_batch_bytes"):
-            resource.send_batched([small_record, oversized_record])
+        batches = resource.create_batches([small_record, oversized_record, small_record])
+
+        # Only small records should be included
+        assert len(batches) == 1
+        assert len(batches[0]) == 2
+        assert all(r["d"] == "a.com" for r in batches[0])
+
+    @parameterized.expand(
+        [
+            ("single_record_fits", 1, 10, 10000, 1, [1]),
+            ("exact_batch_boundary", 10, 10, 10000, 1, [10]),
+            ("one_over_boundary", 11, 10, 10000, 2, [10, 1]),
+            ("many_small_batches", 25, 3, 10000, 9, [3, 3, 3, 3, 3, 3, 3, 3, 1]),
+        ]
+    )
+    def test_create_batches_boundary_conditions(
+        self,
+        name: str,
+        num_records: int,
+        max_per_batch: int,
+        max_bytes: int,
+        expected_batch_count: int,
+        expected_batch_sizes: list[int],
+    ):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_records_per_batch=max_per_batch,
+            max_batch_bytes=max_bytes,
+        )
+        data = [{"domain": f"{i}.com"} for i in range(num_records)]
+
+        batches = resource.create_batches(data)
+
+        assert len(batches) == expected_batch_count
+        assert [len(b) for b in batches] == expected_batch_sizes

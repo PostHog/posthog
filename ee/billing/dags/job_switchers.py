@@ -117,11 +117,15 @@ def job_switchers_to_clay(
     clay_webhook: dagster.ResourceParam[ClayWebhookResource],
 ) -> None:
     """
-    Incrementally sync job switchers to Clay webhook using Polars.
+    Incrementally sync job switchers to Clay webhook using DynamicOut for batching.
 
     Uses Dagster asset metadata to track domain hashes between runs,
     preserving Clay's 50k lifetime submission limit.
+
+    Batches are processed sequentially via executor concurrency control
+    to respect Clay's rate limits (10 records/sec sustained).
     """
+    # Execute the graph logic directly
     context.log.info("Querying JobSwitchers_v3 saved query")
 
     team = Team.objects.get(id=JOB_SWITCHERS_TEAM_ID)
@@ -173,7 +177,6 @@ def job_switchers_to_clay(
 
     if len(changed_df) == 0:
         context.log.info("No new or changed domains to sync")
-        # Still store metadata to persist state
         context.add_output_metadata(
             {
                 "domain_hashes": MetadataValue.json(current_hashes),
@@ -185,10 +188,18 @@ def job_switchers_to_clay(
 
     context.log.info("Sending %d new/changed domains to Clay webhook", len(changed_df))
 
-    # Convert to payload and send in batches
+    # Convert to payload and create batches
     payload = dataframe_to_clay_payload(changed_df)
-    responses = clay_webhook.send_batched(payload)
-    context.log.info("Sent %d batches to Clay webhook", len(responses))
+    batches = clay_webhook.create_batches(payload, logger=context.log)
+
+    # Send batches sequentially
+    total_sent = 0
+    for i, batch in enumerate(batches):
+        clay_webhook.send(batch)
+        total_sent += len(batch)
+        context.log.info("Sent batch %d/%d with %d records", i + 1, len(batches), len(batch))
+
+    context.log.info("Sent %d batches to Clay webhook", len(batches))
 
     # Store domain hashes in asset metadata for next run
     context.add_output_metadata(
@@ -196,14 +207,14 @@ def job_switchers_to_clay(
             "domain_hashes": MetadataValue.json(current_hashes),
             "domains_synced": MetadataValue.int(len(changed_df)),
             "total_domains": MetadataValue.int(len(df)),
-            "batches_sent": MetadataValue.int(len(responses)),
+            "batches_sent": MetadataValue.int(len(batches)),
         }
     )
 
     context.log.info("Synced %d domains, stored %d hashes in metadata", len(changed_df), len(current_hashes))
 
 
-# Define the job
+# Define the job with concurrency control for rate limiting
 job_switchers_job = dagster.define_asset_job(
     name="job_switchers_to_clay_job",
     selection=["job_switchers_to_clay"],
