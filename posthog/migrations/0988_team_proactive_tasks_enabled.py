@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="proactive_tasks_enabled",
-            field=models.BooleanField(default=False, null=True, blank=True),
+            field=models.BooleanField(null=True, blank=True),
         ),
     ]
