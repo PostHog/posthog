@@ -3,7 +3,7 @@ export const normalizeIdentifier = (identifier: string): string => {
 }
 
 export const escapeIdentifier = (identifier: string): string => {
-    if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
+    if (/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(identifier)) {
         return identifier
     }
     const escaped = identifier.replace(/`/g, '``')
