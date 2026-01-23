@@ -4,6 +4,13 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
+import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
+import {
+    RestrictionPipelineInput,
+    RestrictionPipelineOutput,
+    applyRestrictions,
+    createRestrictionPipeline,
+} from '../ingestion/session_replay'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -32,7 +39,6 @@ import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
 import { RetentionService } from './retention/retention-service'
-import { SessionRecordingRestrictionHandler } from './session-recording-restriction-handler'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
@@ -83,7 +89,12 @@ export class SessionRecordingIngester {
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private restrictionHandler?: SessionRecordingRestrictionHandler
+    private restrictionPipeline?: BatchPipelineUnwrapper<
+        RestrictionPipelineInput,
+        RestrictionPipelineOutput,
+        { message: Message }
+    >
+    private readonly kafkaProducer: KafkaProducerWrapper
     private kafkaOverflowProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
@@ -112,6 +123,8 @@ export class SessionRecordingIngester {
             autoCommit: true,
             autoOffsetStore: false,
         })
+
+        this.kafkaProducer = producer
 
         let s3Client: S3Client | null = null
         if (
@@ -275,7 +288,7 @@ export class SessionRecordingIngester {
         // Apply event ingestion restrictions before parsing
         const messagesToProcess = await instrumentFn(
             `recordingingesterv2.handleEachBatch.applyRestrictions`,
-            async () => Promise.resolve(this.restrictionHandler!.applyRestrictions(messages))
+            async () => await applyRestrictions(this.restrictionPipeline!, messages)
         )
 
         const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
@@ -367,14 +380,16 @@ export class SessionRecordingIngester {
             )
         }
 
-        // Initialize restriction handler with the overflow producer
-        this.restrictionHandler = new SessionRecordingRestrictionHandler(
-            this.eventIngestionRestrictionManager,
-            this.overflowTopic,
-            this.kafkaOverflowProducer,
-            this.promiseScheduler,
-            this.consumeOverflow
-        )
+        // Initialize restriction pipeline
+        // Use overflow producer when available, otherwise fall back to main producer
+        // (main producer won't be used for redirects when overflow is disabled)
+        this.restrictionPipeline = createRestrictionPipeline({
+            kafkaProducer: this.kafkaOverflowProducer ?? this.kafkaProducer,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowEnabled: !this.consumeOverflow,
+            overflowTopic: this.overflowTopic,
+            promiseScheduler: this.promiseScheduler,
+        })
 
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
