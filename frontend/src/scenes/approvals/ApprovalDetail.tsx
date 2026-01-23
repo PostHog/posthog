@@ -368,13 +368,21 @@ interface PolicySnapshot {
 }
 
 function PolicyConfigurationDisplay({ policySnapshot }: { policySnapshot?: PolicySnapshot }): JSX.Element {
-    const { members } = useValues(membersLogic)
-    const { roles } = useValues(rolesLogic)
+    const { members, membersLoading } = useValues(membersLogic)
+    const { roles, rolesLoading } = useValues(rolesLogic)
 
     if (!policySnapshot) {
         return (
             <div className="bg-bg-light p-4 rounded border">
                 <span className="text-secondary">No policy configuration available</span>
+            </div>
+        )
+    }
+
+    if (membersLoading || rolesLoading) {
+        return (
+            <div className="bg-bg-light p-4 rounded border">
+                <LemonSkeleton className="h-32" />
             </div>
         )
     }
