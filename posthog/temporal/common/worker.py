@@ -47,7 +47,7 @@ class ManagedWorker:
     metrics_server: CombinedMetricsServer
 
     async def run(self) -> None:
-        self.metrics_server.start()
+        await self.metrics_server.start()
         await self.worker.run()
 
     def is_shutdown(self) -> bool:
@@ -55,7 +55,7 @@ class ManagedWorker:
 
     async def shutdown(self) -> None:
         await self.worker.shutdown()
-        self.metrics_server.stop()
+        await self.metrics_server.stop()
 
 
 async def create_worker(
