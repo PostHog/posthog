@@ -232,7 +232,7 @@ def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
-    result = openai_client.chat.completions.create(
+    result = openai_client.chat.completions.create(  # type: ignore
         model="gpt-4.1-mini",
         temperature=0,
         messages=messages,
