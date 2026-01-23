@@ -1,5 +1,6 @@
 import datetime as dt
 from datetime import timedelta
+from enum import IntEnum
 from math import ceil
 from zoneinfo import ZoneInfo
 
@@ -19,6 +20,27 @@ from posthog.models.utils import UUIDTModel
 # this is what is used by the Team model
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
+
+
+class DayOfWeek(IntEnum):
+    """Day of the week enum for batch export schedules.
+
+    Values match Temporal's day_of_week format (0=Sunday, 6=Saturday) and is also aligns with the WeekStartDay enum in
+    the Team model.
+    """
+
+    SUNDAY = 0
+    MONDAY = 1
+    TUESDAY = 2
+    WEDNESDAY = 3
+    THURSDAY = 4
+    FRIDAY = 5
+    SATURDAY = 6
+
+    @property
+    def name_capitalized(self) -> str:
+        """Return the capitalized day name (e.g., 'Sunday', 'Monday')."""
+        return self.name.capitalize()
 
 
 class BatchExportDestination(UUIDTModel):
@@ -302,8 +324,9 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         """
         if self.interval == "week":
             if self.interval_offset is None:
-                return 0  # default to Sunday
-            return self.interval_offset // (24 * 3600)
+                return int(DayOfWeek.SUNDAY)  # default to Sunday
+            day_value = self.interval_offset // (24 * 3600)
+            return int(DayOfWeek(day_value))
         return None
 
     @property
@@ -313,10 +336,10 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         For a weekly schedule, this is the name of the day to start at (Sunday, Monday, etc.).
         For all other intervals, this is None.
         """
-        if self.offset_day is None:
+        offset_day = self.offset_day
+        if offset_day is None:
             return None
-        day_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        return day_names[self.offset_day]
+        return DayOfWeek(offset_day).name_capitalized
 
     @property
     def offset_hour(self) -> int | None:
