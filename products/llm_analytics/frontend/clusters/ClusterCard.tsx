@@ -66,7 +66,12 @@ export function ClusterCard({
             {/* Expanded Trace List */}
             {isExpanded && (
                 <div className="border-t">
-                    <ClusterTraceList cluster={cluster} traceSummaries={traceSummaries} loading={loadingTraces} />
+                    <ClusterTraceList
+                        cluster={cluster}
+                        traceSummaries={traceSummaries}
+                        loading={loadingTraces}
+                        clusteringLevel={clusteringLevel}
+                    />
                     <div className="p-3 border-t bg-surface-secondary">
                         <Link
                             to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}

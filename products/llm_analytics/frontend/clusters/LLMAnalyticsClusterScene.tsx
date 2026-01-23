@@ -15,7 +15,7 @@ import { BulletList, ClusterDescription, parseBullets } from './ClusterDescripti
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { TRACES_PER_PAGE } from './constants'
-import { ClusterTraceInfo, TraceSummary } from './types'
+import { ClusterTraceInfo, ClusteringLevel, TraceSummary } from './types'
 
 export const scene: SceneExport<ClusterDetailLogicProps> = {
     component: LLMAnalyticsClusterScene,
@@ -30,6 +30,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
     const {
         cluster,
         clusterDataLoading,
+        clusteringLevel,
         isOutlierCluster,
         totalTraces,
         totalPages,
@@ -164,6 +165,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                                 traceInfo={traceInfo}
                                 summary={summary}
                                 displayRank={(currentPage - 1) * TRACES_PER_PAGE + index + 1}
+                                clusteringLevel={clusteringLevel}
                             />
                         )
                     )
@@ -203,11 +205,13 @@ function TraceListItem({
     traceInfo,
     summary,
     displayRank,
+    clusteringLevel = 'trace',
 }: {
     traceId: string
     traceInfo: ClusterTraceInfo
     summary?: TraceSummary
     displayRank: number
+    clusteringLevel?: ClusteringLevel
 }): JSX.Element {
     const [showFlow, setShowFlow] = useState(false)
     const [showBullets, setShowBullets] = useState(false)
@@ -225,10 +229,17 @@ function TraceListItem({
                 </LemonTag>
                 <span className="font-medium flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
                 <Link
-                    to={urls.llmAnalyticsTrace(traceId, traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {})}
+                    to={urls.llmAnalyticsTrace(
+                        clusteringLevel === 'generation' ? traceInfo.trace_id : traceId,
+                        clusteringLevel === 'generation'
+                            ? { event: traceInfo.generation_id, timestamp: traceInfo.timestamp }
+                            : traceInfo.timestamp
+                              ? { timestamp: traceInfo.timestamp }
+                              : {}
+                    )}
                     className="text-sm text-link hover:underline shrink-0"
                 >
-                    View trace →
+                    {clusteringLevel === 'generation' ? 'View generation →' : 'View trace →'}
                 </Link>
             </div>
 

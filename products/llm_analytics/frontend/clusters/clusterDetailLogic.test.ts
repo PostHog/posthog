@@ -165,6 +165,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.cluster).toEqual(mockCluster)
@@ -178,6 +179,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.isOutlierCluster).toBe(false)
@@ -189,6 +191,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.isOutlierCluster).toBe(true)
@@ -206,6 +209,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const datasets = logic.values.scatterPlotDatasets
@@ -229,6 +233,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const datasets = logic.values.scatterPlotDatasets
@@ -249,6 +254,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.sortedTraceIds).toEqual(['trace-1', 'trace-2', 'trace-3'])
@@ -266,6 +272,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.totalTraces).toBe(3)
@@ -289,6 +296,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.totalPages).toBe(Math.ceil(120 / TRACES_PER_PAGE))
@@ -312,6 +320,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.paginatedTraceIds.length).toBe(TRACES_PER_PAGE)
@@ -334,6 +343,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 logic.actions.setPage(2)
@@ -353,6 +363,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const summary = {
@@ -381,6 +392,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const breadcrumbs = logic.values.breadcrumbs
@@ -397,6 +409,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const breadcrumbs = logic.values.breadcrumbs

@@ -13,7 +13,7 @@ import { Breadcrumb } from '~/types'
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
 import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusterTraceInfo, TraceSummary, getTimestampBoundsFromRunId } from './types'
+import { Cluster, ClusterTraceInfo, ClusteringLevel, TraceSummary, getTimestampBoundsFromRunId } from './types'
 
 export interface ClusterDetailLogicProps {
     runId: string
@@ -74,11 +74,18 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
     loaders(({ props }) => ({
         clusterData: [
-            null as { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null,
+            null as {
+                cluster: Cluster
+                runTimestamp: string
+                windowStart: string
+                windowEnd: string
+                clusteringLevel: ClusteringLevel
+            } | null,
             {
                 loadClusterData: async () => {
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(props.runId)
 
+                    // Query both trace and generation cluster events
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -86,9 +93,10 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                                 JSONExtractString(properties, '$ai_window_start') as window_start,
                                 JSONExtractString(properties, '$ai_window_end') as window_end,
                                 JSONExtractRaw(properties, '$ai_clusters') as clusters,
-                                timestamp
+                                timestamp,
+                                JSONExtractString(properties, '$ai_clustering_level') as clustering_level
                             FROM events
-                            WHERE event = '$ai_trace_clusters'
+                            WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
@@ -118,11 +126,15 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         return null
                     }
 
+                    // Default to 'trace' for backwards compatibility
+                    const clusteringLevel = (row[5] as ClusteringLevel) || 'trace'
+
                     return {
                         cluster,
                         runTimestamp: row[4],
                         windowStart: row[1],
                         windowEnd: row[2],
+                        clusteringLevel,
                     }
                 },
             },
@@ -133,29 +145,66 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         cluster: [
             (s) => [s.clusterData],
             (
-                clusterData: { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null
+                clusterData: {
+                    cluster: Cluster
+                    runTimestamp: string
+                    windowStart: string
+                    windowEnd: string
+                    clusteringLevel: ClusteringLevel
+                } | null
             ): Cluster | null => clusterData?.cluster || null,
         ],
 
         runTimestamp: [
             (s) => [s.clusterData],
             (
-                clusterData: { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null
+                clusterData: {
+                    cluster: Cluster
+                    runTimestamp: string
+                    windowStart: string
+                    windowEnd: string
+                    clusteringLevel: ClusteringLevel
+                } | null
             ): string => clusterData?.runTimestamp || '',
         ],
 
         windowStart: [
             (s) => [s.clusterData],
             (
-                clusterData: { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null
+                clusterData: {
+                    cluster: Cluster
+                    runTimestamp: string
+                    windowStart: string
+                    windowEnd: string
+                    clusteringLevel: ClusteringLevel
+                } | null
             ): string => clusterData?.windowStart || '',
         ],
 
         windowEnd: [
             (s) => [s.clusterData],
             (
-                clusterData: { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null
+                clusterData: {
+                    cluster: Cluster
+                    runTimestamp: string
+                    windowStart: string
+                    windowEnd: string
+                    clusteringLevel: ClusteringLevel
+                } | null
             ): string => clusterData?.windowEnd || '',
+        ],
+
+        clusteringLevel: [
+            (s) => [s.clusterData],
+            (
+                clusterData: {
+                    cluster: Cluster
+                    runTimestamp: string
+                    windowStart: string
+                    windowEnd: string
+                    clusteringLevel: ClusteringLevel
+                } | null
+            ): ClusteringLevel => clusterData?.clusteringLevel || 'trace',
         ],
 
         isOutlierCluster: [

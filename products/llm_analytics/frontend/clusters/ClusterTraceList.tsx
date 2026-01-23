@@ -6,15 +6,21 @@ import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { BulletList, parseBullets } from './ClusterDescriptionComponents'
-import { Cluster, ClusterTraceInfo, TraceSummary } from './types'
+import { Cluster, ClusterTraceInfo, ClusteringLevel, TraceSummary } from './types'
 
 interface ClusterTraceListProps {
     cluster: Cluster
     traceSummaries: Record<string, TraceSummary>
     loading: boolean
+    clusteringLevel?: ClusteringLevel
 }
 
-export function ClusterTraceList({ cluster, traceSummaries, loading }: ClusterTraceListProps): JSX.Element {
+export function ClusterTraceList({
+    cluster,
+    traceSummaries,
+    loading,
+    clusteringLevel = 'trace',
+}: ClusterTraceListProps): JSX.Element {
     const sortedTraces = Object.entries(cluster.traces)
         .sort(([, a], [, b]) => a.rank - b.rank)
         .slice(0, 20)
@@ -36,12 +42,14 @@ export function ClusterTraceList({ cluster, traceSummaries, loading }: ClusterTr
                     traceId={traceId}
                     traceInfo={traceInfo}
                     summary={traceSummaries[traceId]}
+                    clusteringLevel={clusteringLevel}
                 />
             ))}
 
             {Object.keys(cluster.traces).length > 20 && (
                 <div className="p-3 text-center text-muted text-sm">
-                    Showing top 20 of {Object.keys(cluster.traces).length} traces
+                    Showing top 20 of {Object.keys(cluster.traces).length}{' '}
+                    {clusteringLevel === 'generation' ? 'generations' : 'traces'}
                 </div>
             )}
         </div>
@@ -52,10 +60,12 @@ function TraceListItem({
     traceId,
     traceInfo,
     summary,
+    clusteringLevel = 'trace',
 }: {
     traceId: string
     traceInfo: ClusterTraceInfo
     summary?: TraceSummary
+    clusteringLevel?: ClusteringLevel
 }): JSX.Element {
     const [showFlow, setShowFlow] = useState(false)
     const [showBullets, setShowBullets] = useState(false)
@@ -73,10 +83,17 @@ function TraceListItem({
                 </LemonTag>
                 <span className="font-medium text-sm flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
                 <Link
-                    to={urls.llmAnalyticsTrace(traceId, traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {})}
+                    to={urls.llmAnalyticsTrace(
+                        clusteringLevel === 'generation' ? traceInfo.trace_id : traceId,
+                        clusteringLevel === 'generation'
+                            ? { event: traceInfo.generation_id, timestamp: traceInfo.timestamp }
+                            : traceInfo.timestamp
+                              ? { timestamp: traceInfo.timestamp }
+                              : {}
+                    )}
                     className="text-xs text-link hover:underline shrink-0"
                 >
-                    View trace →
+                    {clusteringLevel === 'generation' ? 'View generation →' : 'View trace →'}
                 </Link>
             </div>
 
