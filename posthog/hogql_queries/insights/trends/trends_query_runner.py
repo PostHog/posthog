@@ -909,7 +909,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         # Create a deep copy of the matching result to avoid modifying shared data
                         row_results.append(deepcopy(matching_result[0]))
                     else:
-                        # Safely get data length from first result or any_result
                         data_source = results[0][0] if results and results[0] else None
                         data_length = len(
                             (data_source.get("data") if data_source else None) or any_result.get("data") or []
