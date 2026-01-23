@@ -6,6 +6,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonTextArea, Spinner, Tooltip 
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -13,10 +14,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
+import { messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 
 export const scene: SceneExport<MessageTemplateLogicProps> = {
     component: MessageTemplate,
-    logic: messageTemplateLogic,
+    logic: messageTemplateSceneLogic,
     paramsToProps: ({ params: { id }, searchParams: { messageId } }) => ({
         id: id || 'new',
         messageId,
@@ -24,9 +26,13 @@ export const scene: SceneExport<MessageTemplateLogicProps> = {
 }
 
 export function MessageTemplate(props: MessageTemplateLogicProps): JSX.Element {
+    const sceneLogic = messageTemplateSceneLogic(props)
     const logic = messageTemplateLogic(props)
     const { submitTemplate, resetTemplate, setTemplateValue, duplicateTemplate, deleteTemplate } = useActions(logic)
     const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } = useValues(logic)
+
+    // Attach template logic to scene logic so it persists across tab switches
+    useAttachedLogic(logic, sceneLogic)
 
     return (
         <Form logic={messageTemplateLogic} formKey="template" props={props}>

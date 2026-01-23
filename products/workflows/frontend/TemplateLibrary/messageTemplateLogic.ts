@@ -5,14 +5,8 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-
-import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
 
 import { NEW_TEMPLATE } from './constants'
 import type { messageTemplateLogicType } from './messageTemplateLogicType'
@@ -21,14 +15,12 @@ import { MessageTemplate } from './messageTemplatesLogic'
 export interface MessageTemplateLogicProps {
     id: string
     messageId?: string | null
-    tabId?: string
 }
 
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
-    key(({ id }) => id ?? 'unknown'),
     props({} as MessageTemplateLogicProps),
-    tabAwareScene(),
+    key(({ id }) => id ?? 'new'),
     actions({
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
@@ -36,35 +28,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         deleteTemplate: true,
     }),
     selectors({
-        breadcrumbs: [
-            (_, p) => [p.id],
-            (id): Breadcrumb[] => {
-                return [
-                    {
-                        key: [Scene.Workflows, 'library'],
-                        name: 'Library',
-                        path: urls.workflows('library'),
-                        iconType: 'workflows',
-                    },
-                    ...(id === 'new'
-                        ? [
-                              {
-                                  key: 'new-template',
-                                  name: 'New template',
-                                  path: urls.workflowsLibraryTemplateNew(),
-                                  iconType: 'workflows' as FileSystemIconType,
-                              },
-                          ]
-                        : [
-                              {
-                                  key: 'edit-template',
-                                  name: 'Manage template',
-                                  path: urls.workflowsLibraryTemplate(id),
-                                  iconType: 'workflows' as FileSystemIconType,
-                              },
-                          ]),
-                ]
-            },
+        logicProps: [
+            () => [(_, props: MessageTemplateLogicProps) => props],
+            (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
         ],
     }),
     forms(({ actions }) => ({
@@ -197,14 +163,4 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.resetTemplate(NEW_TEMPLATE)
         }
     }),
-    tabAwareUrlToAction(({ actions, props }) => ({
-        [urls.workflowsLibraryTemplateNew()]: () => {
-            // Reset state when navigating to the new template page to avoid stale data
-            // from previously created templates persisting in the form
-            if (props.id === 'new') {
-                actions.resetTemplate({ ...NEW_TEMPLATE })
-                actions.setOriginalTemplate({ ...NEW_TEMPLATE })
-            }
-        },
-    })),
 ])
