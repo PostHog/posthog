@@ -23,21 +23,20 @@ export const scene: SceneExport<MessageTemplateLogicProps> = {
     }),
 }
 
-export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element {
-    const { submitTemplate, resetTemplate, setTemplateValue, duplicateTemplate, deleteTemplate } =
-        useActions(messageTemplateLogic)
-    const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } =
-        useValues(messageTemplateLogic)
+export function MessageTemplate(props: MessageTemplateLogicProps): JSX.Element {
+    const logic = messageTemplateLogic(props)
+    const { submitTemplate, resetTemplate, setTemplateValue, duplicateTemplate, deleteTemplate } = useActions(logic)
+    const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } = useValues(logic)
 
     return (
-        <Form logic={messageTemplateLogic} formKey="template">
+        <Form logic={messageTemplateLogic} formKey="template" props={props}>
             <SceneContent>
                 <SceneTitleSection
                     name={template.name}
                     resourceType={{ type: 'template' }}
                     actions={
                         <>
-                            {id !== 'new' && (
+                            {props.id !== 'new' && (
                                 <>
                                     <More
                                         size="small"
@@ -89,7 +88,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                                 disabledReason={templateChanged ? undefined : 'No changes to save'}
                                 size="small"
                             >
-                                {id === 'new' ? 'Create' : 'Save'}
+                                {props.id === 'new' ? 'Create' : 'Save'}
                             </LemonButton>
                         </>
                     }
