@@ -398,12 +398,31 @@ describe('utility functions', () => {
         it('returns Complete for experiments with both start and end dates', () => {
             expect(getExperimentStatus(mockExperiment)).toBe(ProgressStatus.Complete)
         })
+
+        it('returns Paused when feature flag is inactive', () => {
+            const pausedExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                feature_flag: { active: false },
+            })
+            expect(getExperimentStatus(pausedExperiment)).toBe(ProgressStatus.Paused)
+        })
+
+        it('returns Running when feature flag is active', () => {
+            const runningExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                feature_flag: { active: true },
+            })
+            expect(getExperimentStatus(runningExperiment)).toBe(ProgressStatus.Running)
+        })
     })
 
     describe('getExperimentStatusColor', () => {
         it('returns correct colors for each status', () => {
             expect(getExperimentStatusColor(ProgressStatus.Draft)).toBe('default')
             expect(getExperimentStatusColor(ProgressStatus.Running)).toBe('success')
+            expect(getExperimentStatusColor(ProgressStatus.Paused)).toBe('warning')
             expect(getExperimentStatusColor(ProgressStatus.Complete)).toBe('completion')
         })
     })
