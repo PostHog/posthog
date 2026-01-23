@@ -1284,30 +1284,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_formula_with_breakdown_empty_series_result(self):
         """
-        Test that formulas with breakdown handle the edge case where one series
-        has no results for any breakdown value (empty list), preventing IndexError.
+        Test that formulas with breakdown handle the edge case where the first series
+        returns completely empty results (empty list), preventing IndexError.
 
         Regression test for: IndexError when accessing results[0][0] when results[0] is empty.
+        This happens when series A has no events at all, but series B has breakdown values.
         """
-        # Create events where series A ($pageview) has breakdown values for Chrome and Firefox,
-        # but series B ($pageleave) only has Chrome
+        # Create events where series A ($pageview) has NO events,
+        # but series B ($pageleave) has breakdown values for Chrome and Firefox
         _create_person(distinct_ids=["p1"], team=self.team, properties={"$browser": "Chrome"})
         _create_person(distinct_ids=["p2"], team=self.team, properties={"$browser": "Firefox"})
 
-        _create_event(
-            event="$pageview",
-            distinct_id="p1",
-            team=self.team,
-            timestamp="2020-01-11T12:00:00Z",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="$pageview",
-            distinct_id="p2",
-            team=self.team,
-            timestamp="2020-01-12T12:00:00Z",
-            properties={"$browser": "Firefox"},
-        )
+        # Only create $pageleave events (series B), no $pageview events (series A)
         _create_event(
             event="$pageleave",
             distinct_id="p1",
@@ -1315,10 +1303,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-11T12:00:00Z",
             properties={"$browser": "Chrome"},
         )
+        _create_event(
+            event="$pageleave",
+            distinct_id="p2",
+            team=self.team,
+            timestamp="2020-01-12T12:00:00Z",
+            properties={"$browser": "Firefox"},
+        )
 
         flush_persons_and_events()
 
-        # This should not raise IndexError even though series B has no Firefox results
+        # This should not raise IndexError even though series A has completely empty results
+        # When creating fillers for series A, it tries to access results[0][0] for data length
         response = self._run_trends_query(
             "2020-01-09",
             "2020-01-20",
@@ -1331,19 +1327,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Should have results for both Chrome and Firefox breakdown values
         assert len(response.results) == 2
 
-        # Verify Chrome result (has both A and B)
+        # Verify Chrome result (A=0 filler, B=1)
         chrome_result = next((r for r in response.results if r["breakdown_value"] == "Chrome"), None)
         assert chrome_result is not None
         assert chrome_result["label"] == "Formula (A+2*B)"
-        # A=1, B=1, so A+2*B = 1+2*1 = 3
-        assert chrome_result["count"] == 3
+        # A=0 (filler), B=1, so A+2*B = 0+2*1 = 2
+        assert chrome_result["count"] == 2
 
-        # Verify Firefox result (has only A, no B - B should be filled with zeros)
+        # Verify Firefox result (A=0 filler, B=1)
         firefox_result = next((r for r in response.results if r["breakdown_value"] == "Firefox"), None)
         assert firefox_result is not None
         assert firefox_result["label"] == "Formula (A+2*B)"
-        # A=1, B=0 (filler), so A+2*B = 1+2*0 = 1
-        assert firefox_result["count"] == 1
+        # A=0 (filler), B=1, so A+2*B = 0+2*1 = 2
+        assert firefox_result["count"] == 2
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_breakdown_is_context_aware(self, mock_sync_execute: MagicMock):
