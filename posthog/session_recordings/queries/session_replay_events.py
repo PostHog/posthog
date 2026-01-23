@@ -48,6 +48,44 @@ class SessionReplayEvents:
             cache.set(cache_key, existence, timeout=seconds_until_midnight())
         return existence
 
+    def batch_exists(self, session_ids: list[str], team: Team) -> dict[str, bool]:
+        """
+        Check which session IDs have recordings within retention period.
+        Returns a dict mapping session_id -> exists (boolean).
+        Only positive results (exists=True) are cached.
+        """
+        if not session_ids:
+            return {}
+
+        results: dict[str, bool] = {}
+        uncached_session_ids: list[str] = []
+
+        # Check cache first
+        for sid in session_ids:
+            cache_key = f"summarize_recording_existence_team_{team.pk}_id_{sid}"
+            cached_value = cache.get(cache_key)
+            if cached_value is True:
+                results[sid] = True
+            else:
+                uncached_session_ids.append(sid)
+
+        if not uncached_session_ids:
+            return results
+
+        # Query ClickHouse for uncached session IDs
+        found_sessions = self._find_with_timestamps(uncached_session_ids, team)
+        existing_session_ids = {row[0] for row in found_sessions}
+
+        # Build results and cache positive results
+        for sid in uncached_session_ids:
+            exists = sid in existing_session_ids
+            results[sid] = exists
+            if exists:
+                cache_key = f"summarize_recording_existence_team_{team.pk}_id_{sid}"
+                cache.set(cache_key, True, timeout=seconds_until_midnight())
+
+        return results
+
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
         tag_queries(product=Product.REPLAY, team_id=team.pk)

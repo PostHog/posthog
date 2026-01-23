@@ -1719,3 +1719,116 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         for unexpected in must_not_be_in_results:
             assert unexpected not in session_ids, f"Expected {unexpected} to NOT be in results, but got {session_ids}"
+
+    def test_batch_check_exists_returns_correct_results(self):
+        """Test that batch_check_exists returns correct existence status for session IDs."""
+        base_time = now() - relativedelta(days=1)
+
+        # Create some recordings
+        self.produce_replay_summary("user1", "existing_session_1", base_time)
+        self.produce_replay_summary("user2", "existing_session_2", base_time)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {"session_ids": ["existing_session_1", "existing_session_2", "non_existent_session"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results["existing_session_1"] is True
+        assert results["existing_session_2"] is True
+        assert results["non_existent_session"] is False
+
+    @parameterized.expand(
+        [
+            ("empty_list", {"session_ids": []}, "session_ids must be provided as a non-empty array"),
+            ("missing_session_ids", {}, "session_ids must be provided as a non-empty array"),
+            ("not_a_list", {"session_ids": "not_a_list"}, "session_ids must be provided as a non-empty array"),
+            (
+                "too_many_ids",
+                {"session_ids": [f"session_{i}" for i in range(101)]},
+                "Cannot check more than 100 session IDs at once",
+            ),
+        ]
+    )
+    def test_batch_check_exists_validation_errors(self, _test_name, request_data, expected_error_message):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            request_data,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == expected_error_message
+
+    def test_batch_check_exists_doesnt_leak_teams(self):
+        """Test that batch_check_exists doesn't return recordings from other teams."""
+        other_team = Team.objects.create(organization=self.organization)
+
+        base_time = now() - relativedelta(days=1)
+
+        # Create recording in other team
+        self.produce_replay_summary("user1", "other_team_session", base_time, team_id=other_team.pk)
+
+        # Create recording in current team
+        self.produce_replay_summary("user1", "current_team_session", base_time)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {"session_ids": ["other_team_session", "current_team_session"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        # Should only find the current team's recording
+        assert results["other_team_session"] is False
+        assert results["current_team_session"] is True
+
+    def test_batch_check_exists_caches_positive_results(self):
+        """Test that positive results (exists=True) are cached."""
+        from django.core.cache import cache
+
+        base_time = now() - relativedelta(days=1)
+        session_id = "cached_session"
+
+        self.produce_replay_summary("user1", session_id, base_time)
+
+        # Clear any existing cache
+        cache_key = f"summarize_recording_existence_team_{self.team.pk}_id_{session_id}"
+        cache.delete(cache_key)
+
+        # First request - should query ClickHouse and cache result
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {"session_ids": [session_id]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][session_id] is True
+
+        # Check cache was set
+        cached_value = cache.get(cache_key)
+        assert cached_value is True
+
+    def test_batch_check_exists_does_not_cache_negative_results(self):
+        """Test that negative results (exists=False) are NOT cached."""
+        from django.core.cache import cache
+
+        session_id = "non_existent_session_nocache"
+
+        # Clear any existing cache
+        cache_key = f"summarize_recording_existence_team_{self.team.pk}_id_{session_id}"
+        cache.delete(cache_key)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {"session_ids": [session_id]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][session_id] is False
+
+        # Check cache was NOT set for negative result
+        cached_value = cache.get(cache_key)
+        assert cached_value is None
