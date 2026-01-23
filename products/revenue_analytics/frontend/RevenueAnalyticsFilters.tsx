@@ -21,7 +21,10 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { RevenueAnalyticsBreakdown } from '~/queries/schema/schema-general'
+import {
+    RevenueAnalyticsBreakdown,
+    RevenueAnalyticsPropertyFilters as RevenueAnalyticsPropertyFiltersType,
+} from '~/queries/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 import { DisplayMode, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -198,7 +201,9 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                                     TaxonomicFilterGroupType.RevenueAnalyticsProperties,
                                     TaxonomicFilterGroupType.HogQLExpression,
                                 ]}
-                                onChange={(filters) => setRevenueAnalyticsFilters(filters)}
+                                onChange={(filters) =>
+                                    setRevenueAnalyticsFilters(filters as RevenueAnalyticsPropertyFiltersType)
+                                }
                                 propertyFilters={revenueAnalyticsFilter}
                                 pageKey="revenue-analytics"
                                 buttonSize="small"
