@@ -11,49 +11,10 @@ export const escapeIdentifier = (identifier: string): string => {
 }
 
 const parseSelectedColumns = (selectedColumns: string): string[] => {
-    const columns: string[] = []
-    let current = ''
-    let parenDepth = 0
-    let inSingleQuote = false
-    let inDoubleQuote = false
-    let inBacktick = false
-
-    for (let i = 0; i < selectedColumns.length; i++) {
-        const char = selectedColumns[i]
-        const prevChar = i > 0 ? selectedColumns[i - 1] : ''
-
-        if (char === "'" && !inDoubleQuote && !inBacktick && prevChar !== '\\') {
-            inSingleQuote = !inSingleQuote
-        } else if (char === '"' && !inSingleQuote && !inBacktick && prevChar !== '\\') {
-            inDoubleQuote = !inDoubleQuote
-        } else if (char === '`' && !inSingleQuote && !inDoubleQuote && prevChar !== '\\') {
-            inBacktick = !inBacktick
-        } else if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
-            if (char === '(') {
-                parenDepth++
-            } else if (char === ')') {
-                parenDepth--
-            }
-        }
-
-        const inQuotes = inSingleQuote || inDoubleQuote || inBacktick
-        if (char === ',' && parenDepth === 0 && !inQuotes) {
-            const trimmed = current.trim()
-            if (trimmed.length > 0) {
-                columns.push(trimmed)
-            }
-            current = ''
-        } else {
-            current += char
-        }
-    }
-
-    const trimmed = current.trim()
-    if (trimmed.length > 0) {
-        columns.push(trimmed)
-    }
-
-    return columns
+    return selectedColumns
+        .split(',')
+        .map((column) => column.trim())
+        .filter((column) => column.length > 0)
 }
 
 export const buildQueryForColumnClick = (
