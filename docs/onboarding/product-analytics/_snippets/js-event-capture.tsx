@@ -1,6 +1,6 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const JSEventCapture = (): JSX.Element => {
+export const JSEventCapture = function JSEventCapture(): JSX.Element {
     const { Markdown, CodeBlock, dedent } = useMDXComponents()
 
     return (

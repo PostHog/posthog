@@ -1,5 +1,4 @@
-from django.db.models import CharField, Count, OuterRef, Q, QuerySet, Subquery
-from django.db.models.functions import Cast
+from django.db.models import Q, QuerySet
 
 import structlog
 from rest_framework import pagination, serializers, viewsets
@@ -8,7 +7,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.comment import Comment
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
@@ -24,15 +22,13 @@ class TicketPagination(pagination.LimitOffsetPagination):
 
 
 class TicketSerializer(serializers.ModelSerializer):
-    message_count = serializers.SerializerMethodField()
-    last_message_at = serializers.SerializerMethodField()
-    last_message_text = serializers.SerializerMethodField()
     assigned_to_user = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
         fields = [
             "id",
+            "ticket_number",
             "channel_source",
             "distinct_id",
             "status",
@@ -48,9 +44,12 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "session_id",
+            "session_context",
         ]
         read_only_fields = [
             "id",
+            "ticket_number",
             "channel_source",
             "distinct_id",
             "created_at",
@@ -59,37 +58,9 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_text",
             "unread_team_count",
             "assigned_to_user",
+            "session_id",
+            "session_context",
         ]
-
-    def get_message_count(self, obj: Ticket) -> int:
-        """Get count of messages in this ticket."""
-        if hasattr(obj, "message_count"):
-            return obj.message_count or 0  # Subquery returns None when no messages
-        return Comment.objects.filter(
-            team=obj.team, scope="conversations_ticket", item_id=str(obj.id), deleted=False
-        ).count()
-
-    def get_last_message_at(self, obj: Ticket):
-        """Get timestamp of last message."""
-        if hasattr(obj, "last_message_at"):
-            return obj.last_message_at
-        last_comment = (
-            Comment.objects.filter(team=obj.team, scope="conversations_ticket", item_id=str(obj.id), deleted=False)
-            .order_by("-created_at")
-            .first()
-        )
-        return last_comment.created_at if last_comment else None
-
-    def get_last_message_text(self, obj: Ticket) -> str | None:
-        """Get text of last message."""
-        if hasattr(obj, "last_message_text"):
-            return obj.last_message_text
-        last_comment = (
-            Comment.objects.filter(team=obj.team, scope="conversations_ticket", item_id=str(obj.id), deleted=False)
-            .order_by("-created_at")
-            .first()
-        )
-        return last_comment.content if last_comment else None
 
     def get_assigned_to_user(self, obj: Ticket) -> dict | None:
         """Get full user details for assigned_to."""
@@ -116,50 +87,9 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        """Filter tickets by team and add annotations."""
+        """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
         queryset = queryset.select_related("assigned_to")
-
-        # Add message count annotation using Subquery
-        # Cast ticket UUID id to string to match Comment.item_id CharField
-        message_count_subquery = (
-            Comment.objects.filter(
-                team_id=self.team_id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .values("item_id")
-            .annotate(count=Count("id"))
-            .values("count")
-        )
-        queryset = queryset.annotate(message_count=Subquery(message_count_subquery))
-
-        # Add last message timestamp annotation using Subquery
-        last_message_subquery = (
-            Comment.objects.filter(
-                team_id=self.team_id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("created_at")[:1]
-        )
-        queryset = queryset.annotate(last_message_at=Subquery(last_message_subquery))
-
-        # Add last message text annotation using Subquery
-        last_message_text_subquery = (
-            Comment.objects.filter(
-                team_id=self.team_id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("content")[:1]
-        )
-        queryset = queryset.annotate(last_message_text=Subquery(last_message_text_subquery))
 
         status_param = self.request.query_params.get("status")
         if status_param and status_param in [s.value for s in Status]:
@@ -202,9 +132,12 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
-            queryset = queryset.filter(
-                Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
-            )
+            if search.isdigit():
+                queryset = queryset.filter(ticket_number=int(search))
+            else:
+                queryset = queryset.filter(
+                    Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
+                )
 
         return queryset.order_by("-updated_at")
 

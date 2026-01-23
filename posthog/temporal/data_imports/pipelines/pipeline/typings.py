@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable, Iterable
-from typing import Any, ClassVar, Literal, Optional, Protocol, TypeVar
+from typing import Any, ClassVar, Literal, Optional, Protocol, TypedDict, TypeVar
 
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
@@ -54,3 +54,7 @@ class SourceInputs:
     incremental_field_type: Optional[IncrementalFieldType]
     job_id: str
     logger: FilteringBoundLogger
+
+
+class PipelineResult(TypedDict):
+    should_trigger_cdp_producer: bool

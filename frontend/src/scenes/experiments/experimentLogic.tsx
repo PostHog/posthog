@@ -927,6 +927,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
         ],
+        isPageVisible: [
+            true as boolean,
+            {
+                setPageVisibility: (_, { visible }) => visible,
+            },
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
         beforeUnmount: () => {
@@ -1118,9 +1124,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.loadExposures(forceRefresh),
                 ])
             } finally {
-                // Always set up auto-refresh if enabled, even if metrics fail to load
-                // This ensures the interval keeps trying to refresh
-                if (values.autoRefresh.enabled && values.experiment?.start_date) {
+                // Only set up auto-refresh if enabled AND page is visible
+                // This prevents the interval from restarting when async operations complete after the page becomes invisible
+                if (values.autoRefresh.enabled && values.experiment?.start_date && values.isPageVisible) {
                     actions.resetAutoRefreshInterval()
                 }
             }
@@ -1268,8 +1274,19 @@ export const experimentLogic = kea<experimentLogicType>([
                     id: sharedMetric.saved_metric,
                     metadata: sharedMetric.metadata,
                 }))
+
+            // Also remove orphaned shared metrics that were incorrectly stored in the metrics arrays
+            const cleanedMetrics = (values.experiment.metrics || []).filter(
+                (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
+            )
+            const cleanedMetricsSecondary = (values.experiment.metrics_secondary || []).filter(
+                (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
+            )
+
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: sharedMetricsIds,
+                metrics: cleanedMetrics,
+                metrics_secondary: cleanedMetricsSecondary,
             })
 
             actions.loadExperiment()

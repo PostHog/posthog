@@ -122,7 +122,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             # Unsupported behavioral filters return None → skip bytecode
             if expr is None:
                 return None, "Unsupported behavioral filter for realtime bytecode", None
-            bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+            bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
             condition_hash = None
             if bytecode:
                 bytecode_str = json.dumps(bytecode, sort_keys=True)
@@ -152,7 +152,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
 
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
-        bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+        bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
 
         # Generate conditionHash from bytecode
         condition_hash = None
@@ -388,6 +388,8 @@ class CohortSerializer(serializers.ModelSerializer):
             "deleted",
             "filters",
             "query",
+            "version",
+            "pending_version",
             "is_calculating",
             "created_by",
             "created_at",
@@ -403,6 +405,8 @@ class CohortSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "version",
+            "pending_version",
             "is_calculating",
             "created_by",
             "created_at",
@@ -1215,10 +1219,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         except Person.DoesNotExist:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
 
-        success = cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
-
-        if not success:
-            raise NotFound("Person is not part of the cohort")
+        # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
+        cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
 
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),

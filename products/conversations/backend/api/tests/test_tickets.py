@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -42,7 +42,7 @@ class BaseConversationsAPITest(APIBaseTest):
 class TestTicketAPI(BaseConversationsAPITest):
     def setUp(self):
         super().setUp()
-        self.ticket = Ticket.objects.create(
+        self.ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
             widget_session_id="test-session-123",
@@ -57,7 +57,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
     def test_list_tickets_only_returns_team_tickets(self):
-        other_ticket = Ticket.objects.create(
+        other_ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.EMAIL,
             widget_session_id="other-session",
@@ -154,7 +154,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         if "user" in other_ticket_attrs.get("assigned_to", ""):
             other_ticket_attrs["assigned_to"] = self.user
 
-        Ticket.objects.create(
+        Ticket.objects.create_with_number(
             team=self.team,
             channel_source=other_channel,
             widget_session_id="other-session",
@@ -193,21 +193,24 @@ class TestTicketAPI(BaseConversationsAPITest):
             ),
             (
                 "deleted_messages_excluded",
-                [("Active message", False), ("Deleted message", True)],
+                [("Active message", False), ("Deleted message", "soft_delete")],
                 {"message_count": 1},
             ),
         ]
     )
     def test_message_annotations(self, test_name, messages, expected_fields):
-        """Test that message-related fields are correctly annotated on tickets."""
-        for content, deleted in messages:
-            Comment.objects.create(
+        """Test that denormalized message stats are correctly maintained on tickets."""
+        for content, should_delete in messages:
+            comment = Comment.objects.create(
                 team=self.team,
                 scope="conversations_ticket",
                 item_id=str(self.ticket.id),
                 content=content,
-                deleted=deleted,
             )
+            # Soft-delete after creation (realistic flow)
+            if should_delete == "soft_delete":
+                comment.deleted = True
+                comment.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -219,17 +222,20 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertEqual(response.json()[field_name], expected_value)
 
     def test_list_tickets_no_n_plus_one_queries(self):
-        """Verify ticket list doesn't trigger N+1 queries for messages and assigned users."""
+        """Verify ticket list doesn't trigger N+1 queries for assigned users.
+        Message stats (message_count, last_message_at, last_message_text) are now
+        denormalized on the Ticket model, so no subqueries needed.
+        """
         # Create 10 tickets with messages and assigned users
         for i in range(10):
-            ticket = Ticket.objects.create(
+            ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
                 widget_session_id=f"session-{i}",
                 distinct_id=f"user-{i}",
                 assigned_to=self.user,
             )
-            # Add 2 messages per ticket
+            # Add 2 messages per ticket (updates denormalized fields via signal)
             Comment.objects.create(
                 team=self.team,
                 scope="conversations_ticket",
@@ -247,12 +253,13 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         # Query count should be constant regardless of number of tickets
         # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query
+        # Note: message stats are denormalized, no subqueries needed
         with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
             self.assertEqual(response.json()["count"], 11)
-            # Verify all annotated fields are present
+            # Verify all denormalized fields are present
             for ticket_data in response.json()["results"]:
                 self.assertIn("message_count", ticket_data)
                 self.assertIn("last_message_at", ticket_data)
@@ -278,3 +285,31 @@ class TestTicketAPI(BaseConversationsAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Failed for {method} {url}: expected 403, got {response.status_code}",
             )
+
+
+class TestTicketManager(BaseTest):
+    def test_requires_team(self):
+        with self.assertRaises(ValueError) as ctx:
+            Ticket.objects.create_with_number(
+                channel_source=Channel.WIDGET,
+                widget_session_id="test-session",
+                distinct_id="user-123",
+            )
+        self.assertEqual(str(ctx.exception), "team is required")
+
+    def test_auto_increments_ticket_number(self):
+        ticket1 = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+        )
+        ticket2 = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-2",
+            distinct_id="user-2",
+        )
+
+        self.assertEqual(ticket1.ticket_number, 1)
+        self.assertEqual(ticket2.ticket_number, 2)

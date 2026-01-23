@@ -100,7 +100,7 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
-    EndpointVersion,
+    EndpointVersionType,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -131,6 +131,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    JiraProjectType,
     LLMPrompt,
     LineageGraph,
     LinearTeamType,
@@ -205,7 +206,12 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow, HogFlowAction, HogFlowTemplate } from 'products/workflows/frontend/Workflows/hogflows/types'
+import {
+    HogFlow,
+    HogFlowAction,
+    HogFlowBatchJob,
+    HogFlowTemplate,
+} from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -1336,6 +1342,10 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
     }
 
+    public integrationJiraProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('jira_projects')
+    }
+
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
     }
@@ -1942,10 +1952,10 @@ const api = {
         async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
             return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
         },
-        async listVersions(name: string): Promise<EndpointVersion[]> {
+        async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
-        async getVersion(name: string, version: number): Promise<EndpointVersion> {
+        async getVersion(name: string, version: number): Promise<EndpointVersionType> {
             return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
         },
     },
@@ -2233,6 +2243,7 @@ const api = {
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
+                    ActivityScope.PRODUCT_TOUR,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -3746,6 +3757,46 @@ const api = {
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
         },
+        async kernelExecute(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number }
+        ): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+        },
+        async kernelDataframe(
+            notebookId: NotebookType['short_id'],
+            params: { variable_name: string; offset?: number; limit?: number; timeout?: number }
+        ): Promise<{ columns: string[]; rows: Record<string, any>[]; rowCount: number }> {
+            const response = await new ApiRequest()
+                .notebook(notebookId)
+                .withAction('kernel/dataframe')
+                .withQueryString(params)
+                .get()
+
+            return {
+                columns: response.columns ?? [],
+                rows: response.rows ?? [],
+                rowCount: response.row_count ?? 0,
+            }
+        },
+        async kernelStart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/start').create()
+        },
+        async kernelStop(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/stop').create()
+        },
+        async kernelRestart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/restart').create()
+        },
+        async kernelConfig(
+            notebookId: NotebookType['short_id'],
+            data: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number }
+        ): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/config').create({ data })
+        },
+        async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
+        },
     },
 
     sessionGroupSummaries: {
@@ -4482,6 +4533,9 @@ const api = {
         async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
         },
+        async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
+            return await new ApiRequest().integrationJiraProjects(id).get()
+        },
         async googleAdsAccounts(
             id: IntegrationType['id']
         ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
@@ -4734,9 +4788,14 @@ const api = {
             hogFlowId: HogFlow['id'],
             data: {
                 variables: Record<string, HogQLVariable>
+                filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+                scheduled_at?: string | null
             }
         ): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
+        },
+        async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
         },
     },
     hogFlowTemplates: {
@@ -5344,8 +5403,14 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
         const data = await getJSONOrNull(response)
 
-        if (response.status >= 400 && data && typeof data.error === 'string') {
-            throw new ApiError(data.error, response.status, response.headers, data)
+        if (response.status >= 400 && data) {
+            if (typeof data.error === 'string') {
+                throw new ApiError(data.error, response.status, response.headers, data)
+            }
+
+            if (typeof data.detail === 'string') {
+                throw new ApiError(data.detail, response.status, response.headers, data)
+            }
         }
 
         throw new ApiError('Non-OK response', response.status, response.headers, data)

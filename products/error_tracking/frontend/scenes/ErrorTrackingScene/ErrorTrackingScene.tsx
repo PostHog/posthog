@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     TabsPrimitive,
@@ -19,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { CyclotronJobFilterEvents } from '~/types'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -37,6 +39,12 @@ import { ImpactList } from './tabs/impact/ImpactList'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 
+const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFilterEvents[] = [
+    { id: '$error_tracking_issue_created', type: 'events' },
+    { id: '$error_tracking_issue_reopened', type: 'events' },
+    { id: '$error_tracking_issue_spiking', type: 'events' },
+]
+
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
     logic: errorTrackingSceneLogic,
@@ -49,8 +57,17 @@ export function ErrorTrackingScene(): JSX.Element {
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
     useEffect(() => {
-        posthog.capture('error_tracking_issues_list_viewed', { active_tab: activeTab })
-        // oxlint-disable-next-line exhaustive-deps we only want to fire when the page is first loaded
+        api.hogFunctions
+            .list({
+                types: ['internal_destination'],
+                filter_groups: ERROR_TRACKING_ALERT_FILTER_GROUPS,
+            })
+            .then((res) => {
+                posthog.capture('error_tracking_issues_list_viewed', {
+                    active_tab: activeTab,
+                    alert_destination_count: res.results.length,
+                })
+            })
     }, [])
 
     return (
