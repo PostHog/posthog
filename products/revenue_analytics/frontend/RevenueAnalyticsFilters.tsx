@@ -202,6 +202,7 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                                 propertyFilters={revenueAnalyticsFilter}
                                 pageKey="revenue-analytics"
                                 buttonSize="small"
+                                allowCustomProperties
                             />
                         </div>
                     }

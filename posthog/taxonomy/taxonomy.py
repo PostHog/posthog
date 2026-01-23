@@ -2388,6 +2388,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "DateTime",
             "virtual": True,
         },
+        "revenue_analytics_customer.metadata": {
+            "label": "Customer Metadata",
+            "description": "Custom metadata fields from Stripe associated with the customer. Use dot notation to access specific keys (e.g., metadata.revenue_source).",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_subscription.metadata": {
+            "label": "Subscription Metadata",
+            "description": "Custom metadata fields from Stripe associated with the subscription. Use dot notation to access specific keys (e.g., metadata.plan_type).",
+            "type": "String",
+            "virtual": True,
+        },
     },
 }
 

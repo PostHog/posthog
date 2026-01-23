@@ -229,6 +229,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        allowCustomProperties: [
+            () => [(_, props) => props.allowCustomProperties],
+            (allowCustomProperties: boolean | undefined) => allowCustomProperties ?? false,
+        ],
         hideBehavioralCohorts: [
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,

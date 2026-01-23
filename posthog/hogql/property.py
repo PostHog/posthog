@@ -691,7 +691,25 @@ def property_to_expr(
         elif property.type == "log_resource_attribute":
             chain = ["resource_attributes"]
         elif property.type == "revenue_analytics":
-            *chain, property.key = property.key.split(".")
+            parts = property.key.split(".")
+            # Handle metadata.X access pattern - e.g. "revenue_analytics_customer.metadata.revenue_source"
+            # In this case, we need to use JSONExtractString to extract the key from the JSON metadata field
+            if len(parts) >= 3 and parts[-2] == "metadata":
+                # e.g. ["revenue_analytics_customer", "metadata", "revenue_source"]
+                # -> table: revenue_analytics_customer, json_field: metadata, json_key: revenue_source
+                table = parts[0]
+                json_key = parts[-1]
+                # Build the JSONExtractString expression and return early
+                metadata_field = ast.Field(chain=[table, "metadata"])
+                expr = ast.Call(
+                    name="JSONExtractString",
+                    args=[metadata_field, ast.Constant(value=json_key)],
+                )
+                return _expr_to_compare_op(
+                    expr=expr, value=value, operator=operator, property=property, is_json_field=True, team=team
+                )
+            else:
+                *chain, property.key = parts
         elif property.type == "workflow_variable":
             chain = ["variables"]
         else:

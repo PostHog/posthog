@@ -205,6 +205,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         searchQuery,
         eventNames,
         allowNonCapturedEvents,
+        allowCustomProperties,
         groupType,
         value,
         taxonomicGroups,
@@ -245,13 +246,27 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         // Only show if no results found at all
         results.length === 0
 
+    // Show "Use custom property" option for RevenueAnalyticsProperties when searching
+    const showCustomPropertyOption =
+        allowCustomProperties &&
+        listGroupType === TaxonomicFilterGroupType.RevenueAnalyticsProperties &&
+        trimmedSearchQuery &&
+        trimmedSearchQuery.length > 0 &&
+        !isLoading &&
+        // Only show if no results found at all
+        results.length === 0
+
     // Only show empty state if:
     // 1. There are no results
     // 2. We're not currently loading
     // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
-    // 4. We're not showing the non-captured event option
+    // 4. We're not showing the non-captured event option or custom property option
     const showEmptyState =
-        totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
+        totalListCount === 0 &&
+        !isLoading &&
+        (!!searchQuery || !hasRemoteDataSource) &&
+        !showNonCapturedEventOption &&
+        !showCustomPropertyOption
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
@@ -302,6 +317,42 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         <span className="font-medium">{trimmedSearchQuery}</span>
                         <LemonTag type="caution" size="small">
                             Not seen yet
+                        </LemonTag>
+                    </div>
+                </LemonRow>
+            )
+        }
+
+        // Show create custom property option when there are no results for RevenueAnalyticsProperties
+        if (showCustomPropertyOption && rowIndex === 0) {
+            const selectCustomProperty = (): void => {
+                selectItem(itemGroup, trimmedSearchQuery, { name: trimmedSearchQuery }, undefined)
+            }
+
+            return (
+                <LemonRow
+                    key={`item_${rowIndex}`}
+                    fullWidth
+                    className={clsx(
+                        'taxonomic-list-row',
+                        'border border-dashed border-secondary rounded min-h-9 justify-center'
+                    )}
+                    outlined={false}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            selectCustomProperty()
+                        }
+                    }}
+                    onClick={selectCustomProperty}
+                    onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
+                    icon={<IconPlus className="text-muted size-4" />}
+                    data-attr="prop-filter-property-option-custom"
+                >
+                    <div className="flex items-center gap-2">
+                        <span className="text-muted">Use property:</span>
+                        <span className="font-medium">{trimmedSearchQuery}</span>
+                        <LemonTag type="highlight" size="small">
+                            Custom
                         </LemonTag>
                     </div>
                 </LemonRow>
@@ -421,7 +472,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                             width={width}
                             height={height}
                             rowCount={
-                                showNonCapturedEventOption
+                                showNonCapturedEventOption || showCustomPropertyOption
                                     ? 1
                                     : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
                             }

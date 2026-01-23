@@ -5445,6 +5445,12 @@
             "type": "String",
             "virtual": true
         },
+        "revenue_analytics_customer.metadata": {
+            "description": "Custom metadata fields from Stripe associated with the customer. Use dot notation to access specific keys (e.g., metadata.revenue_source).",
+            "label": "Customer Metadata",
+            "type": "String",
+            "virtual": true
+        },
         "revenue_analytics_customer.name": {
             "description": "The name of the customer connected to the revenue event.",
             "label": "Customer Name",
@@ -5497,6 +5503,12 @@
             "description": "The ended at date of the subscription connected to the revenue event.",
             "label": "Subscription Ended At",
             "type": "DateTime",
+            "virtual": true
+        },
+        "revenue_analytics_subscription.metadata": {
+            "description": "Custom metadata fields from Stripe associated with the subscription. Use dot notation to access specific keys (e.g., metadata.plan_type).",
+            "label": "Subscription Metadata",
+            "type": "String",
             "virtual": true
         },
         "revenue_analytics_subscription.started_at": {
