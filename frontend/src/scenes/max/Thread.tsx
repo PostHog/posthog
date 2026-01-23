@@ -106,7 +106,19 @@ function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
 }
 
-export function Thread({ className }: { className?: string }): JSX.Element | null {
+interface ThreadProps {
+    className?: string
+    lastHumanMessageRef?: React.Ref<HTMLDivElement>
+    lastHumanMessageIndex?: number
+    responseMinHeight?: number
+}
+
+export function Thread({
+    className,
+    lastHumanMessageRef,
+    lastHumanMessageIndex,
+    responseMinHeight = 0,
+}: ThreadProps): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
@@ -144,7 +156,17 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         // Track the current trace_id as we iterate forward through messages
                         let currentTraceId: string | undefined
 
-                        return threadGrouped.map((message, index) => {
+                        // Split messages: before/including last human, and after
+                        const lastHumanIdx = lastHumanMessageIndex ?? -1
+                        const messagesBeforeAndIncluding =
+                            lastHumanIdx >= 0 ? threadGrouped.slice(0, lastHumanIdx + 1) : threadGrouped
+                        const messagesAfter = lastHumanIdx >= 0 ? threadGrouped.slice(lastHumanIdx + 1) : []
+
+                        const renderMessage = (
+                            message: ThreadMessage,
+                            _index: number,
+                            originalIndex: number
+                        ): React.ReactNode => {
                             // Update trace_id when we encounter a human message
                             if (message.type === 'human' && 'trace_id' in message && message.trace_id) {
                                 currentTraceId = message.trace_id
@@ -157,17 +179,16 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
                             // Hide old failed attempts - only show the most recent error
                             if (isErrorMessage(message)) {
-                                const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
+                                const hasNewerError = threadGrouped.slice(originalIndex + 1).some(isErrorMessage)
                                 if (hasNewerError) {
                                     return null
                                 }
                             }
 
                             // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
-                            // This specific pattern only occurs when "Try again" is clicked after a failure
-                            if (message.type === 'human' && 'content' in message && index >= 2) {
-                                const prevMessage = threadGrouped[index - 1]
-                                const prevPrevMessage = threadGrouped[index - 2]
+                            if (message.type === 'human' && 'content' in message && originalIndex >= 2) {
+                                const prevMessage = threadGrouped[originalIndex - 1]
+                                const prevPrevMessage = threadGrouped[originalIndex - 2]
 
                                 const isRetryPattern =
                                     isErrorMessage(prevMessage) &&
@@ -180,12 +201,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                 }
                             }
 
-                            const nextMessage = threadGrouped[index + 1]
+                            const nextMessage = threadGrouped[originalIndex + 1]
                             const isLastInGroup =
                                 !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
                             // Hiding rating buttons after /feedback and /ticket command outputs
-                            const prevMessage = threadGrouped[index - 1]
+                            const prevMessage = threadGrouped[originalIndex - 1]
                             const isSlashCommandResponse =
                                 message.type !== 'human' &&
                                 prevMessage?.type === 'human' &&
@@ -197,19 +218,23 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             const isTicketConfirmation = isTicketConfirmationMessage(message)
 
                             // Check if this message is a ticket summary that needs the ticket creation button
-                            const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
+                            const isTicketSummaryMessage =
+                                ticketSummaryData && ticketSummaryData.messageIndex === originalIndex
 
                             // For AI messages, use the current trace_id from the preceding human message
                             const messageTraceId = message.type !== 'human' ? currentTraceId : undefined
 
-                            return (
-                                <React.Fragment key={`${conversationId}-${index}`}>
+                            // Check if this is the last human message (for scroll targeting)
+                            const isLastHumanMessage = originalIndex === lastHumanMessageIndex
+
+                            const messageContent = (
+                                <React.Fragment key={`${conversationId}-${originalIndex}`}>
                                     <TraceIdProvider value={messageTraceId}>
                                         <Message
                                             message={message}
                                             nextMessage={nextMessage}
                                             isLastInGroup={isLastInGroup}
-                                            isFinal={index === threadGrouped.length - 1}
+                                            isFinal={originalIndex === threadGrouped.length - 1}
                                             isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
                                         />
                                     </TraceIdProvider>
@@ -228,7 +253,31 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                         ))}
                                 </React.Fragment>
                             )
-                        })
+
+                            // Wrap last human message with ref for scroll targeting
+                            if (isLastHumanMessage && lastHumanMessageRef) {
+                                return (
+                                    <div key={`${conversationId}-${originalIndex}-wrapper`} ref={lastHumanMessageRef}>
+                                        {messageContent}
+                                    </div>
+                                )
+                            }
+
+                            return messageContent
+                        }
+
+                        return (
+                            <>
+                                {messagesBeforeAndIncluding.map((msg, idx) => renderMessage(msg, idx, idx))}
+                                {messagesAfter.length > 0 && (
+                                    <div style={{ minHeight: responseMinHeight > 0 ? responseMinHeight : undefined }}>
+                                        {messagesAfter.map((msg, idx) =>
+                                            renderMessage(msg, idx, lastHumanIdx + 1 + idx)
+                                        )}
+                                    </div>
+                                )}
+                            </>
+                        )
                     })()}
                     {conversationId && isPromptVisible && !streamingActive && (
                         <MessageTemplate type="ai">
@@ -554,7 +603,7 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                 {toolCallElements}
                                 {approvalCardElements}
                                 {multiQuestionFormElement}
-                                {actionsElement}
+                                {actionsElement ?? <div className="h-[26px]" />}
                             </div>
                         )
                     } else if (
