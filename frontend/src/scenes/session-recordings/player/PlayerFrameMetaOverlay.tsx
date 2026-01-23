@@ -81,8 +81,9 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
         if (!currentSegment || !recordingSegments?.length) {
             return
         }
-        // Skip buffers
-        if (currentSegment.kind === 'buffer') {
+        // Skip buffers and inactive segments - only track active segments
+        // (inactive segments are tracked via __POSTHOG_INACTIVITY_PERIODS__ above)
+        if (currentSegment.kind === 'buffer' || !currentSegment.isActive) {
             return
         }
         // Calculate ts_from_s for this segment
