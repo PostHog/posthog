@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::kafka::batch_context::BatchConsumerContext;
+use crate::kafka::batch_context::{BatchConsumerContext, ConsumerCommand, ConsumerCommandReceiver};
 use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
 use crate::kafka::metrics_consts::{
     BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS, BATCH_CONSUMER_BATCH_FILL_RATIO,
@@ -21,6 +21,7 @@ use rdkafka::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
 use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
 use serde::Deserialize;
+use tokio::sync::mpsc;
 use tokio::sync::oneshot::Receiver;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
@@ -52,6 +53,9 @@ pub struct BatchConsumer<T> {
     // we assume will be wrapping start_consumption
     // in a spawned thread
     shutdown_rx: Receiver<()>,
+
+    // receiver for consumer commands (e.g., resume partitions after checkpoint import)
+    consumer_command_rx: ConsumerCommandReceiver,
 }
 
 impl<T> BatchConsumer<T>
@@ -70,7 +74,10 @@ where
         batch_timeout: Duration,
         commit_interval: Duration,
     ) -> Result<Self> {
-        let consumer_ctx = BatchConsumerContext::new(rebalance_handler);
+        // Create channel for consumer commands (e.g., resume partitions after checkpoint import)
+        let (consumer_command_tx, consumer_command_rx) = mpsc::unbounded_channel();
+
+        let consumer_ctx = BatchConsumerContext::new(rebalance_handler, consumer_command_tx);
 
         // TODO: when we transition off stateful consumer, we must ensure we update the
         // incoming production-env ClientConfig to set:
@@ -92,6 +99,7 @@ where
             processor,
             offset_tracker,
             shutdown_rx,
+            consumer_command_rx,
         })
     }
 
@@ -112,6 +120,31 @@ where
                 _ = &mut self.shutdown_rx => {
                     info!("Shutdown signal received, starting graceful shutdown");
                     break;
+                }
+
+                // Handle consumer commands (e.g., resume partitions after checkpoint import)
+                Some(command) = self.consumer_command_rx.recv() => {
+                    match command {
+                        ConsumerCommand::Resume(partitions) => {
+                            let partition_count = partitions.count();
+                            info!(
+                                partition_count = partition_count,
+                                "Received resume command for partitions after checkpoint import"
+                            );
+                            if let Err(e) = consumer.resume(&partitions) {
+                                error!(
+                                    partition_count = partition_count,
+                                    error = %e,
+                                    "Failed to resume partitions"
+                                );
+                            } else {
+                                info!(
+                                    partition_count = partition_count,
+                                    "Successfully resumed partitions - messages will now be delivered"
+                                );
+                            }
+                        }
+                    }
                 }
 
                 // Poll for messages
