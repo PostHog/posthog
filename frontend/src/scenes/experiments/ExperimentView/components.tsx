@@ -743,7 +743,7 @@ export function PauseExperimentModal(): JSX.Element {
                         status="danger"
                         disabledReason={!experiment.feature_flag && 'No feature flag linked'}
                     >
-                        Disable feature flag
+                        Pause experiment
                     </LemonButton>
                 </div>
             }
