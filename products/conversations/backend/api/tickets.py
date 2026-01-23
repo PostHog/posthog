@@ -224,6 +224,8 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
     validate_assignee_membership(assignee, organization)
 
     with transaction.atomic():
+        # Lock the ticket to prevent concurrent modifications
+        Ticket.objects.select_for_update().get(id=ticket.id)
         assignment_before = TicketAssignment.objects.filter(ticket_id=ticket.id).first()
         serialized_assignment_before = TicketAssignmentSerializer(assignment_before).data if assignment_before else None
 
