@@ -11,22 +11,13 @@ import snappy
 import aiohttp
 import aioboto3
 import structlog
-import posthoganalytics
 from boto3 import client as boto3_client
 from botocore.client import Config
 
 logger = structlog.get_logger(__name__)
 
 
-class BlockDeleteError(Exception):
-    pass
-
-
 class BlockFetchError(Exception):
-    pass
-
-
-class FileFetchError(Exception):
     pass
 
 
@@ -47,7 +38,7 @@ class RecordingApiFetchError(Exception):
 
 
 class RecordingDeletedError(Exception):
-    """Raised when attempting to access a recording that has been deleted (crypto shredding)."""
+    """Raised when attempting to access a recording that has been deleted."""
 
     def __init__(self, message: str, deleted_at: Optional[int] = None):
         super().__init__(message)
@@ -93,16 +84,6 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def fetch_file(self, blob_key: str) -> str:
-        """Returns the decompressed file or raises Error"""
-        pass
-
-    @abc.abstractmethod
-    def fetch_file_bytes(self, blob_key: str) -> bytes:
-        """Returns the compressed file as bytes or raises FileFetchError"""
-        pass
-
-    @abc.abstractmethod
     def fetch_block(self, block_url: str) -> str:
         """Returns the decompressed block or raises BlockFetchError"""
         pass
@@ -110,11 +91,6 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def fetch_block_bytes(self, block_url: str) -> bytes:
         """Returns the compressed block as bytes or raises BlockFetchError"""
-        pass
-
-    @abc.abstractmethod
-    def delete_block(self, block_url: str) -> None:
-        """Zeroes out the specified block or raises BlockDeleteError"""
         pass
 
     @abc.abstractmethod
@@ -143,20 +119,11 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
     def is_enabled(self) -> bool:
         return False
 
-    def fetch_file(self, blob_key: str) -> str:
-        raise FileFetchError("Storage not available")
-
-    def fetch_file_bytes(self, blob_key: str) -> bytes:
-        raise FileFetchError("Storage not available")
-
     def fetch_block(self, block_url: str) -> str:
         raise BlockFetchError("Storage not available")
 
     def fetch_block_bytes(self, block_url: str) -> bytes:
         raise BlockFetchError("Storage not available")
-
-    def delete_block(self, block_url: str) -> None:
-        raise BlockDeleteError("Storage not available")
 
     def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
         return None, "Storage not available"
@@ -242,48 +209,6 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def is_enabled(self) -> bool:
         return True
 
-    def fetch_file(self, blob_key: str) -> str:
-        try:
-            kwargs = {
-                "Bucket": self.bucket,
-                "Key": blob_key,
-            }
-            s3_response = self.aws_client.get_object(**kwargs)
-            file_body = s3_response["Body"].read()
-
-            return snappy.decompress(file_body).decode("utf-8")
-
-        except Exception as e:
-            posthoganalytics.tag("bucket", self.bucket)
-            logger.exception(
-                "recording_block_storage.fetch_file_failed",
-                bucket=self.bucket,
-                file_name=blob_key,
-                error=e,
-                exc_info=False,
-                s3_response=s3_response,
-            )
-            raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
-
-    def fetch_file_bytes(self, blob_key: str) -> bytes:
-        try:
-            kwargs = {
-                "Bucket": self.bucket,
-                "Key": blob_key,
-            }
-            s3_response = self.aws_client.get_object(**kwargs)
-            return s3_response["Body"].read()
-        except Exception as e:
-            posthoganalytics.tag("bucket", self.bucket)
-            logger.exception(
-                "recording_block_storage.fetch_file_bytes_failed",
-                bucket=self.bucket,
-                file_name=blob_key,
-                error=e,
-                exc_info=False,
-            )
-            raise FileFetchError(f"Failed to read compressed file: {str(e)}")
-
     def _fetch_compressed_block(self, block_url: str) -> bytes:
         """Internal method to fetch and validate compressed block"""
         # Parse URL and extract key and byte range
@@ -345,42 +270,6 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 exc_info=False,
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
-
-    def delete_block(self, block_url: str) -> None:
-        try:
-            # Parse URL and extract key and byte range
-            parsed_url = urlparse(block_url)
-            key = parsed_url.path.lstrip("/")
-            query_params = parse_qs(parsed_url.query)
-            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-            if start_byte is None or end_byte is None:
-                raise BlockDeleteError("Invalid byte range in block URL")
-
-            expected_length = end_byte - start_byte + 1
-
-            file_bytes = self.read_all_bytes(key)
-
-            if file_bytes is None:
-                raise BlockDeleteError(f"Failed to read file {key}")
-
-            new_file_bytes = bytes(
-                bytearray(file_bytes[:start_byte]) + bytearray(expected_length) + bytearray(file_bytes[end_byte + 1 :])
-            )
-
-            self.write(key, new_file_bytes)
-        except BlockDeleteError:
-            raise
-        except Exception as e:
-            logger.exception(
-                "recording_block_storage.delete_block_failed",
-                bucket=self.bucket,
-                block_url=block_url,
-                error=e,
-                exc_info=False,
-            )
-            raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
     def download_file(self, key: str, filename: str) -> None:
         try:
@@ -501,47 +390,6 @@ class AsyncSessionRecordingV2ObjectStorage:
     def is_enabled(self) -> bool:
         return True
 
-    async def fetch_file(self, blob_key: str) -> str:
-        try:
-            kwargs = {
-                "Bucket": self.bucket,
-                "Key": blob_key,
-            }
-            s3_response = await self.aws_client.get_object(**kwargs)
-            file_body = await s3_response["Body"].read()
-
-            return snappy.decompress(file_body).decode("utf-8")
-        except Exception as e:
-            posthoganalytics.tag("bucket", self.bucket)
-            logger.exception(
-                "async_recording_block_storage.fetch_file_failed",
-                bucket=self.bucket,
-                file_name=blob_key,
-                error=e,
-                exc_info=False,
-                s3_response=s3_response,
-            )
-            raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
-
-    async def fetch_file_bytes(self, blob_key: str) -> bytes:
-        try:
-            kwargs = {
-                "Bucket": self.bucket,
-                "Key": blob_key,
-            }
-            s3_response = await self.aws_client.get_object(**kwargs)
-            return await s3_response["Body"].read()
-        except Exception as e:
-            posthoganalytics.tag("bucket", self.bucket)
-            logger.exception(
-                "async_recording_block_storage.fetch_file_bytes_failed",
-                bucket=self.bucket,
-                file_name=blob_key,
-                error=e,
-                exc_info=False,
-            )
-            raise FileFetchError(f"Failed to read compressed file: {str(e)}")
-
     async def _fetch_compressed_block(self, block_url: str) -> bytes:
         """Internal method to fetch and validate compressed block"""
         # Parse URL and extract key and byte range
@@ -605,42 +453,6 @@ class AsyncSessionRecordingV2ObjectStorage:
                 exc_info=False,
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
-
-    async def delete_block(self, block_url: str) -> None:
-        try:
-            # Parse URL and extract key and byte range
-            parsed_url = urlparse(block_url)
-            key = parsed_url.path.lstrip("/")
-            query_params = parse_qs(parsed_url.query)
-            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-            if start_byte is None or end_byte is None:
-                raise BlockDeleteError("Invalid byte range in block URL")
-
-            expected_length = end_byte - start_byte + 1
-
-            file_bytes = await self.read_all_bytes(key)
-
-            if file_bytes is None:
-                raise BlockDeleteError(f"Failed to read file {key}")
-
-            new_file_bytes = bytes(
-                bytearray(file_bytes[:start_byte]) + bytearray(expected_length) + bytearray(file_bytes[end_byte + 1 :])
-            )
-
-            await self.write(key, new_file_bytes)
-        except BlockDeleteError:
-            raise
-        except Exception as e:
-            logger.exception(
-                "async_recording_block_storage.delete_block_failed",
-                bucket=self.bucket,
-                block_url=block_url,
-                error=e,
-                exc_info=False,
-            )
-            raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
     async def download_file(self, key: str, filename: str) -> None:
         try:
@@ -793,7 +605,7 @@ class EncryptedBlockStorage:
         Returns the decrypted but still snappy-compressed block bytes.
 
         Raises:
-            RecordingDeletedError: If the recording has been deleted (crypto shredding).
+            RecordingDeletedError: If the recording has been deleted.
             RecordingApiFetchError: If the block is not found or other fetch errors occur.
         """
         key, start, end = self._parse_block_url(block_url)
@@ -835,7 +647,7 @@ class EncryptedBlockStorage:
         Returns the decrypted and decompressed block content as a string.
 
         Raises:
-            RecordingDeletedError: If the recording has been deleted (crypto shredding).
+            RecordingDeletedError: If the recording has been deleted.
             RecordingApiFetchError: If the block is not found or other fetch errors occur.
         """
         try:
@@ -856,7 +668,7 @@ class EncryptedBlockStorage:
 
     async def delete_recording(self, session_id: str, team_id: int) -> bool:
         """
-        Delete a recording's encryption key via the Recording API (crypto shredding).
+        Delete a recording's encryption key via the Recording API.
 
         Returns True if the key was deleted.
 

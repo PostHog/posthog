@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- retention period for this session, in days. Useful to show TTL for the recording
     retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
-    -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+    -- marks the recording as deleted; once 1, merges keep it as 1
     is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
 ) ENGINE = {engine}
 """
