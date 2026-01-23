@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 if TYPE_CHECKING:
     from posthog.ducklake.storage import CrossAccountDestination
 
 
-class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """Per-team DuckLake catalog configuration.
 
     Stores RDS connection details and bucket configuration for teams that need
