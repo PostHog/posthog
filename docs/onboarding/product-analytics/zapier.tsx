@@ -1,11 +1,13 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const ZapierInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Connect PostHog to Zapier" badge="required">
+export const getZapierSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Connect PostHog to Zapier',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Zapier lets you connect PostHog to thousands of other apps. You can use it to send events to
                     PostHog from other services or trigger actions based on PostHog events. Go to the [PostHog
@@ -35,9 +37,14 @@ export const ZapierInstallation = (): JSX.Element => {
                         },
                     ]}
                 />
-            </Step>
-
-            <Step title="Create a Zap" badge="required">
+            </>
+        ),
+    },
+    {
+        title: 'Create a Zap',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Create a Zap that sends events to PostHog using the "Capture Event" action. Events captured via
                     Zapier will appear in PostHog just like events from any other source.
@@ -46,7 +53,9 @@ export const ZapierInstallation = (): JSX.Element => {
                     You can use Zapier to connect CRMs, payment processors, customer support tools, and more to your
                     PostHog analytics.
                 </Markdown>
-            </Step>
-        </Steps>
-    )
-}
+            </>
+        ),
+    },
+]
+
+export const ZapierInstallation = createInstallation(getZapierSteps)

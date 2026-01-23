@@ -1,13 +1,14 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getSvelteSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any
-): StepDefinition[] => {
+export const getSvelteSteps = ({
+    CodeBlock,
+    Markdown,
+    CalloutBox,
+    dedent,
+    snippets,
+}: OnboardingComponents): StepDefinition[] => {
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -169,17 +170,4 @@ export const getSvelteSteps = (
     ]
 }
 
-export const SvelteInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getSvelteSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const SvelteInstallation = createInstallation(getSvelteSteps)

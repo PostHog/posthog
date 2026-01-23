@@ -1,11 +1,13 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const LangfuseInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Add Langfuse Tracing" badge="required">
+export const getLangfuseSteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Add Langfuse Tracing',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Langfuse supports most popular LLM models and you can bring your Langfuse data into PostHog for
                     analysis.
@@ -14,9 +16,14 @@ export const LangfuseInstallation = (): JSX.Element => {
                     {`1. First add [Langfuse Tracing](https://langfuse.com/docs/tracing) to your LLM app.
 2. In your [Langfuse dashboard](https://cloud.langfuse.com/), click on **Settings** and scroll down to the **Integrations** section to find the PostHog integration.`}
                 </Markdown>
-            </Step>
-
-            <Step title="Configure the integration" badge="required">
+            </>
+        ),
+    },
+    {
+        title: 'Configure the integration',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>Click **Configure** and paste in your PostHog project API key:</Markdown>
                 <CodeBlock
                     blocks={[
@@ -48,7 +55,9 @@ export const LangfuseInstallation = (): JSX.Element => {
                         Langfuse data to appear in PostHog.
                     </Markdown>
                 </CalloutBox>
-            </Step>
-        </Steps>
-    )
-}
+            </>
+        ),
+    },
+]
+
+export const LangfuseInstallation = createInstallation(getLangfuseSteps)

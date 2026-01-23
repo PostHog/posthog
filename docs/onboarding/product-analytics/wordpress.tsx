@@ -1,11 +1,13 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const WordpressInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Install via plugin (recommended)" badge="required">
+export const getWordpressSteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Install via plugin (recommended)',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Install a header/footer script plugin like [WPCode](https://wordpress.org/plugins/insert-headers-and-footers/)
                     or similar. Go to the plugin settings and add a new header script with the following code:
@@ -28,9 +30,13 @@ export const WordpressInstallation = (): JSX.Element => {
                     ]}
                 />
                 <Markdown>Save and activate the script.</Markdown>
-            </Step>
-
-            <Step title="Alternative: Edit theme directly">
+            </>
+        ),
+    },
+    {
+        title: 'Alternative: Edit theme directly',
+        content: (
+            <>
                 <Markdown>
                     {`Add the same code snippet to your theme's \`header.php\` file, just before the closing \`</head>\` tag. Note: this may be overwritten when updating themes.`}
                 </Markdown>
@@ -40,7 +46,9 @@ export const WordpressInstallation = (): JSX.Element => {
                         details.
                     </Markdown>
                 </CalloutBox>
-            </Step>
-        </Steps>
-    )
-}
+            </>
+        ),
+    },
+]
+
+export const WordpressInstallation = createInstallation(getWordpressSteps)

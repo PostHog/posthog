@@ -1,18 +1,23 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const ShopifyInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Open theme editor" badge="required">
-                <Markdown>
-                    In your Shopify admin, go to **Online Store** &gt; **Themes**. Click **Actions** &gt; **Edit code**
-                    on your current theme.
-                </Markdown>
-            </Step>
-
-            <Step title="Add the PostHog snippet" badge="required">
+export const getShopifySteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Open theme editor',
+        badge: 'required',
+        content: (
+            <Markdown>
+                In your Shopify admin, go to **Online Store** &gt; **Themes**. Click **Actions** &gt; **Edit code**
+                on your current theme.
+            </Markdown>
+        ),
+    },
+    {
+        title: 'Add the PostHog snippet',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Open `theme.liquid` and paste the following code just before the closing `&lt;/head&gt;` tag:
                 </Markdown>
@@ -34,15 +39,20 @@ export const ShopifyInstallation = (): JSX.Element => {
                     ]}
                 />
                 <Markdown>Click **Save**.</Markdown>
-            </Step>
+            </>
+        ),
+    },
+    {
+        title: 'Verify installation',
+        badge: 'recommended',
+        content: (
+            <Markdown>
+                PostHog will now capture pageviews, clicks, and other events on your Shopify store. See the [Shopify
+                integration docs](https://posthog.com/docs/libraries/shopify) for tracking checkout events and
+                revenue.
+            </Markdown>
+        ),
+    },
+]
 
-            <Step title="Verify installation" badge="recommended">
-                <Markdown>
-                    PostHog will now capture pageviews, clicks, and other events on your Shopify store. See the [Shopify
-                    integration docs](https://posthog.com/docs/libraries/shopify) for tracking checkout events and
-                    revenue.
-                </Markdown>
-            </Step>
-        </Steps>
-    )
-}
+export const ShopifyInstallation = createInstallation(getShopifySteps)

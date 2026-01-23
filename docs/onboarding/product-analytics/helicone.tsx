@@ -1,18 +1,23 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const HeliconeInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Set up Helicone" badge="required">
-                <Markdown>
-                    Helicone supports most popular LLM models and you can bring your Helicone data into PostHog for
-                    analysis. Sign up to [Helicone](https://www.helicone.ai/) and add it to your LLM app.
-                </Markdown>
-            </Step>
-
-            <Step title="Add PostHog headers" badge="required">
+export const getHeliconeSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Set up Helicone',
+        badge: 'required',
+        content: (
+            <Markdown>
+                Helicone supports most popular LLM models and you can bring your Helicone data into PostHog for
+                analysis. Sign up to [Helicone](https://www.helicone.ai/) and add it to your LLM app.
+            </Markdown>
+        ),
+    },
+    {
+        title: 'Add PostHog headers',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Similar to how you add a [Helicone-Auth
                     header](https://docs.helicone.ai/helicone-headers/header-directory#supported-headers) when
@@ -41,7 +46,9 @@ export const HeliconeInstallation = (): JSX.Element => {
                     ]}
                 />
                 <Markdown>Helicone events will now be exported into PostHog as soon as they're available.</Markdown>
-            </Step>
-        </Steps>
-    )
-}
+            </>
+        ),
+    },
+]
+
+export const HeliconeInstallation = createInstallation(getHeliconeSteps)

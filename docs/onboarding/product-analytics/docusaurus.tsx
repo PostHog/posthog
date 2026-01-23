@@ -1,11 +1,13 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const DocusaurusInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Install the plugin" badge="required">
+export const getDocusaurusSteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Install the plugin',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Docusaurus is a popular static site generator for documentation. You can add PostHog using the
                     official plugin:
@@ -21,9 +23,14 @@ export const DocusaurusInstallation = (): JSX.Element => {
                         },
                     ]}
                 />
-            </Step>
-
-            <Step title="Configure the plugin" badge="required">
+            </>
+        ),
+    },
+    {
+        title: 'Configure the plugin',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>Add the plugin to your `docusaurus.config.js`:</Markdown>
                 <CodeBlock
                     blocks={[
@@ -53,14 +60,18 @@ export const DocusaurusInstallation = (): JSX.Element => {
                         configuration options.
                     </Markdown>
                 </CalloutBox>
-            </Step>
+            </>
+        ),
+    },
+    {
+        title: 'View events',
+        content: (
+            <Markdown>
+                Start your Docusaurus site and visit a few pages. PostHog will automatically capture pageviews and
+                other events.
+            </Markdown>
+        ),
+    },
+]
 
-            <Step title="View events">
-                <Markdown>
-                    Start your Docusaurus site and visit a few pages. PostHog will automatically capture pageviews and
-                    other events.
-                </Markdown>
-            </Step>
-        </Steps>
-    )
-}
+export const DocusaurusInstallation = createInstallation(getDocusaurusSteps)

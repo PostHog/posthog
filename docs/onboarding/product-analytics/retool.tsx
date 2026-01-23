@@ -1,18 +1,23 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const RetoolInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Open custom scripts" badge="required">
-                <Markdown>
-                    Retool is a platform for building internal tools. In your Retool app, go to **Settings** &gt;
-                    **Custom Scripts**.
-                </Markdown>
-            </Step>
-
-            <Step title="Add the PostHog snippet" badge="required">
+export const getRetoolSteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Open custom scripts',
+        badge: 'required',
+        content: (
+            <Markdown>
+                Retool is a platform for building internal tools. In your Retool app, go to **Settings** &gt;
+                **Custom Scripts**.
+            </Markdown>
+        ),
+    },
+    {
+        title: 'Add the PostHog snippet',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>Add the following code to the **Head** section:</Markdown>
                 <CodeBlock
                     blocks={[
@@ -31,9 +36,14 @@ export const RetoolInstallation = (): JSX.Element => {
                         },
                     ]}
                 />
-            </Step>
-
-            <Step title="Verify installation" badge="recommended">
+            </>
+        ),
+    },
+    {
+        title: 'Verify installation',
+        badge: 'recommended',
+        content: (
+            <>
                 <Markdown>
                     Save and refresh your app. PostHog will now automatically capture pageviews, clicks, and other
                     events as your app is used.
@@ -43,7 +53,9 @@ export const RetoolInstallation = (): JSX.Element => {
                         See the [Retool integration docs](https://posthog.com/docs/libraries/retool) for more details.
                     </Markdown>
                 </CalloutBox>
-            </Step>
-        </Steps>
-    )
-}
+            </>
+        ),
+    },
+]
+
+export const RetoolInstallation = createInstallation(getRetoolSteps)

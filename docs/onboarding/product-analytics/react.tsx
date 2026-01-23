@@ -1,13 +1,14 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getReactSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any
-): StepDefinition[] => {
+export const getReactSteps = ({
+    CodeBlock,
+    Markdown,
+    CalloutBox,
+    dedent,
+    snippets,
+}: OnboardingComponents): StepDefinition[] => {
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -51,8 +52,8 @@ export const getReactSteps = (
             content: (
                 <>
                     <Markdown>
-                        Add your PostHog API key and host to your environment variables. For Vite-based React apps, use the
-                        `VITE_PUBLIC_` prefix:
+                        Add your PostHog API key and host to your environment variables. For Vite-based React apps, use
+                        the `VITE_PUBLIC_` prefix:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -174,17 +175,4 @@ export const getReactSteps = (
     ]
 }
 
-export const ReactInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getReactSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const ReactInstallation = createInstallation(getReactSteps)

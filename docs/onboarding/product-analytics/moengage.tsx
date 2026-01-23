@@ -1,18 +1,23 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const MoEngageInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Open the MoEngage integration" badge="required">
-                <Markdown>
-                    MoEngage is a customer engagement platform. Follow the [MoEngage PostHog integration
-                    guide](https://posthog.com/docs/libraries/moengage) to set up the connection.
-                </Markdown>
-            </Step>
-
-            <Step title="Enter your credentials" badge="required">
+export const getMoEngageSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Open the MoEngage integration',
+        badge: 'required',
+        content: (
+            <Markdown>
+                MoEngage is a customer engagement platform. Follow the [MoEngage PostHog integration
+                guide](https://posthog.com/docs/libraries/moengage) to set up the connection.
+            </Markdown>
+        ),
+    },
+    {
+        title: 'Enter your credentials',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>When prompted, enter your PostHog project API key:</Markdown>
                 <CodeBlock
                     blocks={[
@@ -37,14 +42,19 @@ export const MoEngageInstallation = (): JSX.Element => {
                         },
                     ]}
                 />
-            </Step>
+            </>
+        ),
+    },
+    {
+        title: 'Verify the connection',
+        badge: 'recommended',
+        content: (
+            <Markdown>
+                Once configured, MoEngage will send event data to PostHog, allowing you to analyze customer engagement
+                alongside your other product analytics data.
+            </Markdown>
+        ),
+    },
+]
 
-            <Step title="Verify the connection" badge="recommended">
-                <Markdown>
-                    Once configured, MoEngage will send event data to PostHog, allowing you to analyze customer engagement
-                    alongside your other product analytics data.
-                </Markdown>
-            </Step>
-        </Steps>
-    )
-}
+export const MoEngageInstallation = createInstallation(getMoEngageSteps)

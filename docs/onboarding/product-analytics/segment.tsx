@@ -1,19 +1,24 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const SegmentInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Add PostHog destination" badge="required">
-                <Markdown>
-                    Segment is a customer data platform that can route your analytics data to PostHog and other
-                    destinations. In your Segment workspace, go to **Connections** &gt; **Catalog** and search for
-                    **PostHog**. Click **Add Destination** and select the source you want to connect.
-                </Markdown>
-            </Step>
-
-            <Step title="Enter your credentials" badge="required">
+export const getSegmentSteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Add PostHog destination',
+        badge: 'required',
+        content: (
+            <Markdown>
+                Segment is a customer data platform that can route your analytics data to PostHog and other
+                destinations. In your Segment workspace, go to **Connections** &gt; **Catalog** and search for
+                **PostHog**. Click **Add Destination** and select the source you want to connect.
+            </Markdown>
+        ),
+    },
+    {
+        title: 'Enter your credentials',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>Enter your PostHog project API key:</Markdown>
                 <CodeBlock
                     blocks={[
@@ -38,9 +43,14 @@ export const SegmentInstallation = (): JSX.Element => {
                         },
                     ]}
                 />
-            </Step>
-
-            <Step title="Verify the connection" badge="recommended">
+            </>
+        ),
+    },
+    {
+        title: 'Verify the connection',
+        badge: 'recommended',
+        content: (
+            <>
                 <Markdown>
                     Segment will now forward `track`, `identify`, `page`, and `group` calls to PostHog.
                 </Markdown>
@@ -49,7 +59,9 @@ export const SegmentInstallation = (): JSX.Element => {
                         See the [Segment integration docs](https://posthog.com/docs/libraries/segment) for more details.
                     </Markdown>
                 </CalloutBox>
-            </Step>
-        </Steps>
-    )
-}
+            </>
+        ),
+    },
+]
+
+export const SegmentInstallation = createInstallation(getSegmentSteps)

@@ -1,11 +1,13 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const TraceloopInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Access the integrations page" badge="required">
+export const getTraceloopSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Access the integrations page',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Traceloop supports most popular LLM models and you can bring your Traceloop data into PostHog for
                     analysis.
@@ -14,9 +16,14 @@ export const TraceloopInstallation = (): JSX.Element => {
                     Go to the [integrations page](https://app.traceloop.com/settings/integrations) in your Traceloop
                     dashboard and click on the PostHog card.
                 </Markdown>
-            </Step>
-
-            <Step title="Configure the integration" badge="required">
+            </>
+        ),
+    },
+    {
+        title: 'Configure the integration',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>Paste in your PostHog project API key:</Markdown>
                 <CodeBlock
                     blocks={[
@@ -45,7 +52,9 @@ export const TraceloopInstallation = (): JSX.Element => {
                 <Markdown>
                     Traceloop events will now be exported into PostHog as soon as they're available.
                 </Markdown>
-            </Step>
-        </Steps>
-    )
-}
+            </>
+        ),
+    },
+]
+
+export const TraceloopInstallation = createInstallation(getTraceloopSteps)

@@ -1,18 +1,23 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const N8nInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Add the PostHog node" badge="required">
-                <Markdown>
-                    n8n is an open-source workflow automation tool. In your n8n workflow, add the [PostHog
-                    node](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.posthog/).
-                </Markdown>
-            </Step>
-
-            <Step title="Create credentials" badge="required">
+export const getN8nSteps = ({ CodeBlock, Markdown, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Add the PostHog node',
+        badge: 'required',
+        content: (
+            <Markdown>
+                n8n is an open-source workflow automation tool. In your n8n workflow, add the [PostHog
+                node](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.posthog/).
+            </Markdown>
+        ),
+    },
+    {
+        title: 'Create credentials',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>Create credentials with your PostHog project API key:</Markdown>
                 <CodeBlock
                     blocks={[
@@ -37,14 +42,19 @@ export const N8nInstallation = (): JSX.Element => {
                         },
                     ]}
                 />
-            </Step>
+            </>
+        ),
+    },
+    {
+        title: 'Configure events',
+        badge: 'recommended',
+        content: (
+            <Markdown>
+                Configure the node to capture events, identify users, or create aliases based on your workflow needs.
+                Events from n8n will appear in PostHog just like events from any other source.
+            </Markdown>
+        ),
+    },
+]
 
-            <Step title="Configure events" badge="recommended">
-                <Markdown>
-                    Configure the node to capture events, identify users, or create aliases based on your workflow needs.
-                    Events from n8n will appear in PostHog just like events from any other source.
-                </Markdown>
-            </Step>
-        </Steps>
-    )
-}
+export const N8nInstallation = createInstallation(getN8nSteps)

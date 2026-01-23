@@ -1,11 +1,13 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const SentryInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Install the packages" badge="required">
+export const getSentrySteps = ({ CodeBlock, Markdown, CalloutBox, dedent }: OnboardingComponents): StepDefinition[] => [
+    {
+        title: 'Install the packages',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>
                     Sentry is an error tracking platform. The PostHog-Sentry integration links error data to your
                     analytics, allowing you to see which users experienced errors.
@@ -21,9 +23,14 @@ export const SentryInstallation = (): JSX.Element => {
                         },
                     ]}
                 />
-            </Step>
-
-            <Step title="Configure the integration" badge="required">
+            </>
+        ),
+    },
+    {
+        title: 'Configure the integration',
+        badge: 'required',
+        content: (
+            <>
                 <Markdown>Add the Sentry integration when initializing PostHog:</Markdown>
                 <CodeBlock
                     blocks={[
@@ -57,7 +64,9 @@ export const SentryInstallation = (): JSX.Element => {
                         docs](https://posthog.com/docs/libraries/sentry) for the full setup guide.
                     </Markdown>
                 </CalloutBox>
-            </Step>
-        </Steps>
-    )
-}
+            </>
+        ),
+    },
+]
+
+export const SentryInstallation = createInstallation(getSentrySteps)
