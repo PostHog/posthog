@@ -234,7 +234,7 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-            raise Exception(f"Timeout while waiting for the page to load")
+            raise TimeoutException(f"Timeout while waiting for the page to load")
 
         try:
             # Also wait until nothing is loading

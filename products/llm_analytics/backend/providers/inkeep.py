@@ -9,7 +9,6 @@ from django.conf import settings
 
 import openai
 import posthoganalytics
-from anthropic.types import MessageParam
 
 from products.llm_analytics.backend.providers.formatters.openai_formatter import convert_to_openai_messages
 
@@ -37,7 +36,7 @@ class InkeepProvider:
     def stream_response(
         self,
         system: str,
-        messages: list[MessageParam],
+        messages: list[dict[str, Any]],
         thinking: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,

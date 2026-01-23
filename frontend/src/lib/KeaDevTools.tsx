@@ -109,6 +109,7 @@ function arrayPath(base: string, index: number): string {
 function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES): StateDiffResult {
     const changes: StateDiffEntry[] = []
     let truncated = false
+    const seenPairs = new WeakMap<object, WeakSet<object>>()
 
     const addChange = (change: StateDiffEntry): void => {
         if (changes.length >= limit) {
@@ -116,6 +117,21 @@ function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES
             return
         }
         changes.push(change)
+    }
+
+    const markPair = (prevObj: object, nextObj: object): boolean => {
+        const seenForPrev = seenPairs.get(prevObj)
+        if (seenForPrev) {
+            if (seenForPrev.has(nextObj)) {
+                return true
+            }
+            seenForPrev.add(nextObj)
+            return false
+        }
+        const nextSet = new WeakSet<object>()
+        nextSet.add(nextObj)
+        seenPairs.set(prevObj, nextSet)
+        return false
     }
 
     const visit = (prevValue: unknown, nextValue: unknown, path: string): void => {
@@ -132,6 +148,9 @@ function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES
         const nextIsArray = Array.isArray(nextValue)
 
         if (prevIsArray && nextIsArray) {
+            if (markPair(prevValue, nextValue)) {
+                return
+            }
             const maxLength = Math.max(prevValue.length, nextValue.length)
             for (let index = 0; index < maxLength; index += 1) {
                 if (changes.length >= limit) {
@@ -151,6 +170,9 @@ function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES
         }
 
         if (isPlainObject(prevValue) && isPlainObject(nextValue)) {
+            if (markPair(prevValue, nextValue)) {
+                return
+            }
             const keys = new Set([...Object.keys(prevValue), ...Object.keys(nextValue)])
             for (const key of keys) {
                 if (changes.length >= limit) {

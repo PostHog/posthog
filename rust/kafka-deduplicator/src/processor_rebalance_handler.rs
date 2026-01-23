@@ -226,6 +226,10 @@ where
                 router.worker_count()
             );
         }
+
+        // Increment rebalancing counter SYNCHRONOUSLY before async work is queued
+        // This ensures no gap where orphan cleanup could run
+        self.store_manager.start_rebalancing();
     }
 
     fn setup_revoked_partitions(&self, partitions: &TopicPartitionList) {
@@ -268,6 +272,10 @@ where
     // ============================================
 
     async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
+        // Create guard that will decrement rebalancing counter on drop (even on panic)
+        // This ensures cleanup happens even if this function panics or is cancelled
+        let _rebalancing_guard = self.store_manager.rebalancing_guard();
+
         let partition_infos: Vec<Partition> = partitions
             .elements()
             .into_iter()
@@ -288,10 +296,7 @@ where
             .map(|p| self.async_setup_single_partition(p));
         join_all(setup_futures).await;
 
-        // Clear rebalancing flag now that all stores are created/checkpoints imported
-        // This allows orphan cleanup to resume safely
-        self.store_manager.set_rebalancing(false);
-
+        // Guard automatically decrements rebalancing counter when dropped here
         Ok(())
     }
 
@@ -381,8 +386,8 @@ where
         // Set rebalancing flag to prevent offset commits during rebalance
         self.offset_tracker.set_rebalancing(true);
 
-        // Set rebalancing flag on store manager to prevent orphan cleanup during rebalance
-        self.store_manager.set_rebalancing(true);
+        // Note: store_manager.start_rebalancing() is called in setup_assigned_partitions()
+        // (sync callback) to ensure no gap before async work is queued
 
         Ok(())
     }
@@ -393,8 +398,8 @@ where
         // Clear rebalancing flag to allow offset commits again
         self.offset_tracker.set_rebalancing(false);
 
-        // Note: store_manager.set_rebalancing(false) is called at the end of
-        // async_setup_assigned_partitions to avoid race with checkpoint download
+        // Note: store_manager rebalancing counter is decremented via RebalancingGuard
+        // at the end of async_setup_assigned_partitions (ensures panic safety)
 
         // Log current stats
         let store_count = self.store_manager.stores().len();
