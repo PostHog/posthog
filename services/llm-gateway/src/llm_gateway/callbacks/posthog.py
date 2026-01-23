@@ -1,13 +1,13 @@
-import logging
 from typing import Any
 from uuid import uuid4
 
 import posthoganalytics
+import structlog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.request_context import get_auth_user, get_product
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class PostHogCallback(InstrumentedCallback):
@@ -22,40 +22,26 @@ class PostHogCallback(InstrumentedCallback):
         posthoganalytics.api_key = api_key
         posthoganalytics.host = host
 
-    def _get_end_user_id(self, kwargs: dict[str, Any], standard_logging_object: dict) -> str | None:
-        """Extract end-user ID from request parameters.
-
-        OpenAI: uses 'user' parameter in optional_params
-        Anthropic: uses metadata.user_id
-        """
-        optional_params = standard_logging_object.get("optional_params", {}) or {}
-        if user := optional_params.get("user"):
-            return user
-
-        metadata = self._extract_metadata(kwargs)
-        if user_id := metadata.get("user_id"):
-            return user_id
-
-        return None
-
-    async def _on_success(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
+    async def _on_success(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
+    ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
-        metadata = self._extract_metadata(kwargs)
+        litellm_params = kwargs.get("litellm_params") or {}
+        metadata = litellm_params.get("metadata") or {}
         auth_user = get_auth_user()
         product = get_product()
 
-        end_user_id = self._get_end_user_id(kwargs, standard_logging_object)
-        trace_id = end_user_id or metadata.get("user_id") or str(uuid4())
+        trace_id = metadata.get("user_id") or str(uuid4())
         distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
-            "PostHog callback _on_success: end_user_id=%s, distinct_id=%s, team_id=%s, product=%s, model=%s",
-            end_user_id,
-            distinct_id,
-            team_id,
-            product,
-            standard_logging_object.get("model", ""),
+            "PostHog callback _on_success",
+            end_user_id=end_user_id,
+            distinct_id=distinct_id,
+            team_id=team_id,
+            product=product,
+            model=standard_logging_object.get("model", ""),
         )
 
         properties: dict[str, Any] = {
@@ -89,26 +75,33 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             capture_kwargs["groups"] = {"project": team_id}
 
-        logger.debug("PostHog capturing event: %s", capture_kwargs)
+        logger.debug(
+            "PostHog capturing event",
+            distinct_id=distinct_id,
+            posthog_event="$ai_generation",
+            properties=properties,
+            groups=capture_kwargs.get("groups"),
+        )
         posthoganalytics.capture(**capture_kwargs)
         posthoganalytics.flush()
 
-    async def _on_failure(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
+    async def _on_failure(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
+    ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
         auth_user = get_auth_user()
         product = get_product()
 
-        end_user_id = self._get_end_user_id(kwargs, standard_logging_object)
         trace_id = end_user_id or str(uuid4())
         distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
-            "PostHog callback _on_failure: end_user_id=%s, distinct_id=%s, team_id=%s, product=%s",
-            end_user_id,
-            distinct_id,
-            team_id,
-            product,
+            "PostHog callback _on_failure",
+            end_user_id=end_user_id,
+            distinct_id=distinct_id,
+            team_id=team_id,
+            product=product,
         )
 
         properties: dict[str, Any] = {
@@ -131,10 +124,12 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             capture_kwargs["groups"] = {"project": team_id}
 
-        logger.debug("PostHog capturing error event: %s", capture_kwargs)
+        logger.debug(
+            "PostHog capturing error event",
+            distinct_id=distinct_id,
+            posthog_event="$ai_generation",
+            properties=properties,
+            groups=capture_kwargs.get("groups"),
+        )
         posthoganalytics.capture(**capture_kwargs)
         posthoganalytics.flush()
-
-    def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        litellm_params = kwargs.get("litellm_params", {}) or {}
-        return litellm_params.get("metadata", {}) or {}

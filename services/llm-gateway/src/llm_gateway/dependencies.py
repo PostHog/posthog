@@ -93,10 +93,15 @@ async def enforce_throttles(
     ensure_costs_fresh()
     product = get_product_from_request(request)
 
+    # For OAuth, end_user_id is the token holder (user_id)
+    # For personal API key, it will be set later from the request's 'user' param
+    end_user_id = str(user.user_id) if user.auth_method == "oauth_access_token" else None
+
     context = ThrottleContext(
         user=user,
         product=product,
         request_id=get_request_id() or None,
+        end_user_id=end_user_id,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)

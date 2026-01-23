@@ -5,11 +5,13 @@ from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 
 
-def make_user(user_id: int = 1, team_id: int = 1) -> AuthenticatedUser:
+def make_user(
+    user_id: int = 1, team_id: int = 1, auth_method: str = "oauth_access_token"
+) -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=user_id,
         team_id=team_id,
-        auth_method="personal_api_key",
+        auth_method=auth_method,
         distinct_id=f"test-distinct-id-{user_id}",
         scopes=["llm_gateway:read"],
     )
@@ -18,10 +20,16 @@ def make_user(user_id: int = 1, team_id: int = 1) -> AuthenticatedUser:
 def make_context(
     user: AuthenticatedUser | None = None,
     product: str = "llm_gateway",
+    end_user_id: str | None = None,
 ) -> ThrottleContext:
+    user = user or make_user()
+    # For OAuth, end_user_id defaults to user_id (as set in dependencies.py)
+    if end_user_id is None and user.auth_method == "oauth_access_token":
+        end_user_id = str(user.user_id)
     return ThrottleContext(
-        user=user or make_user(),
+        user=user,
         product=product,
+        end_user_id=end_user_id,
     )
 
 
@@ -161,15 +169,31 @@ class TestUserCostThrottle:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_cache_key_includes_user_id(self) -> None:
+    async def test_cache_key_includes_end_user_id(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         throttle = UserCostThrottle(redis=None)
         user = make_user(user_id=42)
-        context = make_context(user=user)
+        context = make_context(user=user, end_user_id="42")
 
         key = throttle._get_cache_key(context)
         assert key == "cost:user:42"
+
+    @pytest.mark.asyncio
+    async def test_skips_rate_limiting_without_end_user_id(self) -> None:
+        get_settings.cache_clear()
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        throttle = UserCostThrottle(redis=None)
+        user = make_user(user_id=1, auth_method="personal_api_key")
+        context = make_context(user=user, end_user_id=None)
+
+        await throttle.record_cost(context, 1000.0)
+        result = await throttle.allow_request(context)
+
+        assert result.allowed is True
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_allows_when_limits_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
