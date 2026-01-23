@@ -291,6 +291,30 @@ describe('getInitialFocusEventId', () => {
 
         expect(getInitialFocusEventId(events, tree)).toBe('trace-event-1')
     })
+
+    it('skips $ai_generation events not in filtered tree', () => {
+        const spanEvent: LLMTraceEvent = {
+            id: 'span-1',
+            event: '$ai_span',
+            properties: {},
+            createdAt: '2024-01-01T00:00:00Z',
+        }
+
+        const generationEvent: LLMTraceEvent = {
+            id: 'generation-1',
+            event: '$ai_generation',
+            properties: {},
+            createdAt: '2024-01-01T00:00:00Z',
+        }
+
+        const events: LLMTraceEvent[] = [spanEvent, generationEvent]
+
+        // Tree only has span (e.g., generation was filtered out by search)
+        const tree: TraceTreeNode[] = [{ event: spanEvent }]
+
+        // Should return first tree event since generation is not in tree
+        expect(getInitialFocusEventId(events, tree)).toBe('span-1')
+    })
 })
 
 describe('getEffectiveEventId', () => {

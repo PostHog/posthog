@@ -405,10 +405,10 @@ export function getInitialFocusEventId(showableEvents: LLMTraceEvent[], filtered
     // If no $ai_trace event, look for the first $ai_generation event
     // This provides a better default for pseudo-traces where the generation
     // is typically what users want to see
-    const firstGenerationEvent = showableEvents.find((event) => event.event === '$ai_generation')
+    const firstGenerationNode = filteredTree.find((node) => node.event.event === '$ai_generation')
 
-    if (firstGenerationEvent) {
-        return firstGenerationEvent.id
+    if (firstGenerationNode) {
+        return firstGenerationNode.event.id
     }
 
     // Fall back to first event in tree
