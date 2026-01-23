@@ -35,10 +35,10 @@ inputs:
         required: false
         default: 'false'
         description: Skip building plugin transpiler (avoids esbuild, useful for tests that don't need it)
-    skip-snapshot-update:
+    snapshot-warn-unused:
         required: false
         default: 'false'
-        description: Skip --snapshot-update flag (useful for compat tests that should not modify snapshots)
+        description: Use --snapshot-warn-unused instead of failing on unused snapshots (useful for compat tests that run a subset)
 
 runs:
     using: 'composite'
@@ -198,10 +198,16 @@ runs:
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
           # runs, as we want to ignore snapshots diverging there
-          # Also skip for compat tests which should not modify snapshots
-          if: (github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true') && inputs.skip-snapshot-update != 'true'
+          if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
+
+        - name: Add --snapshot-warn-unused for compat tests
+          # Compat tests run a subset of snapshot tests, so unused snapshots are expected
+          # This makes unused snapshots non-fatal (warning only)
+          if: inputs.snapshot-warn-unused == 'true'
+          shell: bash
+          run: echo "PYTEST_ARGS=$PYTEST_ARGS --snapshot-warn-unused" >> $GITHUB_ENV
 
         # Tests
         - name: Run Core tests
