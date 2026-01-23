@@ -26,12 +26,13 @@ class PostHogCallback(InstrumentedCallback):
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
     ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
-        litellm_params = kwargs.get("litellm_params") or {}
-        metadata = litellm_params.get("metadata") or {}
+        metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
         product = get_product()
 
-        trace_id = metadata.get("user_id") or str(uuid4())
+        trace_id = (
+            metadata.get("user_id") or str(uuid4())
+        )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
         distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
@@ -89,10 +90,13 @@ class PostHogCallback(InstrumentedCallback):
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
     ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
+        metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
         product = get_product()
 
-        trace_id = end_user_id or str(uuid4())
+        trace_id = (
+            metadata.get("user_id") or str(uuid4())
+        )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
         distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
@@ -133,3 +137,7 @@ class PostHogCallback(InstrumentedCallback):
         )
         posthoganalytics.capture(**capture_kwargs)
         posthoganalytics.flush()
+
+    def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        litellm_params = kwargs.get("litellm_params", {}) or {}
+        return litellm_params.get("metadata", {}) or {}

@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from django.conf import settings
 
@@ -16,6 +16,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
 from posthog.rate_limit import OnboardingIPThrottle
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -153,6 +156,8 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_message = "\n".join(user_parts)
 
         try:
+            user_distinct_id = cast("User", request.user).distinct_id
+
             # TODO: Remove feature flag check once gateway is tested in production
             use_gateway = posthoganalytics.feature_enabled(
                 "use-llm-gateway",
@@ -171,7 +176,7 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             logger.debug(
                 "Making LLM request for product recommendation",
                 team_id=self.team.id,
-                user_distinct_id=request.user.distinct_id,
+                user_distinct_id=user_distinct_id,
                 model=model,
                 use_gateway=use_gateway,
             )
@@ -183,14 +188,14 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
                 ],
-                user=request.user.distinct_id,
+                user=user_distinct_id,
                 response_format=ProductRecommendationResponse,
             )
 
             logger.debug(
                 "LLM request completed",
                 team_id=self.team.id,
-                user_distinct_id=request.user.distinct_id,
+                user_distinct_id=user_distinct_id,
                 model_used=completion.model,
                 usage=completion.usage.model_dump() if completion.usage else None,
             )

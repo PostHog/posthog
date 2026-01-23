@@ -6,15 +6,19 @@ from openai import OpenAI
 
 Product = Literal[
     "llm_gateway", "array", "wizard", "django", "growth"
-]  # If you add a product here, make sure it's also in llm_gateway/products/config.py
+]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
 def get_llm_client(product: Product = "django") -> OpenAI:
     """
     Get an OpenAI-compatible client for the LLM gateway.
 
-    The gateway supports all OpenAI and Anthropic models through a unified interface.
-    Callers should ALWAYS pass the `user` parameter in API calls for attribution.
+    The gateway supports all OpenAI, Anthropic and Gemini chat models through a unified interface.
+    Callers should ALWAYS pass the `user` parameter to identify the user for rate limiting and analytics.
+
+    The gateway service handles analytics and rate limiting based on the product used.
+    Args:
+        product: The product to use when making requests to the LLM gateway, should be one of the defined products in the gateway. If not passed, it will default to the "django" product.
     """
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
         raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
