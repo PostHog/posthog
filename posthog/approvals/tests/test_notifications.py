@@ -51,13 +51,6 @@ class TestApprovalNotifications(BaseTest):
             expires_at=timezone.now() + timedelta(days=14),
         )
 
-    def _create_user(self, email, first_name="Test"):
-        from posthog.models import User
-
-        user = User.objects.create(email=email, first_name=first_name)
-        self.organization.members.add(user)
-        return user
-
 
 class TestCustomerIOTemplateIDs(TestApprovalNotifications):
     def test_all_approval_templates_have_customer_io_ids(self):
@@ -81,10 +74,10 @@ class TestBuildChangeRequestUrl(TestApprovalNotifications):
             expected = f"https://app.posthog.com/project/{self.team.project_id}/approvals/{self.change_request.id}"
             self.assertEqual(url, expected)
 
-    def test_handles_missing_site_url(self):
-        with self.settings(SITE_URL=None):
+    def test_strips_trailing_slash_from_site_url(self):
+        with self.settings(SITE_URL="https://app.posthog.com/"):
             url = _build_change_request_url(self.change_request)
-            expected = f"/project/{self.team.project_id}/approvals/{self.change_request.id}"
+            expected = f"https://app.posthog.com/project/{self.team.project_id}/approvals/{self.change_request.id}"
             self.assertEqual(url, expected)
 
 
