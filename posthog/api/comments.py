@@ -13,6 +13,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.models.comment import Comment
+from posthog.models.comment.utils import produce_discussion_mention_events
 from posthog.tasks.email import send_discussions_mentioned
 
 
@@ -92,6 +93,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
         if mentions:
             send_discussions_mentioned.delay(comment.id, mentions, slug)
+            produce_discussion_mention_events(comment, mentions, slug)
 
         return comment
 
@@ -118,6 +120,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
         if mentions:
             send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
+            produce_discussion_mention_events(updated_instance, mentions, slug)
 
         return updated_instance
 
