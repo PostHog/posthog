@@ -54,7 +54,9 @@ describe('RecordingApi', () => {
             REDIS_URL: 'rediss://localhost:6379',
             REDIS_POOL_MIN_SIZE: 1,
             REDIS_POOL_MAX_SIZE: 10,
-            postgres: {} as any,
+            postgres: {
+                query: jest.fn().mockResolvedValue({ rows: [] }),
+            } as any,
         }
 
         mockKeyStore = {
@@ -408,6 +410,45 @@ describe('RecordingApi', () => {
 
             expect(mockKeyStore.deleteKey).toHaveBeenCalledWith('session-123', 1)
             expect(jsonMock).toHaveBeenCalledWith({ team_id: '1', session_id: 'session-123', status: 'deleted' })
+        })
+
+        it('should delete PostgreSQL records when key is deleted', async () => {
+            await recordingApi.start()
+            mockKeyStore.deleteKey.mockResolvedValue(true)
+
+            const { jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+            }
+
+            await (recordingApi as any).deleteRecording(mockReq, mockRes)
+
+            // Verify PostgreSQL queries were called for each table
+            const postgresQuery = mockHub.postgres!.query
+            expect(postgresQuery).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('ee_single_session_summary'),
+                [1, 'session-123'],
+                'deleteSessionSummary'
+            )
+            expect(postgresQuery).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_exportedrecording'),
+                [1, 'session-123'],
+                'deleteExportedRecording'
+            )
+            expect(postgresQuery).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_comment'),
+                [1, 'session-123'],
+                'deleteRecordingComments'
+            )
+            expect(postgresQuery).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_sessionrecording'),
+                [1, 'session-123'],
+                'deleteSessionRecording'
+            )
         })
 
         it('should return 404 when key not found', async () => {

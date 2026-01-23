@@ -15,6 +15,7 @@ import {
     PluginServerService,
     RedisPool,
 } from '../types'
+import { PostgresUse } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { logger } from '../utils/logger'
 import { getBlockDecryptor } from './decryptor'
@@ -290,6 +291,7 @@ export class RecordingApi {
             logger.debug('[RecordingApi] deleteKey result', { team_id, session_id, deleted })
             if (deleted) {
                 await this.emitDeletionEvent(session_id, parseInt(team_id))
+                await this.deletePostgresRecords(session_id, parseInt(team_id))
                 res.json({ team_id, session_id, status: 'deleted' })
             } else {
                 res.status(404).json({ error: 'Recording key not found' })
@@ -327,6 +329,52 @@ export class RecordingApi {
         await this.metadataStore.storeSessionBlocks([deletionMetadata])
 
         logger.info('[RecordingApi] Deletion event emitted to Kafka', {
+            session_id: sessionId,
+            team_id: teamId,
+        })
+    }
+
+    private async deletePostgresRecords(sessionId: string, teamId: number): Promise<void> {
+        logger.debug('[RecordingApi] Deleting PostgreSQL records', {
+            session_id: sessionId,
+            team_id: teamId,
+        })
+
+        // Delete session summaries (EE feature)
+        await this.hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM ee_single_session_summary WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteSessionSummary'
+        )
+
+        // Delete exported recordings
+        await this.hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_exportedrecording WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteExportedRecording'
+        )
+
+        // Delete comments scoped to this recording
+        // Note: scope='Replay' is the display name, but stored as 'recording' in the database
+        await this.hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = $2`,
+            [teamId, sessionId],
+            'deleteRecordingComments'
+        )
+
+        // Delete the main session recording record
+        // This will CASCADE delete: SessionRecordingViewed, SessionRecordingExternalReference, SessionRecordingPlaylistItem
+        await this.hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_sessionrecording WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteSessionRecording'
+        )
+
+        logger.info('[RecordingApi] PostgreSQL records deleted', {
             session_id: sessionId,
             team_id: teamId,
         })
