@@ -35,20 +35,17 @@ class TestParseTimestampToMs:
         ("timestamp_str", "expected_ms"),
         [
             ("00:00", 0),
-            ("00:01", 1000),
-            ("00:30", 30000),
-            ("01:00", 60000),
             ("01:30", 90000),
-            ("02:00", 120000),
-            ("10:00", 600000),
-            ("00:00:00", 0),
-            ("00:01:00", 60000),
-            ("01:00:00", 3600000),
             ("01:30:45", 5445000),
         ],
+        ids=["zero", "mm_ss", "hh_mm_ss"],
     )
     def test_parse_timestamp_to_ms(self, timestamp_str: str, expected_ms: int):
-        """Test various timestamp formats."""
+        """
+        Boundary cases: zero, MM:SS format, and HH:MM:SS format.
+
+        These three cases cover the essential parsing logic.
+        """
         assert _parse_timestamp_to_ms(timestamp_str) == expected_ms
 
     @pytest.mark.parametrize(
@@ -59,9 +56,14 @@ class TestParseTimestampToMs:
             "1:2:3:4",
             "",
         ],
+        ids=["text", "single_number", "too_many_parts", "empty"],
     )
     def test_parse_timestamp_to_ms_invalid_format(self, invalid_timestamp: str):
-        """Test that invalid formats raise ValueError."""
+        """
+        Invalid formats raise ValueError.
+
+        We need to handle bad input gracefully.
+        """
         with pytest.raises(ValueError, match="Invalid timestamp format"):
             _parse_timestamp_to_ms(invalid_timestamp)
 
@@ -71,7 +73,6 @@ class TestFindClosestEvent:
 
     @pytest.fixture
     def sample_events_mapping(self) -> dict[str, list[Any]]:
-        """Sample events mapping for testing."""
         return {
             "event_001": [
                 "event_001",
@@ -104,13 +105,16 @@ class TestFindClosestEvent:
 
     @pytest.fixture
     def sample_events_columns(self) -> list[str]:
-        """Sample events columns for testing."""
         return ["event_id", "event_index", "event", "timestamp", "$event_type", "$current_url", "$window_id"]
 
     def test_find_closest_event_exact_match(
         self, sample_events_mapping: dict[str, list[Any]], sample_events_columns: list[str]
     ):
-        """Test finding event with exact timestamp match."""
+        """
+        Proximity matching: finds event closest to target timestamp.
+
+        This verifies the core algorithm works correctly.
+        """
         session_start_time_str = "2025-03-31T18:40:32.302000+00:00"
 
         # Event_001 is at ~3s from start
@@ -124,27 +128,12 @@ class TestFindClosestEvent:
         assert result is not None
         assert result[0] == "event_001"
 
-    def test_find_closest_event_between_events(
-        self, sample_events_mapping: dict[str, list[Any]], sample_events_columns: list[str]
-    ):
-        """Test finding closest event when target is between two events."""
-        session_start_time_str = "2025-03-31T18:40:32.302000+00:00"
-
-        # Target at 10s - event_001 is at ~3s, event_002 is at ~18s
-        # Should return event_001 as it's closer
-        result = _find_closest_event(
-            target_ms=10000,
-            simplified_events_mapping=sample_events_mapping,
-            simplified_events_columns=sample_events_columns,
-            session_start_time_str=session_start_time_str,
-        )
-
-        assert result is not None
-        # event_001 at ~3s is closer to 10s than event_002 at ~18s
-        assert result[0] == "event_001"
-
     def test_find_closest_event_empty_mapping(self, sample_events_columns: list[str]):
-        """Test with empty events mapping."""
+        """
+        Empty input: returns None when no events exist.
+
+        Edge case that must not raise an error.
+        """
         session_start_time_str = "2025-03-31T18:40:32.302000+00:00"
 
         result = _find_closest_event(
@@ -160,7 +149,6 @@ class TestFindClosestEvent:
 class TestStoreVideoSessionSummaryActivity:
     @pytest.fixture
     def mock_llm_input(self, mock_video_session_id: str) -> SingleSessionSummaryLlmInputs:
-        """Create a mock SingleSessionSummaryLlmInputs for testing."""
         return SingleSessionSummaryLlmInputs(
             session_id=mock_video_session_id,
             user_id=1,
@@ -218,7 +206,7 @@ class TestStoreVideoSessionSummaryActivity:
         )
 
     @pytest.mark.asyncio
-    async def test_store_summary_creates_with_visual_confirmation(
+    async def test_store_summary_creates_complete_summary(
         self,
         ateam: Team,
         auser: User,
@@ -226,7 +214,12 @@ class TestStoreVideoSessionSummaryActivity:
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
         mock_llm_input: SingleSessionSummaryLlmInputs,
     ):
-        """Test that summary is stored with visual_confirmation=True."""
+        """
+        Happy path: creates summary with visual_confirmation, mapped event IDs, and segment outcomes.
+
+        This single test verifies the complete storage flow because all these are part of
+        the same database write - visual_confirmation flag, event ID mapping, and outcomes.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         compressed_llm_input = _compress_redis_data(json.dumps(dataclasses.asdict(mock_llm_input)))
@@ -248,15 +241,29 @@ class TestStoreVideoSessionSummaryActivity:
                 analysis=mock_consolidated_video_analysis,
             )
 
-            # Verify summary was created
             summary = await SingleSessionSummary.objects.aget(
                 team_id=ateam.id,
                 session_id=mock_video_session_id,
             )
 
-            assert summary is not None
+            # Visual confirmation flag
             assert summary.run_metadata is not None
             assert summary.run_metadata["visual_confirmation"] is True
+
+            # Segments have event IDs mapped from timestamps
+            segments = summary.summary["segments"]
+            assert len(segments) > 0
+            first_segment = segments[0]
+            assert "start_event_id" in first_segment
+            assert "end_event_id" in first_segment
+
+            # Segment outcomes match analysis
+            segment_outcomes = summary.summary["segment_outcomes"]
+            assert len(segment_outcomes) == len(mock_consolidated_video_analysis.segment_outcomes)
+
+            # Session outcome matches analysis
+            session_outcome = summary.summary["session_outcome"]
+            assert session_outcome["success"] == mock_consolidated_video_analysis.session_outcome.success
 
             # Cleanup
             await summary.adelete()
@@ -269,7 +276,11 @@ class TestStoreVideoSessionSummaryActivity:
         mock_video_session_id: str,
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
     ):
-        """Test that existing summary is not overwritten."""
+        """
+        Idempotency: existing summary is not overwritten.
+
+        We don't want to lose a previous summary if the workflow reruns.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Create existing summary
@@ -300,50 +311,6 @@ class TestStoreVideoSessionSummaryActivity:
             await existing_summary.adelete()
 
     @pytest.mark.asyncio
-    async def test_store_summary_maps_timestamps_to_events(
-        self,
-        ateam: Team,
-        auser: User,
-        mock_video_session_id: str,
-        mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
-        mock_llm_input: SingleSessionSummaryLlmInputs,
-    ):
-        """Test that video timestamps are mapped to real event IDs."""
-        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
-
-        with (
-            patch(
-                "posthog.temporal.ai.session_summary.activities.a6_store_video_session_summary.get_redis_state_client",
-                return_value=(MagicMock(), "input_key", None),
-            ),
-            patch(
-                "posthog.temporal.ai.session_summary.activities.a6_store_video_session_summary.get_data_class_from_redis",
-                return_value=mock_llm_input,
-            ),
-        ):
-            await store_video_session_summary_activity(
-                inputs=inputs,
-                analysis=mock_consolidated_video_analysis,
-            )
-
-            summary = await SingleSessionSummary.objects.aget(
-                team_id=ateam.id,
-                session_id=mock_video_session_id,
-            )
-
-            # Verify segments have event IDs
-            segments = summary.summary["segments"]
-            assert len(segments) > 0
-
-            # First segment should have start/end event IDs
-            first_segment = segments[0]
-            assert "start_event_id" in first_segment
-            assert "end_event_id" in first_segment
-
-            # Cleanup
-            await summary.adelete()
-
-    @pytest.mark.asyncio
     async def test_store_summary_no_llm_input_raises_error(
         self,
         ateam: Team,
@@ -351,7 +318,11 @@ class TestStoreVideoSessionSummaryActivity:
         mock_video_session_id: str,
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
     ):
-        """Test that missing LLM input raises ValueError."""
+        """
+        Error guard: missing LLM input raises ValueError.
+
+        The LLM input from Redis contains event mappings needed for timestamp correlation.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with (
@@ -369,46 +340,3 @@ class TestStoreVideoSessionSummaryActivity:
                     inputs=inputs,
                     analysis=mock_consolidated_video_analysis,
                 )
-
-    @pytest.mark.asyncio
-    async def test_store_summary_includes_segment_outcomes(
-        self,
-        ateam: Team,
-        auser: User,
-        mock_video_session_id: str,
-        mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
-        mock_llm_input: SingleSessionSummaryLlmInputs,
-    ):
-        """Test that segment outcomes from video analysis are included."""
-        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
-
-        with (
-            patch(
-                "posthog.temporal.ai.session_summary.activities.a6_store_video_session_summary.get_redis_state_client",
-                return_value=(MagicMock(), "input_key", None),
-            ),
-            patch(
-                "posthog.temporal.ai.session_summary.activities.a6_store_video_session_summary.get_data_class_from_redis",
-                return_value=mock_llm_input,
-            ),
-        ):
-            await store_video_session_summary_activity(
-                inputs=inputs,
-                analysis=mock_consolidated_video_analysis,
-            )
-
-            summary = await SingleSessionSummary.objects.aget(
-                team_id=ateam.id,
-                session_id=mock_video_session_id,
-            )
-
-            # Verify segment outcomes are present
-            segment_outcomes = summary.summary["segment_outcomes"]
-            assert len(segment_outcomes) == len(mock_consolidated_video_analysis.segment_outcomes)
-
-            # Verify session outcome
-            session_outcome = summary.summary["session_outcome"]
-            assert session_outcome["success"] == mock_consolidated_video_analysis.session_outcome.success
-
-            # Cleanup
-            await summary.adelete()

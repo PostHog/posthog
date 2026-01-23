@@ -33,7 +33,11 @@ class TestUploadVideoToGeminiActivity:
         mock_exported_asset: ExportedAsset,
         mock_gemini_file_response: MagicMock,
     ):
-        """Test successful video upload to Gemini."""
+        """
+        Happy path: video upload succeeds and returns file URI with metadata.
+
+        This is the primary success scenario - file uploads immediately to ACTIVE state.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_client = MagicMock()
@@ -69,7 +73,11 @@ class TestUploadVideoToGeminiActivity:
         mock_gemini_processing_file_response: MagicMock,
         mock_gemini_file_response: MagicMock,
     ):
-        """Test that upload polls until file state becomes ACTIVE."""
+        """
+        Async polling behavior: upload waits for file to transition from PROCESSING to ACTIVE.
+
+        Gemini files API processes videos asynchronously, so we must poll until ready.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_client = MagicMock()
@@ -108,7 +116,11 @@ class TestUploadVideoToGeminiActivity:
         mock_exported_asset: ExportedAsset,
         mock_gemini_processing_file_response: MagicMock,
     ):
-        """Test that upload raises error after processing timeout."""
+        """
+        Timeout handling: raises error when file processing exceeds MAX_PROCESSING_WAIT_SECONDS.
+
+        We can't wait forever for Gemini to process - there's a reasonable timeout.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_client = MagicMock()
@@ -145,21 +157,36 @@ class TestUploadVideoToGeminiActivity:
                 await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)
 
     @pytest.mark.asyncio
-    async def test_upload_video_processing_failed(
+    @pytest.mark.parametrize(
+        ("state_name", "uri", "error_match"),
+        [
+            ("FAILED", None, "File processing failed"),
+            ("ACTIVE", None, "Uploaded file has no URI"),
+        ],
+        ids=["processing_failed", "no_uri"],
+    )
+    async def test_upload_video_handles_api_failures(
         self,
+        state_name: str,
+        uri: str | None,
+        error_match: str,
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
         mock_exported_asset: ExportedAsset,
     ):
-        """Test that upload raises error when Gemini file processing fails."""
+        """
+        API error handling: raises appropriate error for various Gemini API failure states.
+
+        Both FAILED state and missing URI indicate the upload didn't succeed properly.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         failed_file = MagicMock()
         failed_file.name = "files/abc123"
         failed_file.state = MagicMock()
-        failed_file.state.name = "FAILED"
-        failed_file.uri = None
+        failed_file.state.name = state_name
+        failed_file.uri = uri
 
         mock_client = MagicMock()
         mock_client.files.upload.return_value = failed_file
@@ -174,7 +201,7 @@ class TestUploadVideoToGeminiActivity:
                 return_value=120,
             ),
         ):
-            with pytest.raises(RuntimeError, match="File processing failed"):
+            with pytest.raises(RuntimeError, match=error_match):
                 await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)
 
     @pytest.mark.asyncio
@@ -184,7 +211,11 @@ class TestUploadVideoToGeminiActivity:
         auser: User,
         mock_video_session_id: str,
     ):
-        """Test that missing video content raises ValueError."""
+        """
+        Input validation: missing video content raises ValueError.
+
+        The asset must have actual video bytes to upload.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Create asset with no content
@@ -204,36 +235,3 @@ class TestUploadVideoToGeminiActivity:
                 await upload_video_to_gemini_activity(inputs, asset.id)
         finally:
             await asset.adelete()
-
-    @pytest.mark.asyncio
-    async def test_upload_video_no_uri_raises_error(
-        self,
-        ateam: Team,
-        auser: User,
-        mock_video_session_id: str,
-        mock_exported_asset: ExportedAsset,
-    ):
-        """Test that missing URI in response raises RuntimeError."""
-        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
-
-        active_but_no_uri = MagicMock()
-        active_but_no_uri.name = "files/abc123"
-        active_but_no_uri.state = MagicMock()
-        active_but_no_uri.state.name = "ACTIVE"
-        active_but_no_uri.uri = None  # No URI
-
-        mock_client = MagicMock()
-        mock_client.files.upload.return_value = active_but_no_uri
-
-        with (
-            patch(
-                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.RawGenAIClient",
-                return_value=mock_client,
-            ),
-            patch(
-                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.get_video_duration_s",
-                return_value=120,
-            ),
-        ):
-            with pytest.raises(RuntimeError, match="Uploaded file has no URI"):
-                await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)

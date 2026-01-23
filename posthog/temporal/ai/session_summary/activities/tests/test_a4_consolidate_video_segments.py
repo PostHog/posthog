@@ -5,7 +5,6 @@ This activity consolidates raw video segments into meaningful semantic segments 
 """
 
 import json
-from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -35,7 +34,11 @@ class TestConsolidateVideoSegmentsActivity:
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
         mock_gemini_consolidation_response: MagicMock,
     ):
-        """Test successful consolidation of raw video segments."""
+        """
+        Happy path: raw video segments are consolidated into semantic segments.
+
+        Verifies complete flow: LLM call, response parsing, and structured output.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_client = MagicMock()
@@ -65,7 +68,11 @@ class TestConsolidateVideoSegmentsActivity:
         auser: User,
         mock_video_session_id: str,
     ):
-        """Test that empty segment list raises ApplicationError."""
+        """
+        Guard clause: empty segment list raises ApplicationError.
+
+        Cannot consolidate nothing - this indicates an upstream failure.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         with pytest.raises(ApplicationError, match="No segments extracted"):
@@ -76,45 +83,60 @@ class TestConsolidateVideoSegmentsActivity:
             )
 
     @pytest.mark.asyncio
-    async def test_consolidate_segments_detects_issues(
+    @pytest.mark.parametrize(
+        ("exception_type", "success", "confusion", "abandonment"),
+        [
+            ("blocking", False, True, True),
+            ("non-blocking", True, False, False),
+        ],
+        ids=["blocking_exception", "non_blocking_exception"],
+    )
+    async def test_consolidate_segments_classifies_exceptions(
         self,
+        exception_type: str,
+        success: bool,
+        confusion: bool,
+        abandonment: bool,
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
-        """Test that consolidation correctly identifies exceptions, confusion, and abandonment."""
+        """
+        Exception classification: blocking vs non-blocking exceptions have different impacts.
+
+        Blocking exceptions indicate failures, while non-blocking are minor issues the user worked around.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
-        # Response indicating issues were detected
-        issue_response = {
+        response_data = {
             "segments": [
                 {
-                    "title": "Failed API configuration",
+                    "title": "Test segment",
                     "start_time": "00:00",
                     "end_time": "00:30",
-                    "description": "User tried to configure API but encountered errors",
-                    "success": False,
-                    "exception": "blocking",
-                    "confusion_detected": True,
-                    "abandonment_detected": True,
+                    "description": "Test description",
+                    "success": success,
+                    "exception": exception_type,
+                    "confusion_detected": confusion,
+                    "abandonment_detected": abandonment,
                 },
             ],
             "session_outcome": {
-                "success": False,
-                "description": "User failed to complete configuration due to errors",
+                "success": success,
+                "description": "Test outcome",
             },
             "segment_outcomes": [
                 {
                     "segment_index": 0,
-                    "success": False,
-                    "summary": "Configuration failed",
+                    "success": success,
+                    "summary": "Test summary",
                 },
             ],
         }
 
         mock_response = MagicMock()
-        mock_response.text = f"```json\n{json.dumps(issue_response)}\n```"
+        mock_response.text = json.dumps(response_data)
 
         mock_client = MagicMock()
         mock_client.models.generate_content = AsyncMock(return_value=mock_response)
@@ -129,57 +151,45 @@ class TestConsolidateVideoSegmentsActivity:
                 trace_id="test-trace-id",
             )
 
-            assert result.segments[0].exception == "blocking"
-            assert result.segments[0].confusion_detected is True
-            assert result.segments[0].abandonment_detected is True
-            assert result.session_outcome.success is False
+            assert result.segments[0].exception == exception_type
+            assert result.segments[0].success is success
+            assert result.segments[0].confusion_detected is confusion
+            assert result.segments[0].abandonment_detected is abandonment
+            assert result.session_outcome.success is success
 
     @pytest.mark.asyncio
-    async def test_consolidate_segments_json_parsing_from_markdown(
+    @pytest.mark.parametrize(
+        ("wrap_in_markdown",),
+        [
+            (True,),
+            (False,),
+        ],
+        ids=["with_markdown", "without_markdown"],
+    )
+    async def test_consolidate_segments_parses_json_formats(
         self,
+        wrap_in_markdown: bool,
         ateam: Team,
         auser: User,
         mock_video_session_id: str,
         mock_video_segment_outputs: list[VideoSegmentOutput],
         mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
     ):
-        """Test that JSON is correctly extracted from markdown code block."""
+        """
+        JSON extraction: handles both markdown-wrapped and raw JSON responses.
+
+        LLMs sometimes wrap JSON in markdown code blocks, sometimes they don't.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
-        # Response wrapped in markdown code block
+        json_content = json.dumps(mock_consolidated_video_analysis.model_dump())
+        if wrap_in_markdown:
+            response_text = f"```json\n{json_content}\n```"
+        else:
+            response_text = json_content
+
         mock_response = MagicMock()
-        mock_response.text = f"```json\n{json.dumps(mock_consolidated_video_analysis.model_dump())}\n```"
-
-        mock_client = MagicMock()
-        mock_client.models.generate_content = AsyncMock(return_value=mock_response)
-
-        with patch(
-            "posthog.temporal.ai.session_summary.activities.a4_consolidate_video_segments.genai.AsyncClient",
-            return_value=mock_client,
-        ):
-            result = await consolidate_video_segments_activity(
-                inputs=inputs,
-                raw_segments=mock_video_segment_outputs,
-                trace_id="test-trace-id",
-            )
-
-            assert isinstance(result, ConsolidatedVideoAnalysis)
-
-    @pytest.mark.asyncio
-    async def test_consolidate_segments_json_parsing_without_markdown(
-        self,
-        ateam: Team,
-        auser: User,
-        mock_video_session_id: str,
-        mock_video_segment_outputs: list[VideoSegmentOutput],
-        mock_consolidated_video_analysis: ConsolidatedVideoAnalysis,
-    ):
-        """Test that raw JSON (without markdown block) is also parsed correctly."""
-        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
-
-        # Raw JSON response without markdown
-        mock_response = MagicMock()
-        mock_response.text = json.dumps(mock_consolidated_video_analysis.model_dump())
+        mock_response.text = response_text
 
         mock_client = MagicMock()
         mock_client.models.generate_content = AsyncMock(return_value=mock_response)
@@ -204,7 +214,11 @@ class TestConsolidateVideoSegmentsActivity:
         mock_video_session_id: str,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
-        """Test that invalid JSON in response raises error."""
+        """
+        Parse error: invalid JSON in response raises JSONDecodeError.
+
+        We need valid JSON to construct the response - garbage in, error out.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         mock_response = MagicMock()
@@ -232,11 +246,15 @@ class TestConsolidateVideoSegmentsActivity:
         mock_video_session_id: str,
         mock_video_segment_outputs: list[VideoSegmentOutput],
     ):
-        """Test that missing required fields in response raises validation error."""
+        """
+        Schema validation: missing required fields in response raises ValidationError.
+
+        The response must conform to ConsolidatedVideoAnalysis schema.
+        """
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Response missing required fields
-        incomplete_response: dict[str, Any] = {
+        incomplete_response = {
             "segments": [],
             # Missing session_outcome and segment_outcomes
         }
@@ -257,60 +275,3 @@ class TestConsolidateVideoSegmentsActivity:
                     raw_segments=mock_video_segment_outputs,
                     trace_id="test-trace-id",
                 )
-
-    @pytest.mark.asyncio
-    async def test_consolidate_segments_with_non_blocking_exception(
-        self,
-        ateam: Team,
-        auser: User,
-        mock_video_session_id: str,
-        mock_video_segment_outputs: list[VideoSegmentOutput],
-    ):
-        """Test that non-blocking exceptions are correctly identified."""
-        inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
-
-        response_data = {
-            "segments": [
-                {
-                    "title": "Minor error during navigation",
-                    "start_time": "00:00",
-                    "end_time": "00:30",
-                    "description": "User saw a warning toast but continued normally",
-                    "success": True,
-                    "exception": "non-blocking",
-                    "confusion_detected": False,
-                    "abandonment_detected": False,
-                },
-            ],
-            "session_outcome": {
-                "success": True,
-                "description": "User completed their task despite minor warnings",
-            },
-            "segment_outcomes": [
-                {
-                    "segment_index": 0,
-                    "success": True,
-                    "summary": "Completed despite warning",
-                },
-            ],
-        }
-
-        mock_response = MagicMock()
-        mock_response.text = json.dumps(response_data)
-
-        mock_client = MagicMock()
-        mock_client.models.generate_content = AsyncMock(return_value=mock_response)
-
-        with patch(
-            "posthog.temporal.ai.session_summary.activities.a4_consolidate_video_segments.genai.AsyncClient",
-            return_value=mock_client,
-        ):
-            result = await consolidate_video_segments_activity(
-                inputs=inputs,
-                raw_segments=mock_video_segment_outputs,
-                trace_id="test-trace-id",
-            )
-
-            assert result.segments[0].exception == "non-blocking"
-            assert result.segments[0].success is True
-            assert result.session_outcome.success is True

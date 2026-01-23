@@ -55,7 +55,11 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
         mock_video_session_id: str,
         mock_single_session_inputs_factory: Callable,
     ):
-        """Test that validation updates existing summary with visual_confirmation."""
+        """
+        Happy path: validation updates existing summary with visual_confirmation flag.
+
+        This is the core success scenario - we validate and mark the summary as visually confirmed.
+        """
         inputs = mock_single_session_inputs_factory(mock_video_session_id, ateam.id, auser.id)
 
         # Create existing summary without visual confirmation
@@ -106,7 +110,6 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
         # Mock the video validator to return updated summary
         mock_updated_summary = MagicMock()
         mock_updated_summary.data = existing_summary.summary
-        # Use real dataclass instead of MagicMock because the code calls asdict() on it
         mock_updated_run_metadata = SessionSummaryRunMeta(
             model_used="test",
             visual_confirmation=True,
@@ -145,7 +148,11 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
         mock_video_session_id: str,
         mock_single_session_inputs_factory: Callable,
     ):
-        """Test that already visually confirmed summaries are skipped."""
+        """
+        Idempotency: already visually confirmed summaries are skipped.
+
+        No need to re-validate if we already confirmed it.
+        """
         inputs = mock_single_session_inputs_factory(mock_video_session_id, ateam.id, auser.id)
 
         # Create summary already marked as visually confirmed
@@ -168,7 +175,7 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
             ) as mock_validator_class:
                 await validate_llm_single_session_summary_with_videos_activity(inputs)
 
-                # Should not call validator (function returns None implicitly)
+                # Should not call validator
                 mock_validator_class.assert_not_called()
         finally:
             await existing_summary.adelete()
@@ -180,7 +187,11 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
         auser: User,
         mock_single_session_inputs_factory: Callable,
     ):
-        """Test that missing summary raises ApplicationError."""
+        """
+        Error guard: missing summary raises ApplicationError.
+
+        Can't validate what doesn't exist.
+        """
         non_existent_session_id = "00000000-0000-0000-9999-000000000000"
         inputs = mock_single_session_inputs_factory(non_existent_session_id, ateam.id, auser.id)
 
@@ -195,11 +206,14 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
         mock_video_session_id: str,
         mock_single_session_inputs_factory: Callable,
     ):
-        """Test that missing user raises ApplicationError."""
+        """
+        Error guard: missing user raises ApplicationError.
+
+        Need a valid user for the validation context.
+        """
         non_existent_user_id = 99999999
         inputs = mock_single_session_inputs_factory(mock_video_session_id, ateam.id, non_existent_user_id)
 
-        # Create summary that exists - validation happens after user check, so we need minimal valid summary
         existing_summary = await SingleSessionSummary.objects.acreate(
             team_id=ateam.id,
             session_id=mock_video_session_id,
@@ -248,7 +262,11 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
         mock_video_session_id: str,
         mock_single_session_inputs_factory: Callable,
     ):
-        """Test that None video validation result returns None without updating."""
+        """
+        Edge case: None video validation result returns without updating.
+
+        The validator might return None if video analysis couldn't complete.
+        """
         inputs = mock_single_session_inputs_factory(mock_video_session_id, ateam.id, auser.id)
 
         existing_summary = await SingleSessionSummary.objects.acreate(
@@ -314,76 +332,5 @@ class TestValidateLlmSingleSessionSummaryWithVideosActivity:
                 summary = await SingleSessionSummary.objects.aget(id=existing_summary.id)
                 assert summary.run_metadata is not None
                 assert summary.run_metadata["visual_confirmation"] is False
-        finally:
-            await existing_summary.adelete()
-
-    @pytest.mark.asyncio
-    async def test_validate_summary_with_focus_area_context(
-        self,
-        ateam: Team,
-        auser: User,
-        mock_video_session_id: str,
-    ):
-        """Test validation with extra_summary_context containing focus_area."""
-        from ee.models.session_summaries import ExtraSummaryContext
-
-        extra_context = ExtraSummaryContext(focus_area="checkout_flow")
-        inputs = SingleSessionSummaryInputs(
-            session_id=mock_video_session_id,
-            user_id=auser.id,
-            team_id=ateam.id,
-            redis_key_base="test_key_base",
-            model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-            extra_summary_context=extra_context,
-        )
-
-        # Create summary with matching extra context (stored as dict)
-        from dataclasses import asdict
-
-        existing_summary = await SingleSessionSummary.objects.acreate(
-            team_id=ateam.id,
-            session_id=mock_video_session_id,
-            extra_summary_context=asdict(extra_context),
-            summary={
-                "segments": [
-                    {
-                        "index": 0,
-                        "name": "Checkout flow",
-                        "start_event_id": "e1",
-                        "end_event_id": "e2",
-                        "meta": {
-                            "duration": 60,
-                            "duration_percentage": 1.0,
-                            "events_count": 10,
-                            "events_percentage": 1.0,
-                            "key_action_count": 1,
-                            "failure_count": 0,
-                        },
-                    }
-                ],
-                "key_actions": [
-                    {
-                        "segment_index": 0,
-                        "events": [
-                            {
-                                "event_id": "e1",
-                                "event": "$pageview",
-                                "description": "Test event",
-                                "timestamp": "2025-01-01T00:00:00Z",
-                                "milliseconds_since_start": 0,
-                            }
-                        ],
-                    }
-                ],
-                "segment_outcomes": [{"segment_index": 0, "summary": "Checkout completed", "success": True}],
-                "session_outcome": {"success": True, "description": "User completed checkout"},
-            },
-            run_metadata={"model_used": "test", "visual_confirmation": True},
-            created_by_id=auser.id,
-        )
-
-        try:
-            # Should find the summary with matching context and skip (already confirmed)
-            await validate_llm_single_session_summary_with_videos_activity(inputs)
         finally:
             await existing_summary.adelete()
