@@ -193,10 +193,8 @@ class EventDefinitionViewSet(
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
 
-        is_enterprise = EE_AVAILABLE
-
         event_definition_object_manager: Manager
-        if is_enterprise:
+        if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
 
             event_definition_object_manager = EnterpriseEventDefinition.objects
@@ -204,7 +202,7 @@ class EventDefinitionViewSet(
             event_definition_object_manager = EventDefinition.objects
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
-        if exclude_hidden and is_enterprise:
+        if exclude_hidden and EE_AVAILABLE:
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
 
         excluded_properties = self.request.GET.get("excluded_properties")
@@ -216,7 +214,7 @@ class EventDefinitionViewSet(
 
         sql = create_event_definitions_sql(
             event_type,
-            is_enterprise=is_enterprise,
+            is_enterprise=EE_AVAILABLE,
             conditions=search_query,
             order_expressions=order_expressions,
         )
