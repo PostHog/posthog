@@ -1,13 +1,11 @@
-from typing import cast
-
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
-from posthog.hogql.resolver import resolve_types
-from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+
+from posthog.settings import TEST
 
 
 def apply_events_predicate_pushdown(
@@ -48,44 +46,147 @@ class TableAliasPrefixRemover(CloningVisitor):
         )
 
 
-class EventsFieldCollector(TraversingVisitor):
-    """Collects database column names that reference direct database columns on a specific table.
+class LazyTypeDetector(TraversingVisitor):
+    """Detects any LazyJoinType or LazyTableType references in the AST.
 
-    Collects the actual database column names (not HogQL field names) so that the
-    inner subquery can select them without aliases. This ensures that column names
-    in the subquery match what the outer query expects.
+    This is used to check if a query can be safely modified by predicate pushdown.
+    If any field in the query references a lazy join, the pushdown would break
+    because the inner subquery won't have those joins.
+
+    Checks types on all typed nodes including Field, JoinExpr, Alias, and SelectQuery.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.found_lazy_type = False
+
+    def visit_field(self, node: ast.Field):
+        super().visit_field(node)
+        if node.type is not None and self._check_type_for_lazy(node.type):
+            self.found_lazy_type = True
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        super().visit_join_expr(node)
+        if node.type is not None and self._check_type_for_lazy(node.type):
+            self.found_lazy_type = True
+
+    def visit_alias(self, node: ast.Alias):
+        super().visit_alias(node)
+        if node.type is not None and self._check_type_for_lazy(node.type):
+            self.found_lazy_type = True
+
+    def _check_type_for_lazy(self, field_type: ast.Type) -> bool:
+        """Recursively check if a type contains lazy references."""
+        if isinstance(field_type, ast.LazyJoinType):
+            return True
+        if isinstance(field_type, ast.LazyTableType):
+            return True
+        if isinstance(field_type, ast.FieldType):
+            return self._check_table_type_for_lazy(field_type.table_type)
+        if isinstance(field_type, ast.PropertyType):
+            return self._check_type_for_lazy(field_type.field_type)
+        if isinstance(field_type, ast.SelectQueryAliasType):
+            # Check nested select query types for lazy references
+            if field_type.select_query_type is not None:
+                return self._check_select_query_type_for_lazy(field_type.select_query_type)
+        return False
+
+    def _check_table_type_for_lazy(self, table_type: ast.Type | None) -> bool:
+        """Check if a table type references a lazy join."""
+        if table_type is None:
+            return False
+        if isinstance(table_type, ast.LazyJoinType):
+            return True
+        if isinstance(table_type, ast.LazyTableType):
+            return True
+        if isinstance(table_type, ast.TableAliasType):
+            return self._check_table_type_for_lazy(table_type.table_type)
+        if isinstance(table_type, ast.SelectQueryAliasType):
+            if table_type.select_query_type is not None:
+                return self._check_select_query_type_for_lazy(table_type.select_query_type)
+        return False
+
+    def _check_select_query_type_for_lazy(self, query_type: ast.SelectQueryType) -> bool:
+        """Check if a select query type has lazy references in its tables."""
+        for table_type in query_type.tables.values():
+            if self._check_table_type_for_lazy(table_type):
+                return True
+        for table_type in query_type.anonymous_tables:
+            if self._check_table_type_for_lazy(table_type):
+                return True
+        return False
+
+
+class EventsFieldCollector(TraversingVisitor):
+    """Collects database columns that reference direct database columns on a specific table.
+
+    Collects both the database column names AND the resolved FieldTypes so that the
+    inner subquery can be built with proper types without calling resolve_types again.
 
     Also tracks whether any field references non-direct fields (like FieldTraversers)
-    which would prevent safe predicate pushdown.
+    or lazy joins which would prevent safe predicate pushdown.
     """
 
     def __init__(self, target_table: ast.TableType | ast.TableAliasType, context: HogQLContext):
         super().__init__()
         self.target_table = target_table
         self.context = context
-        # Collect database column names, not HogQL field names
-        self.database_columns: set[str] = set()
+        # Map of database column name -> FieldType (with resolved types from the AST)
+        self.collected_fields: dict[str, ast.FieldType] = {}
         self.has_non_direct_fields = False
+
+    @property
+    def database_columns(self) -> set[str]:
+        """For backward compatibility - returns just the column names."""
+        return set(self.collected_fields.keys())
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
         field_type = node.type
 
-        # Handle PropertyType which wraps a FieldType
+        # PropertyType represents property access like events.properties.$session_id
+        # After resolution, these may be converted to materialized column references
+        # which won't work after we wrap events in a subquery. Skip pushdown for safety.
         if isinstance(field_type, ast.PropertyType):
+            # Check if this property access is on our target table
+            if isinstance(field_type.field_type, ast.FieldType):
+                if self._matches_target_table(field_type.field_type.table_type):
+                    self.has_non_direct_fields = True
+                    return
             field_type = field_type.field_type
 
         if isinstance(field_type, ast.FieldType):
-            # Check if this field references our target table
             table_type = field_type.table_type
+
+            # If this field references a lazy join, we can't safely apply pushdown
+            # because the inner subquery won't have that join
+            # This catches cases like events.poe.distinct_id where the field has LazyJoinType
+            if self._type_references_lazy_join(table_type):
+                self.has_non_direct_fields = True
+                return
+
+            # Check if this field references our target table
             if self._matches_target_table(table_type):
                 db_column_name = self._get_database_column_name(field_type)
                 if db_column_name:
-                    self.database_columns.add(db_column_name)
+                    # Collect both the column name and its resolved FieldType
+                    self.collected_fields[db_column_name] = field_type
                 else:
                     # Found a non-direct field (FieldTraverser, etc.)
                     # This means predicate pushdown may break join conditions
                     self.has_non_direct_fields = True
+
+    def _type_references_lazy_join(self, table_type: ast.Type | None) -> bool:
+        """Check if a type references a lazy join anywhere in its chain."""
+        if table_type is None:
+            return False
+        if isinstance(table_type, ast.LazyJoinType):
+            return True
+        if isinstance(table_type, ast.TableAliasType):
+            return self._type_references_lazy_join(table_type.table_type)
+        if isinstance(table_type, ast.LazyTableType):
+            return True
+        return False
 
     def _get_database_column_name(self, field_type: ast.FieldType) -> str | None:
         """Get the database column name for a field, or None if not a direct database field."""
@@ -124,6 +225,41 @@ class EventsFieldCollector(TraversingVisitor):
         return table_type is self.target_table or unwrapped is target
 
 
+class TypeRewriter(CloningVisitor):
+    """Rewrites field types in an expression to reference a new table type.
+
+    Used when building the inner subquery to update WHERE clause field types
+    to reference the inner events table instead of the outer query's table.
+    """
+
+    def __init__(self, table_type: ast.TableType, columns_in_scope: dict[str, ast.FieldType]):
+        super().__init__()
+        self.table_type = table_type
+        self.columns_in_scope = columns_in_scope
+
+    def visit_field(self, node: ast.Field):
+        # Get the field name - for simple fields it's the first element,
+        # for table-qualified fields like ['events', 'timestamp'] it's the last element
+        if len(node.chain) == 1:
+            field_name = str(node.chain[0])
+        elif len(node.chain) == 2:
+            # Table-qualified: ['events', 'timestamp'] -> 'timestamp'
+            field_name = str(node.chain[1])
+        else:
+            # For longer chains, clone without modification
+            return ast.Field(chain=node.chain.copy(), type=node.type)
+
+        if field_name in self.columns_in_scope:
+            # Create a new field with updated type, using just the field name
+            return ast.Field(
+                chain=[field_name],
+                type=ast.FieldType(name=field_name, table_type=self.table_type),
+            )
+
+        # For other fields, clone with their original type
+        return ast.Field(chain=node.chain.copy(), type=node.type)
+
+
 class EventsPredicatePushdownTransform(TraversingVisitor):
     """
     Transform that pushes WHERE predicates into events subqueries.
@@ -135,21 +271,37 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     The transform replaces the events table reference with a subquery
     containing the pushed-down predicates:
     FROM events -> FROM (SELECT <needed_columns> FROM events WHERE <predicates>) AS events
+
+    IMPORTANT: Only applies to TOP-LEVEL queries, not nested subqueries.
+    Nested subqueries (created by lazy table resolution) have complex type
+    relationships that can break if modified.
     """
 
     def __init__(self, context: HogQLContext, dialect: HogQLDialect = "clickhouse"):
         super().__init__()
         self.context = context
         self.dialect = dialect
+        self._nesting_depth = 0  # Track query nesting
 
     def visit_select_query(self, node: ast.SelectQuery):
-        # First visit children (subqueries)
-        super().visit_select_query(node)
+        # Track nesting depth for debugging/testing
+        self._nesting_depth += 1
+        try:
+            # Check if this query is eligible for predicate pushdown
+            # This includes checking for lazy types that would break pushdown
+            if not self._should_apply_pushdown(node):
+                return
 
-        # Check if this query is eligible for predicate pushdown
-        if not self._should_apply_pushdown(node):
-            return
+            # First visit children (subqueries) - pushdown applied bottom-up
+            super().visit_select_query(node)
 
+            # Apply the pushdown transformation
+            self._apply_pushdown(node)
+        finally:
+            self._nesting_depth -= 1
+
+    def _apply_pushdown(self, node: ast.SelectQuery) -> None:
+        """Apply predicate pushdown to an eligible query."""
         assert node.select_from is not None
         assert node.where is not None
 
@@ -186,28 +338,11 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         inner_where = TableAliasPrefixRemover(alias_to_remove=table_alias).visit(inner_where)
         inner_where = clone_expr(inner_where, clear_types=True)
 
-        # Add team_id filter for security and performance
-        subquery_where = self._add_team_id_filter(inner_where)
-
-        # Build SELECT list with only the needed columns (not SELECT *)
-        select_fields = self._build_select_fields(needed_columns)
-
-        # Create inner subquery with explicit columns
-        events_subquery = ast.SelectQuery(
-            select=select_fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=subquery_where,
-        )
-
-        # Resolve types for the subquery - now safe because we're selecting
-        # specific database columns, not SELECT * which expands to include lazy columns
-        events_subquery = cast(
-            ast.SelectQuery,
-            resolve_types(events_subquery, self.context, self.dialect, []),
-        )
-
-        # Also resolve lazy tables in case any of the columns trigger lazy joins
-        resolve_lazy_tables(events_subquery, self.dialect, [], self.context)
+        # Build the subquery with proper types manually (without calling resolve_types)
+        # This avoids the issue where resolve_types tries to resolve HogQL abstract columns
+        # which may include lazy joins, when we only want raw database columns
+        # Note: team_id filter is added inside _build_typed_subquery
+        events_subquery = self._build_typed_subquery(needed_columns, inner_where)
 
         # Replace the events table with the subquery
         # Preserve the original alias (e.g., "e" from "FROM events AS e")
@@ -226,9 +361,16 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         )
 
     def _should_apply_pushdown(self, node: ast.SelectQuery) -> bool:
-        """Check if this query is eligible for predicate pushdown."""
+        """Check if this query is eligible for predicate pushdown.
+
+        Applies to any query where:
+        - FROM events (directly, not a subquery)
+        - Has WHERE clause
+        - Has joins (lazy or explicit)
+        """
         return (
-            node.select_from is not None
+            (self.context.modifiers.pushDownPredicates or (self.context.modifiers.pushDownPredicates is None and TEST))
+            and node.select_from is not None
             and node.select_from.sample is None  # No SAMPLE clause
             and isinstance(node.select_from.table, ast.Field)
             and node.select_from.table.chain == ["events"]
@@ -248,15 +390,12 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
 
     def _collect_needed_columns(
         self, node: ast.SelectQuery, events_table_type: ast.TableType | ast.TableAliasType
-    ) -> set[str] | None:
+    ) -> dict[str, ast.FieldType] | None:
         """
-        Walk the outer query and collect database column names that reference the events table.
+        Walk the outer query and collect database columns that reference the events table.
 
-        Collects actual database column names (not HogQL field names) so that the
-        inner subquery can select them without aliases.
-
-        Returns None if the query uses non-direct fields (like FieldTraversers) which
-        would break join conditions after predicate pushdown.
+        Returns a dict mapping database column names to their resolved FieldTypes,
+        or None if the query cannot safely be transformed.
 
         This includes fields from:
         - SELECT clause
@@ -264,6 +403,13 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         - GROUP BY, ORDER BY, HAVING
         - JOIN constraints (e.g., $session_id for session join ON clause)
         """
+        # First check if the query has any lazy type references that weren't fully resolved
+        # These would cause errors after we modify the FROM clause
+        lazy_detector = LazyTypeDetector()
+        lazy_detector.visit(node)
+        if lazy_detector.found_lazy_type:
+            return None
+
         collector = EventsFieldCollector(events_table_type, self.context)
         collector.visit(node)
 
@@ -272,22 +418,103 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if collector.has_non_direct_fields:
             return None
 
-        return collector.database_columns
+        return collector.collected_fields
 
     def _build_select_fields(self, columns: set[str]) -> list[ast.Expr]:
         """Build untyped Field nodes for the needed columns."""
         # Sort for deterministic output
         return [ast.Field(chain=[col_name]) for col_name in sorted(columns)]
 
-    def _add_team_id_filter(self, inner_where: ast.Expr) -> ast.Expr:
-        """Add team_id filter to the pushdown predicate."""
+    def _build_typed_subquery(
+        self, collected_fields: dict[str, ast.FieldType], where_clause: ast.Expr
+    ) -> ast.SelectQuery:
+        """Build a subquery using the already-resolved types from the outer query.
+
+        Uses the collected FieldTypes to build the subquery, avoiding the need to
+        call resolve_types which might resolve HogQL abstract columns to lazy joins.
+        """
+        # Get the inner table type by unwrapping any alias from the collected fields
+        # All fields should reference the same underlying table
+        inner_table_type: ast.TableType | None = None
+        for field_type in collected_fields.values():
+            table_type = field_type.table_type
+            # Unwrap TableAliasType to get the underlying TableType
+            while isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
+            if isinstance(table_type, ast.TableType):
+                inner_table_type = table_type
+                break
+
+        if inner_table_type is None:
+            # Fallback: this shouldn't happen for valid events queries
+            raise ValueError("Could not determine inner table type from collected fields")
+
+        # Build typed Field nodes for each column, wrapped in Alias to ensure
+        # the column names are preserved even if PropertySwapper transforms the inner expression
+        select_fields: list[ast.Expr] = []
+        columns_in_scope: dict[str, ast.FieldType] = {}
+
+        for col_name in sorted(collected_fields.keys()):
+            # Create a FieldType that references the inner table directly (not aliased)
+            field_type = ast.FieldType(name=col_name, table_type=inner_table_type)
+
+            # Create the typed Field node wrapped in an Alias to preserve the column name
+            field_node = ast.Field(chain=[col_name], type=field_type)
+            alias_node = ast.Alias(alias=col_name, expr=field_node, type=field_type)
+            select_fields.append(alias_node)
+
+            # Track for the SelectQueryType
+            columns_in_scope[col_name] = field_type
+
+        # Add team_id to SELECT and add team_id filter to WHERE
+        where_clause = self._add_team_id_filter(where_clause, inner_table_type, columns_in_scope, select_fields)
+
+        # Create the JoinExpr for FROM events
+        events_field = ast.Field(chain=["events"], type=inner_table_type)
+        select_from = ast.JoinExpr(table=events_field, type=inner_table_type)
+
+        # Build the SelectQueryType
+        select_query_type = ast.SelectQueryType(
+            columns=columns_in_scope,
+            tables={"events": inner_table_type},
+        )
+
+        # Type the WHERE clause fields to reference the inner table
+        where_clause = TypeRewriter(inner_table_type, columns_in_scope).visit(where_clause)
+
+        # Create the subquery
+        return ast.SelectQuery(
+            select=select_fields,
+            select_from=select_from,
+            where=where_clause,
+            type=select_query_type,
+        )
+
+    def _add_team_id_filter(
+        self,
+        inner_where: ast.Expr,
+        inner_table_type: ast.TableType,
+        columns_in_scope: dict[str, ast.FieldType],
+        select_fields: list[ast.Expr],
+    ) -> ast.Expr:
+        """Add team_id filter to the pushdown predicate with proper typing.
+
+        Also adds team_id to the SELECT fields and columns_in_scope.
+        """
         if self.context.team_id is None:
             return inner_where
 
-        # Create team_id filter without types - resolve_types will handle typing
+        # Create typed team_id field
+        team_id_field_type = ast.FieldType(name="team_id", table_type=inner_table_type)
+        columns_in_scope["team_id"] = team_id_field_type
+
+        # Add team_id to SELECT fields if not already there
+        if "team_id" not in {str(f.chain[0]) for f in select_fields if isinstance(f, ast.Field) and f.chain}:
+            select_fields.append(ast.Field(chain=["team_id"], type=team_id_field_type))
+
         team_id_filter = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["team_id"]),
-            right=ast.Constant(value=self.context.team_id),
+            left=ast.Field(chain=["team_id"], type=team_id_field_type),
+            right=ast.Constant(value=self.context.team_id, type=ast.IntegerType()),
         )
         return ast.And(exprs=[team_id_filter, inner_where])
