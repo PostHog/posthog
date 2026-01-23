@@ -2095,6 +2095,34 @@ export const environmentsIntegrationsGoogleConversionActionsRetrieve = async (
     )
 }
 
+export type environmentsIntegrationsJiraRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsIntegrationsJiraRetrieveResponseSuccess = environmentsIntegrationsJiraRetrieveResponse200 & {
+    headers: Headers
+}
+export type environmentsIntegrationsJiraRetrieveResponse = environmentsIntegrationsJiraRetrieveResponseSuccess
+
+export const getEnvironmentsIntegrationsJiraRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/environments/${projectId}/integrations/${id}/jira_projects/`
+}
+
+export const environmentsIntegrationsJiraRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<environmentsIntegrationsJiraRetrieveResponse> => {
+    return apiMutator<environmentsIntegrationsJiraRetrieveResponse>(
+        getEnvironmentsIntegrationsJiraRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export type environmentsIntegrationsLinearTeamsRetrieveResponse200 = {
     data: void
     status: 200
@@ -6725,6 +6753,31 @@ export const integrationsGoogleConversionActionsRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export type integrationsJiraProjectsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type integrationsJiraProjectsRetrieveResponseSuccess = integrationsJiraProjectsRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsJiraProjectsRetrieveResponse = integrationsJiraProjectsRetrieveResponseSuccess
+
+export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
+}
+
+export const integrationsJiraProjectsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<integrationsJiraProjectsRetrieveResponse> => {
+    return apiMutator<integrationsJiraProjectsRetrieveResponse>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export type integrationsLinearTeamsRetrieveResponse200 = {
