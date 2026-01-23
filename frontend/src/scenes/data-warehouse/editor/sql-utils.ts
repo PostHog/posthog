@@ -2,6 +2,11 @@ export const normalizeIdentifier = (identifier: string): string => {
     return identifier.replace(/^[`"']|[`"']$/g, '').toLowerCase()
 }
 
+export const escapeIdentifier = (identifier: string): string => {
+    const escaped = identifier.replace(/`/g, '``')
+    return `\`${escaped}\``
+}
+
 const parseSelectedColumns = (selectedColumns: string): string[] => {
     return selectedColumns
         .split(',')
@@ -15,7 +20,9 @@ export const buildQueryForColumnClick = (
     columnName: string
 ): string => {
     const limitOffsetClause = currentQuery ? extractLimitOffsetClause(currentQuery) : null
-    const baseQuery = `select ${columnName} from ${tableName} ${limitOffsetClause ?? 'limit 100'}`
+    const escapedTable = escapeIdentifier(tableName)
+    const escapedColumn = escapeIdentifier(columnName)
+    const baseQuery = `select ${escapedColumn} from ${escapedTable} ${limitOffsetClause ?? 'limit 100'}`
 
     if (!currentQuery) {
         return baseQuery
@@ -33,7 +40,7 @@ export const buildQueryForColumnClick = (
         return baseQuery
     }
 
-    let columns = parseSelectedColumns(selectedColumnsRaw)
+    let columns = parseSelectedColumns(selectedColumnsRaw).map(normalizeIdentifier)
     const normalizedColumnName = normalizeIdentifier(columnName)
     const isStarOnly = columns.length === 1 && columns[0] === '*'
 
@@ -43,19 +50,20 @@ export const buildQueryForColumnClick = (
         columns = columns.filter((column) => column !== '*')
     }
 
-    const existingIndex = columns.findIndex((column) => normalizeIdentifier(column) === normalizedColumnName)
+    const existingIndex = columns.findIndex((column) => column === normalizedColumnName)
 
     if (existingIndex >= 0) {
         columns.splice(existingIndex, 1)
     } else {
-        columns.push(columnName)
+        columns.push(normalizedColumnName)
     }
 
     if (columns.length === 0) {
         columns = ['*']
     }
 
-    return `select ${columns.join(', ')} from ${tableName} ${limitOffsetClause ?? 'limit 100'}`
+    const escapedColumns = columns.map((col) => (col === '*' ? col : escapeIdentifier(col)))
+    return `select ${escapedColumns.join(', ')} from ${escapedTable} ${limitOffsetClause ?? 'limit 100'}`
 }
 
 const normalizeKeywordSpacing = (query: string): string => {
