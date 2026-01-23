@@ -15,7 +15,10 @@ use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
-use crate::metrics_const::REBALANCE_CHECKPOINT_IMPORT_COUNTER;
+use crate::metrics_const::{
+    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_RESUME_PARTITIONS_FILTERED,
+    REBALANCE_RESUME_SKIPPED_ALL_REVOKED,
+};
 use crate::store_manager::StoreManager;
 
 /// Rebalance handler that coordinates store cleanup and partition workers
@@ -93,6 +96,22 @@ where
             metrics::counter!(
                 REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                 "result" => "cancelled",
+            )
+            .increment(1);
+            return;
+        }
+
+        // Skip if partition was revoked during async setup (it's in pending_cleanup)
+        if self.pending_cleanup.contains(partition) {
+            info!(
+                topic = partition.topic(),
+                partition = partition.partition_number(),
+                "Skipping store creation - partition was revoked during async setup"
+            );
+            metrics::counter!(
+                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                "result" => "skipped",
+                "reason" => "partition_revoked",
             )
             .increment(1);
             return;
@@ -411,15 +430,43 @@ where
             return Ok(());
         }
 
-        // All stores are now ready - resume partitions (gather complete)
+        // Filter out partitions that were revoked during async setup
+        // (they're in pending_cleanup, meaning they were revoked and shouldn't be resumed)
+        let owned_partitions: Vec<&Partition> = partition_infos
+            .iter()
+            .filter(|p| !self.pending_cleanup.contains(*p))
+            .collect();
+
+        let filtered_count = partition_infos.len() - owned_partitions.len();
+        if filtered_count > 0 {
+            info!(
+                filtered_count = filtered_count,
+                remaining_count = owned_partitions.len(),
+                "Filtered revoked partitions from Resume command"
+            );
+            metrics::counter!(REBALANCE_RESUME_PARTITIONS_FILTERED)
+                .increment(filtered_count as u64);
+        }
+
+        // If all partitions were revoked, skip sending Resume entirely
+        if owned_partitions.is_empty() {
+            info!("All assigned partitions were revoked during async setup - skipping resume");
+            metrics::counter!(REBALANCE_RESUME_SKIPPED_ALL_REVOKED).increment(1);
+            return Ok(());
+        }
+
+        // Build TopicPartitionList from owned partitions only
+        let mut resume_tpl = TopicPartitionList::new();
+        for p in &owned_partitions {
+            resume_tpl.add_partition(p.topic(), p.partition_number());
+        }
+
         info!(
             "All {} stores ready - sending resume command to consumer",
-            partition_infos.len()
+            owned_partitions.len()
         );
 
-        // Clone the partitions for the resume command
-        let resume_partitions = partitions.clone();
-        if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_partitions)) {
+        if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_tpl)) {
             error!("Failed to send resume command after store setup: {}", e);
             return Err(anyhow::anyhow!("Failed to send resume command: {}", e));
         }
@@ -1019,6 +1066,137 @@ mod tests {
         assert!(
             rx.try_recv().is_err(),
             "Should NOT have received a Resume command when cancelled"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resume_filters_revoked_partitions() {
+        // Test that async_setup_assigned_partitions filters out partitions
+        // that were revoked during async setup (are in pending_cleanup)
+        let temp_dir = TempDir::new().unwrap();
+        let store_config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        let store_manager = Arc::new(StoreManager::new(store_config));
+        let offset_tracker = Arc::new(OffsetTracker::new());
+
+        let handler: ProcessorRebalanceHandler<String, TestProcessor> =
+            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
+
+        // Create command channel
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // Assign partitions 0, 1, 2
+        let mut partitions = rdkafka::TopicPartitionList::new();
+        partitions
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        partitions
+            .add_partition_offset("test-topic", 1, Offset::Beginning)
+            .unwrap();
+        partitions
+            .add_partition_offset("test-topic", 2, Offset::Beginning)
+            .unwrap();
+
+        handler.setup_assigned_partitions(&partitions);
+
+        // Simulate partition 1 being revoked during async setup
+        // (add it to pending_cleanup as would happen in setup_revoked_partitions)
+        let mut revoked = rdkafka::TopicPartitionList::new();
+        revoked
+            .add_partition_offset("test-topic", 1, Offset::Beginning)
+            .unwrap();
+        handler.setup_revoked_partitions(&revoked);
+
+        // Now do async setup - should filter out partition 1 from Resume
+        handler
+            .async_setup_assigned_partitions(&partitions, &tx)
+            .await
+            .unwrap();
+
+        // Check that Resume command was sent with only partitions 0 and 2
+        let command = rx.try_recv().expect("Should have received a command");
+        match command {
+            ConsumerCommand::Resume(resume_partitions) => {
+                assert_eq!(
+                    resume_partitions.count(),
+                    2,
+                    "Resume command should only contain non-revoked partitions (0 and 2)"
+                );
+                // Verify the specific partitions
+                let elements = resume_partitions.elements();
+                let partition_nums: Vec<i32> = elements.iter().map(|e| e.partition()).collect();
+                assert!(
+                    partition_nums.contains(&0),
+                    "Partition 0 should be in Resume"
+                );
+                assert!(
+                    partition_nums.contains(&2),
+                    "Partition 2 should be in Resume"
+                );
+                assert!(
+                    !partition_nums.contains(&1),
+                    "Partition 1 should NOT be in Resume (was revoked)"
+                );
+            }
+        }
+
+        // Verify only stores for partitions 0 and 2 were created
+        // (partition 1 was revoked, so its store was unregistered)
+        assert!(
+            store_manager.get("test-topic", 0).is_some(),
+            "Store for partition 0 should exist"
+        );
+        assert!(
+            store_manager.get("test-topic", 1).is_none(),
+            "Store for partition 1 should NOT exist (was revoked)"
+        );
+        assert!(
+            store_manager.get("test-topic", 2).is_some(),
+            "Store for partition 2 should exist"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resume_skipped_when_all_partitions_revoked() {
+        // Test that Resume is skipped entirely when all assigned partitions
+        // were revoked during async setup
+        let temp_dir = TempDir::new().unwrap();
+        let store_config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        let store_manager = Arc::new(StoreManager::new(store_config));
+        let offset_tracker = Arc::new(OffsetTracker::new());
+
+        let handler: ProcessorRebalanceHandler<String, TestProcessor> =
+            ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
+
+        // Create command channel
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // Assign partition 0
+        let mut partitions = rdkafka::TopicPartitionList::new();
+        partitions
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+
+        handler.setup_assigned_partitions(&partitions);
+
+        // Revoke partition 0 (simulating it being reassigned to another consumer)
+        handler.setup_revoked_partitions(&partitions);
+
+        // Now do async setup - should skip Resume entirely
+        handler
+            .async_setup_assigned_partitions(&partitions, &tx)
+            .await
+            .unwrap();
+
+        // Should NOT have received a Resume command (all partitions were revoked)
+        assert!(
+            rx.try_recv().is_err(),
+            "Should NOT have received a Resume command when all partitions were revoked"
         );
     }
 }

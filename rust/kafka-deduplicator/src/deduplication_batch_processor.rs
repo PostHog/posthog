@@ -365,8 +365,9 @@ impl BatchDeduplicationProcessor {
         partition: i32,
         events: Vec<&RawEvent>,
     ) -> Result<Vec<DeduplicationResult>> {
-        // Get the store for this partition
-        let store = self.store_manager.get_or_create(topic, partition).await?;
+        // Get the store for this partition - must already exist (created during rebalance)
+        // If store doesn't exist, partition was likely revoked and messages should be dropped
+        let store = self.store_manager.get_store(topic, partition)?;
 
         // Create metrics helper for this partition
         let metrics = MetricsHelper::with_partition(topic, partition)
@@ -829,6 +830,13 @@ mod tests {
     async fn test_batch_deduplication_all_new_events() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -876,6 +884,13 @@ mod tests {
     async fn test_batch_deduplication_with_timestamp_duplicates() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -921,6 +936,13 @@ mod tests {
     async fn test_batch_deduplication_mixed_batch() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -968,6 +990,13 @@ mod tests {
     async fn test_batch_deduplication_events_without_uuid() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1009,6 +1038,13 @@ mod tests {
     async fn test_batch_deduplication_large_batch() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1069,6 +1105,13 @@ mod tests {
     async fn test_batch_deduplication_only_uuid_different() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1122,6 +1165,13 @@ mod tests {
     async fn test_batch_deduplication_within_same_batch() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
