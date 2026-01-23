@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from fastapi import HTTPException
+
 from llm_gateway.config import get_settings
 
 
@@ -40,11 +42,28 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,
         allow_api_keys=True,
     ),
+    "growth": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,
+        allow_api_keys=True,
+    ),
 }
+
+
+ALLOWED_PRODUCTS: Final[frozenset[str]] = frozenset(PRODUCTS.keys())
 
 
 def get_product_config(product: str) -> ProductConfig | None:
     return PRODUCTS.get(product)
+
+
+def validate_product(product: str) -> str:
+    if product not in ALLOWED_PRODUCTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid product '{product}'. Allowed products: {', '.join(sorted(ALLOWED_PRODUCTS))}",
+        )
+    return product
 
 
 def check_product_access(
