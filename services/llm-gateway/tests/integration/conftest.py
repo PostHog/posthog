@@ -17,6 +17,41 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 TEST_POSTHOG_API_KEY = "phx_fake_personal_api_key"
 
+MOCK_MODEL_COSTS = {
+    "gpt-4o": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 128000,
+        "supports_vision": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.000005,
+        "output_cost_per_token": 0.000015,
+    },
+    "gpt-4o-mini": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 128000,
+        "supports_vision": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.00000015,
+        "output_cost_per_token": 0.0000006,
+    },
+    "claude-3-5-sonnet-20241022": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.000003,
+        "output_cost_per_token": 0.000015,
+    },
+    "gemini-2.0-flash": {
+        "litellm_provider": "vertex_ai",
+        "max_input_tokens": 1048576,
+        "supports_vision": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.000000075,
+        "output_cost_per_token": 0.0000003,
+    },
+}
+
 
 def get_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -46,6 +81,7 @@ def create_mock_db_pool():
 @contextmanager
 def run_gateway_server(configure_all_providers: bool = False):
     from llm_gateway.config import get_settings
+    from llm_gateway.rate_limiting.model_cost_service import ModelCostService
     from llm_gateway.services.model_registry import ModelRegistryService
 
     mock_db_pool = create_mock_db_pool()
@@ -64,28 +100,34 @@ def run_gateway_server(configure_all_providers: bool = False):
     with patch.dict(os.environ, env_patches):
         get_settings.cache_clear()
         ModelRegistryService.reset_instance()
-        with patch("llm_gateway.main.init_db_pool", return_value=mock_db_pool):
-            with patch("llm_gateway.main.close_db_pool", return_value=None):
-                from llm_gateway.main import create_app
+        ModelCostService.reset_instance()
+        with patch(
+            "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
+            return_value=MOCK_MODEL_COSTS,
+        ):
+            with patch("llm_gateway.main.init_db_pool", return_value=mock_db_pool):
+                with patch("llm_gateway.main.close_db_pool", return_value=None):
+                    from llm_gateway.main import create_app
 
-                app = create_app()
-                app.state.db_pool = mock_db_pool
+                    app = create_app()
+                    app.state.db_pool = mock_db_pool
 
-                config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-                server = uvicorn.Server(config)
+                    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+                    server = uvicorn.Server(config)
 
-                thread = threading.Thread(target=server.run, daemon=True)
-                thread.start()
+                    thread = threading.Thread(target=server.run, daemon=True)
+                    thread.start()
 
-                time.sleep(0.5)
+                    time.sleep(0.5)
 
-                try:
-                    yield f"http://127.0.0.1:{port}"
-                finally:
-                    server.should_exit = True
-                    thread.join(timeout=2)
-                    get_settings.cache_clear()
-                    ModelRegistryService.reset_instance()
+                    try:
+                        yield f"http://127.0.0.1:{port}"
+                    finally:
+                        server.should_exit = True
+                        thread.join(timeout=2)
+                        get_settings.cache_clear()
+                        ModelRegistryService.reset_instance()
+                        ModelCostService.reset_instance()
 
 
 @pytest.fixture

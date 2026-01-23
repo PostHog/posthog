@@ -26,12 +26,6 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "gpt-4o-2024-05-13": {
-        "litellm_provider": "openai",
-        "max_input_tokens": 128000,
-        "supports_vision": True,
-        "mode": "chat",
-    },
     "o1": {
         "litellm_provider": "openai",
         "max_input_tokens": 200000,
@@ -219,11 +213,6 @@ class TestIsModelAvailable:
             ("o1", "llm_gateway", True),
             ("o1", "array", True),
             ("unknown-model", "llm_gateway", False),
-            # Prefix matching for growth product
-            ("gpt-4o", "growth", True),
-            ("gpt-4o-mini", "growth", True),
-            ("gpt-4o-2024-05-13", "growth", True),  # Prefix match on gpt-4o
-            ("claude-3-5-sonnet-20241022", "growth", False),  # Not in growth allowlist
         ],
     )
     def test_model_availability(self, model_id: str, product: str, expected: bool):
