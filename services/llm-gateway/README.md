@@ -144,20 +144,6 @@ Errors follow OpenAI's format:
 | 429    | Rate limit exceeded                         |
 | 504    | Request timeout                             |
 
-## Configuration
-
-Environment variables (prefix `LLM_GATEWAY_`):
-
-| Variable            | Description                            |
-| ------------------- | -------------------------------------- |
-| `DATABASE_URL`      | PostgreSQL connection URL (required)   |
-| `REDIS_URL`         | Redis URL for rate limiting (optional) |
-| `ANTHROPIC_API_KEY` | Anthropic API key                      |
-| `OPENAI_API_KEY`    | OpenAI API key                         |
-| `GEMINI_API_KEY`    | Google Gemini API key                  |
-| `POSTHOG_API_KEY`   | PostHog API key for analytics          |
-| `POSTHOG_HOST`      | PostHog host URL                       |
-
 ## Internal Django integration
 
 For calling from PostHog Django:
@@ -165,10 +151,10 @@ For calling from PostHog Django:
 ```python
 from posthog.llm.gateway_client import get_llm_client
 
-client = get_llm_client(team_id=team.id)
+client = get_llm_client()
 response = client.chat.completions.create(
-    model="gpt-5-mini",  # or any supported model
+    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic or Gemini model
     messages=[...],
-    user=request.user.distinct_id,  # Always pass for attribution
+    user=request.user.distinct_id,  # user for analytics and rate limiting
 )
 ```

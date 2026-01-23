@@ -5,9 +5,7 @@ from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 
 
-def make_user(
-    user_id: int = 1, team_id: int = 1, auth_method: str = "oauth_access_token"
-) -> AuthenticatedUser:
+def make_user(user_id: int = 1, team_id: int = 1, auth_method: str = "oauth_access_token") -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=user_id,
         team_id=team_id,
