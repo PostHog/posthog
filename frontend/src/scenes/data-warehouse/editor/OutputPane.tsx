@@ -3,7 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
@@ -12,7 +12,6 @@ import {
     IconDownload,
     IconExpand45,
     IconGear,
-    IconGraph,
     IconMinus,
     IconPlus,
     IconShare,
@@ -21,6 +20,8 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -295,6 +296,18 @@ export function OutputPane(): JSX.Element {
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
+    const resultsPaneRef = useRef<HTMLDivElement>(null)
+    const resultsPaneResizerProps = useMemo<ResizerLogicProps>(
+        () => ({
+            containerRef: resultsPaneRef,
+            logicKey: 'sql-editor-results-pane',
+            placement: 'bottom',
+            persistent: true,
+        }),
+        []
+    )
+    const { desiredSize: resultsPaneDesiredSize } = useValues(resizerLogic(resultsPaneResizerProps))
+
     const response = dataNodeResponse as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
@@ -449,193 +462,213 @@ export function OutputPane(): JSX.Element {
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
             <div className="flex flex-col flex-1 min-h-0">
-                <CollapsibleSection
-                    title="Visualization"
-                    isOpen={isVisualizationOpen}
-                    onToggle={() => setIsVisualizationOpen((prev) => !prev)}
-                    headerClassName="border-b bg-bg-light dark:bg-black"
-                    contentClassName="flex-1 min-h-0"
-                    actions={
-                        <>
-                            {showLegacyFilters && (
-                                <DateRange
-                                    key="date-range"
-                                    query={sourceQuery.source}
-                                    setQuery={(query) => {
-                                        setSourceQuery({
-                                            ...sourceQuery,
-                                            source: query,
-                                        })
-                                        runQuery(query.query)
-                                    }}
-                                />
-                            )}
-                            <div className="flex flex-wrap gap-2 items-center">
-                                <TableDisplay disabledReason={!hasColumns ? 'No results to visualize' : undefined} />
-                                <LemonButton
-                                    disabledReason={!hasColumns ? 'No results to visualize' : undefined}
-                                    type="secondary"
-                                    icon={<IconGear />}
-                                    onClick={() => toggleChartSettingsPanel()}
-                                    tooltip="Visualization settings"
-                                />
-                                {editingInsight && (
-                                    <LemonButton
-                                        disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
-                                        type="primary"
-                                        onClick={() => updateInsight()}
-                                        id="sql-editor-update-insight"
-                                        sideAction={{
-                                            dropdown: {
-                                                placement: 'bottom-end',
-                                                overlay: (
-                                                    <LemonMenuOverlay
-                                                        items={[
-                                                            {
-                                                                label: 'Save as...',
-                                                                onClick: () => saveAsInsight(),
-                                                            },
-                                                        ]}
-                                                    />
-                                                ),
-                                            },
-                                        }}
-                                    >
-                                        Save insight
-                                    </LemonButton>
-                                )}
-                                {!editingInsight && (
-                                    <LemonButton
-                                        disabledReason={!hasColumns ? 'No results to save' : undefined}
-                                        type="primary"
-                                        onClick={() => saveAsInsight()}
-                                        id="sql-editor-save-insight"
-                                    >
-                                        Save insight
-                                    </LemonButton>
-                                )}
-                            </div>
-                        </>
+                <div
+                    className={clsx(
+                        'relative flex flex-col min-h-0',
+                        isResultsOpen && !resultsPaneDesiredSize && 'flex-1'
+                    )}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={
+                        isResultsOpen && resultsPaneDesiredSize ? { height: `${resultsPaneDesiredSize}px` } : undefined
                     }
+                    ref={resultsPaneRef}
                 >
-                    <div className="flex flex-1 relative bg-dark min-h-[240px]">
-                        <Content
-                            activeTab={OutputTab.Visualization}
-                            responseError={responseError}
-                            responseLoading={responseLoading}
-                            response={response}
-                            sourceQuery={sourceQuery}
-                            queryCancelled={queryCancelled}
-                            columns={columns}
-                            rows={rows}
-                            isDarkModeOn={isDarkModeOn}
-                            vizKey={vizKey}
-                            setSourceQuery={setSourceQuery}
-                            saveAsInsight={saveAsInsight}
-                            queryId={queryId}
-                            pollResponse={pollResponse}
-                            setProgress={setProgress}
-                            progress={queryId ? progressCache[queryId] : undefined}
-                        />
-                    </div>
-                </CollapsibleSection>
-                <CollapsibleSection
-                    title="Results"
-                    isOpen={isResultsOpen}
-                    onToggle={() => setIsResultsOpen((prev) => !prev)}
-                    headerClassName="border-b bg-bg-light dark:bg-black"
-                    contentClassName="flex-1 min-h-0"
-                    actions={
-                        <>
-                            <LemonButton
-                                disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
-                                type="secondary"
-                                onClick={() => setIsVisualizationOpen(true)}
-                                id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
-                                icon={<IconGraph />}
-                            >
-                                {editingInsight ? 'View insight' : 'Create insight'}
-                            </LemonButton>
-                            <LemonMenu
-                                items={Object.values(copyMap).map(({ label, copyFn }) => ({
-                                    label,
-                                    onClick: () => {
-                                        if (response?.columns && rows.length > 0) {
-                                            const dataTableRows = transformDataTableToDataTableRows(
-                                                rows,
-                                                response.columns
-                                            )
-                                            const query = createDataTableQuery()
-                                            copyFn(dataTableRows, response.columns, query)
+                    <CollapsibleSection
+                        title="Results"
+                        isOpen={isResultsOpen}
+                        onToggle={() => setIsResultsOpen((prev) => !prev)}
+                        headerClassName="border-b bg-bg-light dark:bg-black"
+                        contentClassName="flex-1"
+                        className="h-full flex flex-col"
+                        actions={
+                            <>
+                                <LemonMenu
+                                    items={Object.values(copyMap).map(({ label, copyFn }) => ({
+                                        label,
+                                        onClick: () => {
+                                            if (response?.columns && rows.length > 0) {
+                                                const dataTableRows = transformDataTableToDataTableRows(
+                                                    rows,
+                                                    response.columns
+                                                )
+                                                const query = createDataTableQuery()
+                                                copyFn(dataTableRows, response.columns, query)
+                                            }
+                                        },
+                                    }))}
+                                    placement="bottom-end"
+                                >
+                                    <LemonButton
+                                        id="sql-editor-copy-dropdown"
+                                        disabledReason={
+                                            !response?.columns || !rows.length ? 'No results to copy' : undefined
                                         }
-                                    },
-                                }))}
-                                placement="bottom-end"
-                            >
-                                <LemonButton
-                                    id="sql-editor-copy-dropdown"
-                                    disabledReason={
-                                        !response?.columns || !rows.length ? 'No results to copy' : undefined
-                                    }
-                                    type="secondary"
-                                    icon={<IconCopy />}
-                                />
-                            </LemonMenu>
-                            {exportContext && (
-                                <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
-                                    <ExportButton
-                                        id="sql-editor-export"
-                                        disabledReason={!hasColumns ? 'No results to export' : undefined}
                                         type="secondary"
-                                        icon={<IconDownload />}
-                                        sideIcon={null}
-                                        buttonCopy=""
-                                        items={[
-                                            {
-                                                export_format: ExporterFormat.CSV,
-                                                export_context: exportContext,
-                                            },
-                                            {
-                                                export_format: ExporterFormat.XLSX,
-                                                export_context: exportContext,
-                                            },
-                                        ]}
+                                        icon={<IconCopy />}
+                                        size="small"
+                                    />
+                                </LemonMenu>
+                                {exportContext && (
+                                    <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
+                                        <ExportButton
+                                            id="sql-editor-export"
+                                            disabledReason={!hasColumns ? 'No results to export' : undefined}
+                                            type="secondary"
+                                            icon={<IconDownload />}
+                                            sideIcon={null}
+                                            buttonCopy=""
+                                            size="small"
+                                            items={[
+                                                {
+                                                    export_format: ExporterFormat.CSV,
+                                                    export_context: exportContext,
+                                                },
+                                                {
+                                                    export_format: ExporterFormat.XLSX,
+                                                    export_context: exportContext,
+                                                },
+                                            ]}
+                                        />
+                                    </Tooltip>
+                                )}
+                                <Tooltip title="Share your current query">
+                                    <LemonButton
+                                        id="sql-editor-share"
+                                        disabledReason={!queryInput && 'No query to share'}
+                                        type="secondary"
+                                        icon={<IconShare />}
+                                        onClick={() => shareTab()}
+                                        size="small"
                                     />
                                 </Tooltip>
-                            )}
-                            <Tooltip title="Share your current query">
-                                <LemonButton
-                                    id="sql-editor-share"
-                                    disabledReason={!queryInput && 'No query to share'}
-                                    type="secondary"
-                                    icon={<IconShare />}
-                                    onClick={() => shareTab()}
-                                />
-                            </Tooltip>
-                        </>
-                    }
-                >
-                    <div className="flex flex-1 relative bg-dark min-h-[240px]">
-                        <Content
-                            activeTab={OutputTab.Results}
-                            responseError={responseError}
-                            responseLoading={responseLoading}
-                            response={response}
-                            sourceQuery={sourceQuery}
-                            queryCancelled={queryCancelled}
-                            columns={columns}
-                            rows={rows}
-                            isDarkModeOn={isDarkModeOn}
-                            vizKey={vizKey}
-                            setSourceQuery={setSourceQuery}
-                            saveAsInsight={saveAsInsight}
-                            queryId={queryId}
-                            pollResponse={pollResponse}
-                            setProgress={setProgress}
-                            progress={queryId ? progressCache[queryId] : undefined}
-                        />
-                    </div>
-                </CollapsibleSection>
+                            </>
+                        }
+                    >
+                        <div className="flex flex-1 relative bg-dark h-full">
+                            <Content
+                                activeTab={OutputTab.Results}
+                                responseError={responseError}
+                                responseLoading={responseLoading}
+                                response={response}
+                                sourceQuery={sourceQuery}
+                                queryCancelled={queryCancelled}
+                                columns={columns}
+                                rows={rows}
+                                isDarkModeOn={isDarkModeOn}
+                                vizKey={vizKey}
+                                setSourceQuery={setSourceQuery}
+                                saveAsInsight={saveAsInsight}
+                                queryId={queryId}
+                                pollResponse={pollResponse}
+                                setProgress={setProgress}
+                                progress={queryId ? progressCache[queryId] : undefined}
+                                exportContext={exportContext}
+                            />
+                        </div>
+                    </CollapsibleSection>
+                    {isResultsOpen && isVisualizationOpen && (
+                        <Resizer {...resultsPaneResizerProps} handleClassName="bg-transparent" />
+                    )}
+                </div>
+                <div className={clsx('flex flex-col min-h-0 h-full', isVisualizationOpen && 'flex-1')}>
+                    <CollapsibleSection
+                        title="Visualization"
+                        isOpen={isVisualizationOpen}
+                        onToggle={() => setIsVisualizationOpen((prev) => !prev)}
+                        headerClassName="border-b bg-bg-light dark:bg-black"
+                        contentClassName="flex-1"
+                        className="h-full flex flex-col"
+                        actions={
+                            <>
+                                {showLegacyFilters && (
+                                    <DateRange
+                                        key="date-range"
+                                        query={sourceQuery.source}
+                                        setQuery={(query) => {
+                                            setSourceQuery({
+                                                ...sourceQuery,
+                                                source: query,
+                                            })
+                                            runQuery(query.query)
+                                        }}
+                                    />
+                                )}
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <TableDisplay
+                                        disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                    />
+                                    <LemonButton
+                                        disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                        type="secondary"
+                                        icon={<IconGear />}
+                                        onClick={() => toggleChartSettingsPanel()}
+                                        tooltip="Visualization settings"
+                                        size="small"
+                                    />
+                                    {editingInsight && (
+                                        <LemonButton
+                                            disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
+                                            type="primary"
+                                            size="small"
+                                            onClick={() => updateInsight()}
+                                            id="sql-editor-update-insight"
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    overlay: (
+                                                        <LemonMenuOverlay
+                                                            items={[
+                                                                {
+                                                                    label: 'Save as...',
+                                                                    onClick: () => saveAsInsight(),
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ),
+                                                },
+                                            }}
+                                        >
+                                            Save insight
+                                        </LemonButton>
+                                    )}
+                                    {!editingInsight && (
+                                        <LemonButton
+                                            disabledReason={!hasColumns ? 'No results to save' : undefined}
+                                            type="primary"
+                                            size="small"
+                                            onClick={() => saveAsInsight()}
+                                            id="sql-editor-save-insight"
+                                        >
+                                            Save insight
+                                        </LemonButton>
+                                    )}
+                                </div>
+                            </>
+                        }
+                    >
+                        <div className="flex flex-1 relative bg-dark h-full">
+                            <Content
+                                activeTab={OutputTab.Visualization}
+                                responseError={responseError}
+                                responseLoading={responseLoading}
+                                response={response}
+                                sourceQuery={sourceQuery}
+                                queryCancelled={queryCancelled}
+                                columns={columns}
+                                rows={rows}
+                                isDarkModeOn={isDarkModeOn}
+                                vizKey={vizKey}
+                                setSourceQuery={setSourceQuery}
+                                saveAsInsight={saveAsInsight}
+                                queryId={queryId}
+                                pollResponse={pollResponse}
+                                setProgress={setProgress}
+                                progress={queryId ? progressCache[queryId] : undefined}
+                                exportContext={exportContext}
+                            />
+                        </div>
+                    </CollapsibleSection>
+                </div>
             </div>
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
@@ -777,6 +810,7 @@ const Content = ({
     pollResponse,
     setProgress,
     progress,
+    exportContext,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 

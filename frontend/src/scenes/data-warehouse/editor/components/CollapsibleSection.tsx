@@ -38,7 +38,7 @@ export function CollapsibleSection({
                 </button>
                 {actions ? <div className="flex items-center gap-2 flex-shrink-0">{actions}</div> : null}
             </div>
-            {isOpen ? <div className={clsx('min-h-0', contentClassName)}>{children}</div> : null}
+            {isOpen ? <div className={clsx(contentClassName)}>{children}</div> : null}
         </div>
     )
 }
