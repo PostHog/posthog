@@ -632,9 +632,9 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         return `NEW:${service}`
     }),
     path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', key]),
-    connect(() => ({
-        values: [teamLogic, ['timezone', 'weekStartDay']],
-    })),
+    connect({
+        values: [teamLogic, ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay']],
+    }),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
@@ -1064,7 +1064,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                 (values.configuration.interval === 'day' || values.configuration.interval === 'week') &&
                 !values.configuration.timezone
             ) {
-                const teamTz = teamLogic.findMounted()?.values.timezone || 'UTC'
+                const teamTz = values.teamTimezone || 'UTC'
                 actions.setConfigurationValue('timezone', teamTz)
             }
         },
@@ -1136,12 +1136,12 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                 if (value === 'day' || value === 'week') {
                     // if we didn't have a timezone set before, set it to the team's timezone
                     if (values.savedConfiguration.interval !== 'day' && values.savedConfiguration.interval !== 'week') {
-                        const teamTz = teamLogic.findMounted()?.values.timezone || 'UTC'
+                        const teamTz = values.teamTimezone || 'UTC'
                         actions.setConfigurationValue('timezone', teamTz)
                     }
                     // if changing to week, set the day of the week to the team's week start day
                     if (value === 'week') {
-                        const weekStartDay = teamLogic.findMounted()?.values.weekStartDay || 0
+                        const weekStartDay = values.teamWeekStartDay || 0
                         actions.setConfigurationValue('offset_day', weekStartDay)
                         actions.setConfigurationValue('offset_hour', 0)
                     }
