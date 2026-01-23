@@ -144,7 +144,7 @@ async def generate_and_save_generation_summary_activity(
             WHERE event = '$ai_generation'
                 AND timestamp >= toDateTime({start_dt})
                 AND timestamp < toDateTime({end_dt})
-                AND id = {generation_id}
+                AND uuid = {generation_id}
             LIMIT 1
             """
         )

@@ -48,7 +48,7 @@ async def query_generations_in_window_activity(inputs: BatchSummarizationInputs)
         query = parse_select(
             """
             SELECT
-                id as generation_id,
+                uuid as generation_id,
                 properties.$ai_trace_id as trace_id
             FROM events
             WHERE event = '$ai_generation'
