@@ -37,6 +37,7 @@ from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLDialect,
     HogQLGlobalSettings,
+    HogQLParserBackend,
     HogQLQuerySettings,
     LimitContext,
 )
@@ -3161,8 +3162,7 @@ class TestPrinter(BaseTest):
         result = self._select("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub", context)
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
-        
-        
+
     def test_final_keyword_not_supported(self):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL")
@@ -3171,7 +3171,6 @@ class TestPrinter(BaseTest):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
         self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
-
 
     @parameterized.expand(
         [
@@ -3212,7 +3211,7 @@ class TestPrinter(BaseTest):
         with self.assertRaises(QueryError) as ctx:
             self._expr("event::unsupported_type", backend="cpp-json")
         self.assertIn("Unsupported type cast", str(ctx.exception))
-  
+
 
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
