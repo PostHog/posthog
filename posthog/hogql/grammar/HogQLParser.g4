@@ -282,6 +282,7 @@ floatingLiteral
 numberLiteral: (PLUS | DASH)? (floatingLiteral | OCTAL_LITERAL | DECIMAL_LITERAL | HEXADECIMAL_LITERAL | INF | NAN_SQL);
 literal
     : numberLiteral
+    | ESCAPE_STRING_LITERAL
     | STRING_LITERAL
     | NULL_SQL
     ;

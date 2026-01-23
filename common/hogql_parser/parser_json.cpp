@@ -1987,6 +1987,13 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       json["value"] = parse_string_literal_ctx(string_literal_terminal);
       return json;
     }
+    if (const auto escape_string_literal_terminal = ctx->ESCAPE_STRING_LITERAL()) {
+      Json json = Json::object();
+      json["node"] = "Constant";
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["value"] = parse_escape_string_literal_ctx(escape_string_literal_terminal);
+      return json;
+    }
     return visitChildren(ctx);
   }
 

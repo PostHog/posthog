@@ -60,6 +60,21 @@ string parse_string_literal_ctx(antlr4::tree::TerminalNode* node) {
   }
 }
 
+string parse_escape_string_literal_ctx(antlr4::tree::TerminalNode* node) {
+  string text = node->getText();
+  if (text.size() < 3 || text[0] != 'E') {
+    throw SyntaxError("Invalid escape string literal, must start with E: " + text);
+  }
+  text = text.substr(1);
+  try {
+    return parse_string_literal_text(text);
+  } catch (SyntaxError& e) {
+    throw SyntaxError(e.what(), node->getSymbol()->getStartIndex(), node->getSymbol()->getStopIndex() + 1);
+  } catch (ParsingError& e) {
+    throw ParsingError(e.what(), node->getSymbol()->getStartIndex(), node->getSymbol()->getStopIndex() + 1);
+  }
+}
+
 string parse_string_text_ctx(antlr4::tree::TerminalNode* node, bool escape_quotes) {
   string text = node->getText();
   try {

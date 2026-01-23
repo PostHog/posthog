@@ -11,6 +11,8 @@ std::string parse_string_literal_text(std::string text);
 
 std::string parse_string_literal_ctx(antlr4::tree::TerminalNode* node);
 
+std::string parse_escape_string_literal_ctx(antlr4::tree::TerminalNode* node);
+
 std::string parse_string_text_ctx(antlr4::tree::TerminalNode* node, bool escape_quotes);
 
 std::string join(const std::vector<std::string>& tokens, const std::string& sep);
