@@ -271,6 +271,25 @@ class HogQLErrorListener(ErrorListener):
         raise SyntaxError(msg, start=start, end=len(self.query))
 
 
+POSTGRES_TYPE_TO_HOGQL_FUNCTION: dict[str, str] = {
+    "int": "toInt",
+    "integer": "toInt",
+    "int64": "toInt",
+    "float": "toFloat",
+    "float64": "toFloat",
+    "double": "toFloat",
+    "string": "toString",
+    "text": "toString",
+    "varchar": "toString",
+    "bool": "toBool",
+    "boolean": "toBool",
+    "date": "toDate",
+    "datetime": "toDateTime",
+    "timestamp": "toDateTime",
+    "uuid": "toUUID",
+}
+
+
 class HogQLParseTreeConverter(ParseTreeVisitor):
     def __init__(self, start: int | None = 0):
         super().__init__()
@@ -986,6 +1005,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         object = self.visit(ctx.columnExpr())
         property = ast.Constant(value=self.visit(ctx.identifier()))
         return ast.ArrayAccess(array=object, property=property, nullish=True)
+
+    def visitColumnExprPgCast(self, ctx: HogQLParser.ColumnExprPgCastContext):
+        return ast.PGCast(expr=self.visit(ctx.columnExpr()), to_type=self.visit(ctx.identifier()))
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         expr = self.visit(ctx.columnExpr(0))

@@ -2943,4 +2943,45 @@ def parser_test_factory(backend: HogQLParserBackend):
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
 
+        def test_postgres_style_cast(self):
+            if backend == "cpp":
+                return
+
+            # Basic integer cast
+            self.assertEqual(
+                self._expr("x::int"),
+                ast.PGCast(expr=ast.Field(chain=["x"]), to_type="int"),
+            )
+            # String literal cast
+            self.assertEqual(self._expr("'123'::int"), ast.PGCast(expr=ast.Constant(value="123"), to_type="int"))
+            # Different type names
+            self.assertEqual(self._expr("x::integer"), ast.PGCast(expr=ast.Field(chain=["x"]), to_type="integer"))
+            self.assertEqual(self._expr("x::text"), ast.PGCast(expr=ast.Field(chain=["x"]), to_type="text"))
+            self.assertEqual(self._expr("x::float"), ast.PGCast(expr=ast.Field(chain=["x"]), to_type="float"))
+            self.assertEqual(self._expr("x::boolean"), ast.PGCast(expr=ast.Field(chain=["x"]), to_type="boolean"))
+            # Case insensitivity
+            self.assertEqual(self._expr("x::INT"), ast.PGCast(expr=ast.Field(chain=["x"]), to_type="INT"))
+            self.assertEqual(self._expr("x::Text"), ast.PGCast(expr=ast.Field(chain=["x"]), to_type="Text"))
+            # Chained with property access (a.b becomes Field(chain=['a', 'b']) in HogQL)
+            self.assertEqual(
+                self._expr("a.b::int"),
+                ast.PGCast(expr=ast.Field(chain=["a", "b"]), to_type="int"),
+            )
+            # In arithmetic expression (verifies precedence)
+            self.assertEqual(
+                self._expr("x::int + 1"),
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add,
+                    left=ast.PGCast(expr=ast.Field(chain=["x"]), to_type="int"),
+                    right=ast.Constant(value=1),
+                ),
+            )
+
+        def test_postgres_style_cast_unknown_type(self):
+            if backend == "cpp":
+                return
+
+            with self.assertRaises(SyntaxError):
+                self._expr("x::unknown_type")
+
     return TestParser

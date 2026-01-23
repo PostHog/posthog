@@ -380,6 +380,10 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.left)
         self.visit(node.right)
 
+    def visit_pgcast(self, node: ast.PGCast):
+        self.visit(node.expr)
+        self.visit(node.to_type)
+
 
 class CloningVisitor(Visitor[Any]):
     """Visitor that traverses and clones the AST tree. Clears types."""
@@ -836,4 +840,13 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             set_operator=node.set_operator,
             select_query=self.visit(node.select_query),
+        )
+
+    def visit_pgcast(self, node: ast.PGCast):
+        return ast.PGCast(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            to_type=node.to_type,
         )

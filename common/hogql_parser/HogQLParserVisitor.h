@@ -203,6 +203,8 @@ public:
 
     virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *context) = 0;
 
+    virtual std::any visitColumnExprPgCast(HogQLParser::ColumnExprPgCastContext *context) = 0;
+
     virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *context) = 0;
 
     virtual std::any visitColumnExprTemplateString(HogQLParser::ColumnExprTemplateStringContext *context) = 0;
