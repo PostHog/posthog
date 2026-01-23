@@ -466,8 +466,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             # Track for the SelectQueryType
             columns_in_scope[col_name] = field_type
 
-        # Add team_id to SELECT and add team_id filter to WHERE
-        where_clause = self._add_team_id_filter(where_clause, inner_table_type, columns_in_scope, select_fields)
+        # Add team_id to SELECT (the filter is added by the printer)
+        # self._add_team_id_to_scope(inner_table_type, columns_in_scope, select_fields)
 
         # Create the JoinExpr for FROM events
         events_field = ast.Field(chain=["events"], type=inner_table_type)
@@ -490,31 +490,30 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             type=select_query_type,
         )
 
-    def _add_team_id_filter(
+    def _add_team_id_to_scope(
         self,
-        inner_where: ast.Expr,
         inner_table_type: ast.TableType,
         columns_in_scope: dict[str, ast.FieldType],
         select_fields: list[ast.Expr],
-    ) -> ast.Expr:
-        """Add team_id filter to the pushdown predicate with proper typing.
+    ) -> None:
+        """Add team_id to SELECT fields and columns_in_scope.
 
-        Also adds team_id to the SELECT fields and columns_in_scope.
+        The team_id filter itself is added by the printer, so we don't add it here.
+        We only ensure team_id is available in the subquery scope.
         """
         if self.context.team_id is None:
-            return inner_where
+            return
 
         # Create typed team_id field
         team_id_field_type = ast.FieldType(name="team_id", table_type=inner_table_type)
         columns_in_scope["team_id"] = team_id_field_type
 
         # Add team_id to SELECT fields if not already there
-        if "team_id" not in {str(f.chain[0]) for f in select_fields if isinstance(f, ast.Field) and f.chain}:
-            select_fields.append(ast.Field(chain=["team_id"], type=team_id_field_type))
-
-        team_id_filter = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["team_id"], type=team_id_field_type),
-            right=ast.Constant(value=self.context.team_id, type=ast.IntegerType()),
-        )
-        return ast.And(exprs=[team_id_filter, inner_where])
+        existing_cols = {
+            f.alias if isinstance(f, ast.Alias) else (str(f.chain[0]) if isinstance(f, ast.Field) and f.chain else None)
+            for f in select_fields
+        }
+        if "team_id" not in existing_cols:
+            field_node = ast.Field(chain=["team_id"], type=team_id_field_type)
+            alias_node = ast.Alias(alias="team_id", expr=field_node, type=team_id_field_type)
+            select_fields.append(alias_node)
