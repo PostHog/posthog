@@ -2,7 +2,7 @@ import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
+import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
@@ -18,8 +18,9 @@ import { StepViewMetrics } from './StepViewMetrics'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
-    const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId, startCopyingNode } = useActions(hogFlowEditorLogic)
+    const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted, selectedNodeCanBeCopiedOrMoved } =
+        useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
 
@@ -178,12 +179,21 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         <LemonMenu
                             items={[
                                 // Copying a node allows re-adding it elsewhere in the workflow
-                                selectedNodeCanBeDeleted
+                                selectedNodeCanBeCopiedOrMoved
                                     ? {
                                           label: 'Copy',
                                           icon: <IconCopy />,
                                           status: 'default',
                                           onClick: () => startCopyingNode(node),
+                                      }
+                                    : null,
+                                // Moving a node deletes the original and places it at a new location
+                                selectedNodeCanBeCopiedOrMoved
+                                    ? {
+                                          label: 'Move',
+                                          icon: <IconDrag />,
+                                          status: 'default',
+                                          onClick: () => startMovingNode(node),
                                       }
                                     : null,
                                 {

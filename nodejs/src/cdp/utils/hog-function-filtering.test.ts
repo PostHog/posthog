@@ -357,5 +357,40 @@ describe('hog-function-filtering', () => {
             // Should execute bytecode because properties filters are present
             expect(result.match).toBe(true)
         })
+
+        it('should match all events when event filter has id: null (All Events filter)', async () => {
+            // This is what the database contains when "All Events" is selected in the UI
+            mockHogFunction.filters = {
+                events: [{ id: null, name: 'All events', type: 'events', order: 0 }],
+                source: 'events',
+                actions: [],
+                bytecode: ['_H', 1, 29], // Bytecode that returns true
+            }
+
+            // Test with various event names - all should match
+            mockFilterGlobals.event = '$pageview'
+            let result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+            expect(result.match).toBe(true)
+
+            mockFilterGlobals.event = 'custom_event'
+            result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+            expect(result.match).toBe(true)
+
+            mockFilterGlobals.event = '$autocapture'
+            result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+            expect(result.match).toBe(true)
+        })
     })
 })

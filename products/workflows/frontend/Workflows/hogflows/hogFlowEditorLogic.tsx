@@ -121,6 +121,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         startCopyingNode: (node: HogFlowActionNode) => ({ node }),
         stopCopyingNode: true,
         copyNodeToHighlightedDropzone: true,
+        startMovingNode: (node: HogFlowActionNode) => ({ node }),
+        stopMovingNode: true,
+        moveNodeToHighlightedDropzone: true,
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
@@ -170,6 +173,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 startCopyingNode: () => true,
                 stopCopyingNode: () => false,
+            },
+        ],
+        isMovingNode: [
+            false,
+            {
+                startMovingNode: () => true,
+                stopMovingNode: () => false,
+            },
+        ],
+        movingNodeId: [
+            null as string | null,
+            {
+                startMovingNode: (_, { node }) => node.id,
+                stopMovingNode: () => null,
             },
         ],
         nodeToBeAdded: [
@@ -225,6 +242,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
 
                 return new Set(outgoingNodes.map((node) => node.id)).size === 1
+            },
+        ],
+        selectedNodeCanBeCopiedOrMoved: [
+            (s) => [s.selectedNode, s.selectedNodeCanBeDeleted],
+            (selectedNode, selectedNodeCanBeDeleted) => {
+                if (!selectedNodeCanBeDeleted) {
+                    return false
+                }
+
+                // Branching nodes cannot be copied or moved due to complex edge rewiring
+                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+                return !branchingTypes.includes(selectedNode?.data.type ?? '')
             },
         ],
     }),
@@ -435,11 +464,29 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
 
         showDropzones: () => {
-            const { nodes, edges } = values
+            const { nodes, edges, isMovingNode, movingNodeId } = values
 
             const dropzoneNodes: DropzoneNode[] = []
 
+            // When moving, find the single incoming and outgoing edges to skip
+            // (placing on these would result in the same position)
+            let skipEdgeIds: Set<string> = new Set()
+            if (isMovingNode && movingNodeId) {
+                const incomingEdges = edges.filter((e) => e.target === movingNodeId)
+                const outgoingEdges = edges.filter((e) => e.source === movingNodeId)
+                // Only skip if there's exactly one incoming and one outgoing edge
+                // (simple linear case where moving to adjacent edges is pointless)
+                if (incomingEdges.length === 1 && outgoingEdges.length === 1) {
+                    skipEdgeIds.add(incomingEdges[0].id)
+                    skipEdgeIds.add(outgoingEdges[0].id)
+                }
+            }
+
             edges.forEach((edge) => {
+                if (skipEdgeIds.has(edge.id)) {
+                    return
+                }
+
                 const sourceNode = nodes.find((n) => n.id === edge.source)
                 const targetNode = nodes.find((n) => n.id === edge.target)
 
@@ -672,10 +719,121 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // Clear moving node ID
             actions.stopCopyingNode()
         },
+        startMovingNode: () => {
+            actions.showDropzones()
+        },
+        stopMovingNode: () => {
+            actions.hideDropzones()
+        },
+        moveNodeToHighlightedDropzone: () => {
+            const nodeToMove = values.nodesById[values.movingNodeId!]
+            const actionData = nodeToMove.data
+
+            // Get the dropzone and edge info BEFORE deletion (edge IDs will change after deletion)
+            const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
+            if (!dropzoneNode) {
+                actions.stopMovingNode()
+                return
+            }
+
+            const targetEdge = dropzoneNode.data.edge
+            const isBranchJoinDropzone = dropzoneNode.data.isBranchJoinDropzone ?? false
+
+            // Capture edge characteristics that survive deletion (from, type, index don't change)
+            const edgeFrom = targetEdge.data?.edge.from
+            const edgeType = targetEdge.data?.edge.type
+            const edgeIndex = targetEdge.data?.edge.index
+            const edgeTargetBeforeDeletion = targetEdge.data?.edge.to
+
+            // Delete the original node (rewires edges around it)
+            actions.onNodesDelete([nodeToMove])
+
+            // Now find the corresponding edge in the updated workflow
+            // The edge's 'to' may have changed due to rewiring, but 'from', 'type', and 'index' remain the same
+            let edgesToBeReplacedIndexes: number[] = []
+
+            if (isBranchJoinDropzone) {
+                // For branch join, find all edges that now point to where the original target pointed
+                // After deletion, if the moved node was the target, edges now point to its outgoer
+                const newTarget =
+                    edgeTargetBeforeDeletion === nodeToMove.id
+                        ? values.workflow.edges.find((e) => e.from === edgeFrom && e.type === edgeType)?.to
+                        : edgeTargetBeforeDeletion
+                edgesToBeReplacedIndexes = values.workflow.edges
+                    .map((edge, index) => ({ edge, index }))
+                    .filter(({ edge }) => edge.to === newTarget)
+                    .map(({ index }) => index)
+            } else {
+                // Find the specific edge by from, type, and index (these don't change during rewiring)
+                edgesToBeReplacedIndexes = [
+                    values.workflow.edges.findIndex(
+                        (edge) => edge.from === edgeFrom && edge.type === edgeType && edge.index === edgeIndex
+                    ),
+                ]
+            }
+
+            if (edgesToBeReplacedIndexes.length === 0 || edgesToBeReplacedIndexes[0] === -1) {
+                console.error('Could not find edge to insert into after deletion')
+                actions.stopMovingNode()
+                return
+            }
+
+            // Create the new action with a new ID
+            const newAction = {
+                id: `action_${actionData.type}_${uuid()}`,
+                type: actionData.type,
+                name: actionData.name,
+                description: actionData.description,
+                config: actionData.config,
+                created_at: Date.now(),
+                updated_at: Date.now(),
+            } as HogFlowAction
+
+            // Build the new edges
+            const newEdges: HogFlow['edges'] = [...values.workflow.edges]
+            const edgesToBeReplaced = edgesToBeReplacedIndexes.map((index) => values.workflow.edges[index])
+
+            // Remove old edges (sort descending to avoid index shifting)
+            edgesToBeReplacedIndexes
+                .sort((a, b) => b - a)
+                .forEach((index) => {
+                    newEdges.splice(index, 1)
+                })
+
+            // Add edges from sources to new node
+            for (const edgeToBeReplaced of edgesToBeReplaced) {
+                newEdges.push({
+                    ...edgeToBeReplaced,
+                    to: newAction.id,
+                })
+            }
+
+            // Add continue edge from new node to original target
+            newEdges.push({
+                ...edgesToBeReplaced[0],
+                index: undefined,
+                type: 'continue',
+                from: newAction.id,
+            })
+
+            // Insert new action before exit node
+            const oldActions = values.workflow.actions
+            const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
+
+            actions.setWorkflowInfo({ actions: newActions, edges: newEdges })
+            actions.setSelectedNodeId(newAction.id)
+
+            // Clean up
+            actions.hideDropzones()
+            actions.stopMovingNode()
+        },
         handlePaneClick: () => {
             actions.setSelectedNodeId(null)
             if (values.isCopyingNode) {
                 actions.stopCopyingNode()
+            }
+            if (values.isMovingNode) {
+                actions.stopMovingNode()
             }
         },
     })),
@@ -726,8 +884,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     events(({ actions, values }) => ({
         afterMount: () => {
             const handleKeyDown = (e: KeyboardEvent): void => {
-                if (e.key === 'Escape' && values.isCopyingNode) {
-                    actions.stopCopyingNode()
+                if (e.key === 'Escape' && (values.isCopyingNode || values.isMovingNode)) {
+                    if (values.isCopyingNode) {
+                        actions.stopCopyingNode()
+                    } else {
+                        actions.stopMovingNode()
+                    }
                 }
             }
 
