@@ -42,7 +42,6 @@ pub struct JobInit {
     pub priority: i16,
     pub scheduled: DateTime<Utc>,
     pub function_id: Option<Uuid>,
-    pub parent_run_id: Option<String>,
     pub vm_state: Option<Bytes>,
     pub parameters: Option<Bytes>,
     pub blob: Option<Bytes>,
@@ -75,8 +74,7 @@ pub struct Job {
     pub scheduled: DateTime<Utc>,
 
     // Job data
-    pub parent_run_id: Option<String>, // Optional batch job ID for tracking batch workflows
-    pub vm_state: Option<Bytes>,       // The state of the VM this job is running on (if it exists)
+    pub vm_state: Option<Bytes>, // The state of the VM this job is running on (if it exists)
     pub metadata: Option<Bytes>, // Additional fields a worker can tack onto a job, for e.g. tracking some state across retries (or number of retries in general by a given class of worker)
     pub parameters: Option<Bytes>, // The actual parameters of the job (function args for a hog function, http request for a fetch function)
     pub blob: Option<Bytes>, // An additional, binary, parameter field (for things like fetch request body)
@@ -91,7 +89,6 @@ pub struct JobUpdate {
     pub queue_name: Option<String>,
     pub priority: Option<i16>,
     pub scheduled: Option<DateTime<Utc>>,
-    pub parent_run_id: Option<Option<String>>,
     pub vm_state: Option<Option<Bytes>>,
     pub metadata: Option<Option<Bytes>>,
     pub parameters: Option<Option<Bytes>>,
@@ -108,7 +105,6 @@ impl JobUpdate {
             queue_name: None,
             priority: None,
             scheduled: None,
-            parent_run_id: None,
             vm_state: None,
             metadata: None,
             parameters: None,
