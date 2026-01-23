@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0013_ticket_assignment"),
+        ("conversations", "0014_migrate_assigned_to_data"),
     ]
 
     operations = [

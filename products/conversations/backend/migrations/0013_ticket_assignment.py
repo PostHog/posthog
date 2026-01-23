@@ -7,28 +7,6 @@ from django.db import migrations, models
 import posthog.models.utils
 
 
-def migrate_assigned_to_forward(apps, schema_editor):
-    """Migrate existing assigned_to data to TicketAssignment table."""
-    Ticket = apps.get_model("conversations", "Ticket")
-    TicketAssignment = apps.get_model("conversations", "TicketAssignment")
-
-    for ticket in Ticket.objects.filter(assigned_to__isnull=False).iterator():
-        TicketAssignment.objects.create(
-            ticket_id=ticket.id,
-            user_id=ticket.assigned_to_id,
-            role_id=None,
-        )
-
-
-def migrate_assigned_to_reverse(apps, schema_editor):
-    """Reverse migration: copy TicketAssignment user back to assigned_to."""
-    Ticket = apps.get_model("conversations", "Ticket")
-    TicketAssignment = apps.get_model("conversations", "TicketAssignment")
-
-    for assignment in TicketAssignment.objects.filter(user__isnull=False).iterator():
-        Ticket.objects.filter(id=assignment.ticket_id).update(assigned_to_id=assignment.user_id)
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("conversations", "0012_backfill_ticket_message_stats"),
@@ -86,6 +64,4 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
-        # Migrate existing assigned_to data to new table
-        migrations.RunPython(migrate_assigned_to_forward, migrate_assigned_to_reverse),
     ]
