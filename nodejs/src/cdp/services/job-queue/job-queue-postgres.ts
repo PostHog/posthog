@@ -139,17 +139,6 @@ export class CyclotronJobQueuePostgres {
         )
     }
 
-    public async cancelInvocations(invocations: CyclotronJobInvocation[]) {
-        const worker = this.getCyclotronWorker()
-
-        await Promise.all(
-            invocations.map(async (item) => {
-                worker.updateJob(item.id, 'canceled')
-                return worker.releaseJob(item.id)
-            })
-        )
-    }
-
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         const worker = this.getCyclotronWorker()
         await Promise.all(
