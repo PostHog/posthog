@@ -603,7 +603,7 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                 {toolCallElements}
                                 {approvalCardElements}
                                 {multiQuestionFormElement}
-                                {actionsElement ?? <div className="h-[26px]" />}
+                                {actionsElement}
                             </div>
                         )
                     } else if (
