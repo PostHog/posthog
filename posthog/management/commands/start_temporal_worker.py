@@ -357,6 +357,19 @@ class Command(BaseCommand):
             default=settings.TEMPORAL_HEALTH_MAX_IDLE_SECONDS,
             help="Maximum seconds without workflow/activity execution before unhealthy",
         )
+        parser.add_argument(
+            "--enable-metric-server",
+            action="store_true",
+            dest="enable_metric_server",
+            default=settings.TEMPORAL_ENABLE_METRIC_SERVER,
+            help="Enable the combined metrics server (default: enabled)",
+        )
+        parser.add_argument(
+            "--no-enable-metric-server",
+            action="store_false",
+            dest="enable_metric_server",
+            help="Disable the combined metrics server (useful for workers with GIL contention)",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -374,6 +387,7 @@ class Command(BaseCommand):
         target_cpu_usage = options.get("target_cpu_usage", None)
         health_port = options.get("health_port", None)
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
+        enable_metric_server = options["enable_metric_server"]
 
         try:
             workflows = list(WORKFLOWS_DICT[task_queue])
@@ -445,6 +459,7 @@ class Command(BaseCommand):
                 target_cpu_usage=target_cpu_usage,
                 health_port=health_port,
                 health_max_idle_seconds=health_max_idle_seconds,
+                enable_metric_server=enable_metric_server,
             )
             logger.info("Starting Temporal Worker")
 
@@ -471,6 +486,7 @@ class Command(BaseCommand):
                     use_pydantic_converter=use_pydantic_converter,
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
+                    enable_metric_server=enable_metric_server,
                 )
             )
 
