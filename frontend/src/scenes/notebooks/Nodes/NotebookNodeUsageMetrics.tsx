@@ -60,7 +60,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 onClick: loadData,
             },
         ])
-    }, [setActions, loadData, toggleEditing, openModal])
+    }, [setActions, loadData, toggleEditing])
 
     if (!expanded) {
         return null
