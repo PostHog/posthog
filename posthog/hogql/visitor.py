@@ -380,7 +380,7 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.left)
         self.visit(node.right)
 
-    def visit_pgcast(self, node: ast.PGCast):
+    def visit_type_cast(self, node: ast.TypeCast):
         self.visit(node.expr)
 
 
@@ -841,8 +841,8 @@ class CloningVisitor(Visitor[Any]):
             select_query=self.visit(node.select_query),
         )
 
-    def visit_pgcast(self, node: ast.PGCast):
-        return ast.PGCast(
+    def visit_type_cast(self, node: ast.TypeCast):
+        return ast.TypeCast(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,

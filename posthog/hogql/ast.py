@@ -29,8 +29,8 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 
 
 @dataclass(kw_only=True)
-class PGCast(Expr):
-    """A Postgres type cast expression."""
+class TypeCast(Expr):
+    """A type cast expression."""
 
     expr: Expr
     type_name: str

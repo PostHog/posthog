@@ -1476,12 +1476,12 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
-  VISIT(ColumnExprPgCast) {
+  VISIT(ColumnExprTypeCast) {
     Json expr_json = visitAsJSON(ctx->columnExpr());
     string type_name = to_lower_copy(visitAsString(ctx->identifier()));
 
     Json json = Json::object();
-    json["node"] = "PGCast";
+    json["node"] = "TypeCast";
     if (!is_internal) addPositionInfo(json, ctx);
     json["expr"] = expr_json;
     json["type_name"] = type_name;

@@ -3192,7 +3192,7 @@ class TestPrinter(BaseTest):
     def test_postgres_style_cast_unsupported_type(self):
         with self.assertRaises(QueryError) as ctx:
             self._expr("event::unsupported_type", backend="cpp-json")
-        self.assertIn("Unsupported Postgres type cast", str(ctx.exception))
+        self.assertIn("Unsupported type cast", str(ctx.exception))
 
 
 @snapshot_clickhouse_queries

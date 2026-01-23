@@ -1532,6 +1532,17 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprTypeCastContext : public ColumnExprContext {
+  public:
+    ColumnExprTypeCastContext(ColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *DOUBLECOLON();
+    IdentifierContext *identifier();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprPrecedence1Context : public ColumnExprContext {
   public:
     ColumnExprPrecedence1Context(ColumnExprContext *ctx);
@@ -1684,17 +1695,6 @@ public:
     antlr4::tree::TerminalNode *BOTH();
     antlr4::tree::TerminalNode *LEADING();
     antlr4::tree::TerminalNode *TRAILING();
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-  };
-
-  class  ColumnExprPgCastContext : public ColumnExprContext {
-  public:
-    ColumnExprPgCastContext(ColumnExprContext *ctx);
-
-    ColumnExprContext *columnExpr();
-    antlr4::tree::TerminalNode *DOUBLECOLON();
-    IdentifierContext *identifier();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

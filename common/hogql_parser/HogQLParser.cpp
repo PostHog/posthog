@@ -7188,6 +7188,29 @@ std::any HogQLParser::ColumnExprNullTupleAccessContext::accept(tree::ParseTreeVi
   else
     return visitor->visitChildren(this);
 }
+//----------------- ColumnExprTypeCastContext ------------------------------------------------------------------
+
+HogQLParser::ColumnExprContext* HogQLParser::ColumnExprTypeCastContext::columnExpr() {
+  return getRuleContext<HogQLParser::ColumnExprContext>(0);
+}
+
+tree::TerminalNode* HogQLParser::ColumnExprTypeCastContext::DOUBLECOLON() {
+  return getToken(HogQLParser::DOUBLECOLON, 0);
+}
+
+HogQLParser::IdentifierContext* HogQLParser::ColumnExprTypeCastContext::identifier() {
+  return getRuleContext<HogQLParser::IdentifierContext>(0);
+}
+
+HogQLParser::ColumnExprTypeCastContext::ColumnExprTypeCastContext(ColumnExprContext *ctx) { copyFrom(ctx); }
+
+
+std::any HogQLParser::ColumnExprTypeCastContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
+    return parserVisitor->visitColumnExprTypeCast(this);
+  else
+    return visitor->visitChildren(this);
+}
 //----------------- ColumnExprPrecedence1Context ------------------------------------------------------------------
 
 std::vector<HogQLParser::ColumnExprContext *> HogQLParser::ColumnExprPrecedence1Context::columnExpr() {
@@ -7555,29 +7578,6 @@ HogQLParser::ColumnExprTrimContext::ColumnExprTrimContext(ColumnExprContext *ctx
 std::any HogQLParser::ColumnExprTrimContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
     return parserVisitor->visitColumnExprTrim(this);
-  else
-    return visitor->visitChildren(this);
-}
-//----------------- ColumnExprPgCastContext ------------------------------------------------------------------
-
-HogQLParser::ColumnExprContext* HogQLParser::ColumnExprPgCastContext::columnExpr() {
-  return getRuleContext<HogQLParser::ColumnExprContext>(0);
-}
-
-tree::TerminalNode* HogQLParser::ColumnExprPgCastContext::DOUBLECOLON() {
-  return getToken(HogQLParser::DOUBLECOLON, 0);
-}
-
-HogQLParser::IdentifierContext* HogQLParser::ColumnExprPgCastContext::identifier() {
-  return getRuleContext<HogQLParser::IdentifierContext>(0);
-}
-
-HogQLParser::ColumnExprPgCastContext::ColumnExprPgCastContext(ColumnExprContext *ctx) { copyFrom(ctx); }
-
-
-std::any HogQLParser::ColumnExprPgCastContext::accept(tree::ParseTreeVisitor *visitor) {
-  if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitColumnExprPgCast(this);
   else
     return visitor->visitChildren(this);
 }
@@ -9138,7 +9138,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
         }
 
         case 17: {
-          auto newContext = _tracker.createInstance<ColumnExprPgCastContext>(_tracker.createInstance<ColumnExprContext>(parentContext, parentState));
+          auto newContext = _tracker.createInstance<ColumnExprTypeCastContext>(_tracker.createInstance<ColumnExprContext>(parentContext, parentState));
           _localctx = newContext;
           pushNewRecursionContext(newContext, startState, RuleColumnExpr);
           setState(1062);

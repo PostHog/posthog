@@ -6205,6 +6205,28 @@ class HogQLParser ( Parser ):
                 return visitor.visitChildren(self)
 
 
+    class ColumnExprTypeCastContext(ColumnExprContext):
+
+        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprContext
+            super().__init__(parser)
+            self.copyFrom(ctx)
+
+        def columnExpr(self):
+            return self.getTypedRuleContext(HogQLParser.ColumnExprContext,0)
+
+        def DOUBLECOLON(self):
+            return self.getToken(HogQLParser.DOUBLECOLON, 0)
+        def identifier(self):
+            return self.getTypedRuleContext(HogQLParser.IdentifierContext,0)
+
+
+        def accept(self, visitor:ParseTreeVisitor):
+            if hasattr( visitor, "visitColumnExprTypeCast" ):
+                return visitor.visitColumnExprTypeCast(self)
+            else:
+                return visitor.visitChildren(self)
+
+
     class ColumnExprPrecedence1Context(ColumnExprContext):
 
         def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprContext
@@ -6503,28 +6525,6 @@ class HogQLParser ( Parser ):
         def accept(self, visitor:ParseTreeVisitor):
             if hasattr( visitor, "visitColumnExprTrim" ):
                 return visitor.visitColumnExprTrim(self)
-            else:
-                return visitor.visitChildren(self)
-
-
-    class ColumnExprPgCastContext(ColumnExprContext):
-
-        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprContext
-            super().__init__(parser)
-            self.copyFrom(ctx)
-
-        def columnExpr(self):
-            return self.getTypedRuleContext(HogQLParser.ColumnExprContext,0)
-
-        def DOUBLECOLON(self):
-            return self.getToken(HogQLParser.DOUBLECOLON, 0)
-        def identifier(self):
-            return self.getTypedRuleContext(HogQLParser.IdentifierContext,0)
-
-
-        def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitColumnExprPgCast" ):
-                return visitor.visitColumnExprPgCast(self)
             else:
                 return visitor.visitChildren(self)
 
@@ -7892,7 +7892,7 @@ class HogQLParser ( Parser ):
                         pass
 
                     elif la_ == 17:
-                        localctx = HogQLParser.ColumnExprPgCastContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
+                        localctx = HogQLParser.ColumnExprTypeCastContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1062
                         if not self.precpred(self._ctx, 21):

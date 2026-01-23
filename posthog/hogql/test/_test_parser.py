@@ -2948,24 +2948,24 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_postgres_style_cast(self):
             self.assertEqual(
                 self._expr("x::int"),
-                ast.PGCast(expr=ast.Field(chain=["x"]), type_name="int"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
             )
-            self.assertEqual(self._expr("'123'::int"), ast.PGCast(expr=ast.Constant(value="123"), type_name="int"))
-            self.assertEqual(self._expr("x::integer"), ast.PGCast(expr=ast.Field(chain=["x"]), type_name="integer"))
-            self.assertEqual(self._expr("x::text"), ast.PGCast(expr=ast.Field(chain=["x"]), type_name="text"))
-            self.assertEqual(self._expr("x::float"), ast.PGCast(expr=ast.Field(chain=["x"]), type_name="float"))
-            self.assertEqual(self._expr("x::boolean"), ast.PGCast(expr=ast.Field(chain=["x"]), type_name="boolean"))
-            self.assertEqual(self._expr("x::INT"), ast.PGCast(expr=ast.Field(chain=["x"]), type_name="int"))
-            self.assertEqual(self._expr("x::Text"), ast.PGCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(self._expr("'123'::int"), ast.TypeCast(expr=ast.Constant(value="123"), type_name="int"))
+            self.assertEqual(self._expr("x::integer"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="integer"))
+            self.assertEqual(self._expr("x::text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(self._expr("x::float"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="float"))
+            self.assertEqual(self._expr("x::boolean"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="boolean"))
+            self.assertEqual(self._expr("x::INT"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"))
+            self.assertEqual(self._expr("x::Text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
             self.assertEqual(
                 self._expr("a.b::int"),
-                ast.PGCast(expr=ast.Field(chain=["a", "b"]), type_name="int"),
+                ast.TypeCast(expr=ast.Field(chain=["a", "b"]), type_name="int"),
             )
             self.assertEqual(
                 self._expr("x::int + 1"),
                 ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Add,
-                    left=ast.PGCast(expr=ast.Field(chain=["x"]), type_name="int"),
+                    left=ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
                     right=ast.Constant(value=1),
                 ),
             )
