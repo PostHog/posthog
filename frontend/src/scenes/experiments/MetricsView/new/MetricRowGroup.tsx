@@ -98,11 +98,13 @@ function CollapsibleBreakdownSection({
     const totalRows = 1 + (breakdownResults[0]?.variants?.length || 0)
 
     // Sync nested breakdown table column widths with parent table (only when expanded)
-    useColumnWidthSync({
-        parentRowRef: mainTableRef,
-        nestedTableRef,
-        deps: [breakdownResults, axisRange, isExpanded],
-    })
+    useColumnWidthSync(
+        {
+            parentRowRef: mainTableRef,
+            nestedTableRef,
+        },
+        [breakdownResults, axisRange, isExpanded]
+    )
 
     const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
         return (

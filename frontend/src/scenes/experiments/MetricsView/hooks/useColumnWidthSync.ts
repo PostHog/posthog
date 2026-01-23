@@ -1,12 +1,10 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 
 interface UseColumnWidthSyncParams {
     /** Ref to the breakdown row in the parent table */
     parentRowRef: React.RefObject<HTMLTableRowElement>
     /** Ref to the nested breakdown table */
     nestedTableRef: React.RefObject<HTMLTableElement>
-    /** Dependencies to trigger re-measurement */
-    deps?: any[]
 }
 
 // Constants for table structure validation
@@ -20,17 +18,28 @@ const EXPECTED_COLUMN_COUNT = 7
  * This hook measures the actual rendered widths of columns in the parent table and applies
  * them to the nested table to ensure perfect alignment, regardless of content differences.
  *
- * @param parentRowRef - Reference to the breakdown row in the parent table
- * @param nestedTableRef - Reference to the nested table that needs width syncing
- * @param deps - Optional dependencies that trigger re-measurement
+ * @param params - Object containing parentRowRef and nestedTableRef
+ * @param deps - Dependency array that triggers re-measurement (like useEffect)
+ *
+ * @example
+ * useColumnWidthSync({
+ *   parentRowRef: mainTableRef,
+ *   nestedTableRef: breakdownTableRef
+ * }, [breakdownResults, axisRange])
  */
-export function useColumnWidthSync({ parentRowRef, nestedTableRef, deps = [] }: UseColumnWidthSyncParams): void {
-    const [columnWidths, setColumnWidths] = useState<number[]>([])
+export function useColumnWidthSync(
+    { parentRowRef, nestedTableRef }: UseColumnWidthSyncParams,
+    deps: React.DependencyList = []
+): void {
     const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const mutationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const previousWidthsRef = useRef<number[]>([])
+    const previousNestedTableRef = useRef<HTMLTableElement | null>(null)
 
-    // Memoized helper to check if widths have actually changed
+    /**
+     * we check if the widths have actually changed
+     * we use useCallback to provide a stable reference to the function
+     */
     const widthsHaveChanged = useCallback((newWidths: number[]): boolean => {
         const prev = previousWidthsRef.current
         if (prev.length !== newWidths.length) {
@@ -41,7 +50,10 @@ export function useColumnWidthSync({ parentRowRef, nestedTableRef, deps = [] }: 
         return newWidths.some((width, i) => Math.abs(width - prev[i]) > tolerance)
     }, [])
 
-    // Memoized column mapping function
+    /**
+     * we get the parent column index for the nested table
+     * we use useCallback to provide a stable reference to the function
+     */
     const getParentColumnIndex = useCallback((cellIndex: number, cellCount: number): number | null => {
         if (cellCount === BASELINE_ROW_CELL_COUNT) {
             // Baseline row: maps 1:1 with parent columns
@@ -56,13 +68,75 @@ export function useColumnWidthSync({ parentRowRef, nestedTableRef, deps = [] }: 
         return null
     }, [])
 
-    // Measure parent table column widths
+    /**
+     * we apply the widths to the nested table after the parent table has been measured
+     *
+     * we use useCallback to provide a stable reference to the function
+     */
+    const applyWidthsToNestedTable = useCallback(
+        (widths: number[]): void => {
+            if (!nestedTableRef.current || widths.length === 0) {
+                return
+            }
+
+            // Validate column widths array
+            if (widths.length !== EXPECTED_COLUMN_COUNT) {
+                console.warn(
+                    `[useColumnWidthSync] Column widths array has unexpected length: expected ${EXPECTED_COLUMN_COUNT}, got ${widths.length}`
+                )
+                return
+            }
+
+            try {
+                const rows = nestedTableRef.current.querySelectorAll('tbody tr')
+
+                rows.forEach((row) => {
+                    const cells = Array.from(row.querySelectorAll('td'))
+                    const cellCount = cells.length
+
+                    cells.forEach((cell, cellIndex) => {
+                        // Use memoized column mapping function
+                        const parentColumnIndex = getParentColumnIndex(cellIndex, cellCount)
+
+                        if (parentColumnIndex === null) {
+                            // Unknown structure - log warning once per unique cell count
+                            console.warn(
+                                `[useColumnWidthSync] Unexpected row structure: expected ${BASELINE_ROW_CELL_COUNT} or ${VARIANT_ROW_CELL_COUNT} cells, got ${cellCount}`
+                            )
+                            return
+                        }
+
+                        // Validate parent column index is within bounds
+                        if (parentColumnIndex < 0 || parentColumnIndex >= widths.length) {
+                            console.warn(
+                                `[useColumnWidthSync] Parent column index out of bounds: ${parentColumnIndex} (max: ${widths.length - 1})`
+                            )
+                            return
+                        }
+
+                        const width = widths[parentColumnIndex]
+                        if (width && width > 0) {
+                            const cellElement = cell as HTMLElement
+                            // Batch style updates to minimize reflows
+                            cellElement.style.cssText += `width: ${width}px; min-width: ${width}px; max-width: ${width}px; box-sizing: border-box;`
+                        }
+                    })
+                })
+            } catch (error) {
+                console.error('[useColumnWidthSync] Error applying column widths:', error)
+                // Fail silently - table will render with default widths
+            }
+        },
+        [nestedTableRef, getParentColumnIndex]
+    )
+
+    // Single effect to measure and apply column widths
     useLayoutEffect(() => {
         if (!parentRowRef.current) {
             return
         }
 
-        const measureColumnWidths = (): void => {
+        const measureAndApplyWidths = (): void => {
             try {
                 // Check if nested table exists (it might not be rendered yet if collapse is closed)
                 if (!nestedTableRef.current) {
@@ -102,10 +176,19 @@ export function useColumnWidthSync({ parentRowRef, nestedTableRef, deps = [] }: 
                     return width
                 })
 
-                // Only update state if widths have actually changed (prevent unnecessary re-renders)
-                if (widthsHaveChanged(widths)) {
-                    previousWidthsRef.current = widths
-                    setColumnWidths(widths)
+                // Check if nested table is new (different instance from last time)
+                const isNewNestedTable = nestedTableRef.current !== previousNestedTableRef.current
+                previousNestedTableRef.current = nestedTableRef.current
+
+                // Check if widths have changed
+                const widthsChanged = widthsHaveChanged(widths)
+
+                // Store the new widths
+                previousWidthsRef.current = widths
+
+                // Apply widths if they changed OR if nested table is new (reopened collapse)
+                if (widthsChanged || isNewNestedTable) {
+                    applyWidthsToNestedTable(widths)
                 }
             } catch (error) {
                 console.error('[useColumnWidthSync] Error measuring column widths:', error)
@@ -119,11 +202,11 @@ export function useColumnWidthSync({ parentRowRef, nestedTableRef, deps = [] }: 
             if (resizeTimeoutRef.current) {
                 clearTimeout(resizeTimeoutRef.current)
             }
-            resizeTimeoutRef.current = setTimeout(measureColumnWidths, 150)
+            resizeTimeoutRef.current = setTimeout(measureAndApplyWidths, 150)
         }
 
         // Initial measurement with a small delay to allow DOM to settle
-        const timeoutId = setTimeout(measureColumnWidths, 0)
+        const timeoutId = setTimeout(measureAndApplyWidths, 0)
         window.addEventListener('resize', handleResize)
 
         // Use MutationObserver to detect when nested table appears (with debouncing)
@@ -133,7 +216,7 @@ export function useColumnWidthSync({ parentRowRef, nestedTableRef, deps = [] }: 
                 if (mutationTimeoutRef.current) {
                     clearTimeout(mutationTimeoutRef.current)
                 }
-                mutationTimeoutRef.current = setTimeout(measureColumnWidths, 50)
+                mutationTimeoutRef.current = setTimeout(measureAndApplyWidths, 50)
             }
         })
 
@@ -155,60 +238,5 @@ export function useColumnWidthSync({ parentRowRef, nestedTableRef, deps = [] }: 
             window.removeEventListener('resize', handleResize)
             observer.disconnect()
         }
-    }, [...deps, widthsHaveChanged])
-
-    // Apply measured widths to nested table columns
-    useLayoutEffect(() => {
-        if (!nestedTableRef.current || columnWidths.length === 0) {
-            return
-        }
-
-        // Validate column widths array
-        if (columnWidths.length !== EXPECTED_COLUMN_COUNT) {
-            console.warn(
-                `[useColumnWidthSync] Column widths array has unexpected length: expected ${EXPECTED_COLUMN_COUNT}, got ${columnWidths.length}`
-            )
-            return
-        }
-
-        try {
-            const rows = nestedTableRef.current.querySelectorAll('tbody tr')
-
-            rows.forEach((row) => {
-                const cells = Array.from(row.querySelectorAll('td'))
-                const cellCount = cells.length
-
-                cells.forEach((cell, cellIndex) => {
-                    // Use memoized column mapping function
-                    const parentColumnIndex = getParentColumnIndex(cellIndex, cellCount)
-
-                    if (parentColumnIndex === null) {
-                        // Unknown structure - log warning once per unique cell count
-                        console.warn(
-                            `[useColumnWidthSync] Unexpected row structure: expected ${BASELINE_ROW_CELL_COUNT} or ${VARIANT_ROW_CELL_COUNT} cells, got ${cellCount}`
-                        )
-                        return
-                    }
-
-                    // Validate parent column index is within bounds
-                    if (parentColumnIndex < 0 || parentColumnIndex >= columnWidths.length) {
-                        console.warn(
-                            `[useColumnWidthSync] Parent column index out of bounds: ${parentColumnIndex} (max: ${columnWidths.length - 1})`
-                        )
-                        return
-                    }
-
-                    const width = columnWidths[parentColumnIndex]
-                    if (width && width > 0) {
-                        const cellElement = cell as HTMLElement
-                        // Batch style updates to minimize reflows
-                        cellElement.style.cssText += `width: ${width}px; min-width: ${width}px; max-width: ${width}px; box-sizing: border-box;`
-                    }
-                })
-            })
-        } catch (error) {
-            console.error('[useColumnWidthSync] Error applying column widths:', error)
-            // Fail silently - table will render with default widths
-        }
-    }, [columnWidths, nestedTableRef, getParentColumnIndex])
+    }, [...deps, widthsHaveChanged, applyWidthsToNestedTable])
 }
