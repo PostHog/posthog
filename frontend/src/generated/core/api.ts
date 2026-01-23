@@ -1975,7 +1975,7 @@ export const environmentsIntegrationsClickupWorkspacesRetrieve = async (
 }
 
 export type environmentsIntegrationsEmailPartialUpdateResponse200 = {
-    data: void
+    data: IntegrationApi
     status: 200
 }
 
@@ -6677,7 +6677,7 @@ export const integrationsClickupWorkspacesRetrieve = async (
 }
 
 export type integrationsEmailPartialUpdateResponse200 = {
-    data: void
+    data: IntegrationApi
     status: 200
 }
 
