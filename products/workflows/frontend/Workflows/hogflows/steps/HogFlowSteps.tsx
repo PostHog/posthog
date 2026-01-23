@@ -29,6 +29,7 @@ import { StepRandomCohortBranchConfiguration } from './StepRandomCohortBranch'
 import { StepTriggerConfiguration } from './StepTrigger'
 import { StepWaitUntilConditionConfiguration } from './StepWaitUntilCondition'
 import { StepWaitUntilTimeWindowConfiguration } from './StepWaitUntilTimeWindow'
+import { StepWaitForEventConfiguration } from './StepWaitForEvent'
 
 type HogFlowStepBuilder<T extends HogFlowAction['type']> = {
     type: T
@@ -92,6 +93,12 @@ const HogFlowStepConfigs: Partial<{
         icon: () => <IconDay />,
         color: () => '#FF653F',
         renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration key={node.id} node={node} />,
+    },
+    wait_for_event: {
+        type: 'wait_for_event',
+        icon: () => <IconHourglass />,
+        color: () => '#8B5CF6',
+        renderConfiguration: (node) => <StepWaitForEventConfiguration key={node.id} node={node} />,
     },
 
     // We can remove these later

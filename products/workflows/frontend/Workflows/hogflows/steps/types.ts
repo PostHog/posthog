@@ -218,6 +218,18 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('wait_for_event'),
+        config: z.object({
+            event_filters: z.object({
+                filters: ActionFiltersSchema.optional().nullable(),
+                name: z.string().optional(), // Custom name for the event condition
+            }),
+            max_wait_duration: z.string(),
+        }),
+    }),
+
     // CDP functions
     z.object({
         ..._commonActionFields,
