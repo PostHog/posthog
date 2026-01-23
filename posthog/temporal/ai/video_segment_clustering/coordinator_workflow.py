@@ -129,7 +129,7 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             "teams_processed": len(enabled_team_ids),
             "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
-            "failed_team_ids": failed_teams,
+            "failed_team_ids": list(failed_teams),
             "total_tasks_created": total_tasks_created,
             "total_tasks_updated": total_tasks_updated,
         }
