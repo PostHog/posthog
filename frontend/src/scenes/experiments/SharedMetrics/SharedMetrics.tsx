@@ -152,6 +152,7 @@ export function SharedMetrics(): JSX.Element {
                         placeholder="Search shared metrics"
                         onChange={(search) => setSharedMetricsFilters({ search, page: 1 })}
                         value={filters.search || ''}
+                        maxLength={200}
                     />
                 </AppShortcut>
                 <LemonButton size="small" type="primary" to={urls.experimentsSharedMetric('new')}>
