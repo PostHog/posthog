@@ -89,6 +89,7 @@ export function ObjectTags({
                     data-attr="new-tag-input"
                     placeholder='try "official"'
                     autoFocus
+                    popoverClassName="click-outside-block"
                 />
             ) : (
                 <>
