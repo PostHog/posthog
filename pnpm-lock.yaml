@@ -647,9 +647,6 @@ importers:
       '@types/react-transition-group':
         specifier: ^4.4.5
         version: 4.4.5
-      '@types/react-virtualized':
-        specifier: ^9.21.23
-        version: 9.21.26
       '@vitejs/plugin-react':
         specifier: ^4.7.0
         version: 4.7.0(vite@7.1.9(@types/node@22.15.17)(jiti@2.6.1)(less@3.13.1)(lightningcss@1.29.2)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.19.1)(tsx@4.20.5)(yaml@2.8.1))
@@ -929,9 +926,6 @@ importers:
       react-transition-group:
         specifier: ^4.4.5
         version: 4.4.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      react-virtualized:
-        specifier: ^9.22.5
-        version: 9.22.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react-virtualized-auto-sizer:
         specifier: ^2.0.2
         version: 2.0.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
