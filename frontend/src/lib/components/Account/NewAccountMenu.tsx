@@ -91,12 +91,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             >
                                 {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
                             </div>
-                            {!isLayoutNavCollapsed && (
-                                <span className="truncate">
-                                    asd fasdf ljas dlnasdlna sdflnsafd laslasf
-                                    {currentTeam.name ?? 'Project'}
-                                </span>
-                            )}
+                            {!isLayoutNavCollapsed && <span className="truncate">{currentTeam.name ?? 'Project'}</span>}
                         </>
                     )}
                     {!isLayoutNavCollapsed && <MenuOpenIndicator />}
