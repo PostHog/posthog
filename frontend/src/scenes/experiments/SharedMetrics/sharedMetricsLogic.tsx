@@ -8,6 +8,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
 
 import type { SharedMetric } from './sharedMetricLogic'
+import type { sharedMetricsLogicType } from './sharedMetricsLogicType'
 
 export const SHARED_METRICS_PER_PAGE = 30
 
@@ -23,7 +24,7 @@ const DEFAULT_FILTERS: SharedMetricsFilters = {
 
 export interface SharedMetricsResult extends CountedPaginatedResponse<SharedMetric> {}
 
-export const sharedMetricsLogic = kea([
+export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
     path(['scenes', 'experiments', 'sharedMetricsLogic']),
     connect(() => ({
         values: [router, ['location']],
