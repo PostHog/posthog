@@ -65,8 +65,8 @@ function checkTaskHasCompletionCode(taskId) {
         }
 
         try {
-            // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
             // Safe: taskId is extracted from our own source code via regex matching only [A-Za-z]+ characters
+            // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
             execSync(
                 `grep -r "${pattern}" "${fullPath}" --include="*.ts" --include="*.tsx" --exclude="types.ts" --exclude="productSetupRegistry.ts" -q 2>/dev/null`,
                 {
