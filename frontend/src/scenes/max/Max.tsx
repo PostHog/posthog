@@ -16,6 +16,7 @@ import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -23,6 +24,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -106,7 +108,7 @@ export const MaxInstance = React.memo(function MaxInstance({
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
     const { exitAIOnlyMode } = useActions(appLogic)
-    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -125,7 +127,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                     // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
-                    <div
+                    <SidePanelContentContainer
                         className={clsx(
                             '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow',
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
@@ -136,26 +138,28 @@ export const MaxInstance = React.memo(function MaxInstance({
                             <SidebarQuestionInputWithSuggestions />
                         </div>
 
-                        {!isRemovingSidePanelMaxFlag && <HistoryPreview sidePanel={sidePanel} />}
-                    </div>
+                        {!isRemovingSidePanelFlag && <HistoryPreview sidePanel={sidePanel} />}
+                    </SidePanelContentContainer>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
-                    <ThreadAutoScroller>
-                        {conversation?.has_unsupported_content && (
-                            <div className="px-4 pt-4">
-                                <LemonBanner type="warning">
-                                    <div className="flex items-center justify-between gap-4">
-                                        <span>This thread contains content that is no longer supported.</span>
-                                        <LemonButton type="primary" onClick={() => startNewConversation()}>
-                                            Start a new thread
-                                        </LemonButton>
-                                    </div>
-                                </LemonBanner>
-                            </div>
-                        )}
-                        <Thread className="p-3" />
-                        {!conversation?.has_unsupported_content && <SidebarQuestionInput isSticky />}
-                    </ThreadAutoScroller>
+                    <SidePanelContentContainer>
+                        <ThreadAutoScroller>
+                            {conversation?.has_unsupported_content && (
+                                <div className="px-4 pt-4">
+                                    <LemonBanner type="warning">
+                                        <div className="flex items-center justify-between gap-4">
+                                            <span>This thread contains content that is no longer supported.</span>
+                                            <LemonButton type="primary" onClick={() => startNewConversation()}>
+                                                Start a new thread
+                                            </LemonButton>
+                                        </div>
+                                    </LemonBanner>
+                                </div>
+                            )}
+                            <Thread className="p-3" />
+                            {!conversation?.has_unsupported_content && <SidebarQuestionInput isSticky />}
+                        </ThreadAutoScroller>
+                    </SidePanelContentContainer>
                 )}
             </BindLogic>
         </BindLogic>
@@ -199,28 +203,46 @@ export const MaxInstance = React.memo(function MaxInstance({
                         />
                     )}
                     {conversationId && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconShare />}
-                            onClick={() => {
-                                copyToClipboard(
-                                    urls.absolute(urls.currentProject(urls.ai(conversationId))),
-                                    'conversation sharing link'
-                                )
-                            }}
-                            tooltip={
-                                <>
-                                    Copy link to chat
-                                    <br />
-                                    <em>
-                                        <IconLock /> Requires organization access
-                                    </em>
-                                </>
-                            }
-                            tooltipPlacement="bottom-end"
-                        />
+                        <>
+                            {isRemovingSidePanelFlag ? (
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        copyToClipboard(
+                                            urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                            'conversation sharing link'
+                                        )
+                                    }}
+                                    tooltip="Copy link to chat"
+                                    tooltipPlacement="bottom-end"
+                                    iconOnly
+                                >
+                                    <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
+                                </ButtonPrimitive>
+                            ) : (
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconShare />}
+                                    onClick={() => {
+                                        copyToClipboard(
+                                            urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                            'conversation sharing link'
+                                        )
+                                    }}
+                                    tooltip={
+                                        <>
+                                            Copy link to chat
+                                            <br />
+                                            <em>
+                                                <IconLock /> Requires organization access
+                                            </em>
+                                        </>
+                                    }
+                                    tooltipPlacement="bottom-end"
+                                />
+                            )}
+                        </>
                     )}
-                    {isRemovingSidePanelMaxFlag ? (
+                    {isRemovingSidePanelFlag ? (
                         <Link
                             buttonProps={{
                                 iconOnly: true,
