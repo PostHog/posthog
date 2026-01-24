@@ -202,7 +202,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     )
 
     useOutsideClickHandler(
-        [floatingRef, referenceRef, ...additionalRefs],
+        visible ? [floatingRef, referenceRef, ...additionalRefs] : [],
         (event) => {
             // Delay by a tick to allow other Popovers to detect inside clicks.
             // If a nested popover has handled the click, don't do anything
@@ -222,6 +222,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const floatingContainer = useFloatingContainer()
+
+    const handleExited = (): void => {
+        setFloatingElement(null)
+        floatingRef.current = null
+        if (extraFloatingRef) {
+            extraFloatingRef.current = null
+        }
+    }
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
@@ -250,88 +258,83 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     {clonedChildren}
                 </PopoverReferenceContext.Provider>
             )}
-            {visible ? (
-                <FloatingPortal root={floatingContainer}>
-                    <CSSTransition
-                        in={visible}
-                        timeout={delayMs}
-                        classNames="Popover-"
-                        appear
-                        mountOnEnter
-                        unmountOnExit
-                    >
-                        <PopoverReferenceContext.Provider
-                            value={null /* Resetting the reference, since there's none */}
-                        >
-                            <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
-                                <div
-                                    className={clsx(
-                                        'Popover',
-                                        padded && 'Popover--padded',
-                                        maxContentWidth && 'Popover--max-content-width',
-                                        !isAttached && 'Popover--top-centered',
-                                        showArrow && 'Popover--with-arrow',
-                                        className
+            <FloatingPortal root={floatingContainer}>
+                <CSSTransition
+                    in={visible}
+                    timeout={delayMs}
+                    classNames="Popover-"
+                    appear
+                    mountOnEnter
+                    unmountOnExit
+                    onExited={handleExited}
+                >
+                    <PopoverReferenceContext.Provider value={null /* Resetting the reference, since there's none */}>
+                        <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
+                            <div
+                                className={clsx(
+                                    'Popover',
+                                    padded && 'Popover--padded',
+                                    maxContentWidth && 'Popover--max-content-width',
+                                    !isAttached && 'Popover--top-centered',
+                                    showArrow && 'Popover--with-arrow',
+                                    className
+                                )}
+                                data-placement={effectivePlacement}
+                                ref={(el) => {
+                                    setFloatingElement(el)
+                                    floatingRef.current = el
+                                    if (extraFloatingRef) {
+                                        extraFloatingRef.current = el
+                                    }
+                                }}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
+                                    position: strategy,
+                                    top,
+                                    left,
+                                    ...style,
+                                }}
+                                onClick={_onClickInside}
+                                onMouseEnter={onMouseEnterInside}
+                                onMouseLeave={onMouseLeaveInside}
+                                aria-level={currentPopoverLevel}
+                            >
+                                <div className="Popover__box">
+                                    {showArrow && isAttached && (
+                                        // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
+                                        <div
+                                            ref={arrowRef}
+                                            className="Popover__arrow"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={arrowStyle}
+                                        />
                                     )}
-                                    data-placement={effectivePlacement}
-                                    ref={(el) => {
-                                        setFloatingElement(el)
-                                        floatingRef.current = el
-                                        if (extraFloatingRef) {
-                                            extraFloatingRef.current = el
-                                        }
-                                    }}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
-                                        position: strategy,
-                                        top,
-                                        left,
-                                        ...style,
-                                    }}
-                                    onClick={_onClickInside}
-                                    onMouseEnter={onMouseEnterInside}
-                                    onMouseLeave={onMouseLeaveInside}
-                                    aria-level={currentPopoverLevel}
-                                >
-                                    <div className="Popover__box">
-                                        {showArrow && isAttached && (
-                                            // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
-                                            <div
-                                                ref={arrowRef}
-                                                className="Popover__arrow"
-                                                // eslint-disable-next-line react/forbid-dom-props
-                                                style={arrowStyle}
-                                            />
-                                        )}
 
-                                        {loadingBar != null && (
-                                            <LemonTableLoader loading={loadingBar} placement="top" />
-                                        )}
+                                    {loadingBar != null && <LemonTableLoader loading={loadingBar} placement="top" />}
 
-                                        {!overflowHidden ? (
-                                            <ScrollableShadows
-                                                className="Popover__content"
-                                                ref={contentRef}
-                                                direction="vertical"
-                                            >
-                                                {overlay}
-                                            </ScrollableShadows>
-                                        ) : (
-                                            <div
-                                                className="Popover__content flex flex-col overflow-hidden"
-                                                ref={contentRef}
-                                            >
-                                                {overlay}
-                                            </div>
-                                        )}
-                                    </div>
+                                    {!overflowHidden ? (
+                                        <ScrollableShadows
+                                            className="Popover__content"
+                                            ref={contentRef}
+                                            direction="vertical"
+                                        >
+                                            {overlay}
+                                        </ScrollableShadows>
+                                    ) : (
+                                        <div
+                                            className="Popover__content flex flex-col overflow-hidden"
+                                            ref={contentRef}
+                                        >
+                                            {overlay}
+                                        </div>
+                                    )}
                                 </div>
-                            </PopoverOverlayContext.Provider>
-                        </PopoverReferenceContext.Provider>
-                    </CSSTransition>
-                </FloatingPortal>
-            ) : null}
+                            </div>
+                        </PopoverOverlayContext.Provider>
+                    </PopoverReferenceContext.Provider>
+                </CSSTransition>
+            </FloatingPortal>
         </>
     )
 })
