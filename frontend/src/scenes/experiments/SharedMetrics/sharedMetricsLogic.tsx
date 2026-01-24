@@ -59,7 +59,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ actions }) => ({
         paramsFromFilters: [
             (s) => [s.filters],
             (filters: SharedMetricsFilters) => ({
@@ -82,16 +82,15 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                     currentPage,
                     entryCount: count,
                     onForward: hasNextPage
-                        ? () => sharedMetricsLogic.actions.setSharedMetricsFilters({ page: currentPage + 1 })
+                        ? () => actions.setSharedMetricsFilters({ page: currentPage + 1 })
                         : undefined,
                     onBackward: hasPreviousPage
-                        ? () =>
-                              sharedMetricsLogic.actions.setSharedMetricsFilters({ page: Math.max(1, currentPage - 1) })
+                        ? () => actions.setSharedMetricsFilters({ page: Math.max(1, currentPage - 1) })
                         : undefined,
                 }
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         setSharedMetricsFilters: async (_, breakpoint) => {
             await breakpoint(300) // Debounce search
