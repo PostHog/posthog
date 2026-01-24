@@ -150,7 +150,7 @@ export function HelpMenu(): JSX.Element {
                             targetBlankIcon
                             target="_blank"
                             buttonProps={{ menuItem: true }}
-                            to="https://posthog.com/roadmap"
+                            to="https://posthog.com/changelog"
                         >
                             <IconLive />
                             Changelog
