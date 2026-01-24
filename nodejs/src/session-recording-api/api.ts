@@ -1,8 +1,12 @@
 import { GetObjectCommand, S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import express from 'ultimate-express'
 
-import { RetentionService } from '../session-recording/retention/retention-service'
-import { TeamService } from '../session-recording/teams/team-service'
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../config/kafka-topics'
+import { KafkaProducerWrapper } from '../kafka/producer'
+import { RetentionService } from '../session-recording-ingestion/retention/retention-service'
+import { createNoopBlockMetadata } from '../session-recording-ingestion/sessions/session-block-metadata'
+import { SessionMetadataStore } from '../session-recording-ingestion/sessions/session-metadata-store'
+import { TeamService } from '../session-recording-ingestion/teams/team-service'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -11,11 +15,12 @@ import {
     PluginServerService,
     RedisPool,
 } from '../types'
+import { PostgresUse } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { logger } from '../utils/logger'
+import { getBlockDecryptor } from './decryptor'
 import { getKeyStore } from './keystore'
 import { MemoryCachedKeyStore, RedisCachedKeyStore } from './keystore-cache'
-import { getBlockDecryptor } from './recording-decryptor'
 import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export class RecordingApi {
@@ -24,6 +29,8 @@ export class RecordingApi {
     private keyStore: BaseKeyStore | null = null
     private decryptor: BaseRecordingDecryptor | null = null
     private keystoreRedisPool: RedisPool | null = null
+    private kafkaProducer: KafkaProducerWrapper | null = null
+    private metadataStore: SessionMetadataStore | null = null
 
     constructor(private hub: Hub) {}
 
@@ -92,6 +99,10 @@ export class RecordingApi {
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
 
+        // Initialize metadata store for emitting deletion events
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK)
+        this.metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
+
         logger.info('[RecordingApi] Started successfully')
     }
 
@@ -101,6 +112,9 @@ export class RecordingApi {
         if (this.keystoreRedisPool) {
             await this.keystoreRedisPool.drain()
             await this.keystoreRedisPool.clear()
+        }
+        if (this.kafkaProducer) {
+            await this.kafkaProducer.disconnect()
         }
     }
 
@@ -115,6 +129,9 @@ export class RecordingApi {
         }
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
+        }
+        if (!this.metadataStore) {
+            uninitializedComponents.push('metadataStore')
         }
 
         if (uninitializedComponents.length > 0) {
@@ -264,10 +281,17 @@ export class RecordingApi {
             return
         }
 
+        if (!this.metadataStore) {
+            res.status(503).json({ error: 'Metadata store not initialized' })
+            return
+        }
+
         try {
             const deleted = await this.keyStore.deleteKey(session_id, parseInt(team_id))
             logger.debug('[RecordingApi] deleteKey result', { team_id, session_id, deleted })
             if (deleted) {
+                await this.emitDeletionEvent(session_id, parseInt(team_id))
+                await this.deletePostgresRecords(session_id, parseInt(team_id))
                 res.json({ team_id, session_id, status: 'deleted' })
             } else {
                 res.status(404).json({ error: 'Recording key not found' })
@@ -289,5 +313,70 @@ export class RecordingApi {
             logger.error('[RecordingApi] Error deleting recording key', { error, team_id, session_id })
             res.status(500).json({ error: 'Failed to delete recording key' })
         }
+    }
+
+    private async emitDeletionEvent(sessionId: string, teamId: number): Promise<void> {
+        if (!this.metadataStore) {
+            throw new Error('Metadata store not initialized')
+        }
+
+        logger.debug('[RecordingApi] Emitting deletion event to Kafka', {
+            session_id: sessionId,
+            team_id: teamId,
+        })
+
+        const deletionMetadata = { ...createNoopBlockMetadata(sessionId, teamId), isDeleted: true }
+        await this.metadataStore.storeSessionBlocks([deletionMetadata])
+
+        logger.info('[RecordingApi] Deletion event emitted to Kafka', {
+            session_id: sessionId,
+            team_id: teamId,
+        })
+    }
+
+    private async deletePostgresRecords(sessionId: string, teamId: number): Promise<void> {
+        logger.debug('[RecordingApi] Deleting PostgreSQL records', {
+            session_id: sessionId,
+            team_id: teamId,
+        })
+
+        // Delete session summaries (EE feature)
+        await this.hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM ee_single_session_summary WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteSessionSummary'
+        )
+
+        // Delete exported recordings
+        await this.hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_exportedrecording WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteExportedRecording'
+        )
+
+        // Delete comments scoped to this recording
+        // Note: scope='Replay' is the display name, but stored as 'recording' in the database
+        await this.hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = $2`,
+            [teamId, sessionId],
+            'deleteRecordingComments'
+        )
+
+        // Delete the main session recording record
+        // This will CASCADE delete: SessionRecordingViewed, SessionRecordingExternalReference, SessionRecordingPlaylistItem
+        await this.hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_sessionrecording WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteSessionRecording'
+        )
+
+        logger.info('[RecordingApi] PostgreSQL records deleted', {
+            session_id: sessionId,
+            team_id: teamId,
+        })
     }
 }
