@@ -181,6 +181,23 @@ describe('sharedMetricsLogic', () => {
 
             expect(logic.values.count).toBe(0)
         })
+
+        it('handles count=0 correctly in loader', async () => {
+            const mockMetrics = {
+                results: [],
+                count: 0,
+            }
+            api.get.mockResolvedValue(mockMetrics)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSharedMetrics()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    sharedMetrics: mockMetrics,
+                    count: 0,
+                })
+        })
     })
 
     describe('pagination selector', () => {

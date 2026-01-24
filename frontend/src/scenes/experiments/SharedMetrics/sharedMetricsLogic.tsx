@@ -41,7 +41,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                 )
                 return {
                     results: response.results as SharedMetric[],
-                    count: response.count || response.results.length,
+                    count: response.count ?? response.results.length,
                 }
             },
         },
