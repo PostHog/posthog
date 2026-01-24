@@ -142,7 +142,7 @@ function TimeMeta({
     // If updatedAt doesn't exist, fallback on showing creator
     if (updatedAt) {
         return (
-            <span className="definition-popover-timemeta">
+            <div className="definition-popover-timemeta">
                 <span className="definition-popover-timemeta-time">
                     Last modified {dayjs().to(dayjs.utc(updatedAt))}{' '}
                 </span>
@@ -152,7 +152,7 @@ function TimeMeta({
                         <Owner user={updatedBy} />
                     </span>
                 )}
-            </span>
+            </div>
         )
     }
     if (createdAt) {
