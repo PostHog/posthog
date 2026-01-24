@@ -161,9 +161,6 @@ export const clustersLogic = kea<clustersLogicType>([
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(runId)
                     const level = values.clusteringLevel
                     const eventName = level === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
-                    // Backend uses dynamic property name based on level
-                    const totalItemsProperty =
-                        level === 'generation' ? '$ai_total_generations_analyzed' : '$ai_total_traces_analyzed'
 
                     const response = await api.queryHogQL(
                         hogql`
@@ -171,7 +168,7 @@ export const clustersLogic = kea<clustersLogicType>([
                                 JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
                                 JSONExtractString(properties, '$ai_window_start') as window_start,
                                 JSONExtractString(properties, '$ai_window_end') as window_end,
-                                JSONExtractInt(properties, ${totalItemsProperty}) as total_items,
+                                JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
                                 JSONExtractRaw(properties, '$ai_clusters') as clusters,
                                 timestamp,
                                 JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params,
