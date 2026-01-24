@@ -101,6 +101,7 @@ import type {
     PatchedEnterpriseEventDefinitionApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
+    PatchedIntegrationApi,
     PatchedOrganizationDomainApi,
     PatchedOrganizationMemberApi,
     PatchedProjectBackwardCompatApi,
@@ -1973,6 +1974,39 @@ export const environmentsIntegrationsClickupWorkspacesRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export type environmentsIntegrationsEmailPartialUpdateResponse200 = {
+    data: IntegrationApi
+    status: 200
+}
+
+export type environmentsIntegrationsEmailPartialUpdateResponseSuccess =
+    environmentsIntegrationsEmailPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsIntegrationsEmailPartialUpdateResponse =
+    environmentsIntegrationsEmailPartialUpdateResponseSuccess
+
+export const getEnvironmentsIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/environments/${projectId}/integrations/${id}/email/`
+}
+
+export const environmentsIntegrationsEmailPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedIntegrationApi: NonReadonly<PatchedIntegrationApi>,
+    options?: RequestInit
+): Promise<environmentsIntegrationsEmailPartialUpdateResponse> => {
+    return apiMutator<environmentsIntegrationsEmailPartialUpdateResponse>(
+        getEnvironmentsIntegrationsEmailPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedIntegrationApi),
         }
     )
 }
@@ -6666,6 +6700,34 @@ export const integrationsClickupWorkspacesRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export type integrationsEmailPartialUpdateResponse200 = {
+    data: IntegrationApi
+    status: 200
+}
+
+export type integrationsEmailPartialUpdateResponseSuccess = integrationsEmailPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type integrationsEmailPartialUpdateResponse = integrationsEmailPartialUpdateResponseSuccess
+
+export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/email/`
+}
+
+export const integrationsEmailPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedIntegrationApi: NonReadonly<PatchedIntegrationApi>,
+    options?: RequestInit
+): Promise<integrationsEmailPartialUpdateResponse> => {
+    return apiMutator<integrationsEmailPartialUpdateResponse>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedIntegrationApi),
+    })
 }
 
 export type integrationsEmailVerifyCreateResponse200 = {
