@@ -1,6 +1,8 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic as globalTeamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -22,20 +24,21 @@ import { SetupTaskId } from './types'
  */
 export const globalSetupLogic = kea<globalSetupLogicType>([
     path(['lib', 'components', 'ProductSetup', 'globalSetupLogic']),
+    connect({
+        values: [sceneLogic, ['activeSceneProductKey']],
+    }),
     actions({
         // Task actions - single source of truth for task state updates
-        markTaskAsCompleted: (taskId: SetupTaskId) => ({ taskId }),
+        // All actions accept either a single task ID or an array of task IDs
+        markTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => ({ taskIdOrIds }),
         markTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => ({ taskIdOrIds }),
-        unmarkTaskAsCompleted: (taskId: SetupTaskId) => ({ taskId }),
-        unmarkTaskAsSkipped: (taskId: SetupTaskId) => ({ taskId }),
+        unmarkTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => ({ taskIdOrIds }),
+        unmarkTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => ({ taskIdOrIds }),
 
         // UI actions for the global setup popover
         setSelectedProduct: (productKey: ProductKey) => ({ productKey }),
         openGlobalSetup: true,
         closeGlobalSetup: true,
-
-        // Scene-specific product key - when set, locks the popover to this product
-        setSceneProductKey: (productKey: ProductKey | null) => ({ productKey }),
 
         // Element highlighting after navigation
         setHighlightSelector: (selector: string | null) => ({ selector }),
@@ -47,8 +50,6 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             ProductKey.PRODUCT_ANALYTICS as ProductKey,
             {
                 setSelectedProduct: (_, { productKey }) => productKey,
-                // When scene product key is set, also update selected product
-                setSceneProductKey: (state, { productKey }) => productKey ?? state,
             },
         ],
         // Whether the global setup popover is open
@@ -57,13 +58,6 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             {
                 openGlobalSetup: () => true,
                 closeGlobalSetup: () => false,
-            },
-        ],
-        // The product key from the current scene - when set, locks product selection
-        sceneProductKey: [
-            null as ProductKey | null,
-            {
-                setSceneProductKey: (_, { productKey }) => productKey,
             },
         ],
         // Selector for element to highlight after navigation
@@ -77,13 +71,32 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
     }),
     selectors({
         availableProducts: [() => [], () => PRODUCTS_WITH_SETUP],
+        // The product key from the current scene - filtered to only include products with setup
+        // Used for auto-selecting the product in the popover
+        sceneProductKey: [
+            (s) => [s.activeSceneProductKey],
+            (activeSceneProductKey): ProductKey | null => {
+                if (activeSceneProductKey && PRODUCTS_WITH_SETUP.includes(activeSceneProductKey)) {
+                    return activeSceneProductKey
+                }
+                return null
+            },
+        ],
+        // Whether the current scene has a product key that doesn't have setup configured
+        // Used to hide the Quick Start button on scenes for products without onboarding
+        sceneHasNoSetup: [
+            (s) => [s.activeSceneProductKey],
+            (activeSceneProductKey): boolean => {
+                return activeSceneProductKey !== null && !PRODUCTS_WITH_SETUP.includes(activeSceneProductKey)
+            },
+        ],
         // Whether the product selection is locked to the current scene
         isProductSelectionLocked: [(s) => [s.sceneProductKey], (sceneProductKey) => sceneProductKey !== null],
     }),
     // NOTE: Not using `connect` here because the teamLogic might not have mounted yet
     // by the time this logic is mounted
     listeners(({ actions }) => ({
-        markTaskAsCompleted: async ({ taskId }) => {
+        markTaskAsCompleted: async ({ taskIdOrIds }) => {
             const teamLogic = globalTeamLogic.findMounted()
             if (!teamLogic) {
                 return
@@ -94,19 +107,26 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 return
             }
 
-            // Check if already completed
-            const existingStatus = currentTeam.onboarding_tasks?.[taskId]
-            if (existingStatus === ActivationTaskStatus.COMPLETED) {
+            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
+
+            // Filter out already completed tasks
+            const tasksToComplete = taskIds.filter(
+                (taskId) => currentTeam.onboarding_tasks?.[taskId] !== ActivationTaskStatus.COMPLETED
+            )
+
+            if (tasksToComplete.length === 0) {
                 return
             }
 
-            // Track analytics
-            posthog.capture('product setup task completed', { task: taskId })
+            // Track analytics for each task
+            for (const taskId of tasksToComplete) {
+                posthog.capture('product setup task completed', { task: taskId })
+            }
 
-            // Update team with completed task
-            const onboardingTasks = {
-                ...currentTeam.onboarding_tasks,
-                [taskId]: ActivationTaskStatus.COMPLETED,
+            // Update team with completed tasks
+            const onboardingTasks = { ...currentTeam.onboarding_tasks }
+            for (const taskId of tasksToComplete) {
+                onboardingTasks[taskId] = ActivationTaskStatus.COMPLETED
             }
 
             teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
@@ -126,7 +146,6 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 return
             }
 
-            // Normalize to array for uniform handling
             const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
 
             // Filter out already skipped tasks
@@ -143,7 +162,7 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 posthog.capture('product setup task skipped', { task: taskId })
             }
 
-            // Build the updated onboarding_tasks with all tasks marked as skipped
+            // Update team with skipped tasks
             const onboardingTasks = { ...currentTeam.onboarding_tasks }
             for (const taskId of tasksToSkip) {
                 onboardingTasks[taskId] = ActivationTaskStatus.SKIPPED
@@ -152,7 +171,7 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
         },
 
-        unmarkTaskAsCompleted: async ({ taskId }) => {
+        unmarkTaskAsCompleted: async ({ taskIdOrIds }) => {
             const teamLogic = globalTeamLogic.findMounted()
             if (!teamLogic) {
                 return
@@ -163,23 +182,32 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 return
             }
 
-            // Check if actually completed
-            const existingStatus = currentTeam.onboarding_tasks?.[taskId]
-            if (existingStatus !== ActivationTaskStatus.COMPLETED) {
+            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
+
+            // Filter to only actually completed tasks
+            const tasksToUncomplete = taskIds.filter(
+                (taskId) => currentTeam.onboarding_tasks?.[taskId] === ActivationTaskStatus.COMPLETED
+            )
+
+            if (tasksToUncomplete.length === 0) {
                 return
             }
 
-            // Track analytics
-            posthog.capture('product setup task uncompleted', { task: taskId })
+            // Track analytics for each task
+            for (const taskId of tasksToUncomplete) {
+                posthog.capture('product setup task uncompleted', { task: taskId })
+            }
 
             // Remove the completed status
             const onboardingTasks = { ...currentTeam.onboarding_tasks }
-            delete onboardingTasks[taskId]
+            for (const taskId of tasksToUncomplete) {
+                delete onboardingTasks[taskId]
+            }
 
             teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
         },
 
-        unmarkTaskAsSkipped: async ({ taskId }) => {
+        unmarkTaskAsSkipped: async ({ taskIdOrIds }) => {
             const teamLogic = globalTeamLogic.findMounted()
             if (!teamLogic) {
                 return
@@ -190,20 +218,37 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 return
             }
 
-            // Check if actually skipped
-            const existingStatus = currentTeam.onboarding_tasks?.[taskId]
-            if (existingStatus !== ActivationTaskStatus.SKIPPED) {
+            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
+
+            // Filter to only actually skipped tasks
+            const tasksToUnskip = taskIds.filter(
+                (taskId) => currentTeam.onboarding_tasks?.[taskId] === ActivationTaskStatus.SKIPPED
+            )
+
+            if (tasksToUnskip.length === 0) {
                 return
             }
 
-            // Track analytics
-            posthog.capture('product setup task unskipped', { task: taskId })
+            // Track analytics for each task
+            for (const taskId of tasksToUnskip) {
+                posthog.capture('product setup task unskipped', { task: taskId })
+            }
 
             // Remove the skipped status
             const onboardingTasks = { ...currentTeam.onboarding_tasks }
-            delete onboardingTasks[taskId]
+            for (const taskId of tasksToUnskip) {
+                delete onboardingTasks[taskId]
+            }
 
             teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        // When the scene product key changes, auto-select it in the popover
+        sceneProductKey: (sceneProductKey: ProductKey | null) => {
+            if (sceneProductKey && sceneProductKey !== values.selectedProduct) {
+                actions.setSelectedProduct(sceneProductKey)
+            }
         },
     })),
 ])

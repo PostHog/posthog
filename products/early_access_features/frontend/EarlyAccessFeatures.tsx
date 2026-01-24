@@ -21,6 +21,7 @@ import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 export const scene: SceneExport = {
     component: EarlyAccessFeatures,
     logic: earlyAccessFeaturesLogic,
+    productKey: ProductKey.EARLY_ACCESS_FEATURES,
 }
 
 const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
@@ -38,7 +39,7 @@ export function EarlyAccessFeatures(): JSX.Element {
     const shouldShowEmptyState = filteredEarlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading && !searchTerm
 
     return (
-        <SceneContent productKey={ProductKey.EARLY_ACCESS_FEATURES}>
+        <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.EarlyAccessFeatures].name}
                 description={sceneConfigurations[Scene.EarlyAccessFeatures].description}

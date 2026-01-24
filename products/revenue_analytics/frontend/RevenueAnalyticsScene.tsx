@@ -25,6 +25,7 @@ import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
     logic: revenueAnalyticsLogic,
+    productKey: ProductKey.REVENUE_ANALYTICS,
 }
 
 export const PRODUCT_KEY = ProductKey.REVENUE_ANALYTICS
@@ -45,7 +46,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <SceneContent productKey={ProductKey.REVENUE_ANALYTICS}>
+            <SceneContent>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.RevenueAnalytics].name}
                     description={sceneConfigurations[Scene.RevenueAnalytics].description}

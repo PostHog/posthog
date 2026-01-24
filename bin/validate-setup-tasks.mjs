@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 /**
- * CI Script: Validates that all SetupTaskId enum values are either:
- * 1. Marked as completed somewhere in the codebase (using SetupTaskId.XYZ)
- * 2. Marked as requiresManualCompletion in the task definition
+ * CI Script: Validates setup tasks configuration:
  *
- * This prevents defining setup tasks that are never actually completed anywhere.
+ * 1. All SetupTaskId enum values are either:
+ *    - Marked as completed somewhere in the codebase (using SetupTaskId.XYZ)
+ *    - Marked as requiresManualCompletion in the task definition
+ *
+ * 2. All targetSelector data-attr values exist in the codebase
+ *
+ * This prevents:
+ * - Defining setup tasks that are never actually completed anywhere
+ * - Referencing data-attr selectors that no longer exist
  *
  * Usage: node bin/validate-setup-tasks.mjs
  */
@@ -48,7 +54,8 @@ function extractSetupTaskIds() {
 }
 
 function checkTaskHasCompletionCode(taskId) {
-    // Search for SetupTaskId.TaskName in the codebase
+    // Search for SetupTaskId.TaskName in the codebase, excluding the type definition and registry files
+    // where the task is just being defined, not actually completed
     const pattern = `SetupTaskId\\.${taskId}`
 
     for (const searchPath of SEARCH_PATHS) {
@@ -60,9 +67,12 @@ function checkTaskHasCompletionCode(taskId) {
         try {
             // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
             // Safe: taskId is extracted from our own source code via regex matching only [A-Za-z]+ characters
-            execSync(`grep -r "${pattern}" "${fullPath}" --include="*.ts" --include="*.tsx" -q 2>/dev/null`, {
-                encoding: 'utf-8',
-            })
+            execSync(
+                `grep -r "${pattern}" "${fullPath}" --include="*.ts" --include="*.tsx" --exclude="types.ts" --exclude="productSetupRegistry.ts" -q 2>/dev/null`,
+                {
+                    encoding: 'utf-8',
+                }
+            )
             return true
         } catch {
             // grep returns non-zero if no match found
@@ -70,6 +80,54 @@ function checkTaskHasCompletionCode(taskId) {
     }
 
     return false
+}
+
+function extractTargetSelectors() {
+    const content = fs.readFileSync(REGISTRY_FILE, 'utf-8')
+
+    // Find all targetSelector values with data-attr
+    // Matches: targetSelector: '[data-attr="some-value"]'
+    const selectorPattern = /targetSelector:\s*['"`]\[data-attr=["']([^"']+)["']\]['"`]/g
+    const selectors = []
+    let match
+
+    while ((match = selectorPattern.exec(content)) !== null) {
+        selectors.push(match[1])
+    }
+
+    return [...new Set(selectors)] // Remove duplicates
+}
+
+function findAllDataAttrsInCodebase() {
+    // Run grep once to find ALL data-attr values in the codebase
+    // This is much more efficient than running grep for each selector
+    const foundAttrs = new Set()
+
+    for (const searchPath of SEARCH_PATHS) {
+        const fullPath = path.join(ROOT_DIR, searchPath)
+        if (!fs.existsSync(fullPath)) {
+            continue
+        }
+
+        try {
+            // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+            // Safe: only searching our own source code with a fixed pattern
+            const output = execSync(
+                `grep -roh 'data-attr="[^"]*"' "${fullPath}" --include="*.ts" --include="*.tsx" 2>/dev/null || true`,
+                { encoding: 'utf-8' }
+            )
+
+            // Extract the attribute values from matches like: data-attr="some-value"
+            const matches = output.matchAll(/data-attr="([^"]*)"/g)
+            for (const match of matches) {
+                foundAttrs.add(match[1])
+            }
+        } catch {
+            // Ignore errors
+        }
+    }
+
+    return foundAttrs
 }
 
 function checkTaskRequiresManualCompletion(taskId) {
@@ -129,7 +187,7 @@ function checkTaskRequiresManualCompletion(taskId) {
 }
 
 function main() {
-    console.log('Validating SetupTaskId usage in codebase...\n')
+    console.log('Validating setup tasks configuration...\n')
 
     if (!fs.existsSync(TYPES_FILE)) {
         console.error(`ERROR: Types file not found at ${TYPES_FILE}`)
@@ -140,6 +198,13 @@ function main() {
         console.error(`ERROR: Registry file not found at ${REGISTRY_FILE}`)
         process.exit(1)
     }
+
+    let hasErrors = false
+
+    // ========================================================================
+    // Validate SetupTaskId completion
+    // ========================================================================
+    console.log('1. Validating SetupTaskId completion...\n')
 
     const taskIds = extractSetupTaskIds()
     const tasks = []
@@ -165,29 +230,69 @@ function main() {
     const manualCount = tasks.filter((t) => t.requiresManualCompletion).length
     const autoCount = tasks.filter((t) => t.hasCompletionCode && !t.requiresManualCompletion).length
 
-    console.log(`Found ${totalCount} SetupTaskId values in types.ts`)
-    console.log(`  - ${manualCount} require manual completion (user marks done)`)
-    console.log(`  - ${autoCount} have auto-completion code`)
+    console.log(`   Found ${totalCount} SetupTaskId values in types.ts`)
+    console.log(`     - ${manualCount} require manual completion (user marks done)`)
+    console.log(`     - ${autoCount} have auto-completion code`)
     console.log('')
 
     if (missingTasks.length > 0) {
-        console.error(`ERROR: Missing task validation (${missingTasks.length}):\n`)
+        hasErrors = true
+        console.error(`   ERROR: Missing task completion logic (${missingTasks.length}):\n`)
         for (const task of missingTasks) {
-            console.error(`  - SetupTaskId.${task}`)
+            console.error(`     - SetupTaskId.${task}`)
         }
         console.error('')
-        console.error('These SetupTaskId values are defined but neither:')
-        console.error('  1. Used with markTaskAsCompleted() in the codebase')
-        console.error('  2. Marked as requiresManualCompletion: true in the task definition')
+        console.error('   These SetupTaskId values are defined but neither:')
+        console.error('     1. Used with markTaskAsCompleted() in the codebase')
+        console.error('     2. Marked as requiresManualCompletion: true in the task definition')
         console.error('')
-        console.error('To fix:')
-        console.error('  - Add completion logic where appropriate, OR')
-        console.error('  - Add requiresManualCompletion: true to the task definition in productSetupRegistry.ts')
+        console.error('   To fix:')
+        console.error('     - Add completion logic where appropriate, OR')
+        console.error('     - Add requiresManualCompletion: true to the task definition')
+        console.error('')
+    } else {
+        console.log(`   ✓ All ${totalCount} tasks have proper completion logic.\n`)
+    }
+
+    // ========================================================================
+    // Validate targetSelector data-attrs exist
+    // ========================================================================
+    console.log('2. Validating targetSelector data-attrs...\n')
+
+    const selectors = extractTargetSelectors()
+    const foundAttrs = findAllDataAttrsInCodebase()
+    const missingSelectors = selectors.filter((selector) => !foundAttrs.has(selector))
+
+    console.log(`   Found ${selectors.length} targetSelector data-attrs in registry`)
+    console.log(`   Found ${foundAttrs.size} data-attr values in codebase`)
+
+    if (missingSelectors.length > 0) {
+        hasErrors = true
+        console.error(`\n   ERROR: Missing data-attr elements (${missingSelectors.length}):\n`)
+        for (const selector of missingSelectors) {
+            console.error(`     - data-attr="${selector}"`)
+        }
+        console.error('')
+        console.error('   These data-attr values are referenced in targetSelector but not found in the codebase.')
+        console.error('   The element may have been renamed or removed.')
+        console.error('')
+        console.error('   To fix:')
+        console.error('     - Update the targetSelector to match an existing data-attr, OR')
+        console.error('     - Add the data-attr to the appropriate element, OR')
+        console.error('     - Remove the targetSelector if highlighting is no longer needed')
+        console.error('')
+    } else {
+        console.log(`   ✓ All ${selectors.length} targetSelector data-attrs exist in codebase.\n`)
+    }
+
+    // ========================================================================
+    // Final result
+    // ========================================================================
+    if (hasErrors) {
+        console.error('Validation failed!')
         process.exit(1)
     }
 
-    const validatedCount = totalCount
-    console.log(`All ${validatedCount} tasks are properly validated.`)
     console.log('Validation passed!')
 }
 

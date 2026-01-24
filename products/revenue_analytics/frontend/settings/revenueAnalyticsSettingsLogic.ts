@@ -317,7 +317,10 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         }
 
         return {
-            addGoal: updateCurrentTeam,
+            addGoal: () => {
+                updateCurrentTeam()
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpRevenueGoal)
+            },
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
             save: () => {

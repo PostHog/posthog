@@ -279,7 +279,7 @@ export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX
     }
     return (
         <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
-            <SceneContent className="h-full" productKey={ProductKey.SESSION_REPLAY}>
+            <SceneContent className="h-full">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.Replay].name}
                     resourceType={{
@@ -297,4 +297,5 @@ export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX
 export const scene: SceneExport = {
     component: SessionsRecordings,
     logic: sessionReplaySceneLogic,
+    productKey: ProductKey.SESSION_REPLAY,
 }

@@ -373,7 +373,7 @@ export function GoalsConfiguration(): JSX.Element {
             title="Goals"
             description="Set revenue targets for specific dates to track your progress. You can track goals based on your monthly/quarterly/yearly targets. These can be displayed either on your MRR/ARR or gross revenue charts on the revenue analytics dashboard!"
         >
-            <div className={cn('flex flex-col items-end w-full')} data-attr="revenue-analytics-goals">
+            <div className={cn('flex flex-col items-end w-full')}>
                 <AccessControlAction
                     resourceType={AccessControlResourceType.RevenueAnalytics}
                     minAccessLevel={AccessControlLevel.Editor}
@@ -390,6 +390,7 @@ export function GoalsConfiguration(): JSX.Element {
                                   ? 'Finish editing current goal first'
                                   : undefined
                         }
+                        data-attr="revenue-analytics-add-goal-button"
                     >
                         Add Goal
                     </LemonButton>

@@ -87,6 +87,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     component: WorkflowsScene,
     logic: workflowSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
 export function WorkflowsScene(): JSX.Element {
@@ -159,7 +160,7 @@ export function WorkflowsScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="workflows" productKey={ProductKey.WORKFLOWS}>
+        <SceneContent className="workflows">
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}

@@ -1202,18 +1202,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFeatureFlag)
 
-            // Check if the flag has payloads configured
-            const hasPayloads = featureFlag.filters?.payloads && Object.keys(featureFlag.filters.payloads).length > 0
-            if (hasPayloads) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpFlagPayloads)
+            // Collect all completed setup tasks
+            const completedTasks: SetupTaskId[] = [SetupTaskId.CreateFeatureFlag]
+
+            if (featureFlag.filters?.payloads && Object.keys(featureFlag.filters.payloads).length > 0) {
+                completedTasks.push(SetupTaskId.SetUpFlagPayloads)
             }
 
-            // Check if the flag is multivariate
             if (featureFlag.filters?.multivariate) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateMultivariateFlag)
+                completedTasks.push(SetupTaskId.CreateMultivariateFlag)
             }
+
+            if (featureFlag.evaluation_runtime && featureFlag.evaluation_runtime !== FeatureFlagEvaluationRuntime.ALL) {
+                completedTasks.push(SetupTaskId.SetUpFlagEvaluationRuntimes)
+            }
+
+            // Set all completed tasks at once to avoid conflicts
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
         saveFeatureFlagFailure: ({ error, errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {

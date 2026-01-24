@@ -33,6 +33,7 @@ import { SurveysTabs, surveysLogic } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
+    productKey: ProductKey.SURVEYS,
 }
 
 function NewSurveyButton(): JSX.Element {
@@ -110,7 +111,7 @@ function Surveys(): JSX.Element {
     const { setTab } = useActions(surveysLogic)
 
     return (
-        <SceneContent productKey={ProductKey.SURVEYS}>
+        <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Surveys].name}
                 description={sceneConfigurations[Scene.Surveys].description}

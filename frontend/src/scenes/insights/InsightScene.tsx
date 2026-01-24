@@ -9,7 +9,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
 export interface InsightSceneProps {
@@ -49,4 +49,5 @@ export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
 export const scene: SceneExport = {
     component: InsightScene,
     logic: insightSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }

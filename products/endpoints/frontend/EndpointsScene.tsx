@@ -33,6 +33,7 @@ const ENDPOINTS_USAGE_PRODUCT_DESCRIPTION =
 export const scene: SceneExport = {
     component: EndpointsScene,
     logic: endpointsLogic,
+    productKey: ProductKey.ENDPOINTS,
 }
 
 export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
@@ -56,7 +57,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
         <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageScene', tabId: tabId || '' }}>
             <BindLogic logic={endpointsLogic} props={{ key: 'endpointsLogic', tabId: tabId || '' }}>
                 <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageLogic', tabId: tabId || '' }}>
-                    <SceneContent productKey={ProductKey.ENDPOINTS}>
+                    <SceneContent>
                         <SceneTitleSection
                             name={sceneConfigurations[Scene.EndpointsScene].name}
                             description={sceneConfigurations[Scene.EndpointsScene].description}

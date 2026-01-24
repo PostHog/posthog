@@ -203,7 +203,7 @@ export const endpointLogic = kea<endpointLogicType>([
 
                 // Mark activation task as completed when endpoint is activated
                 if (response.is_active) {
-                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ActivateEndpoint)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureEndpoint)
                 }
             },
             updateEndpointFailure: () => {

@@ -1947,17 +1947,24 @@
 
 // Setup highlight animation - used by quick start to draw attention to UI elements
 .setup-highlight-pulse {
-    animation: setup-highlight-pulse 1.2s ease-in-out 4;
+    position: relative !important;
+    z-index: 100 !important;
+    border-radius: var(--radius);
+    animation: setup-highlight-pulse 1s ease-in-out 3 !important;
 }
 
 /* stylelint-disable-next-line keyframes-name-pattern */
 @keyframes setup-highlight-pulse {
     0%,
     100% {
-        box-shadow: inset 0 0 0 2px transparent;
+        outline: 3px solid transparent;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 0 transparent;
     }
 
     50% {
-        box-shadow: inset 0 0 0 2px var(--color-accent);
+        outline: 3px solid var(--color-accent);
+        outline-offset: 2px;
+        box-shadow: 0 0 24px 8px var(--color-accent);
     }
 }

@@ -22,7 +22,11 @@ import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
 import { ViewsTab } from './scene/ViewsTab'
 
-export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
+export const scene: SceneExport = {
+    component: DataWarehouseScene,
+    logic: dataWarehouseSceneLogic,
+    productKey: ProductKey.DATA_WAREHOUSE,
+}
 
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -34,7 +38,7 @@ export function DataWarehouseScene(): JSX.Element {
     }
 
     return (
-        <SceneContent productKey={ProductKey.DATA_WAREHOUSE}>
+        <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.DataWarehouse].name}
                 description={sceneConfigurations[Scene.DataWarehouse].description}

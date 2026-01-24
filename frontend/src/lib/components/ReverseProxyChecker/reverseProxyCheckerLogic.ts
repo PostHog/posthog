@@ -1,4 +1,4 @@
-import { kea, listeners, path } from 'kea'
+import { afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -9,7 +9,7 @@ import { hogql } from '~/queries/utils'
 
 import type { reverseProxyCheckerLogicType } from './reverseProxyCheckerLogicType'
 
-const CHECK_INTERVAL_MS = 1000 * 60 * 60 // 1 hour
+const CHECK_INTERVAL_MS = 1000 * 60 * 10 // 10 minutes
 
 export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
@@ -50,4 +50,7 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadHasReverseProxy()
+    }),
 ])

@@ -80,6 +80,7 @@ import { truncateValue } from './utils'
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
     logic: llmAnalyticsLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
@@ -654,7 +655,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             key: 'traces',
             label: 'Traces',
             content: (
-                <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsSetupPrompt thing="trace">
                     <LLMAnalyticsTraces />
                 </LLMAnalyticsSetupPrompt>
             ),
@@ -824,7 +825,7 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <SceneContent productKey={ProductKey.LLM_ANALYTICS}>
+            <SceneContent>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LLMAnalytics].name}
                     description={sceneConfigurations[Scene.LLMAnalytics].description}

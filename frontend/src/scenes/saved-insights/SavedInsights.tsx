@@ -614,6 +614,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function InsightIcon({
@@ -850,7 +851,7 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <SceneContent className={cn('saved-insights')} productKey={ProductKey.PRODUCT_ANALYTICS}>
+        <SceneContent className={cn('saved-insights')}>
             <NewInsightShortcuts />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.SavedInsights].name}

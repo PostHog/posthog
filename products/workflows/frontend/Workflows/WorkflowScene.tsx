@@ -30,6 +30,7 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
         id: id || 'new',
         tab: tab || 'workflow',
     }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
@@ -95,7 +96,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     ]
 
     return (
-        <SceneContent className="h-full flex flex-col grow" productKey={ProductKey.WORKFLOWS}>
+        <SceneContent className="h-full flex flex-col grow">
             <WorkflowSceneHeader {...props} />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (

@@ -27,6 +27,7 @@ import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
 export const scene: SceneExport = {
     component: Dashboards,
     logic: dashboardsLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function Dashboards(): JSX.Element {
@@ -49,7 +50,7 @@ export function Dashboards(): JSX.Element {
     ]
 
     return (
-        <SceneContent productKey={ProductKey.PRODUCT_ANALYTICS}>
+        <SceneContent>
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />

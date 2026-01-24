@@ -18,11 +18,12 @@ import { logsSceneLogic } from './logsSceneLogic'
 export const scene: SceneExport = {
     component: LogsScene,
     logic: logsSceneLogic,
+    productKey: ProductKey.LOGS,
 }
 
 export function LogsScene(): JSX.Element {
     return (
-        <SceneContent productKey={ProductKey.LOGS}>
+        <SceneContent>
             <LogsSetupPrompt>
                 <LogsSceneContent />
             </LogsSetupPrompt>

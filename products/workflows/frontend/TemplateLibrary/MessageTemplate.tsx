@@ -22,6 +22,7 @@ export const scene: SceneExport<MessageTemplateLogicProps> = {
         id: id || 'new',
         messageId,
     }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
 export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element {
@@ -32,7 +33,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
 
     return (
         <Form logic={messageTemplateLogic} formKey="template">
-            <SceneContent productKey={ProductKey.WORKFLOWS}>
+            <SceneContent>
                 <SceneTitleSection
                     name={template.name}
                     resourceType={{ type: 'template' }}

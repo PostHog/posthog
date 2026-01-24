@@ -36,6 +36,13 @@ for (const item of getTreeItemsProducts()) {
     }
 }
 
+interface ProductWithTasks {
+    productKey: ProductKey
+    name: string
+    remainingCount: number
+    category: string | undefined
+}
+
 export interface ProductSetupPopoverProps {
     visible: boolean
     onClickOutside: () => void
@@ -44,9 +51,6 @@ export interface ProductSetupPopoverProps {
     children: React.ReactNode
 }
 
-/**
- * ProductSetupPopover - A popover for product setup tasks with a product selector.
- */
 export function ProductSetupPopover({
     visible,
     onClickOutside,
@@ -68,66 +72,20 @@ export function ProductSetupPopover({
         setShowCelebration,
     } = useActions(logic)
 
-    // Check if the product selection is locked to the current scene
     const { isProductSelectionLocked } = useValues(globalSetupLogic)
-
-    // Get team's onboarding tasks to calculate other products with remaining tasks
     const { currentTeam } = useValues(teamLogic)
     const savedOnboardingTasks = currentTeam?.onboarding_tasks ?? {}
 
     const config = getProductSetupConfig(selectedProduct)
     const [hoveredTask, setHoveredTask] = useState<SetupTaskWithState | null>(null)
 
-    // Calculate other products with remaining tasks (for suggestions when complete)
-    // Sort by category: same category as current product first
-    const otherProductsWithTasks = useMemo(() => {
-        const currentCategory = productCategoryMap[selectedProduct]
-
-        const products = PRODUCTS_WITH_SETUP.filter((productKey) => {
-            if (productKey === selectedProduct) {
-                return false
-            }
-            const tasks = getTasksForProduct(productKey)
-            const remainingTasks = tasks.filter((task) => {
-                const status = savedOnboardingTasks[task.id]
-                return status !== ActivationTaskStatus.COMPLETED && status !== ActivationTaskStatus.SKIPPED
-            })
-            return remainingTasks.length > 0
-        }).map((productKey) => {
-            const productConfig = getProductSetupConfig(productKey)
-            const tasks = getTasksForProduct(productKey)
-            const remainingCount = tasks.filter((task) => {
-                const status = savedOnboardingTasks[task.id]
-                return status !== ActivationTaskStatus.COMPLETED && status !== ActivationTaskStatus.SKIPPED
-            }).length
-            return {
-                productKey,
-                name: productConfig?.title.replace('Get started with ', '') || productKey,
-                remainingCount,
-                category: productCategoryMap[productKey],
-            }
-        })
-
-        // Sort: same category first, then alphabetically by name
-        return products.sort((a, b) => {
-            const aIsSameCategory = a.category === currentCategory
-            const bIsSameCategory = b.category === currentCategory
-            if (aIsSameCategory && !bIsSameCategory) {
-                return -1
-            }
-            if (!aIsSameCategory && bIsSameCategory) {
-                return 1
-            }
-            return a.name.localeCompare(b.name)
-        })
-    }, [selectedProduct, savedOnboardingTasks])
+    // Calculate other products with remaining tasks
+    const otherProductsWithTasks = useOtherProductsWithTasks(selectedProduct, savedOnboardingTasks)
 
     // Hogfetti celebration
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti()
     const previouslyComplete = useRef(isSetupComplete)
 
-    // Detect when setup becomes complete and trigger celebration
-    // Only update the ref when visible, so animation can trigger when modal opens after completion
     useEffect(() => {
         if (isSetupComplete && !previouslyComplete.current && visible) {
             setShowCelebration(true)
@@ -148,17 +106,19 @@ export function ProductSetupPopover({
                     label: productConfig?.title.replace('Get started with ', '') || productKey,
                 }
             }),
-        [PRODUCTS_WITH_SETUP, getProductSetupConfig]
+        []
     )
 
     if (!config) {
         return <>{children}</>
     }
 
-    // Separate tasks by type using the taskType field
+    // Separate tasks by type
     const setupTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'setup')
     const onboardingTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'onboarding')
     const exploreTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'explore')
+
+    const productName = config?.title.replace('Get started with ', '') || ''
 
     const handleTaskClick = (task: SetupTaskWithState): void => {
         if (task.completed || task.skipped || task.lockedReason) {
@@ -203,11 +163,7 @@ export function ProductSetupPopover({
         }
     }
 
-    // Get product name from config title (e.g., "Get started with Product analytics" -> "Product analytics")
-    const productName = config?.title.replace('Get started with ', '') || ''
-
     const handleSelectSuggestedProduct = (productKey: ProductKey): void => {
-        // Track product intent for cross-sell analytics
         void addProductIntent({
             product_type: productKey,
             intent_context: ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
@@ -217,7 +173,6 @@ export function ProductSetupPopover({
         })
         onSelectProduct(productKey)
 
-        // Navigate to the product's main page
         const href = productHrefMap[productKey]
         if (href) {
             router.actions.push(href)
@@ -234,79 +189,25 @@ export function ProductSetupPopover({
                 padded={false}
                 overlay={
                     <div className="w-80 max-h-[70vh] flex flex-col">
-                        {/* Header with product selector */}
-                        <div className="px-3 py-2 border-b border-border">
-                            {showCelebration || isSetupComplete ? (
-                                <div className="text-center py-2">
-                                    <span className="text-lg">🎉</span>
-                                    <p className="font-semibold text-sm mt-1">You've completed {productName}!</p>
-                                    {otherProductsWithTasks.length > 0 ? (
-                                        <p className="text-xs text-muted">Try another product to continue your setup</p>
-                                    ) : (
-                                        <p className="text-xs text-muted">You've completed all quick start guides</p>
-                                    )}
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="flex items-center gap-2">
-                                        <IconTarget className="text-muted w-4 h-4 flex-shrink-0" />
-                                        <span className="font-semibold text-sm">Quick start</span>
-                                        {!isProductSelectionLocked && (
-                                            <LemonSelect
-                                                size="xsmall"
-                                                value={selectedProduct}
-                                                onChange={(value) => value && onSelectProduct(value)}
-                                                options={productOptions}
-                                            />
-                                        )}
-                                        <span className="text-xs text-muted ml-auto">
-                                            {completedCount}/{totalTasks}
-                                        </span>
-                                    </div>
-                                    {/* Progress bar */}
-                                    <div className="h-1 bg-border rounded-full mt-2 overflow-hidden">
-                                        <div
-                                            className="h-full bg-success rounded-full transition-all duration-300"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{
-                                                width: `${totalTasks > 0 ? (completedCount / totalTasks) * 100 : 0}%`,
-                                            }}
-                                        />
-                                    </div>
-                                </>
-                            )}
-                        </div>
+                        <PopoverHeader
+                            showCelebration={showCelebration}
+                            isSetupComplete={isSetupComplete}
+                            productName={productName}
+                            otherProductsWithTasks={otherProductsWithTasks}
+                            isProductSelectionLocked={isProductSelectionLocked}
+                            selectedProduct={selectedProduct}
+                            onSelectProduct={onSelectProduct}
+                            productOptions={productOptions}
+                            completedCount={completedCount}
+                            totalTasks={totalTasks}
+                        />
 
-                        {/* Tasks or product suggestions */}
                         <div className="flex-1 overflow-y-auto" onMouseLeave={() => setHoveredTask(null)}>
                             {isSetupComplete ? (
-                                // Show other products when current one is complete
-                                otherProductsWithTasks.length > 0 ? (
-                                    <div className="py-2">
-                                        <div className="px-3 py-1">
-                                            <span className="text-[10px] font-semibold text-muted uppercase tracking-wider">
-                                                Continue with
-                                            </span>
-                                        </div>
-                                        {otherProductsWithTasks.slice(0, 5).map((product) => (
-                                            <div
-                                                key={product.productKey}
-                                                className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-primary-highlight active:bg-fill-primary-highlight-hover"
-                                                onClick={() => handleSelectSuggestedProduct(product.productKey)}
-                                            >
-                                                <IconTarget className="w-4 h-4 text-muted" />
-                                                <span className="flex-1 text-sm">{product.name}</span>
-                                                <span className="text-xs text-muted">
-                                                    {product.remainingCount} tasks
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="px-3 py-4 text-center text-sm text-muted">
-                                        You've completed all available quick start guides. Great job!
-                                    </div>
-                                )
+                                <ProductSuggestions
+                                    products={otherProductsWithTasks}
+                                    onSelectProduct={handleSelectSuggestedProduct}
+                                />
                             ) : (
                                 <>
                                     {setupTasks.length > 0 && (
@@ -362,55 +263,201 @@ export function ProductSetupPopover({
                             )}
                         </div>
 
-                        {/* Task description - shown on hover (not in completion view) */}
-                        {hoveredTask && !isSetupComplete && (
-                            <div className="px-3 py-2 border-t border-border bg-fill-tertiary">
-                                <span className="text-xs font-medium">{hoveredTask.title}</span>
-                                {hoveredTask.description && typeof hoveredTask.description === 'string' && (
-                                    <p className="text-xs text-muted mt-0.5 leading-snug">{hoveredTask.description}</p>
-                                )}
-                                {hoveredTask.lockedReason && (
-                                    <p className="text-xs text-warning mt-1">
-                                        <strong>Depends on:</strong>{' '}
-                                        {hoveredTask.lockedReason.replace('Complete "', '').replace('" first', '')}
-                                    </p>
-                                )}
-                                {hoveredTask.requiresManualCompletion &&
-                                    !hoveredTask.completed &&
-                                    !hoveredTask.skipped && (
-                                        <p className="text-xs text-muted mt-1 italic">
-                                            Manual task – {hoveredTask.docsUrl ? 'click for instructions, then ' : ''}
-                                            mark as complete when done.
-                                        </p>
-                                    )}
-                            </div>
-                        )}
+                        {hoveredTask && !isSetupComplete && <TaskHoverDescription task={hoveredTask} />}
 
-                        {/* Footer */}
-                        <div className="px-3 py-2 border-t border-border flex items-center justify-between">
-                            {isDismissed ? (
-                                <LemonButton type="tertiary" size="xsmall" onClick={handleRestore}>
-                                    Restore
-                                </LemonButton>
-                            ) : (
-                                <LemonButton type="tertiary" size="xsmall" onClick={handleMinimize}>
-                                    Minimize
-                                </LemonButton>
-                            )}
-                            <Link
-                                to={`https://posthog.com/docs/${selectedProduct.replace(/_/g, '-')}`}
-                                target="_blank"
-                                className="text-xs text-muted hover:text-primary"
-                            >
-                                View docs
-                            </Link>
-                        </div>
+                        <PopoverFooter
+                            isDismissed={isDismissed}
+                            onMinimize={handleMinimize}
+                            onRestore={handleRestore}
+                            selectedProduct={selectedProduct}
+                        />
                     </div>
                 }
             >
                 {children}
             </Popover>
         </>
+    )
+}
+
+interface PopoverHeaderProps {
+    showCelebration: boolean
+    isSetupComplete: boolean
+    productName: string
+    otherProductsWithTasks: ProductWithTasks[]
+    isProductSelectionLocked: boolean
+    selectedProduct: ProductKey
+    onSelectProduct: (productKey: ProductKey) => void
+    productOptions: { value: ProductKey; label: string }[]
+    completedCount: number
+    totalTasks: number
+}
+
+function PopoverHeader({
+    showCelebration,
+    isSetupComplete,
+    productName,
+    otherProductsWithTasks,
+    isProductSelectionLocked,
+    selectedProduct,
+    onSelectProduct,
+    productOptions,
+    completedCount,
+    totalTasks,
+}: PopoverHeaderProps): JSX.Element {
+    if (showCelebration || isSetupComplete) {
+        return (
+            <div className="px-3 py-2 border-b border-border">
+                <div className="text-center py-2">
+                    <span className="text-lg">🎉</span>
+                    <p className="font-semibold text-sm mt-1">You've completed {productName}!</p>
+                    {otherProductsWithTasks.length > 0 ? (
+                        <p className="text-xs text-muted">Try another product to continue your setup</p>
+                    ) : (
+                        <p className="text-xs text-muted">You've completed all quick start guides</p>
+                    )}
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="px-3 py-2 border-b border-border">
+            <div className="flex items-center gap-2">
+                <IconTarget className="text-muted w-4 h-4 flex-shrink-0" />
+                <span className="font-semibold text-sm">Quick start</span>
+                {!isProductSelectionLocked && (
+                    <LemonSelect
+                        size="xsmall"
+                        value={selectedProduct}
+                        onChange={(value) => value && onSelectProduct(value)}
+                        options={productOptions}
+                    />
+                )}
+                <span className="text-xs text-muted ml-auto">
+                    {completedCount}/{totalTasks}
+                </span>
+            </div>
+            <ProgressBar completedCount={completedCount} totalTasks={totalTasks} />
+        </div>
+    )
+}
+
+interface ProgressBarProps {
+    completedCount: number
+    totalTasks: number
+}
+
+function ProgressBar({ completedCount, totalTasks }: ProgressBarProps): JSX.Element {
+    const percent = totalTasks > 0 ? (completedCount / totalTasks) * 100 : 0
+    return (
+        <div className="h-1 bg-border rounded-full mt-2 overflow-hidden">
+            <div
+                className="h-full bg-success rounded-full transition-all duration-300"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: `${percent}%` }}
+            />
+        </div>
+    )
+}
+
+interface ProductSuggestionsProps {
+    products: ProductWithTasks[]
+    onSelectProduct: (productKey: ProductKey) => void
+}
+
+function ProductSuggestions({ products, onSelectProduct }: ProductSuggestionsProps): JSX.Element {
+    if (products.length === 0) {
+        return (
+            <div className="px-3 py-4 text-center text-sm text-muted">
+                You've completed all available quick start guides. Great job!
+            </div>
+        )
+    }
+
+    return (
+        <div className="py-2">
+            <div className="px-3 py-1">
+                <span className="text-[10px] font-semibold text-muted uppercase tracking-wider">Continue with</span>
+            </div>
+            {products.slice(0, 5).map((product) => (
+                <ProductSuggestionItem key={product.productKey} product={product} onSelect={onSelectProduct} />
+            ))}
+        </div>
+    )
+}
+
+interface ProductSuggestionItemProps {
+    product: ProductWithTasks
+    onSelect: (productKey: ProductKey) => void
+}
+
+function ProductSuggestionItem({ product, onSelect }: ProductSuggestionItemProps): JSX.Element {
+    return (
+        <div
+            className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-primary-highlight active:bg-fill-primary-highlight-hover"
+            onClick={() => onSelect(product.productKey)}
+        >
+            <IconTarget className="w-4 h-4 text-muted" />
+            <span className="flex-1 text-sm">{product.name}</span>
+            <span className="text-xs text-muted">{product.remainingCount} tasks</span>
+        </div>
+    )
+}
+
+interface TaskHoverDescriptionProps {
+    task: SetupTaskWithState
+}
+
+function TaskHoverDescription({ task }: TaskHoverDescriptionProps): JSX.Element {
+    return (
+        <div className="px-3 py-2 border-t border-border bg-fill-tertiary">
+            <span className="text-xs font-medium">{task.title}</span>
+            {task.description && typeof task.description === 'string' && (
+                <p className="text-xs text-muted mt-0.5 leading-snug">{task.description}</p>
+            )}
+            {task.lockedReason && (
+                <p className="text-xs text-warning mt-1">
+                    <strong>Depends on:</strong> {task.lockedReason.replace('Complete "', '').replace('" first', '')}
+                </p>
+            )}
+            {task.requiresManualCompletion && !task.completed && !task.skipped && (
+                <p className="text-xs text-muted mt-1 italic">
+                    Manual task – {task.docsUrl ? 'click for instructions, then ' : ''}
+                    mark as complete when done.
+                </p>
+            )}
+        </div>
+    )
+}
+
+interface PopoverFooterProps {
+    isDismissed: boolean
+    onMinimize: () => void
+    onRestore: () => void
+    selectedProduct: ProductKey
+}
+
+function PopoverFooter({ isDismissed, onMinimize, onRestore, selectedProduct }: PopoverFooterProps): JSX.Element {
+    return (
+        <div className="px-3 py-2 border-t border-border flex items-center justify-between">
+            {isDismissed ? (
+                <LemonButton type="tertiary" size="xsmall" onClick={onRestore}>
+                    Restore
+                </LemonButton>
+            ) : (
+                <LemonButton type="tertiary" size="xsmall" onClick={onMinimize}>
+                    Minimize
+                </LemonButton>
+            )}
+            <Link
+                to={`https://posthog.com/docs/${selectedProduct.replace(/_/g, '-')}`}
+                target="_blank"
+                className="text-xs text-muted hover:text-primary"
+            >
+                View docs
+            </Link>
+        </div>
     )
 }
 
@@ -423,7 +470,6 @@ interface TaskSectionProps {
     onMarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
     onUnmarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
     onHover?: (task: SetupTaskWithState | null) => void
-    /** Optional action button to show next to the section title */
     actionButton?: React.ReactNode
 }
 
@@ -483,13 +529,6 @@ function TaskItem({
     const isSkipped = task.skipped
     const isDone = isCompleted || isSkipped
     const isLocked = !!task.lockedReason
-
-    const titleElement = (
-        <span className={`flex-1 text-sm ${isDone ? 'line-through text-muted' : isLocked ? 'text-muted' : ''}`}>
-            {task.title}
-        </span>
-    )
-
     const isClickable = !isDone && !isLocked
 
     const content = (
@@ -504,10 +543,11 @@ function TaskItem({
             onClick={isClickable ? onClick : undefined}
             onMouseEnter={() => onHover?.(task)}
         >
-            {/* Status indicator - clickable to mark complete/uncomplete */}
-            <div
-                className="flex-shrink-0 cursor-pointer"
-                onClick={(e) => {
+            <TaskStatusIndicator
+                isCompleted={isCompleted}
+                isSkipped={isSkipped}
+                isLocked={isLocked}
+                onToggle={(e) => {
                     e.stopPropagation()
                     if (isCompleted && onUnmarkComplete) {
                         onUnmarkComplete(e, task.id)
@@ -515,73 +555,21 @@ function TaskItem({
                         onMarkComplete(e, task.id)
                     }
                 }}
-            >
-                {isCompleted ? (
-                    <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
-                        <IconCheck className="w-2.5 h-2.5 text-white" />
-                    </div>
-                ) : isSkipped ? (
-                    <div className="w-4 h-4 rounded-full border border-border bg-bg-light" />
-                ) : isLocked ? (
-                    <div className="w-4 h-4 rounded-full border border-border bg-bg-light flex items-center justify-center">
-                        <IconLock className="w-2.5 h-2.5 text-muted" />
-                    </div>
-                ) : (
-                    <div className="w-4 h-4 rounded-full border-2 border-border hover:border-success hover:bg-success/10 transition-colors" />
-                )}
-            </div>
+            />
 
-            {isSkipped ? <Tooltip title="Skipped">{titleElement}</Tooltip> : titleElement}
+            <TaskTitle title={task.title} isDone={isDone} isLocked={isLocked} isSkipped={isSkipped} />
 
-            {isSkipped && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        onClick={(e) => onUnskip(e, task.id)}
-                        tooltip="Restore this task"
-                    >
-                        Restore
-                    </LemonButton>
-                </div>
-            )}
-
-            {isCompleted && onUnmarkComplete && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        onClick={(e) => onUnmarkComplete(e, task.id)}
-                        tooltip="Mark as incomplete"
-                    >
-                        Undo
-                    </LemonButton>
-                </div>
-            )}
-
-            {!isDone && !isLocked && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {onMarkComplete && (
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            onClick={(e) => onMarkComplete(e, task.id)}
-                            tooltip="Mark as complete"
-                        >
-                            <IconCheck className="w-3 h-3" />
-                        </LemonButton>
-                    )}
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        onClick={(e) => onSkip(e, task.id)}
-                        tooltip={task.skipWarning || 'Skip this task'}
-                    >
-                        Skip
-                    </LemonButton>
-                    {task.docsUrl && <IconExternal className="w-3.5 h-3.5 text-muted" />}
-                </div>
-            )}
+            <TaskActions
+                task={task}
+                isDone={isDone}
+                isLocked={isLocked}
+                isCompleted={isCompleted}
+                isSkipped={isSkipped}
+                onSkip={onSkip}
+                onUnskip={onUnskip}
+                onMarkComplete={onMarkComplete}
+                onUnmarkComplete={onUnmarkComplete}
+            />
         </div>
     )
 
@@ -590,4 +578,181 @@ function TaskItem({
     }
 
     return content
+}
+
+interface TaskStatusIndicatorProps {
+    isCompleted: boolean
+    isSkipped: boolean
+    isLocked: boolean
+    onToggle: (e: React.MouseEvent) => void
+}
+
+function TaskStatusIndicator({ isCompleted, isSkipped, isLocked, onToggle }: TaskStatusIndicatorProps): JSX.Element {
+    return (
+        <div className="flex-shrink-0 cursor-pointer" onClick={onToggle}>
+            {isCompleted ? (
+                <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
+                    <IconCheck className="w-2.5 h-2.5 text-white" />
+                </div>
+            ) : isSkipped ? (
+                <div className="w-4 h-4 rounded-full border border-border bg-bg-light" />
+            ) : isLocked ? (
+                <div className="w-4 h-4 rounded-full border border-border bg-bg-light flex items-center justify-center">
+                    <IconLock className="w-2.5 h-2.5 text-muted" />
+                </div>
+            ) : (
+                <div className="w-4 h-4 rounded-full border-2 border-border hover:border-success hover:bg-success/10 transition-colors" />
+            )}
+        </div>
+    )
+}
+
+interface TaskTitleProps {
+    title: string
+    isDone: boolean
+    isLocked: boolean
+    isSkipped: boolean
+}
+
+function TaskTitle({ title, isDone, isLocked, isSkipped }: TaskTitleProps): JSX.Element {
+    const titleElement = (
+        <span className={`flex-1 text-sm ${isDone ? 'line-through text-muted' : isLocked ? 'text-muted' : ''}`}>
+            {title}
+        </span>
+    )
+
+    if (isSkipped) {
+        return <Tooltip title="Skipped">{titleElement}</Tooltip>
+    }
+
+    return titleElement
+}
+
+interface TaskActionsProps {
+    task: SetupTaskWithState
+    isDone: boolean
+    isLocked: boolean
+    isCompleted: boolean
+    isSkipped: boolean
+    onSkip: (e: React.MouseEvent, taskId: SetupTaskId) => void
+    onUnskip: (e: React.MouseEvent, taskId: SetupTaskId) => void
+    onMarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
+    onUnmarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
+}
+
+function TaskActions({
+    task,
+    isDone,
+    isLocked,
+    isCompleted,
+    isSkipped,
+    onSkip,
+    onUnskip,
+    onMarkComplete,
+    onUnmarkComplete,
+}: TaskActionsProps): JSX.Element | null {
+    if (isSkipped) {
+        return (
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    onClick={(e) => onUnskip(e, task.id)}
+                    tooltip="Restore this task"
+                >
+                    Restore
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (isCompleted && onUnmarkComplete) {
+        return (
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    onClick={(e) => onUnmarkComplete(e, task.id)}
+                    tooltip="Mark as incomplete"
+                >
+                    Undo
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (!isDone && !isLocked) {
+        return (
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {onMarkComplete && (
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        onClick={(e) => onMarkComplete(e, task.id)}
+                        tooltip="Mark as complete"
+                    >
+                        <IconCheck className="w-3 h-3" />
+                    </LemonButton>
+                )}
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    onClick={(e) => onSkip(e, task.id)}
+                    tooltip={task.skipWarning || 'Skip this task'}
+                >
+                    Skip
+                </LemonButton>
+                {task.docsUrl && <IconExternal className="w-3.5 h-3.5 text-muted" />}
+            </div>
+        )
+    }
+
+    return null
+}
+
+function useOtherProductsWithTasks(
+    selectedProduct: ProductKey,
+    savedOnboardingTasks: Record<string, ActivationTaskStatus>
+): ProductWithTasks[] {
+    return useMemo(() => {
+        const currentCategory = productCategoryMap[selectedProduct]
+
+        const products = PRODUCTS_WITH_SETUP.filter((productKey) => {
+            if (productKey === selectedProduct) {
+                return false
+            }
+            const tasks = getTasksForProduct(productKey)
+            const remainingTasks = tasks.filter((task) => {
+                const status = savedOnboardingTasks[task.id]
+                return status !== ActivationTaskStatus.COMPLETED && status !== ActivationTaskStatus.SKIPPED
+            })
+            return remainingTasks.length > 0
+        }).map((productKey) => {
+            const productConfig = getProductSetupConfig(productKey)
+            const tasks = getTasksForProduct(productKey)
+            const remainingCount = tasks.filter((task) => {
+                const status = savedOnboardingTasks[task.id]
+                return status !== ActivationTaskStatus.COMPLETED && status !== ActivationTaskStatus.SKIPPED
+            }).length
+            return {
+                productKey,
+                name: productConfig?.title.replace('Get started with ', '') || productKey,
+                remainingCount,
+                category: productCategoryMap[productKey],
+            }
+        })
+
+        // Sort: same category first, then alphabetically by name
+        return products.sort((a, b) => {
+            const aIsSameCategory = a.category === currentCategory
+            const bIsSameCategory = b.category === currentCategory
+            if (aIsSameCategory && !bIsSameCategory) {
+                return -1
+            }
+            if (!aIsSameCategory && bIsSameCategory) {
+                return 1
+            }
+            return a.name.localeCompare(b.name)
+        })
+    }, [selectedProduct, savedOnboardingTasks])
 }

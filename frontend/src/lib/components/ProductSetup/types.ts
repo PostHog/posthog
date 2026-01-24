@@ -40,10 +40,10 @@ export enum SetupTaskId {
     UpdateFeatureFlagReleaseConditions = 'update_feature_flag_release_conditions',
     CreateMultivariateFlag = 'create_multivariate_flag',
     SetUpFlagPayloads = 'set_up_flag_payloads',
+    SetUpFlagEvaluationRuntimes = 'set_up_flag_evaluation_runtimes',
 
     // Experiments
     CreateExperiment = 'create_experiment',
-    DefineExperimentGoal = 'define_experiment_goal',
     ImplementExperimentVariants = 'implement_experiment_variants',
     LaunchExperiment = 'launch_experiment',
     ReviewExperimentResults = 'review_experiment_results',
@@ -70,8 +70,10 @@ export enum SetupTaskId {
     ViewFirstTrace = 'view_first_trace',
     TrackCosts = 'track_costs',
     SetUpLlmEvaluation = 'set_up_llm_evaluation',
+    RunAIPlayground = 'run_ai_playground',
 
     // Revenue Analytics
+    EnableRevenueAnalyticsViewset = 'enable_revenue_analytics_viewset',
     ConnectRevenueSource = 'connect_revenue_source',
     SetUpRevenueGoal = 'set_up_revenue_goal',
 
@@ -88,8 +90,8 @@ export enum SetupTaskId {
 
     // Endpoints
     CreateFirstEndpoint = 'create_first_endpoint',
+    ConfigureEndpoint = 'configure_endpoint',
     TestEndpoint = 'test_endpoint',
-    ActivateEndpoint = 'activate_endpoint',
 
     // Early Access Features
     CreateEarlyAccessFeature = 'create_early_access_feature',
@@ -115,8 +117,6 @@ export interface SetupTask {
     title: string
     /** Help text or description */
     description: string | ReactNode
-    /** CTA button label */
-    buttonText: string
     /**
      * Warning message to show when user tries to skip this task.
      * If set, a confirmation dialog will be shown before skipping.

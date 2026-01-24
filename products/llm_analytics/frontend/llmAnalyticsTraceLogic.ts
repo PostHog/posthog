@@ -374,8 +374,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 actions.loadCommentCount()
 
                 // Mark both tasks as completed - viewing a trace implies AI events were sent
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstTrace)
+                globalSetupLogic
+                    .findMounted()
+                    ?.actions.markTaskAsCompleted([SetupTaskId.IngestFirstLlmEvent, SetupTaskId.ViewFirstTrace])
             }
         },
     })),

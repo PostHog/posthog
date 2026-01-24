@@ -257,17 +257,19 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             })
         },
         updateStage: async ({ stage }) => {
-            // If promoting to General Availability, show confirmation dialog
-            if (stage === EarlyAccessFeatureStage.GeneralAvailability) {
-                actions.showGAPromotionConfirmation(() =>
-                    actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
-                )
-            } else {
+            const save = (): void => {
                 actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+
+                // Mark stage update task as completed when user changes stage
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureStage)
             }
 
-            // Mark stage update task as completed when user changes stage
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureStage)
+            // If promoting to General Availability, show confirmation dialog
+            if (stage === EarlyAccessFeatureStage.GeneralAvailability) {
+                actions.showGAPromotionConfirmation(save)
+            } else {
+                save()
+            }
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
             try {

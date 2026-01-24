@@ -43,6 +43,7 @@ export const sessionRecordingsSettingsSceneLogic = kea<sessionRecordingsSettings
 export const scene: SceneExport = {
     component: SessionRecordingsSettingsScene,
     logic: sessionRecordingsSettingsSceneLogic,
+    productKey: ProductKey.SESSION_REPLAY,
 }
 
 export interface SessionRecordingsSettingsSceneProps {
@@ -55,7 +56,7 @@ export function SessionRecordingsSettingsScene({ tabId }: SessionRecordingsSetti
     }
     return (
         <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
-            <SceneContent className="-mb-14" productKey={ProductKey.SESSION_REPLAY}>
+            <SceneContent className="-mb-14">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.Replay].name}
                     resourceType={{

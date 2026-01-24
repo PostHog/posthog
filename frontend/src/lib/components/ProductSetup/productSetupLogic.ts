@@ -1,19 +1,16 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
-import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
-import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivationTaskStatus, EventDefinitionType } from '~/types'
+import { ActivationTaskStatus } from '~/types'
 
+import { reverseProxyCheckerLogic } from '../ReverseProxyChecker/reverseProxyCheckerLogic'
 import { globalSetupLogic } from './globalSetupLogic'
 import type { productSetupLogicType } from './productSetupLogicType'
 import { getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
@@ -31,7 +28,7 @@ const DISMISSED_STORAGE_KEY = 'posthog_product_setup_dismissed'
  * This logic is keyed by productKey and handles:
  * 1. Reading task state (selectors derive from team.onboarding_tasks)
  * 2. Running task actions (navigation, opening modals, etc.)
- * 3. Product-specific UI state (expandedTaskId, isDismissed, isModalOpen)
+ * 3. Product-specific UI state (isDismissed, isModalOpen)
  * 4. Product-specific loaders (customEventsCount, hasSentAIEvent)
  *
  * Task completion is handled by globalSetupLogic - this logic just reads and displays state.
@@ -91,12 +88,6 @@ export const productSetupLogic = kea<productSetupLogicType>([
                 closeSetupModal: () => false,
             },
         ],
-        expandedTaskId: [
-            null as SetupTaskId | null,
-            {
-                setExpandedTaskId: (_, { taskId }) => taskId,
-            },
-        ],
         isDismissed: [
             false,
             { persist: true, prefix: `${DISMISSED_STORAGE_KEY}_${props.productKey}` },
@@ -111,35 +102,6 @@ export const productSetupLogic = kea<productSetupLogicType>([
                 setShowCelebration: (_, { show }) => show,
             },
         ],
-    })),
-    loaders(({ cache }) => ({
-        customEventsCount: [
-            0,
-            {
-                loadCustomEvents: async (_, breakpoint) => {
-                    await breakpoint(200)
-                    const url = api.eventDefinitions.determineListEndpoint({
-                        event_type: EventDefinitionType.EventCustom,
-                    })
-                    if (url in (cache.apiCache ?? {})) {
-                        return cache.apiCache[url]
-                    }
-                    const response = await api.get(url)
-                    breakpoint()
-                    cache.apiCache = {
-                        ...cache.apiCache,
-                        [url]: response.count,
-                    }
-                    return cache.apiCache[url]
-                },
-            },
-        ],
-        hasSentAIEvent: {
-            __default: undefined as boolean | undefined,
-            loadAIEventDefinitions: async (): Promise<boolean> => {
-                return hasRecentAIEvents()
-            },
-        },
     })),
     selectors({
         productConfig: [(_, p) => [p.productKey], (productKey) => getProductSetupConfig(productKey)],
@@ -225,7 +187,7 @@ export const productSetupLogic = kea<productSetupLogicType>([
         firstAvailableTask: [(s) => [s.activeTasks], (tasks) => tasks.find((t) => !t.lockedReason) ?? null],
     }),
     listeners(({ props, actions, values }) => ({
-        runTask: ({ taskId }) => {
+        runTask: async ({ taskId }) => {
             const task = values.tasksWithState.find((t) => t.id === taskId)
             if (!task) {
                 return
@@ -233,21 +195,27 @@ export const productSetupLogic = kea<productSetupLogicType>([
 
             // Special cases that need non-navigation actions
             switch (taskId) {
-                case 'setup_session_recordings':
-                    // Open settings panel in addition to navigation
-                    actions.openSettingsPanel({ sectionId: 'project-replay' })
+                case SetupTaskId.SetUpWebAnalyticsConversionGoals:
+                    // Click the filters button after navigation to reveal the conversion goal
+                    // (it's inside a popover in the condensed filter bar)
+                    setTimeout(() => {
+                        const filtersButton = document.querySelector<HTMLElement>(
+                            '[data-attr="web-analytics-unified-filters"]'
+                        )
+                        filtersButton?.click()
+                    }, 300)
                     break
+            }
+
+            // Set highlight selector before navigation so it can highlight after page loads (if we even have to navigate)
+            if (task.targetSelector) {
+                actions.setHighlightSelector(task.targetSelector)
             }
 
             // Use task's getUrl if available, otherwise fall back to docsUrl
             if (task.getUrl) {
                 // Close modal before internal navigation (keeps the full "Quick start" button visible)
                 actions.closeGlobalSetup()
-
-                // Set highlight selector before navigation so it can highlight after page loads
-                if (task.targetSelector) {
-                    actions.setHighlightSelector(task.targetSelector)
-                }
                 router.actions.push(task.getUrl())
             } else if (task.docsUrl) {
                 // Keep modal open for external docs links
@@ -261,41 +229,9 @@ export const productSetupLogic = kea<productSetupLogicType>([
                 total_count: values.totalTasks,
             })
         },
-        loadCompletionData: () => {
-            // Load reverse proxy status
-            if (!values.currentTeam?.onboarding_tasks?.[SetupTaskId.SetUpReverseProxy]) {
-                actions.loadHasReverseProxy()
-            }
-
-            // Load custom events for Product Analytics
-            if (props.productKey === ProductKey.PRODUCT_ANALYTICS) {
-                actions.loadCustomEvents({})
-            }
-
-            // Load AI events for LLM Analytics
-            if (props.productKey === ProductKey.LLM_ANALYTICS) {
-                actions.loadAIEventDefinitions()
-            }
-        },
-        loadCustomEventsSuccess: () => {
-            if (values.customEventsCount > 0) {
-                // Use globalSetupLogic for task completion
-                actions.markTaskAsCompleted(SetupTaskId.TrackCustomEvents)
-            }
-        },
-        loadAIEventDefinitionsSuccess: () => {
-            if (values.hasSentAIEvent) {
-                // Use globalSetupLogic for task completion
-                actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
-            }
-        },
         openSetupModal: () => {
-            actions.loadCompletionData()
-
-            // Auto-expand first available task
-            if (!values.expandedTaskId && values.firstAvailableTask) {
-                actions.setExpandedTaskId(values.firstAvailableTask.id)
-            }
+            // Attempt to capture whether reverse proxy is enabled
+            actions.loadHasReverseProxy()
 
             posthog.capture('product setup modal opened', {
                 product: props.productKey,

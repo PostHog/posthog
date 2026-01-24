@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { forwardRef } from 'react'
 
 import { IconTarget } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -18,7 +19,7 @@ import { productSetupLogic } from './productSetupLogic'
  * handled by SceneContent when a productKey is provided.
  */
 export function ProductSetupButton(): JSX.Element | null {
-    const { selectedProduct, isGlobalModalOpen } = useValues(globalSetupLogic)
+    const { selectedProduct, isGlobalModalOpen, sceneHasNoSetup } = useValues(globalSetupLogic)
     const { openGlobalSetup, closeGlobalSetup, setSelectedProduct } = useActions(globalSetupLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
 
@@ -28,7 +29,7 @@ export function ProductSetupButton(): JSX.Element | null {
     const { undismissSetup } = useActions(logic)
 
     // Show button if there are remaining tasks OR if the modal is currently open (to show completion)
-    const shouldShowButton = isCurrentOrganizationNew && (remainingCount > 0 || isGlobalModalOpen)
+    const shouldShowButton = isCurrentOrganizationNew && !sceneHasNoSetup && (remainingCount > 0 || isGlobalModalOpen)
 
     const handleToggle = (): void => {
         if (isGlobalModalOpen) {
@@ -41,7 +42,6 @@ export function ProductSetupButton(): JSX.Element | null {
         }
     }
 
-    // Register keyboard shortcut
     useAppShortcut({
         name: 'QuickStartGlobal',
         keybind: [keyBinds.quickStart],
@@ -51,7 +51,6 @@ export function ProductSetupButton(): JSX.Element | null {
         disabled: !shouldShowButton,
     })
 
-    // Don't show for old organizations
     if (!shouldShowButton) {
         return null
     }
@@ -63,45 +62,82 @@ export function ProductSetupButton(): JSX.Element | null {
             selectedProduct={selectedProduct}
             onSelectProduct={setSelectedProduct}
         >
-            {/* When minimized, show compact button, else big one */}
             {isDismissed && !isGlobalModalOpen ? (
-                <LemonButton
-                    icon={
-                        <span className="relative">
-                            <IconTarget />
-                            {remainingCount > 0 && (
-                                <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center w-3.5 h-3.5 text-[9px] font-bold bg-warning text-white rounded-full">
-                                    {remainingCount}
-                                </span>
-                            )}
-                        </span>
-                    }
-                    size="small"
-                    type="secondary"
-                    onClick={handleToggle}
-                    active={isGlobalModalOpen}
-                    tooltip="Quick start (click to expand)"
-                    data-attr="global-product-setup-button-minimized"
-                />
+                <MinimizedButton remainingCount={remainingCount} isActive={isGlobalModalOpen} onClick={handleToggle} />
             ) : (
-                <LemonButton
-                    icon={<IconTarget />}
-                    size="small"
-                    type="secondary"
+                <ExpandedButton
+                    remainingCount={remainingCount}
+                    showBadge={shouldShowSetup}
+                    isActive={isGlobalModalOpen}
                     onClick={handleToggle}
-                    active={isGlobalModalOpen}
-                    data-attr="global-product-setup-button"
-                    sideIcon={
-                        shouldShowSetup && remainingCount > 0 ? (
-                            <span className="flex items-center justify-center min-w-5 h-5 px-1 text-xs font-bold bg-warning text-white rounded-full">
-                                {remainingCount}
-                            </span>
-                        ) : undefined
-                    }
-                >
-                    Quick start
-                </LemonButton>
+                />
             )}
         </ProductSetupPopover>
     )
 }
+
+interface MinimizedButtonProps {
+    remainingCount: number
+    isActive: boolean
+    onClick: () => void
+}
+
+const MinimizedButton = forwardRef<HTMLButtonElement, MinimizedButtonProps>(function MinimizedButton(
+    { remainingCount, isActive, onClick },
+    ref
+) {
+    return (
+        <LemonButton
+            ref={ref}
+            icon={
+                <span className="relative">
+                    <IconTarget />
+                    {remainingCount > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center w-3.5 h-3.5 text-[9px] font-bold bg-warning text-white rounded-full">
+                            {remainingCount}
+                        </span>
+                    )}
+                </span>
+            }
+            size="small"
+            type="secondary"
+            onClick={onClick}
+            active={isActive}
+            tooltip="Quick start (click to expand)"
+            data-attr="global-product-setup-button-minimized"
+        />
+    )
+})
+
+interface ExpandedButtonProps {
+    remainingCount: number
+    showBadge: boolean
+    isActive: boolean
+    onClick: () => void
+}
+
+const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(function ExpandedButton(
+    { remainingCount, showBadge, isActive, onClick },
+    ref
+) {
+    return (
+        <LemonButton
+            ref={ref}
+            icon={<IconTarget />}
+            size="small"
+            type="secondary"
+            onClick={onClick}
+            active={isActive}
+            data-attr="global-product-setup-button"
+            sideIcon={
+                showBadge && remainingCount > 0 ? (
+                    <span className="flex items-center justify-center min-w-5 h-5 px-1 text-xs font-bold bg-warning text-white rounded-full">
+                        {remainingCount}
+                    </span>
+                ) : undefined
+            }
+        >
+            Quick start
+        </LemonButton>
+    )
+})

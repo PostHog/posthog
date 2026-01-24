@@ -17,6 +17,10 @@
                     50px
                 )
         );
+
+        // Add padding to allow room for highlight glow, with negative margin to compensate
+        padding: 0.5rem;
+        margin: -0.5rem;
         overflow-y: auto;
         overscroll-behavior: contain;
 

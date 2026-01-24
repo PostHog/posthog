@@ -403,6 +403,7 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.resetWorkflow(originalWorkflow)
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            const tasksToMarkAsCompleted: SetupTaskId[] = []
             lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(
@@ -414,7 +415,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             // Mark workflow creation task as completed everytime it's saved for completeness
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstWorkflow)
+            tasksToMarkAsCompleted.push(SetupTaskId.CreateFirstWorkflow)
 
             // Check trigger configuration
             const trigger = originalWorkflow.actions.find((a) => a.type === 'trigger')
@@ -433,12 +434,17 @@ export const workflowLogic = kea<workflowLogicType>([
             // Check if workflow has actions beyond trigger and exit
             const actionNodes = originalWorkflow.actions.filter((a) => a.type !== 'trigger' && a.type !== 'exit')
             if (actionNodes.length > 0) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddWorkflowAction)
+                tasksToMarkAsCompleted.push(SetupTaskId.AddWorkflowAction)
             }
 
             // Check if workflow is active (launched)
             if (originalWorkflow.status === 'active') {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchWorkflow)
+                tasksToMarkAsCompleted.push(SetupTaskId.LaunchWorkflow)
+            }
+
+            // Make sure we submit all the tasks for completion at once in the end
+            if (tasksToMarkAsCompleted.length > 0) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToMarkAsCompleted)
             }
 
             actions.resetWorkflow(originalWorkflow)

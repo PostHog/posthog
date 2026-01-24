@@ -495,6 +495,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 }
             }
         },
+
+        loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
+            if (hasSentAiEvent) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+            }
+        },
     })),
 
     selectors({
