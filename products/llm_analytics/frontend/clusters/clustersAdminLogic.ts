@@ -9,6 +9,7 @@ import type { AnyPropertyFilter } from '~/types'
 import type { clustersAdminLogicType } from './clustersAdminLogicType'
 
 export interface ClusteringRunParams {
+    analysis_level: 'trace' | 'generation'
     lookback_days: number
     max_samples: number
     embedding_normalization: 'none' | 'l2'
@@ -35,6 +36,7 @@ export interface ClusteringRunResponse {
 }
 
 export const DEFAULT_CLUSTERING_PARAMS: ClusteringRunParams = {
+    analysis_level: 'trace',
     lookback_days: 7,
     max_samples: 1000,
     embedding_normalization: 'l2',

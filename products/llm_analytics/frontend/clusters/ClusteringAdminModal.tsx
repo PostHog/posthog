@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -33,6 +33,24 @@ export function ClusteringAdminModal(): JSX.Element {
             }
         >
             <div className="space-y-6">
+                {/* Analysis Level */}
+                <div>
+                    <h4 className="font-semibold mb-3">Analysis level</h4>
+                    <LemonSegmentedButton
+                        value={params.analysis_level}
+                        onChange={(value) => setParams({ analysis_level: value })}
+                        options={[
+                            { value: 'trace', label: 'Traces' },
+                            { value: 'generation', label: 'Generations' },
+                        ]}
+                        fullWidth
+                    />
+                    <div className="text-xs text-muted mt-2">
+                        <strong>Traces:</strong> Cluster entire conversation traces. <strong>Generations:</strong>{' '}
+                        Cluster individual LLM generations for finer-grained analysis.
+                    </div>
+                </div>
+
                 {/* Run Label */}
                 <div>
                     <h4 className="font-semibold mb-3">Experiment tracking</h4>
