@@ -225,21 +225,74 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+actions: PostgresTable = PostgresTable(
+    name="actions",
+    postgres_table_name="posthog_action",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "steps_json": StringJSONDatabaseField(name="steps_json"),
+    },
+)
+
+notebooks: PostgresTable = PostgresTable(
+    name="notebooks",
+    postgres_table_name="posthog_notebook",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "short_id": StringDatabaseField(name="short_id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "title": StringDatabaseField(name="title"),
+        "content": StringJSONDatabaseField(name="content"),
+        "text_content": StringDatabaseField(name="text_content"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "visibility": StringDatabaseField(name="visibility"),
+        "version": IntegerDatabaseField(name="version"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+    },
+)
+
+dashboard_tiles: PostgresTable = PostgresTable(
+    name="dashboard_tiles",
+    postgres_table_name="posthog_dashboardtile",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "dashboard_id": IntegerDatabaseField(name="dashboard_id"),
+        "insight_id": IntegerDatabaseField(name="insight_id"),
+        "text_id": IntegerDatabaseField(name="text_id"),
+        "layouts": StringJSONDatabaseField(name="layouts"),
+        "color": StringDatabaseField(name="color"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
-        "dashboards": TableNode(name="dashboards", table=dashboards),
+        "actions": TableNode(name="actions", table=actions),
         "cohorts": TableNode(name="cohorts", table=cohorts),
-        "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
-        "insights": TableNode(name="insights", table=insights),
+        "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
+        "dashboards": TableNode(name="dashboards", table=dashboards),
+        "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
-        "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+        "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
+        "insights": TableNode(name="insights", table=insights),
+        "notebooks": TableNode(name="notebooks", table=notebooks),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }
