@@ -4,12 +4,12 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { StatsMethodSelector } from '~/scenes/experiments/components/StatsMethodSelector'
-import { organizationLogic } from '~/scenes/organizationLogic'
+import { teamLogic } from '~/scenes/teamLogic'
 import { ExperimentStatsMethod } from '~/types'
 
-export function OrganizationExperimentStatsMethod(): JSX.Element {
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { updateOrganization } = useActions(organizationLogic)
+export function DefaultExperimentStatsMethod(): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     // TODO: This should probably be looking at the Experiment resource access level
     const restrictionReason = useRestrictedArea({
@@ -17,16 +17,16 @@ export function OrganizationExperimentStatsMethod(): JSX.Element {
     })
 
     const handleChange = (value: ExperimentStatsMethod): void => {
-        updateOrganization({ default_experiment_stats_method: value })
+        updateCurrentTeam({ default_experiment_stats_method: value })
     }
 
     return (
         <div className="mt-4">
             <StatsMethodSelector
-                value={currentOrganization?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
+                value={currentTeam?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
                 onChange={handleChange}
-                disabled={!!restrictionReason || currentOrganizationLoading}
-                disabledReason={restrictionReason || (currentOrganizationLoading ? 'Loading...' : undefined)}
+                disabled={!!restrictionReason || currentTeamLoading}
+                disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
             />
         </div>
     )
