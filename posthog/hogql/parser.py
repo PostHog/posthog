@@ -28,7 +28,12 @@ from posthog.hogql.errors import BaseHogQLError, NotImplementedError, QueryError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.json_ast import deserialize_ast
-from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
+from posthog.hogql.parse_string import (
+    parse_escape_string_literal_ctx,
+    parse_string_literal_ctx,
+    parse_string_literal_text,
+    parse_string_text_ctx,
+)
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
 
@@ -1209,6 +1214,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return ast.Constant(value=None)
         if ctx.STRING_LITERAL():
             text = parse_string_literal_ctx(ctx)
+            return ast.Constant(value=text)
+        if ctx.ESCAPE_STRING_LITERAL():
+            text = parse_escape_string_literal_ctx(ctx)
             return ast.Constant(value=text)
         return self.visitChildren(ctx)
 

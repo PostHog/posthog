@@ -2970,4 +2970,23 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @unittest.skipIf(backend == "cpp", "Postgres escape string syntax is not supported in the legacy C++ backend")
+        def test_postgres_escape_string(self):
+            self.assertEqual(
+                self._expr("E'hello\\nworld'"),
+                ast.Constant(value="hello\nworld"),
+            )
+            self.assertEqual(
+                self._expr("E'single \\' quote'"),
+                ast.Constant(value="single ' quote"),
+            )
+            self.assertEqual(
+                self._expr("E'double \\\\ backslash'"),
+                ast.Constant(value="double \\ backslash"),
+            )
+            self.assertEqual(
+                self._expr("E'mixed \\' and \\\\ characters \\n'"),
+                ast.Constant(value="mixed ' and \\ characters \n"),
+            )
+
     return TestParser
