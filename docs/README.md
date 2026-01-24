@@ -6,13 +6,22 @@ Developer-focused documentation alongside code. Update docs in the same PR as yo
 
 ### `published/` - Published on posthog.com
 
-Documentation published to https://posthog.com/handbook/engineering/ when merged to master:
+Documentation published when merged to master. The destination URL depends on the path:
 
-- Architecture guides
-- Contributing guides
-- Engineering practices
+| Path                                | Published to                        |
+| ----------------------------------- | ----------------------------------- |
+| `published/products/<product>/*.md` | `posthog.com/docs/<product>/`       |
+| `published/*.md`                    | `posthog.com/handbook/engineering/` |
 
-**When to use**: Documentation that external users or contributors need.
+**Examples:**
+
+- `published/products/surveys/sdk-feature-support.md` → `/docs/surveys/sdk-feature-support`
+- `published/developing-locally.md` → `/handbook/engineering/developing-locally`
+
+**When to use**:
+
+- `published/products/` - Auto-generated product docs that live alongside source code
+- `published/` - Engineering docs for external users or contributors
 
 ### `internal/` - GitHub-only
 
