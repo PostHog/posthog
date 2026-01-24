@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import {
     IconBook,
-    IconCloud,
     IconConfetti,
     IconDatabase,
     IconEllipsis,
@@ -38,6 +37,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { SidePanelStatusIcon } from '~/layout/navigation-3000/sidepanel/panels/SidePanelStatus'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -137,10 +137,10 @@ export function HelpMenu(): JSX.Element {
                             targetBlankIcon
                             target="_blank"
                             buttonProps={{ menuItem: true }}
-                            to="https://posthog.com/roadmap"
+                            to="https://status.posthog.com"
                         >
-                            <IconCloud />
-                            PostHog Status
+                            <SidePanelStatusIcon className="flex" size="xsmall" />
+                            PostHog status
                         </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
