@@ -132,6 +132,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow',
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
                         )}
+                        flagOffClassName={sidePanel ? 'contents' : undefined}
                     >
                         <div className="flex-1 items-center justify-center flex flex-col gap-3 relative z-50">
                             <Intro />
