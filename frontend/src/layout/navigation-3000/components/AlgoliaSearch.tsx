@@ -1,13 +1,13 @@
 import algoliasearch from 'algoliasearch/lite'
 import { useActions } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { CSSProperties, useEffect, useRef, useState } from 'react'
 import { InstantSearch, useHits, useRefinementList, useSearchBox } from 'react-instantsearch'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List } from 'react-virtualized/dist/es/List'
+import { List, useListRef } from 'react-window'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -15,11 +15,25 @@ import { SidePanelTab } from '~/types'
 
 const searchClient = algoliasearch('7VNQB5W0TX', '37f41fd37095bc85af76ed4edc85eb5a')
 
-const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Element => {
+interface HitRowProps {
+    hits: any[]
+    activeOption?: number
+}
+
+const HitRow = ({
+    index,
+    style,
+    hits,
+    activeOption,
+}: {
+    ariaAttributes: Record<string, unknown>
+    index: number
+    style: CSSProperties
+} & HitRowProps): JSX.Element => {
     const { slug, title, type, resolved } = hits[index]
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <li key={key} style={style} role="listitem" tabIndex={-1} className="p-1 border-b last:border-b-0">
+        <li style={style} role="listitem" tabIndex={-1} className="p-1 border-b last:border-b-0">
             <LemonButton
                 active={activeOption === index}
                 to={`https://posthog.com/${slug}`}
@@ -41,20 +55,32 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
 
 const Hits = ({ activeOption }: { activeOption?: number }): JSX.Element => {
     const { hits } = useHits()
+    const listRef = useListRef()
+
+    useEffect(() => {
+        if (activeOption !== undefined && activeOption >= 0 && listRef.current) {
+            listRef.current.scrollToRow({ index: activeOption, align: 'smart' })
+        }
+    }, [activeOption])
+
+    const rowProps: HitRowProps = { hits, activeOption }
+
     return (
         <ol role="listbox" className="list-none m-0 p-0 h-[80vh]">
-            <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => (
-                    <List
-                        scrollToIndex={activeOption}
-                        width={width}
-                        height={height}
-                        rowCount={hits.length}
-                        rowHeight={50}
-                        rowRenderer={(options: any) => rowRenderer({ ...options, hits, activeOption })}
-                    />
-                )}
-            </AutoSizer>
+            <AutoSizer
+                renderProp={({ height, width }) =>
+                    height && width ? (
+                        <List
+                            listRef={listRef}
+                            style={{ width, height }}
+                            rowCount={hits.length}
+                            rowHeight={50}
+                            rowComponent={HitRow}
+                            rowProps={rowProps}
+                        />
+                    ) : null
+                }
+            />
         </ol>
     )
 }
