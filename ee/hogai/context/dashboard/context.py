@@ -23,6 +23,7 @@ class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
     db_id: int | None = None
     filters_override: dict | None = None
     variables_override: dict | None = None
+    layout: dict | None = None
 
 
 class DashboardContext:
@@ -62,8 +63,22 @@ class DashboardContext:
         self.dashboard_filters = dashboard_filters
         self._semaphore = asyncio.Semaphore(max_concurrent_queries)
 
-        # Create InsightContext objects from DashboardInsightContext models
-        self.insights = [self._create_insight_context(data) for data in insights_data]
+        # Sort by layout position and create InsightContext objects
+        sorted_data = self.sort_by_layout(insights_data)
+        self.insights = [self._create_insight_context(data) for data in sorted_data]
+
+    @staticmethod
+    def sort_by_layout(
+        insights_data: Sequence[DashboardInsightContext], layout_size: str = "sm"
+    ) -> list[DashboardInsightContext]:
+        """Sort insights by their layout position (y, then x)."""
+        return sorted(
+            insights_data,
+            key=lambda i: (
+                (i.layout or {}).get(layout_size, {}).get("y", 100),
+                (i.layout or {}).get(layout_size, {}).get("x", 100),
+            ),
+        )
 
     async def execute_and_format(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
         """Execute all insight queries in parallel and format combined results."""

@@ -28,7 +28,14 @@ class Comment(UUIDTModel, RootTeamMixin):
     source_comment = models.ForeignKey("Comment", on_delete=models.CASCADE, null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
+        indexes = [
+            models.Index(fields=["team_id", "scope", "item_id"]),
+            # Optimized for conversations polling: filters deleted=False, orders by -created_at
+            models.Index(
+                fields=["team_id", "scope", "item_id", "deleted", "-created_at"],
+                name="posthog_comment_convo_idx",
+            ),
+        ]
 
 
 @mutable_receiver(models.signals.post_save, sender=Comment)

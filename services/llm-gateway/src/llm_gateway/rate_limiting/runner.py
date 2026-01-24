@@ -31,3 +31,11 @@ class ThrottleRunner:
                 )
                 return result
         return ThrottleResult.allow()
+
+    async def record_cost(self, context: ThrottleContext, cost: float) -> None:
+        """Record cost after response completes."""
+        from llm_gateway.rate_limiting.cost_throttles import CostThrottle
+
+        for throttle in self._throttles:
+            if isinstance(throttle, CostThrottle):
+                await throttle.record_cost(context, cost)

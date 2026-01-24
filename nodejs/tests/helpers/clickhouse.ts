@@ -80,7 +80,7 @@ export class Clickhouse {
 
         await Promise.allSettled([
             this.truncate('person_static_cohort'),
-            this.truncate('sharded_session_recording_events'),
+            this.truncate('sharded_session_replay_events'),
             this.truncate('events_dead_letter_queue'),
             this.truncate('groups'),
             this.truncate('ingestion_warnings'),
@@ -89,7 +89,7 @@ export class Clickhouse {
         await Promise.allSettled([this.truncate('sharded_ingestion_warnings'), this.truncate('sharded_app_metrics')])
     }
 
-    async waitForHealthy(delayMs = 100, maxDelayCount = 100): Promise<void> {
+    async waitForHealthy(delayMs = 100, maxDelayCount = 300): Promise<void> {
         const timer = performance.now()
 
         for (let i = 0; i < maxDelayCount; i++) {
@@ -166,6 +166,10 @@ export class Clickhouse {
                 const queryResult = await this.client.query({
                     query,
                     format: 'JSON',
+                    clickhouse_settings: {
+                        output_format_json_quote_64bit_integers: 0,
+                        output_format_json_quote_denormals: 0,
+                    },
                 })
 
                 const jsonData = (await queryResult.json()).data as T[]

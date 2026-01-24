@@ -37,6 +37,7 @@ import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
 import { PropertyFilterType } from '~/types'
 
@@ -239,6 +240,7 @@ function StepTriggerConfigurationEvents({
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[action.id]
+    const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
     return (
         <>
@@ -250,12 +252,26 @@ function StepTriggerConfigurationEvents({
                 <HogFlowEventFilters
                     filters={config.filters ?? {}}
                     setFilters={(filters) =>
-                        setWorkflowActionConfig(action.id, { type: 'event', filters: filters ?? {} })
+                        setWorkflowActionConfig(action.id, {
+                            type: 'event',
+                            filters: { ...filters, filter_test_accounts: filterTestAccounts },
+                        })
                     }
+                    filtersKey={`workflow-trigger-${action.id}`}
                     typeKey="workflow-trigger"
                     buttonCopy="Add trigger event"
                 />
             </LemonField.Pure>
+
+            <TestAccountFilter
+                filters={{ filter_test_accounts: filterTestAccounts }}
+                onChange={({ filter_test_accounts }) =>
+                    setWorkflowActionConfig(action.id, {
+                        type: 'event',
+                        filters: { ...config.filters, filter_test_accounts },
+                    })
+                }
+            />
 
             <LemonDivider />
             <FrequencySection />
