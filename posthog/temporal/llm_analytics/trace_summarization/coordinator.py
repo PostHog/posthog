@@ -29,7 +29,11 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_WINDOW_MINUTES,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
 )
-from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, CoordinatorResult
+from posthog.temporal.llm_analytics.trace_summarization.models import (
+    AnalysisLevel,
+    BatchSummarizationInputs,
+    CoordinatorResult,
+)
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
@@ -41,6 +45,7 @@ logger = structlog.get_logger(__name__)
 class BatchTraceSummarizationCoordinatorInputs:
     """Inputs for the coordinator workflow."""
 
+    analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW
     batch_size: int = DEFAULT_BATCH_SIZE
     mode: SummarizationMode = DEFAULT_MODE
@@ -76,12 +81,13 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> BatchTraceSummarizationCoordinatorInputs:
         """Parse workflow inputs from string list."""
         return BatchTraceSummarizationCoordinatorInputs(
-            max_traces=int(inputs[0]) if len(inputs) > 0 else DEFAULT_MAX_TRACES_PER_WINDOW,
-            batch_size=int(inputs[1]) if len(inputs) > 1 else DEFAULT_BATCH_SIZE,
-            mode=SummarizationMode(inputs[2]) if len(inputs) > 2 else DEFAULT_MODE,
-            window_minutes=int(inputs[3]) if len(inputs) > 3 else DEFAULT_WINDOW_MINUTES,
-            provider=SummarizationProvider(inputs[4]) if len(inputs) > 4 else DEFAULT_PROVIDER,
-            model=inputs[5] if len(inputs) > 5 else DEFAULT_MODEL,
+            analysis_level=inputs[0] if len(inputs) > 0 and inputs[0] in ("trace", "generation") else "trace",
+            max_traces=int(inputs[1]) if len(inputs) > 1 else DEFAULT_MAX_TRACES_PER_WINDOW,
+            batch_size=int(inputs[2]) if len(inputs) > 2 else DEFAULT_BATCH_SIZE,
+            mode=SummarizationMode(inputs[3]) if len(inputs) > 3 else DEFAULT_MODE,
+            window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
+            provider=SummarizationProvider(inputs[5]) if len(inputs) > 5 else DEFAULT_PROVIDER,
+            model=inputs[6] if len(inputs) > 6 else DEFAULT_MODEL,
         )
 
     @temporalio.workflow.run
@@ -89,6 +95,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         """Execute coordinator workflow."""
         logger.info(
             "Starting batch trace summarization coordinator",
+            analysis_level=inputs.analysis_level,
             max_traces=inputs.max_traces,
             window_minutes=inputs.window_minutes,
         )
@@ -119,7 +126,8 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     BatchTraceSummarizationWorkflow.run,
                     BatchSummarizationInputs(
                         team_id=team_id,
-                        max_traces=inputs.max_traces,
+                        analysis_level=inputs.analysis_level,
+                        max_items=inputs.max_traces,
                         batch_size=inputs.batch_size,
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,

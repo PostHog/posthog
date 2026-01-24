@@ -74,3 +74,6 @@ WORKFLOW_NAME = "llma-trace-summarization"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-summarization-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-summarization-coordinator-schedule"
 CHILD_WORKFLOW_ID_PREFIX = "llma-trace-summarization-team"
+
+# Generation-level schedule configuration (reuses same coordinator workflow with different inputs)
+GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-summarization-coordinator-schedule"
