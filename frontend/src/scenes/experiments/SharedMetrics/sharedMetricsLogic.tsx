@@ -1,6 +1,5 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 
 import { PaginationManual } from '@posthog/lemon-ui'
 
@@ -26,9 +25,6 @@ export interface SharedMetricsResult extends CountedPaginatedResponse<SharedMetr
 
 export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
     path(['scenes', 'experiments', 'sharedMetricsLogic']),
-    connect(() => ({
-        values: [router, ['location']],
-    })),
     actions({
         setSharedMetricsFilters: (filters: Partial<SharedMetricsFilters>, replace?: boolean) => ({ filters, replace }),
     }),
