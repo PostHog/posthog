@@ -125,8 +125,10 @@ class TeamManager(models.Manager):
         if kwargs.get("is_demo"):
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
-            # Set test_account_filters with just the cohort for demo teams
-            team.test_account_filters = [{"key": "id", "type": "cohort", "value": test_users_cohort.id}]
+            # Set test_account_filters with just the cohort for demo teams (negation=True means NOT IN cohort)
+            team.test_account_filters = [
+                {"key": "id", "type": "cohort", "value": test_users_cohort.id, "negation": True}
+            ]
             team.save()
             team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
@@ -137,7 +139,7 @@ class TeamManager(models.Manager):
         team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
 
         team.test_account_filters = [
-            {"key": "id", "type": "cohort", "value": test_users_cohort.id},
+            {"key": "id", "type": "cohort", "value": test_users_cohort.id, "negation": True},
             *self.set_test_account_filters(organization.id),
         ]
 

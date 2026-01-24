@@ -5181,7 +5181,10 @@ class TestSystemCohort(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(cohort)
         self.assertEqual(cohort.system_type, SystemCohortType.TEST_USERS)
 
-        # Check that test_account_filters includes the cohort
+        # Check that test_account_filters includes the cohort with negation (NOT IN)
         self.assertTrue(
-            any(f.get("type") == "cohort" and f.get("value") == cohort.id for f in new_team.test_account_filters)
+            any(
+                f.get("type") == "cohort" and f.get("value") == cohort.id and f.get("negation") is True
+                for f in new_team.test_account_filters
+            )
         )
