@@ -456,19 +456,14 @@ async def test_purge_deleted_recording_metadata_workflow():
     from datetime import UTC, datetime
 
     TEST_GRACE_PERIOD_DAYS = 30
-    TEST_BATCH_SIZE = 5000
 
     @activity.defn(name="purge-deleted-metadata")
     async def purge_deleted_metadata_mocked(input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
         assert input.grace_period_days == TEST_GRACE_PERIOD_DAYS
-        assert input.batch_size == TEST_BATCH_SIZE
         now = datetime.now(UTC)
         return PurgeDeletedMetadataResult(
             started_at=now,
             completed_at=now,
-            rows_deleted=15000,
-            batches_processed=3,
-            grace_period_days=input.grace_period_days,
         )
 
     task_queue_name = str(uuid.uuid4())
@@ -483,15 +478,14 @@ async def test_purge_deleted_recording_metadata_workflow():
         ):
             result = await env.client.execute_workflow(
                 PurgeDeletedRecordingMetadataWorkflow.run,
-                PurgeDeletedMetadataInput(grace_period_days=TEST_GRACE_PERIOD_DAYS, batch_size=TEST_BATCH_SIZE),
+                PurgeDeletedMetadataInput(grace_period_days=TEST_GRACE_PERIOD_DAYS),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
 
     purge_result = PurgeDeletedMetadataResult.model_validate(result)
-    assert purge_result.rows_deleted == 15000
-    assert purge_result.batches_processed == 3
-    assert purge_result.grace_period_days == TEST_GRACE_PERIOD_DAYS
+    assert purge_result.started_at is not None
+    assert purge_result.completed_at is not None
 
 
 @pytest.mark.asyncio
@@ -502,14 +496,10 @@ async def test_purge_deleted_recording_metadata_workflow_with_defaults():
     @activity.defn(name="purge-deleted-metadata")
     async def purge_deleted_metadata_mocked(input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
         assert input.grace_period_days == 7  # default
-        assert input.batch_size == 10000  # default
         now = datetime.now(UTC)
         return PurgeDeletedMetadataResult(
             started_at=now,
             completed_at=now,
-            rows_deleted=0,
-            batches_processed=1,
-            grace_period_days=input.grace_period_days,
         )
 
     task_queue_name = str(uuid.uuid4())
@@ -530,17 +520,15 @@ async def test_purge_deleted_recording_metadata_workflow_with_defaults():
             )
 
     purge_result = PurgeDeletedMetadataResult.model_validate(result)
-    assert purge_result.rows_deleted == 0
-    assert purge_result.batches_processed == 1
+    assert purge_result.started_at is not None
+    assert purge_result.completed_at is not None
 
 
 def test_purge_deleted_recording_metadata_workflow_parse_inputs():
-    result = PurgeDeletedRecordingMetadataWorkflow.parse_inputs(['{"grace_period_days": 14, "batch_size": 5000}'])
+    result = PurgeDeletedRecordingMetadataWorkflow.parse_inputs(['{"grace_period_days": 14}'])
     assert result.grace_period_days == 14
-    assert result.batch_size == 5000
 
 
 def test_purge_deleted_recording_metadata_workflow_parse_inputs_with_defaults():
     result = PurgeDeletedRecordingMetadataWorkflow.parse_inputs(["{}"])
     assert result.grace_period_days == 7
-    assert result.batch_size == 10000

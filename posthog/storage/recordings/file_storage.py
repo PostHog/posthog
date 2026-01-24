@@ -169,7 +169,7 @@ async def async_file_storage() -> AsyncIterator[AsyncFileStorage]:
         raise RuntimeError("Missing required settings for file storage client")
 
     session = aioboto3.Session()
-    async with session.client(
+    async with session.client(  # type: ignore[call-overload]
         "s3",
         endpoint_url=settings.SESSION_RECORDING_V2_S3_ENDPOINT,
         aws_access_key_id=settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
