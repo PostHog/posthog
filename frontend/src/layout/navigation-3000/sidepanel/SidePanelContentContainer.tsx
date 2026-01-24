@@ -15,7 +15,7 @@ export function SidePanelContentContainer({
     return (
         <div
             className={cn(
-                !isRemovingSidePanelFlag && flagOffClassName,
+                !isRemovingSidePanelFlag && `${flagOffClassName} contents`,
                 // 3px is just enough to handle the focus within ring for sidepanel notebooks
                 isRemovingSidePanelFlag &&
                     'flex flex-col flex-1 overflow-y-auto p-3 rounded mr-2 mb-2 ml-[3px] border border-primary focus-within:outline-none focus-within:ring-2 focus-within:ring-primary z-10',
