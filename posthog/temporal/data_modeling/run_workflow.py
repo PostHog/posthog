@@ -418,6 +418,7 @@ async def start_job_modeling_run(
 
 
 async def get_saved_query(team: Team, model_label: str) -> DataWarehouseSavedQuery:
+    logger = LOGGER.bind()
     filter_params: dict[str, str | uuid.UUID] = {}
     try:
         model_id = uuid.UUID(model_label)
@@ -426,12 +427,22 @@ async def get_saved_query(team: Team, model_label: str) -> DataWarehouseSavedQue
         model_name = model_label
         filter_params["name"] = model_name
 
-    return await database_sync_to_async(
-        DataWarehouseSavedQuery.objects.prefetch_related("team")
-        .exclude(deleted=True)
-        .filter(team=team, **filter_params)
-        .get
-    )()
+    try:
+        return await database_sync_to_async(
+            DataWarehouseSavedQuery.objects.prefetch_related("team")
+            .exclude(deleted=True)
+            .filter(team=team, **filter_params)
+            .get
+        )()
+    except DataWarehouseSavedQuery.DoesNotExist as e:
+        await logger.awarning(f"DataWarehouseSavedQuery for team {team.id} with label {model_label} does not exist.")
+        capture_exception(
+            e,
+            {"team_id": team.id, "model_label": model_label},
+        )
+        raise NonRetryableException(
+            f"DataWarehouseSavedQuery for team {team.id} with label {model_label} does not exist"
+        ) from e
 
 
 async def materialize_model(
@@ -1304,7 +1315,16 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
 
     await logger.adebug(f"Creating DataModelingJob for {[selector.label for selector in inputs.select]}")
 
-    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    try:
+        team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    except Team.DoesNotExist as e:
+        await logger.awarning(f"Team {inputs.team_id} does not exist, cannot create data modeling job")
+        capture_exception(
+            e,
+            {"team_id": inputs.team_id, "selectors": [s.label for s in inputs.select]},
+        )
+        raise NonRetryableException(f"Team {inputs.team_id} does not exist") from e
+
     workflow_id = temporalio.activity.info().workflow_id
     workflow_run_id = temporalio.activity.info().workflow_run_id
 
