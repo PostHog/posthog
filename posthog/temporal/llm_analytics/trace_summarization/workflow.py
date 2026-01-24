@@ -32,7 +32,6 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     SAMPLE_TIMEOUT_SECONDS,
     WORKFLOW_NAME,
 )
-from posthog.temporal.llm_analytics.trace_summarization.generation_sampling import query_generations_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.generation_summarization import (
     generate_and_save_generation_summary_activity,
 )
@@ -40,9 +39,10 @@ from posthog.temporal.llm_analytics.trace_summarization.models import (
     BatchSummarizationInputs,
     BatchSummarizationMetrics,
     BatchSummarizationResult,
+    SampledItem,
     SummarizationActivityResult,
 )
-from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
+from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_items_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
@@ -79,9 +79,9 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         )
 
     @staticmethod
-    async def _process_trace(
+    async def _process_item(
         semaphore: asyncio.Semaphore,
-        trace_id: str,
+        item: SampledItem,
         team_id: int,
         window_start: str,
         window_end: str,
@@ -91,60 +91,49 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         model: str | None,
         max_length: int | None,
     ) -> SummarizationActivityResult:
-        """Process a single trace with semaphore-controlled concurrency."""
+        """Process a single trace or generation with semaphore-controlled concurrency."""
         async with semaphore:
-            return await temporalio.workflow.execute_activity(
-                generate_and_save_summary_activity,
-                args=[
-                    trace_id,
-                    team_id,
-                    window_start,
-                    window_end,
-                    mode,
-                    batch_run_id,
-                    provider,
-                    model,
-                    max_length,
-                ],
-                activity_id=f"summarize-{trace_id}",
-                schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
-                retry_policy=constants.SUMMARIZE_RETRY_POLICY,
-            )
-
-    @staticmethod
-    async def _process_generation(
-        semaphore: asyncio.Semaphore,
-        generation_id: str,
-        trace_id: str,
-        team_id: int,
-        window_start: str,
-        window_end: str,
-        mode: str,
-        batch_run_id: str,
-        provider: str | None,
-        model: str | None,
-        max_length: int | None,
-    ) -> SummarizationActivityResult:
-        """Process a single generation with semaphore-controlled concurrency."""
-        async with semaphore:
-            return await temporalio.workflow.execute_activity(
-                generate_and_save_generation_summary_activity,
-                args=[
-                    generation_id,
-                    trace_id,
-                    team_id,
-                    window_start,
-                    window_end,
-                    mode,
-                    batch_run_id,
-                    provider,
-                    model,
-                    max_length,
-                ],
-                activity_id=f"summarize-gen-{generation_id}",
-                schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
-                retry_policy=constants.SUMMARIZE_RETRY_POLICY,
-            )
+            if item.generation_id:
+                # Generation-level
+                return await temporalio.workflow.execute_activity(
+                    generate_and_save_generation_summary_activity,
+                    args=[
+                        item.generation_id,
+                        item.trace_id,
+                        item.trace_first_timestamp,
+                        team_id,
+                        window_start,
+                        window_end,
+                        mode,
+                        batch_run_id,
+                        provider,
+                        model,
+                        max_length,
+                    ],
+                    activity_id=f"summarize-gen-{item.generation_id}",
+                    schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    retry_policy=constants.SUMMARIZE_RETRY_POLICY,
+                )
+            else:
+                # Trace-level
+                return await temporalio.workflow.execute_activity(
+                    generate_and_save_summary_activity,
+                    args=[
+                        item.trace_id,
+                        item.trace_first_timestamp,
+                        team_id,
+                        window_start,
+                        window_end,
+                        mode,
+                        batch_run_id,
+                        provider,
+                        model,
+                        max_length,
+                    ],
+                    activity_id=f"summarize-{item.trace_id}",
+                    schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    retry_policy=constants.SUMMARIZE_RETRY_POLICY,
+                )
 
     @temporalio.workflow.run
     async def run(self, inputs: BatchSummarizationInputs) -> BatchSummarizationResult:
@@ -188,102 +177,54 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         max_length = MAX_LENGTH_BY_PROVIDER.get(inputs.provider)
         semaphore = asyncio.Semaphore(inputs.batch_size)
 
-        # Dispatch to correct sampling and summarization activities based on analysis_level
-        if inputs.analysis_level == "generation":
-            # Generation-level: query generations, get (generation_id, trace_id) tuples
-            generation_tuples = await temporalio.workflow.execute_activity(
-                query_generations_in_window_activity,
-                inputs_with_window,
-                schedule_to_close_timeout=timedelta(seconds=SAMPLE_TIMEOUT_SECONDS),
-                retry_policy=constants.SAMPLE_RETRY_POLICY,
+        # Sample items (traces or generations) using unified sampling
+        items = await temporalio.workflow.execute_activity(
+            sample_items_in_window_activity,
+            inputs_with_window,
+            schedule_to_close_timeout=timedelta(seconds=SAMPLE_TIMEOUT_SECONDS),
+            retry_policy=constants.SAMPLE_RETRY_POLICY,
+        )
+        metrics.items_queried = len(items)
+
+        # Process all items
+        tasks: list[Coroutine[Any, Any, SummarizationActivityResult]] = [
+            self._process_item(
+                semaphore=semaphore,
+                item=item,
+                team_id=inputs.team_id,
+                window_start=window_start,
+                window_end=window_end,
+                mode=inputs.mode,
+                batch_run_id=batch_run_id,
+                provider=inputs.provider,
+                model=inputs.model,
+                max_length=max_length,
             )
-            metrics.items_queried = len(generation_tuples)
+            for item in items
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Process generations
-            tasks: list[Coroutine[Any, Any, SummarizationActivityResult]] = [
-                self._process_generation(
-                    semaphore=semaphore,
-                    generation_id=gen_id,
-                    trace_id=trace_id,
-                    team_id=inputs.team_id,
-                    window_start=window_start,
-                    window_end=window_end,
-                    mode=inputs.mode,
-                    batch_run_id=batch_run_id,
-                    provider=inputs.provider,
-                    model=inputs.model,
-                    max_length=max_length,
+        # Track results
+        for i, result in enumerate(results):
+            if isinstance(result, BaseException):
+                item = items[i]
+                logger.exception(
+                    "Activity failed",
+                    trace_id=item.trace_id,
+                    generation_id=item.generation_id,
+                    error=str(result),
                 )
-                for gen_id, trace_id in generation_tuples
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Track results
-            for i, result in enumerate(results):
-                if isinstance(result, BaseException):
-                    logger.exception(
-                        "Activity failed for generation",
-                        generation_id=generation_tuples[i][0],
-                        error=str(result),
-                    )
-                    metrics.summaries_failed += 1
-                elif result.success:
-                    metrics.summaries_generated += 1
-                    if result.embedding_requested:
-                        metrics.embedding_requests_succeeded += 1
-                    else:
-                        metrics.embedding_requests_failed += 1
-                elif result.skipped:
-                    metrics.summaries_skipped += 1
+                metrics.summaries_failed += 1
+            elif result.success:
+                metrics.summaries_generated += 1
+                if result.embedding_requested:
+                    metrics.embedding_requests_succeeded += 1
                 else:
-                    metrics.summaries_failed += 1
-        else:
-            # Trace-level: query traces, get trace_ids
-            trace_ids = await temporalio.workflow.execute_activity(
-                query_traces_in_window_activity,
-                inputs_with_window,
-                schedule_to_close_timeout=timedelta(seconds=SAMPLE_TIMEOUT_SECONDS),
-                retry_policy=constants.SAMPLE_RETRY_POLICY,
-            )
-            metrics.items_queried = len(trace_ids)
-
-            # Process traces
-            tasks = [
-                self._process_trace(
-                    semaphore=semaphore,
-                    trace_id=trace_id,
-                    team_id=inputs.team_id,
-                    window_start=window_start,
-                    window_end=window_end,
-                    mode=inputs.mode,
-                    batch_run_id=batch_run_id,
-                    provider=inputs.provider,
-                    model=inputs.model,
-                    max_length=max_length,
-                )
-                for trace_id in trace_ids
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Track results
-            for i, result in enumerate(results):
-                if isinstance(result, BaseException):
-                    logger.exception(
-                        "Activity failed for trace",
-                        trace_id=trace_ids[i],
-                        error=str(result),
-                    )
-                    metrics.summaries_failed += 1
-                elif result.success:
-                    metrics.summaries_generated += 1
-                    if result.embedding_requested:
-                        metrics.embedding_requests_succeeded += 1
-                    else:
-                        metrics.embedding_requests_failed += 1
-                elif result.skipped:
-                    metrics.summaries_skipped += 1
-                else:
-                    metrics.summaries_failed += 1
+                    metrics.embedding_requests_failed += 1
+            elif result.skipped:
+                metrics.summaries_skipped += 1
+            else:
+                metrics.summaries_failed += 1
 
         end_time = temporalio.workflow.now()
         metrics.duration_seconds = (end_time - start_time).total_seconds()

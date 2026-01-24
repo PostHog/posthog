@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { Chart } from 'lib/Chart'
-import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
@@ -54,25 +53,15 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
 
         // Navigate to trace page for trace/generation clicks
         if (point?.traceId) {
-            if (clusteringLevel === 'generation' && point.generationId) {
-                router.actions.push(
-                    urls.llmAnalyticsTrace(point.traceId, {
-                        tab: 'summary',
-                        event: point.generationId,
-                        // Use timestamp - 24h buffer to ensure trace view captures all events before the generation
-                        ...(point.timestamp
-                            ? { timestamp: dayjs(point.timestamp).subtract(24, 'hour').toISOString() }
-                            : {}),
-                    })
-                )
-            } else {
-                router.actions.push(
-                    urls.llmAnalyticsTrace(point.traceId, {
-                        tab: 'summary',
-                        ...(point.timestamp ? { timestamp: point.timestamp } : {}),
-                    })
-                )
-            }
+            router.actions.push(
+                urls.llmAnalyticsTrace(point.traceId, {
+                    tab: 'summary',
+                    // For generation-level, highlight the specific generation
+                    ...(clusteringLevel === 'generation' && point.generationId ? { event: point.generationId } : {}),
+                    // timestamp is now the trace's first_timestamp for both levels
+                    ...(point.timestamp ? { timestamp: point.timestamp } : {}),
+                })
+            )
         }
     }
 

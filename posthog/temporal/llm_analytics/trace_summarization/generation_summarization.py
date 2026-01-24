@@ -100,6 +100,7 @@ def _format_generation_text_repr(generation_data: dict) -> str:
 async def generate_and_save_generation_summary_activity(
     generation_id: str,
     trace_id: str,
+    trace_first_timestamp: str,
     team_id: int,
     window_start: str,
     window_end: str,
@@ -114,14 +115,18 @@ async def generate_and_save_generation_summary_activity(
 
     Fetches generation data, generates LLM summary, and saves it as an event.
     Saves directly to avoid passing large objects through workflow history.
+
+    Args:
+        trace_first_timestamp: The first event timestamp of the parent trace,
+            used for navigation in the cluster scatter plot.
     """
 
     def _fetch_generation_data(
         generation_id: str, team_id: int, window_start: str, window_end: str
-    ) -> tuple[dict, Team, str] | None:
+    ) -> tuple[dict, Team] | None:
         """Fetch generation event data.
 
-        Returns tuple of (generation_dict, team, generation_timestamp) or None if not found.
+        Returns tuple of (generation_dict, team) or None if not found.
         """
         team = Team.objects.get(id=team_id)
 
@@ -138,8 +143,7 @@ async def generate_and_save_generation_summary_activity(
                 properties.$ai_output as output,
                 properties.$ai_input_tokens as input_tokens,
                 properties.$ai_output_tokens as output_tokens,
-                properties.$ai_latency as latency,
-                timestamp
+                properties.$ai_latency as latency
             FROM events
             WHERE event = '$ai_generation'
                 AND timestamp >= toDateTime({start_dt})
@@ -173,15 +177,13 @@ async def generate_and_save_generation_summary_activity(
             "output_tokens": row[5],
             "latency": row[6],
         }
-        generation_timestamp = row[7].isoformat() if row[7] else ""
 
-        return generation_dict, team, generation_timestamp
+        return generation_dict, team
 
     def _save_summary_event(
         summary_result: SummarizationResponse,
         text_repr: str,
         team: Team,
-        generation_timestamp: str,
     ) -> None:
         """Save summary as $ai_generation_summary event to ClickHouse."""
 
@@ -200,7 +202,7 @@ async def generate_and_save_generation_summary_activity(
             "$ai_summary_bullets": summary_bullets_json,
             "$ai_summary_interesting_notes": summary_notes_json,
             "$ai_text_repr_length": len(text_repr),
-            "trace_timestamp": generation_timestamp,
+            "trace_timestamp": trace_first_timestamp,
         }
 
         create_event(
@@ -256,7 +258,7 @@ async def generate_and_save_generation_summary_activity(
             skip_reason="generation_not_found",
         )
 
-    generation_dict, team, generation_timestamp = result
+    generation_dict, team = result
 
     # Format text representation
     text_repr = _format_generation_text_repr(generation_dict)
@@ -284,9 +286,7 @@ async def generate_and_save_generation_summary_activity(
     )
 
     # Save event to ClickHouse
-    await database_sync_to_async(_save_summary_event, thread_sensitive=False)(
-        summary_result, text_repr, team, generation_timestamp
-    )
+    await database_sync_to_async(_save_summary_event, thread_sensitive=False)(summary_result, text_repr, team)
 
     # Request embedding
     embedding_requested = False

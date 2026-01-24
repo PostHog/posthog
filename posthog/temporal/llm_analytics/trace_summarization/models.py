@@ -52,6 +52,19 @@ class BatchSummarizationInputs:
 
 
 @dataclass
+class SampledItem:
+    """A sampled item for summarization.
+
+    Used by both trace-level and generation-level sampling to provide
+    consistent data structure with trace context.
+    """
+
+    trace_id: str  # The trace ID
+    trace_first_timestamp: str  # First event timestamp of the trace (for navigation)
+    generation_id: str | None = None  # Generation UUID (None for trace-level, set for generation-level)
+
+
+@dataclass
 class SummarizationActivityResult:
     """Result from generate_and_save_summary_activity."""
 
