@@ -225,6 +225,8 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             const errorLogic = llmAnalyticsPlaygroundLogic()
             errorLogic.mount()
 
+            errorLogic.actions.loadModelOptions()
+
             await expectLogic(errorLogic).toFinishAllListeners()
 
             // Should not crash and maintain previous model options
@@ -246,6 +248,8 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             const errorLogic = llmAnalyticsPlaygroundLogic()
             errorLogic.mount()
+
+            errorLogic.actions.loadModelOptions()
 
             await expectLogic(errorLogic).toFinishAllListeners()
 
