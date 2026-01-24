@@ -1,10 +1,11 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCopy, IconPencil } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonInput,
     LemonTable,
     LemonTableColumn,
     LemonTableColumns,
@@ -12,11 +13,14 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { pluralize } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,7 +29,7 @@ import { AvailableFeature } from '~/types'
 
 import { isLegacySharedMetric } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
-import { sharedMetricsLogic } from './sharedMetricsLogic'
+import { SHARED_METRICS_PER_PAGE, sharedMetricsLogic } from './sharedMetricsLogic'
 
 export const scene: SceneExport = {
     component: SharedMetrics,
@@ -33,9 +37,14 @@ export const scene: SceneExport = {
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
-
+    const { sharedMetrics, sharedMetricsLoading, filters, pagination } = useValues(sharedMetricsLogic)
+    const { setSharedMetricsFilters } = useActions(sharedMetricsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+
+    const page = filters.page || 1
+    const count = sharedMetrics.count || 0
+    const startCount = count === 0 ? 0 : (page - 1) * SHARED_METRICS_PER_PAGE + 1
+    const endCount = page * SHARED_METRICS_PER_PAGE < count ? page * SHARED_METRICS_PER_PAGE : count
 
     const columns: LemonTableColumns<SharedMetric> = [
         {
@@ -130,16 +139,45 @@ export function SharedMetrics(): JSX.Element {
                 ideal for tracking key metrics like conversion rates or revenue across different experiments without
                 having to set them up each time.
             </LemonBanner>
-            <div className="flex justify-end">
+            <div className="flex justify-between gap-2 flex-wrap items-center">
+                <AppShortcut
+                    name="SearchSharedMetrics"
+                    keybind={[keyBinds.filter]}
+                    intent="Search shared metrics"
+                    interaction="click"
+                    scope={Scene.ExperimentsSharedMetrics}
+                >
+                    <LemonInput
+                        type="search"
+                        placeholder="Search shared metrics"
+                        onChange={(search) => setSharedMetricsFilters({ search, page: 1 })}
+                        value={filters.search || ''}
+                    />
+                </AppShortcut>
                 <LemonButton size="small" type="primary" to={urls.experimentsSharedMetric('new')}>
                     New shared metric
                 </LemonButton>
             </div>
+            {count ? (
+                <div>
+                    <span className="text-secondary">
+                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'shared metric')}`}
+                    </span>
+                </div>
+            ) : null}
             <LemonTable
                 columns={columns}
-                dataSource={sharedMetrics || []}
+                dataSource={sharedMetrics.results || []}
                 loading={sharedMetricsLoading}
-                emptyState={<div>You haven't created any shared metrics yet.</div>}
+                emptyState={
+                    filters.search ? (
+                        <div>No shared metrics found matching "{filters.search}".</div>
+                    ) : (
+                        <div>You haven't created any shared metrics yet.</div>
+                    )
+                }
+                pagination={pagination}
+                nouns={['shared metric', 'shared metrics']}
             />
         </div>
     )
