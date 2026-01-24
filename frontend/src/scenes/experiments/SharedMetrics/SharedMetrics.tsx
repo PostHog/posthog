@@ -150,7 +150,7 @@ export function SharedMetrics(): JSX.Element {
                     <LemonInput
                         type="search"
                         placeholder="Search shared metrics"
-                        onChange={(search) => setSharedMetricsFilters({ search, page: 1 })}
+                        onChange={(search) => setSharedMetricsFilters({ search: search || undefined, page: 1 })}
                         value={filters.search || ''}
                         maxLength={200}
                     />
