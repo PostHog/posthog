@@ -149,7 +149,9 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
 
                                     const point = context[0]?.raw as ScatterPoint
                                     if (point?.traceId) {
-                                        return 'click to view trace'
+                                        return clusteringLevel === 'generation'
+                                            ? 'click to view generation'
+                                            : 'click to view trace'
                                     }
                                     return ''
                                 },
