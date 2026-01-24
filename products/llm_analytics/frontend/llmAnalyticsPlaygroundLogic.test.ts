@@ -214,6 +214,10 @@ describe('llmAnalyticsPlaygroundLogic', () => {
         })
 
         it('should handle API errors gracefully', async () => {
+            // Wait for the initial load to complete
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Override the mock with an error
             useMocks({
                 get: {
                     '/api/llm_proxy/models/': () => {
@@ -222,20 +226,22 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const errorLogic = llmAnalyticsPlaygroundLogic()
-            errorLogic.mount()
+            // Manually trigger loadModelOptions to test error handling
+            logic.actions.loadModelOptions()
 
-            await expectLogic(errorLogic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
             // Should not crash, model options remain empty on error
-            expect(errorLogic.values.modelOptions).toEqual([])
+            expect(logic.values.modelOptions).toEqual([])
             // Error status should be null for non-ApiError
-            expect(errorLogic.values.modelOptionsErrorStatus).toBeNull()
-
-            errorLogic.unmount()
+            expect(logic.values.modelOptionsErrorStatus).toBeNull()
         })
 
         it('should capture status code from ApiError', async () => {
+            // Wait for the initial load to complete
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Override the mock with an ApiError
             useMocks({
                 get: {
                     '/api/llm_proxy/models/': () => {
@@ -244,17 +250,15 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const errorLogic = llmAnalyticsPlaygroundLogic()
-            errorLogic.mount()
+            // Manually trigger loadModelOptions to test error handling
+            logic.actions.loadModelOptions()
 
-            await expectLogic(errorLogic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
             // Should not crash, model options remain empty on error
-            expect(errorLogic.values.modelOptions).toEqual([])
+            expect(logic.values.modelOptions).toEqual([])
             // Error status should capture the HTTP status code
-            expect(errorLogic.values.modelOptionsErrorStatus).toBe(429)
-
-            errorLogic.unmount()
+            expect(logic.values.modelOptionsErrorStatus).toBe(429)
         })
     })
 
