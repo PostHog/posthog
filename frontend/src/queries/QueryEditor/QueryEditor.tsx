@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized-auto-sizer'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { CodeEditor } from 'lib/monaco/CodeEditor'

@@ -1,10 +1,10 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
-import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 
 export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'> {

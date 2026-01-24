@@ -1,7 +1,7 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized-auto-sizer'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'

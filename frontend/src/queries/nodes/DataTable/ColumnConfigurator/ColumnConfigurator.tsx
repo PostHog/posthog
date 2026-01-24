@@ -6,10 +6,10 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 import { IconPencil, IconX } from '@posthog/icons'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'

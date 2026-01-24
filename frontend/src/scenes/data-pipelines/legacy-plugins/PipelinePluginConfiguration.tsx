@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import React, { useState } from 'react'
-import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 import { IconLock, IconPencil } from '@posthog/icons'
 import {
@@ -18,6 +17,7 @@ import {
 } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'

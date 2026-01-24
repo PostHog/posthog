@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 import { IconCheck, IconX } from '@posthog/icons'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
