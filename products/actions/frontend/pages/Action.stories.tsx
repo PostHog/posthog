@@ -58,6 +58,7 @@ const MOCK_ACTION: ActionType = {
     ],
     created_at: '2024-05-21T12:57:50.907581Z',
     created_by: MOCK_DEFAULT_BASIC_USER,
+    updated_at: '2024-05-22T14:30:15.123456Z',
     deleted: false,
     is_calculating: false,
     last_calculated_at: '2024-05-21T12:57:50.894221Z',

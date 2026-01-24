@@ -13,7 +13,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
@@ -173,6 +173,7 @@ export function ActionsTable(): JSX.Element {
             : []),
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+        updatedAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         ...(currentTeam?.slack_incoming_webhook
             ? [
                   {
@@ -307,7 +308,7 @@ export function ActionsTable(): JSX.Element {
                         data-attr="actions-table"
                         dataSource={actionsFiltered}
                         defaultSorting={{
-                            columnKey: 'created_by',
+                            columnKey: 'updated_at',
                             order: -1,
                         }}
                         emptyState="No results. Create a new action?"

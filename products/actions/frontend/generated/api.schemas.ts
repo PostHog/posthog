@@ -141,6 +141,7 @@ export interface ActionApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    readonly updated_at: string
 }
 
 export interface PaginatedActionListApi {
@@ -186,6 +187,7 @@ export interface PatchedActionApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    readonly updated_at?: string
 }
 
 export type ActionsListParams = {
