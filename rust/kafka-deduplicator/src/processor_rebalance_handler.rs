@@ -1199,4 +1199,76 @@ mod tests {
             "Should NOT have received a Resume command when all partitions were revoked"
         );
     }
+
+    #[tokio::test]
+    async fn test_async_setup_skips_store_creation_for_revoked_partition() {
+        // Test that async_setup_single_partition explicitly skips store creation
+        // when the partition is in pending_cleanup (was revoked during async setup).
+        // This is separate from Resume filtering - we want to verify that no
+        // resources are wasted creating stores for partitions we don't own.
+        let temp_dir = TempDir::new().unwrap();
+        let store_config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        let store_manager = Arc::new(StoreManager::new(store_config));
+        let offset_tracker = Arc::new(OffsetTracker::new());
+
+        let handler: ProcessorRebalanceHandler<String, TestProcessor> =
+            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
+
+        // Create command channel
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // Assign partitions 0 and 1
+        let mut partitions = rdkafka::TopicPartitionList::new();
+        partitions
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        partitions
+            .add_partition_offset("test-topic", 1, Offset::Beginning)
+            .unwrap();
+
+        handler.setup_assigned_partitions(&partitions);
+
+        // Before async setup, revoke partition 1 (simulating overlapping rebalance)
+        let mut revoked = rdkafka::TopicPartitionList::new();
+        revoked
+            .add_partition_offset("test-topic", 1, Offset::Beginning)
+            .unwrap();
+        handler.setup_revoked_partitions(&revoked);
+
+        // Verify partition 1 is in pending_cleanup
+        assert!(
+            handler
+                .pending_cleanup
+                .contains(&Partition::new("test-topic".to_string(), 1)),
+            "Partition 1 should be in pending_cleanup"
+        );
+
+        // Now run async setup - this should skip store creation for partition 1
+        handler
+            .async_setup_assigned_partitions(&partitions, &tx)
+            .await
+            .unwrap();
+
+        // Verify: store for partition 0 should exist (was not revoked)
+        assert!(
+            store_manager.get("test-topic", 0).is_some(),
+            "Store for partition 0 should exist (not revoked)"
+        );
+
+        // Verify: store for partition 1 should NOT exist (was revoked, creation skipped)
+        assert!(
+            store_manager.get("test-topic", 1).is_none(),
+            "Store for partition 1 should NOT exist (revoked during async setup, creation skipped)"
+        );
+
+        // Verify: the partition directory should not exist either
+        let partition_1_dir = temp_dir.path().join("test-topic_1");
+        assert!(
+            !partition_1_dir.exists(),
+            "Partition 1 directory should not exist (store creation was skipped)"
+        );
+    }
 }

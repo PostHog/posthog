@@ -1199,4 +1199,49 @@ mod tests {
         // Second should be duplicate
         assert!(results[1].is_duplicate());
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_deduplicate_batch_returns_error_when_store_missing() {
+        // Test that deduplicate_batch returns an error when the store doesn't exist.
+        // This simulates the scenario where a partition was revoked and messages
+        // arrive for it before the consumer stops delivering them.
+        let (config, _temp_dir) = create_test_config();
+        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // NOTE: We intentionally do NOT pre-create a store here
+
+        let processor = BatchDeduplicationProcessor {
+            config,
+            producer: None,
+            duplicate_producer: None,
+            store_manager,
+            offset_tracker: None,
+        };
+
+        // Create a batch of events
+        let events = [create_test_raw_event(
+            Some(Uuid::new_v4()),
+            "event1",
+            "user1",
+            "2024-01-01T00:00:00Z",
+        )];
+
+        let event_refs: Vec<&RawEvent> = events.iter().collect();
+
+        // deduplicate_batch should return an error because no store exists
+        let result = processor
+            .deduplicate_batch("test-topic", 0, event_refs)
+            .await;
+
+        assert!(
+            result.is_err(),
+            "deduplicate_batch should return error when store doesn't exist"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("No store registered"),
+            "Error should indicate no store registered, got: {}",
+            err_msg
+        );
+    }
 }
