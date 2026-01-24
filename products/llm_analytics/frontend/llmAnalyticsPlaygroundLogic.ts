@@ -155,6 +155,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
     reducers({
         model: ['', { setModel: (_, { model }) => model }],
+        modelOptions: [
+            [] as ModelOption[],
+            {
+                loadModelOptionsFailure: () => [],
+            },
+        ],
         modelOptionsErrorStatus: [
             null as number | null,
             {
