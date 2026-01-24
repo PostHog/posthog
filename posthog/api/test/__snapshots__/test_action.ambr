@@ -390,6 +390,29 @@
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.16
   '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_taggeditem"."action_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
+  '''
+# ---
+# name: TestActionApi.test_listing_actions_is_not_nplus1.17
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -425,7 +448,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.17
+# name: TestActionApi.test_listing_actions_is_not_nplus1.18
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -462,7 +485,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.18
+# name: TestActionApi.test_listing_actions_is_not_nplus1.19
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -554,18 +577,6 @@
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.19
-  '''
-  SELECT "posthog_project"."id",
-         "posthog_project"."organization_id",
-         "posthog_project"."name",
-         "posthog_project"."created_at",
-         "posthog_project"."product_description"
-  FROM "posthog_project"
-  WHERE "posthog_project"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -666,6 +677,18 @@
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.20
   '''
+  SELECT "posthog_project"."id",
+         "posthog_project"."organization_id",
+         "posthog_project"."name",
+         "posthog_project"."created_at",
+         "posthog_project"."product_description"
+  FROM "posthog_project"
+  WHERE "posthog_project"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestActionApi.test_listing_actions_is_not_nplus1.21
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -709,7 +732,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.21
+# name: TestActionApi.test_listing_actions_is_not_nplus1.22
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -755,7 +778,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.22
+# name: TestActionApi.test_listing_actions_is_not_nplus1.23
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -798,7 +821,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.23
+# name: TestActionApi.test_listing_actions_is_not_nplus1.24
   '''
   SELECT "posthog_action"."id",
          "posthog_action"."name",
@@ -870,6 +893,29 @@
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
+  '''
+# ---
+# name: TestActionApi.test_listing_actions_is_not_nplus1.25
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_taggeditem"."action_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.3
