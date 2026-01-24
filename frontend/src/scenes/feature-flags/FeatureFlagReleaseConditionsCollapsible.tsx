@@ -74,7 +74,8 @@ function ConditionHeader({
     onDuplicate,
     onRemove,
 }: ConditionHeaderProps): JSX.Element {
-    const summary = summarizeProperties(group.properties || [], aggregationTargetName)
+    // Use description if available, otherwise summarize the filters
+    const summary = group.description || summarizeProperties(group.properties || [], aggregationTargetName)
     const rollout = group.rollout_percentage ?? 100
 
     // Calculate the actual user count based on rollout percentage
@@ -200,7 +201,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
             <div className="flex flex-col gap-2">
                 <LemonLabel>Release conditions</LemonLabel>
                 {filterGroups.map((group, index) => {
-                    const summary = summarizeProperties(group.properties || [], aggregationTargetName)
+                    // Use description if available, otherwise summarize the filters
+                    const summary =
+                        group.description || summarizeProperties(group.properties || [], aggregationTargetName)
                     const rollout = group.rollout_percentage ?? 100
                     return (
                         <div key={group.sort_key} className="flex flex-col gap-1">
