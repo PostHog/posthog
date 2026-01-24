@@ -22,10 +22,8 @@ import { pluralize } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AvailableFeature } from '~/types'
 
 import { isLegacySharedMetric } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
@@ -39,7 +37,6 @@ export const scene: SceneExport = {
 export function SharedMetrics(): JSX.Element {
     const { sharedMetrics, sharedMetricsLoading, filters, pagination } = useValues(sharedMetricsLogic)
     const { setSharedMetricsFilters } = useActions(sharedMetricsLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
     const page = filters.page || 1
     const count = sharedMetrics.count || 0
@@ -79,17 +76,13 @@ export function SharedMetrics(): JSX.Element {
             title: 'Description',
             dataIndex: 'description',
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof SharedMetric,
-                      render: function Render(tags: SharedMetric['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
-                      },
-                  } as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof SharedMetric,
+            render: function Render(tags: SharedMetric['tags']) {
+                return tags ? <ObjectTags tags={tags} staticOnly /> : null
+            },
+        } as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
         {
             title: 'Type',
             key: 'type',
