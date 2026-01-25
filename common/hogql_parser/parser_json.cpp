@@ -1165,7 +1165,12 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT_UNSUPPORTED(ColumnExprSubstring)
 
-  VISIT_UNSUPPORTED(ColumnExprCast)
+  VISIT(ColumnExprCast) {
+    throw NotImplementedError(
+        "CAST(expr AS type) syntax is not supported. "
+        "Use type conversion functions instead: toJSON(x), toString(x), toInt(x), etc."
+    );
+  }
 
   VISIT(ColumnExprPrecedence1) {
     string op;
