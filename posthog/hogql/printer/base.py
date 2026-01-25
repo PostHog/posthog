@@ -10,7 +10,7 @@ from django.conf import settings as django_settings
 from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGroupsMode
 
 from posthog.hogql import ast
-from posthog.hogql.ast import Constant, StringType
+from posthog.hogql.ast import StringType
 from posthog.hogql.base import AST
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
@@ -18,15 +18,12 @@ from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import (
-    ADD_OR_NULL_DATETIME_FUNCTIONS,
-    FIRST_ARG_DATETIME_FUNCTIONS,
     HogQLFunctionMeta,
     find_hogql_aggregation,
     find_hogql_function,
     find_hogql_posthog_function,
 )
 from posthog.hogql.functions.core import validate_function_args
-from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
@@ -46,12 +43,7 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.clickhouse.property_groups import property_groups
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.surveys.util import (
-    filter_survey_sent_events_by_unique_submission,
-    get_survey_response_clickhouse_query,
-)
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
@@ -595,6 +587,32 @@ class HogQLPrinter(Visitor[str]):
 
         return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
+    def _validate_hogql_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str | None:
+        validate_function_args(
+            node.args,
+            func_meta.min_args,
+            func_meta.max_args,
+            node.name,
+        )
+
+        if func_meta.min_params:
+            if node.params is None:
+                raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
+            validate_function_args(
+                node.params,
+                func_meta.min_params,
+                func_meta.max_params,
+                node.name,
+                argument_term="parameter",
+            )
+
+    def _print_hogql_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str:
+        return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+
+    def _print_hogql_posthog_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str:
+        args = [self.visit(arg) for arg in node.args]
+        return f"{node.name}({', '.join(args)})"
+
     def visit_call(self, node: ast.Call):
         func_meta = (
             find_hogql_aggregation(node.name)
@@ -623,158 +641,8 @@ class HogQLPrinter(Visitor[str]):
             return self._print_aggregation_call(node, func_meta)
 
         elif func_meta := find_hogql_function(node.name):
-            validate_function_args(
-                node.args,
-                func_meta.min_args,
-                func_meta.max_args,
-                node.name,
-            )
-
-            if func_meta.min_params:
-                if node.params is None:
-                    raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
-                validate_function_args(
-                    node.params,
-                    func_meta.min_params,
-                    func_meta.max_params,
-                    node.name,
-                    argument_term="parameter",
-                )
-
-            if self.dialect == "clickhouse":
-                args_count = len(node.args) - func_meta.passthrough_suffix_args_count
-                node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
-
-                if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
-                    args: list[str] = []
-                    for idx, arg in enumerate(node_args):
-                        if idx == 0:
-                            if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
-                                args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
-                            else:
-                                args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
-                        else:
-                            args.append(self.visit(arg))
-                elif node.name == "concat":
-                    args = []
-                    for arg in node_args:
-                        if isinstance(arg, ast.Constant):
-                            if arg.value is None:
-                                args.append("''")
-                            elif isinstance(arg.value, str):
-                                args.append(self.visit(arg))
-                            else:
-                                args.append(f"toString({self.visit(arg)})")
-                        elif isinstance(arg, ast.Call) and arg.name == "toString":
-                            if len(arg.args) == 1 and isinstance(arg.args[0], ast.Constant):
-                                if arg.args[0].value is None:
-                                    args.append("''")
-                                else:
-                                    args.append(self.visit(arg))
-                            else:
-                                args.append(f"ifNull({self.visit(arg)}, '')")
-                        else:
-                            args.append(f"ifNull(toString({self.visit(arg)}), '')")
-                else:
-                    args = [self.visit(arg) for arg in node_args]
-
-                # Some of these `isinstance` checks are here just to make our type system happy
-                # We have some guarantees in place to ensure that the arguments are string/constants anyway
-                # Here's to hoping Python's type system gets as smart as TS's one day
-                if func_meta.suffix_args:
-                    for suffix_arg in func_meta.suffix_args:
-                        if len(passthrough_suffix_args) > 0:
-                            if not all(isinstance(arg, ast.Constant) for arg in passthrough_suffix_args):
-                                raise QueryError(
-                                    f"Suffix argument '{suffix_arg.value}' expects ast.Constant arguments, but got {', '.join([type(arg).__name__ for arg in passthrough_suffix_args])}"
-                                )
-
-                            suffix_arg_args_values = [
-                                arg.value for arg in passthrough_suffix_args if isinstance(arg, ast.Constant)
-                            ]
-
-                            if isinstance(suffix_arg.value, str):
-                                suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
-                            else:
-                                raise QueryError(
-                                    f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
-                                )
-                        args.append(self.visit(suffix_arg))
-
-                relevant_clickhouse_name = func_meta.clickhouse_name
-                if func_meta.overloads:
-                    first_arg_constant_type = (
-                        node.args[0].type.resolve_constant_type(self.context)
-                        if len(node.args) > 0 and node.args[0].type is not None
-                        else None
-                    )
-
-                    if first_arg_constant_type is not None:
-                        for (
-                            overload_types,
-                            overload_clickhouse_name,
-                        ) in func_meta.overloads:
-                            if isinstance(first_arg_constant_type, overload_types):
-                                relevant_clickhouse_name = overload_clickhouse_name
-                                break  # Found an overload matching the first function org
-
-                if func_meta.tz_aware:
-                    has_tz_override = len(node.args) == func_meta.max_args
-
-                    if not has_tz_override:
-                        args.append(self.visit(ast.Constant(value=self._get_timezone())))
-
-                    # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
-                    # and it allows CH to use index efficiently.
-                    if (
-                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
-                        and len(node.args) == 1
-                        and isinstance(node.args[0], Constant)
-                        and isinstance(node.args[0].type, StringType)
-                    ):
-                        relevant_clickhouse_name = "parseDateTime64BestEffort"
-                        pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
-                        pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
-                        if re.match(pattern_with_microseconds_str, node.args[0].value):
-                            relevant_clickhouse_name = "toDateTime64"
-                        elif re.match(pattern_mysql_str, node.args[0].value) or re.match(
-                            r"^\d{4}-\d{2}-\d{2}$", node.args[0].value
-                        ):
-                            relevant_clickhouse_name = "toDateTime"
-                    if (
-                        relevant_clickhouse_name == "now64"
-                        and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
-                    ) or (
-                        relevant_clickhouse_name
-                        in (
-                            "parseDateTime64BestEffortOrNull",
-                            "parseDateTime64BestEffortUSOrNull",
-                            "parseDateTime64BestEffort",
-                            "toDateTime64",
-                        )
-                        and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
-                    ):
-                        # These two CH functions require a precision argument before timezone
-                        args = [*args[:-1], "6", *args[-1:]]
-
-                if node.name == "toStartOfWeek" and len(node.args) == 1:
-                    # If week mode hasn't been specified, use the project's default.
-                    # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
-                    args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
-
-                if node.name == "trimLeft" and len(args) == 2:
-                    return f"trim(LEADING {args[1]} FROM {args[0]})"
-                elif node.name == "trimRight" and len(args) == 2:
-                    return f"trim(TRAILING {args[1]} FROM {args[0]})"
-                elif node.name == "trim" and len(args) == 2:
-                    return f"trim(BOTH {args[1]} FROM {args[0]})"
-
-                params = [self.visit(param) for param in node.params] if node.params is not None else None
-                params_part = f"({', '.join(params)})" if params is not None else ""
-                args_part = f"({', '.join(args)})"
-                return f"{relevant_clickhouse_name}{params_part}{args_part}"
-            else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+            self._validate_hogql_function_call(node, func_meta)
+            return self._print_hogql_function_call(node, func_meta)
 
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(
@@ -783,75 +651,7 @@ class HogQLPrinter(Visitor[str]):
                 func_meta.max_args,
                 node.name,
             )
-
-            args = [self.visit(arg) for arg in node.args]
-
-            if self.dialect == "clickhouse":
-                if node.name == "embedText":
-                    return self.visit_constant(resolve_embed_text(self.context.team, node))
-                elif node.name == "lookupDomainType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "lookupPaidSourceType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "lookupPaidMediumType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                elif node.name == "lookupOrganicSourceType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "lookupOrganicMediumType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
-                elif node.name == "convertCurrency":
-                    # convertCurrency(from_currency, to_currency, amount, timestamp?)
-                    from_currency, to_currency, amount, *_rest = args
-                    date = args[3] if len(args) > 3 and args[3] else "today()"
-                    db = django_settings.CLICKHOUSE_DATABASE
-                    # Build rate lookup expressions
-                    from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
-                    to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
-                    # Use if() around divisor to avoid division by zero with enable_analyzer=0
-                    # (old analyzer evaluates all branches regardless of condition)
-                    safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
-                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
-                elif node.name == "getSurveyResponse":
-                    question_index_obj = node.args[0]
-                    if not isinstance(question_index_obj, ast.Constant):
-                        raise QueryError("getSurveyResponse first argument must be a constant")
-                    if (
-                        not isinstance(question_index_obj.value, int | str)
-                        or not str(question_index_obj.value).lstrip("-").isdigit()
-                    ):
-                        raise QueryError("getSurveyResponse first argument must be a valid integer")
-                    second_arg = node.args[1] if len(node.args) > 1 else None
-                    third_arg = node.args[2] if len(node.args) > 2 else None
-                    question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                    is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
-                    return get_survey_response_clickhouse_query(
-                        int(question_index_obj.value), question_id, is_multiple_choice
-                    )
-
-                elif node.name == "uniqueSurveySubmissionsFilter":
-                    survey_id = node.args[0]
-                    if not isinstance(survey_id, ast.Constant):
-                        raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                    return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
-
-                relevant_clickhouse_name = func_meta.clickhouse_name
-                if "{}" in relevant_clickhouse_name:
-                    if len(args) != 1:
-                        raise QueryError(f"Function '{node.name}' requires exactly one argument")
-                    return relevant_clickhouse_name.format(args[0])
-
-                params = [self.visit(param) for param in node.params] if node.params is not None else None
-                params_part = f"({', '.join(params)})" if params is not None else ""
-                args_part = f"({', '.join(args)})"
-                return f"{relevant_clickhouse_name}{params_part}{args_part}"
-
-            # If hogql dialect, just keep it as is
-            return f"{node.name}({', '.join(args)})"
+            return self._print_hogql_posthog_function_call(node, func_meta)
 
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
