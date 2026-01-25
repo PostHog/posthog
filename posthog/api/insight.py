@@ -1150,6 +1150,36 @@ class InsightViewSet(
                             .values_list("insight__id", flat=True)
                             .all()
                         )
+            elif key == "tags":
+                tags_filter = request.GET["tags"]
+                if tags_filter:
+                    tags_list = json.loads(tags_filter)
+                    if tags_list:
+                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+            elif key == "created_by":
+                created_by_filter = request.GET["created_by"]
+                if created_by_filter:
+                    created_by_ids = json.loads(created_by_filter)
+                    if created_by_ids:
+                        queryset = queryset.filter(created_by__id__in=created_by_ids)
+            elif key == "created_date_from":
+                queryset = queryset.filter(
+                    created_at__gt=relative_date_parse(request.GET["created_date_from"], self.team.timezone_info)
+                )
+            elif key == "created_date_to":
+                queryset = queryset.filter(
+                    created_at__lt=relative_date_parse(request.GET["created_date_to"], self.team.timezone_info)
+                )
+            elif key == "last_viewed_date_from":
+                queryset = queryset.filter(
+                    last_viewed_at__gt=relative_date_parse(
+                        request.GET["last_viewed_date_from"], self.team.timezone_info
+                    )
+                )
+            elif key == "last_viewed_date_to":
+                queryset = queryset.filter(
+                    last_viewed_at__lt=relative_date_parse(request.GET["last_viewed_date_to"], self.team.timezone_info)
+                )
 
         return queryset
 

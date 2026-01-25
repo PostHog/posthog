@@ -1,7 +1,7 @@
 import { IconCalendar, IconFlag } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -61,9 +61,10 @@ export function SavedInsightsFilters({
                 {tab !== SavedInsightsTabs.Yours ? (
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
-                        <MemberSelect
-                            value={createdBy === 'All users' ? null : createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.id || 'All users' })}
+                        <MemberMultiSelect
+                            value={createdBy !== 'All users' ? (createdBy as number[]) : []}
+                            onChange={(users) => setFilters({ createdBy: users.length > 0 ? users : 'All users' })}
+                            size="small"
                         />
                     </div>
                 ) : null}
