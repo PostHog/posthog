@@ -8056,19 +8056,6 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
-        # Create a license to enable tagging feature
-        from datetime import datetime as dt
-        from typing import cast
-
-        from ee.models.license import License, LicenseManager
-
-        # Use a date that's always 50 years in the future to avoid expiration
-        future_year = dt.now().year + 50
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="test_license_key",
-            plan="enterprise",
-            valid_until=dt(future_year, 1, 19, 3, 14, 7),
-        )
 
         # Mock FLAG_EVALUATION_TAGS feature flag to be enabled by default
         self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
