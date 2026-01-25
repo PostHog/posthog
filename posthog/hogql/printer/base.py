@@ -7,7 +7,7 @@ from uuid import UUID
 
 from django.conf import settings as django_settings
 
-from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGroupsMode
+from posthog.schema import PersonsOnEventsMode, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import StringType
@@ -860,40 +860,13 @@ class HogQLPrinter(Visitor[str]):
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                 )
 
+    def _print_property_type(self, type: ast.PropertyType) -> str:
+        return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
+
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
-
-        materialized_property_source = self._get_materialized_property_source_for_property_type(type)
-        if materialized_property_source is not None:
-            # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
-            if (
-                len(type.chain) == 1
-                and type.chain[0] in ("$ai_trace_id", "$ai_session_id", "$ai_is_error")
-                and isinstance(materialized_property_source, PrintableMaterializedColumn)
-            ):
-                materialized_property_sql = str(materialized_property_source)
-            elif (
-                isinstance(materialized_property_source, PrintableMaterializedColumn)
-                and not materialized_property_source.is_nullable
-            ):
-                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                    materialized_property_sql = f"nullIf({materialized_property_source}, '')"
-                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                    materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
-            else:
-                materialized_property_sql = str(materialized_property_source)
-
-            if len(type.chain) == 1:
-                return materialized_property_sql
-            else:
-                return self._unsafe_json_extract_trim_quotes(
-                    materialized_property_sql,
-                    self._json_property_args(type.chain[1:]),
-                )
-
-        return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
+        return self._print_property_type(type)
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
         # SAMPLE 1 means no sampling, skip it entirely
