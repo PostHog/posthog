@@ -2,12 +2,10 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
-from django.conf import settings as django_settings
-
-from posthog.schema import PersonsOnEventsMode, PropertyGroupsMode
+from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import StringType
@@ -29,29 +27,12 @@ from posthog.hogql.functions.mapping import (
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
 )
-from posthog.hogql.printer.types import (
-    JoinExprResponse,
-    PrintableMaterializedColumn,
-    PrintableMaterializedPropertyGroupItem,
-)
+from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
-from posthog.clickhouse.materialized_columns import (
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.clickhouse.property_groups import property_groups
-from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
-
-
-def get_channel_definition_dict():
-    """Get the channel definition dictionary name with the correct database.
-    Evaluated at call time to work with test databases in Python 3.12."""
-    return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
 def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
@@ -587,7 +568,7 @@ class HogQLPrinter(Visitor[str]):
         params_part = f"({', '.join(params)})" if params is not None else ""
         args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
 
-        return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
+        return f"{node.name}{params_part}{args_part}"
 
     def _validate_hogql_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta):
         validate_function_args(
@@ -767,99 +748,6 @@ class HogQLPrinter(Visitor[str]):
 
         return field_sql
 
-    def _get_materialized_property_source_for_property_type(
-        self, type: ast.PropertyType
-    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
-        """
-        Find the most efficient materialized property source for the provided property type.
-        """
-        for source in self._get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
-            return source
-        return None
-
-    def _get_table_name(self, table: ast.TableType) -> str:
-        return table.table.to_printed_hogql()
-
-    def _get_all_materialized_property_sources(
-        self, field_type: ast.FieldType, property_name: str
-    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
-        """
-        Find all materialized property sources for the provided field type and property name, ordered from what is
-        likely to be the most efficient access path to the least efficient.
-        """
-        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
-        if self.context.modifiers.materializationMode == "disabled":
-            return
-
-        field = field_type.resolve_database_field(self.context)
-
-        # check for a materialised column
-        table = field_type.table_type
-        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
-            table = table.table_type
-
-        if isinstance(table, ast.TableType):
-            table_name = self._get_table_name(table)
-
-            if field is None:
-                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
-            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
-                    self._print_identifier(materialized_column.name),
-                    is_nullable=materialized_column.is_nullable,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
-                )
-
-            # Check for dmat (dynamic materialized) columns
-            if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
-                yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
-                    self._print_identifier(dmat_column),
-                    is_nullable=True,
-                    has_minmax_index=False,
-                    has_ngram_lower_index=False,
-                    has_bloom_filter_index=False,
-                )
-
-            if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
-                PropertyGroupsMode.ENABLED,
-                PropertyGroupsMode.OPTIMIZED,
-            ):
-                # For now, we're assuming that properties are in either no groups or one group, so just using the
-                # first group returned is fine. If we start putting properties in multiple groups, this should be
-                # revisited to find the optimal set (i.e. smallest set) of groups to read from.
-                for property_group_column in property_groups.get_property_group_columns(
-                    table_name, field_name, property_name
-                ):
-                    yield PrintableMaterializedPropertyGroupItem(
-                        self.visit(field_type.table_type),
-                        self._print_identifier(property_group_column),
-                        self.context.add_value(property_name),
-                    )
-        elif self.context.within_non_hogql_query and (
-            isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
-        ):
-            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
-            else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
-                    None,
-                    self._print_identifier(materialized_column.name),
-                    is_nullable=materialized_column.is_nullable,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
-                )
-
     def _print_property_type(self, type: ast.PropertyType) -> str:
         return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
 
@@ -952,41 +840,14 @@ class HogQLPrinter(Visitor[str]):
                 raise ImpossibleASTError("Frame start and end must be specified together")
         return " ".join(strings)
 
-    def visit_window_function(self, node: ast.WindowFunction):
+    def _transform_window_function(self, node: ast.WindowFunction) -> tuple[str, list[str], ast.WindowFunction]:
         identifier = self._print_identifier(node.name)
         exprs = [self.visit(expr) for expr in node.exprs or []]
         cloned_node = cast(ast.WindowFunction, clone_expr(node))
+        return identifier, exprs, cloned_node
 
-        # For compatibility with ClickHouse syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
-        if identifier in ("lag", "lead") and self.dialect != "postgres":
-            identifier = f"{identifier}InFrame"
-            # Wrap the first expression (value) and third expression (default) in toNullable()
-            # The second expression (offset) must remain a non-nullable integer
-            if len(exprs) > 0:
-                exprs[0] = f"toNullable({exprs[0]})"  # value
-            # If there's no window frame specified, add the default one
-            if not cloned_node.over_expr and not cloned_node.over_identifier:
-                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
-            # If there's an over_identifier, we need to extract the new window expr just for this function
-            elif cloned_node.over_identifier:
-                # Find the last select query to look up the window definition
-                last_select = self._last_select()
-                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
-                    base_window = last_select.window_exprs[cloned_node.over_identifier]
-                    # Create a new window expr based on the referenced one
-                    cloned_node.over_expr = ast.WindowExpr(
-                        partition_by=base_window.partition_by,
-                        order_by=base_window.order_by,
-                        frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
-                        frame_start=base_window.frame_start
-                        or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
-                        frame_end=base_window.frame_end
-                        or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
-                    )
-                    cloned_node.over_identifier = None
-            # If there's an ORDER BY but no frame, add the default frame
-            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
-                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+    def visit_window_function(self, node: ast.WindowFunction):
+        identifier, exprs, cloned_node = self._transform_window_function(node)
 
         # Handle any additional function arguments
         args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
@@ -1073,33 +934,6 @@ class HogQLPrinter(Visitor[str]):
 
     def _json_property_args(self, chain: Iterable[Any]) -> list[str]:
         return [self.context.add_value(name) for name in chain]
-
-    def _get_materialized_column(
-        self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> MaterializedColumn | None:
-        return get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
-        )
-
-    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
-        """
-        Get the dmat column name for a property if available.
-
-        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
-        otherwise None.
-        """
-        if self.context.property_swapper is None:
-            return None
-
-        # Only event properties have dmat columns
-        if table_name != "events" or field_name != "properties":
-            return None
-
-        prop_info = self.context.property_swapper.event_properties.get(property_name)
-        if prop_info:
-            return prop_info.get("dmat")
-
-        return None
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
