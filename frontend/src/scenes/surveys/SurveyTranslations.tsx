@@ -118,18 +118,13 @@ export function SurveyTranslations(): JSX.Element {
                 ))}
             </div>
 
-            <div className="mt-4 border-t pt-4">
-                {editingLanguage ? (
-                    <p className="text-muted-alt">
-                        Currently editing:{' '}
-                        <b>{COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage}</b>.
-                        All text fields in the editor will save to this language.
-                    </p>
-                ) : (
-                    <p className="text-muted-alt">
-                        Currently editing: <b>Default</b>. This is the fallback content.
-                    </p>
-                )}
+            <div className="mt-4 border-t pt-4 text-muted-alt text-sm">
+                Editing:{' '}
+                <b>
+                    {editingLanguage
+                        ? COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage
+                        : 'Default'}
+                </b>
             </div>
         </div>
     )
