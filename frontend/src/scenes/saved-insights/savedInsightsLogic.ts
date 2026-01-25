@@ -259,14 +259,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                         date_from: filters.dateFrom,
                         date_to: filters.dateTo,
                     }),
-                ...(filters.createdDateFrom && {
-                    created_date_from: filters.createdDateFrom,
-                    created_date_to: filters.createdDateTo,
-                }),
-                ...(filters.lastViewedDateFrom && {
-                    last_viewed_date_from: filters.lastViewedDateFrom,
-                    last_viewed_date_to: filters.lastViewedDateTo,
-                }),
+                ...(filters.createdDateFrom &&
+                    filters.createdDateFrom !== 'all' && {
+                        created_date_from: filters.createdDateFrom,
+                        created_date_to: filters.createdDateTo,
+                    }),
+                ...(filters.lastViewedDateFrom &&
+                    filters.lastViewedDateFrom !== 'all' && {
+                        last_viewed_date_from: filters.lastViewedDateFrom,
+                        last_viewed_date_to: filters.lastViewedDateTo,
+                    }),
                 ...(!!filters.dashboardId && {
                     dashboards: [filters.dashboardId],
                 }),

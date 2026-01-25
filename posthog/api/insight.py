@@ -952,7 +952,7 @@ class InsightViewSet(
     ]
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer)
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id", "created_by"]
+    filterset_fields = ["short_id"]
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 

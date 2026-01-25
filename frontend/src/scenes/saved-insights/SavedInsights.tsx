@@ -789,7 +789,7 @@ export function SavedInsights(): JSX.Element {
                 {dateFrom && dateFrom !== 'all' && (
                     <>
                         <div className="my-1 border-t" />
-                        <LemonButton fullWidth onClick={() => onChange('all', null)} type="tertiary">
+                        <LemonButton fullWidth onClick={() => onChange(null, null)} type="tertiary">
                             Clear filter
                         </LemonButton>
                     </>
@@ -1059,7 +1059,7 @@ export function SavedInsights(): JSX.Element {
                 setSavedInsightsFilters({ createdDateFrom: fromDate, createdDateTo: toDate })
             ),
             moreIcon: <IconFilter />,
-            moreFilterCount: filters.createdDateFrom ? 1 : 0,
+            moreFilterCount: filters.createdDateFrom && filters.createdDateFrom !== 'all' ? 1 : 0,
         } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Last modified',
@@ -1091,7 +1091,7 @@ export function SavedInsights(): JSX.Element {
                 setSavedInsightsFilters({ lastViewedDateFrom: fromDate, lastViewedDateTo: toDate })
             ),
             moreIcon: <IconFilter />,
-            moreFilterCount: filters.lastViewedDateFrom ? 1 : 0,
+            moreFilterCount: filters.lastViewedDateFrom && filters.lastViewedDateFrom !== 'all' ? 1 : 0,
         },
         {
             width: 0,
@@ -1229,35 +1229,38 @@ export function SavedInsights(): JSX.Element {
                             />
                         </div>
                     </div>
-                    {!insightsLoading && insights.count < 1 ? (
+                    <ReloadInsight />
+                    {layoutView === LayoutView.List ? (
+                        <LemonTable
+                            loading={insightsLoading}
+                            columns={columns}
+                            dataSource={insights.results}
+                            pagination={pagination}
+                            noSortingCancellation
+                            sorting={sorting}
+                            onSort={(newSorting) =>
+                                setSavedInsightsFilters({
+                                    order: newSorting
+                                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                        : undefined,
+                                })
+                            }
+                            rowKey="id"
+                            loadingSkeletonRows={15}
+                            nouns={['insight', 'insights']}
+                            hideSortingIndicatorWhenInactive
+                            emptyState={
+                                !insightsLoading && insights.count < 1 ? (
+                                    <div className="py-8">
+                                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
+                                    </div>
+                                ) : undefined
+                            }
+                        />
+                    ) : !insightsLoading && insights.count < 1 ? (
                         <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
-                        <>
-                            <ReloadInsight />
-                            {layoutView === LayoutView.List ? (
-                                <LemonTable
-                                    loading={insightsLoading}
-                                    columns={columns}
-                                    dataSource={insights.results}
-                                    pagination={pagination}
-                                    noSortingCancellation
-                                    sorting={sorting}
-                                    onSort={(newSorting) =>
-                                        setSavedInsightsFilters({
-                                            order: newSorting
-                                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                                : undefined,
-                                        })
-                                    }
-                                    rowKey="id"
-                                    loadingSkeletonRows={15}
-                                    nouns={['insight', 'insights']}
-                                    hideSortingIndicatorWhenInactive
-                                />
-                            ) : (
-                                <SavedInsightsGrid />
-                            )}
-                        </>
+                        <SavedInsightsGrid />
                     )}
                 </>
             )}
