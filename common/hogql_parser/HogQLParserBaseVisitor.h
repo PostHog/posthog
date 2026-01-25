@@ -151,6 +151,14 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitGroupingSetsList(HogQLParser::GroupingSetsListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitGroupingSet(HogQLParser::GroupingSetContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitHavingClause(HogQLParser::HavingClauseContext *ctx) override {
     return visitChildren(ctx);
   }

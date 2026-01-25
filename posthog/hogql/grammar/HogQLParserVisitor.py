@@ -179,6 +179,16 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#groupingSetsList.
+    def visitGroupingSetsList(self, ctx:HogQLParser.GroupingSetsListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#groupingSet.
+    def visitGroupingSet(self, ctx:HogQLParser.GroupingSetContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#havingClause.
     def visitHavingClause(self, ctx:HogQLParser.HavingClauseContext):
         return self.visitChildren(ctx)
