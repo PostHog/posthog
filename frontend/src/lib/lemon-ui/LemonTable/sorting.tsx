@@ -33,8 +33,7 @@ export const SortingIndicator: React.FunctionComponent<
 > = forwardRef(function SortingIndicator({ order }, ref): JSX.Element {
     return (
         <div ref={ref} className="flex items-center text-base ml-2 whitespace-nowrap">
-            <IconSort />
-            {order === -1 ? <IconArrowDown /> : order === 1 ? <IconArrowUp /> : null}
+            {order === -1 ? <IconArrowDown /> : order === 1 ? <IconArrowUp /> : <IconSort />}
         </div>
     )
 })

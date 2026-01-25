@@ -7,6 +7,7 @@ import {
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
+    IconFilter,
     IconFlask,
     IconFunnels,
     IconGraph,
@@ -835,6 +836,8 @@ export function SavedInsights(): JSX.Element {
                     )}
                 </div>
             ),
+            moreIcon: <IconFilter />,
+            moreFilterCount: filters.insightType && filters.insightType !== 'All types' ? 1 : 0,
         },
         {
             title: 'Name',
@@ -947,6 +950,8 @@ export function SavedInsights(): JSX.Element {
                               </ul>
                           </div>
                       ),
+                      moreIcon: <IconFilter />,
+                      moreFilterCount: filters.tags?.length || 0,
                   },
               ]
             : []),
@@ -1032,6 +1037,8 @@ export function SavedInsights(): JSX.Element {
                               </ul>
                           </div>
                       ),
+                      moreIcon: <IconFilter />,
+                      moreFilterCount: filters.createdBy !== 'All users' ? (filters.createdBy as number[]).length : 0,
                   } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
               ]),
         {
@@ -1051,6 +1058,8 @@ export function SavedInsights(): JSX.Element {
             more: createDateFilterOverlay(filters.createdDateFrom, filters.createdDateTo, (fromDate, toDate) =>
                 setSavedInsightsFilters({ createdDateFrom: fromDate, createdDateTo: toDate })
             ),
+            moreIcon: <IconFilter />,
+            moreFilterCount: filters.createdDateFrom ? 1 : 0,
         } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Last modified',
@@ -1064,6 +1073,8 @@ export function SavedInsights(): JSX.Element {
             more: createDateFilterOverlay(filters.dateFrom, filters.dateTo, (fromDate, toDate) =>
                 setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
             ),
+            moreIcon: <IconFilter />,
+            moreFilterCount: filters.dateFrom && filters.dateFrom !== 'all' ? 1 : 0,
         },
         {
             title: 'Last viewed',
@@ -1079,6 +1090,8 @@ export function SavedInsights(): JSX.Element {
             more: createDateFilterOverlay(filters.lastViewedDateFrom, filters.lastViewedDateTo, (fromDate, toDate) =>
                 setSavedInsightsFilters({ lastViewedDateFrom: fromDate, lastViewedDateTo: toDate })
             ),
+            moreIcon: <IconFilter />,
+            moreFilterCount: filters.lastViewedDateFrom ? 1 : 0,
         },
         {
             width: 0,
@@ -1239,6 +1252,7 @@ export function SavedInsights(): JSX.Element {
                                     rowKey="id"
                                     loadingSkeletonRows={15}
                                     nouns={['insight', 'insights']}
+                                    hideSortingIndicatorWhenInactive
                                 />
                             ) : (
                                 <SavedInsightsGrid />

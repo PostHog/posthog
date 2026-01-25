@@ -8,8 +8,10 @@ import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } f
 import { IconInfo } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
@@ -88,6 +90,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     hideScrollbar?: boolean
     /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
+    /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
+    hideSortingIndicatorWhenInactive?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -126,6 +130,7 @@ export function LemonTable<T extends Record<string, any>>({
     maxHeaderWidth,
     hideScrollbar,
     rowActions,
+    hideSortingIndicatorWhenInactive = false,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -382,41 +387,82 @@ export function LemonTable<T extends Record<string, any>>({
                                                                 ) : (
                                                                     column.title
                                                                 )}
-                                                                {column.sorter && (
-                                                                    <Tooltip
-                                                                        title={() => {
-                                                                            const nextSorting = getNextSorting(
-                                                                                currentSorting,
-                                                                                determineColumnKey(column, 'sorting'),
-                                                                                disableSortingCancellation
-                                                                            )
-                                                                            return `Click to ${
-                                                                                nextSorting
-                                                                                    ? nextSorting.order === 1
-                                                                                        ? 'sort ascending'
-                                                                                        : 'sort descending'
-                                                                                    : 'cancel sorting'
-                                                                            }`
-                                                                        }}
-                                                                    >
-                                                                        <SortingIndicator
-                                                                            order={
-                                                                                currentSorting?.columnKey ===
-                                                                                determineColumnKey(column, 'sorting')
-                                                                                    ? currentSorting.order
-                                                                                    : null
-                                                                            }
-                                                                        />
-                                                                    </Tooltip>
-                                                                )}
+                                                                {column.sorter &&
+                                                                    (() => {
+                                                                        const columnKey = determineColumnKey(
+                                                                            column,
+                                                                            'sorting'
+                                                                        )
+                                                                        const isActiveSort =
+                                                                            currentSorting?.columnKey === columnKey
+                                                                        const order = isActiveSort
+                                                                            ? currentSorting.order
+                                                                            : null
+
+                                                                        // Hide indicator if inactive and hideSortingIndicatorWhenInactive is true
+                                                                        if (
+                                                                            hideSortingIndicatorWhenInactive &&
+                                                                            !isActiveSort
+                                                                        ) {
+                                                                            return null
+                                                                        }
+
+                                                                        return (
+                                                                            <Tooltip
+                                                                                title={() => {
+                                                                                    const nextSorting = getNextSorting(
+                                                                                        currentSorting,
+                                                                                        columnKey,
+                                                                                        disableSortingCancellation
+                                                                                    )
+                                                                                    return `Click to ${
+                                                                                        nextSorting
+                                                                                            ? nextSorting.order === 1
+                                                                                                ? 'sort ascending'
+                                                                                                : 'sort descending'
+                                                                                            : 'cancel sorting'
+                                                                                    }`
+                                                                                }}
+                                                                            >
+                                                                                <SortingIndicator order={order} />
+                                                                            </Tooltip>
+                                                                        )
+                                                                    })()}
                                                             </div>
-                                                            {column.more && (
-                                                                <More
-                                                                    overlay={column.more}
-                                                                    className="ml-1"
-                                                                    data-attr="table-header-more"
-                                                                />
-                                                            )}
+                                                            {column.more &&
+                                                                (column.moreIcon ? (
+                                                                    <LemonButtonWithDropdown
+                                                                        aria-label="more"
+                                                                        data-attr="table-header-more"
+                                                                        icon={
+                                                                            column.moreFilterCount !== undefined &&
+                                                                            column.moreFilterCount > 0 ? (
+                                                                                <IconWithCount
+                                                                                    count={column.moreFilterCount}
+                                                                                    showZero={false}
+                                                                                    status="danger"
+                                                                                >
+                                                                                    {column.moreIcon}
+                                                                                </IconWithCount>
+                                                                            ) : (
+                                                                                column.moreIcon
+                                                                            )
+                                                                        }
+                                                                        dropdown={{
+                                                                            placement: 'bottom-end',
+                                                                            actionable: true,
+                                                                            overlay: column.more,
+                                                                        }}
+                                                                        size="small"
+                                                                        className="ml-1"
+                                                                    />
+                                                                ) : (
+                                                                    <More
+                                                                        overlay={column.more}
+                                                                        className="ml-1"
+                                                                        data-attr="table-header-more"
+                                                                    />
+                                                                ))}
                                                         </div>
                                                     </th>
                                                 )
