@@ -20,6 +20,7 @@ from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_strin
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
+    HogQLFunctionMeta,
     find_hogql_aggregation,
     find_hogql_function,
     find_hogql_posthog_function,
@@ -519,6 +520,43 @@ class HogQLPrinter(Visitor[str]):
         # When printing HogQL, we print the properties out as a chain as they are.
         return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
+    def _validate_parametric_arguments(self, func_meta: HogQLFunctionMeta, node: ast.Call) -> str | None:
+        if func_meta.parametric_first_arg:
+            if not node.args:
+                raise QueryError(f"Missing arguments in function '{node.name}'")
+            # Check that the first argument is a constant string
+            first_arg = node.args[0]
+            if not isinstance(first_arg, ast.Constant):
+                raise QueryError(
+                    f"Expected constant string as first arg in function '{node.name}', got {first_arg.__class__.__name__}"
+                )
+            if not isinstance(first_arg.type, StringType) or not isinstance(first_arg.value, str):
+                raise QueryError(
+                    f"Expected constant string as first arg in function '{node.name}', got {first_arg.type.__class__.__name__} '{first_arg.value}'"
+                )
+            # Check that the constant string is within our allowed set of functions
+            if not is_allowed_parametric_function(first_arg.value):
+                raise QueryError(f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported.")
+
+        # Handle format strings in function names before checking function type
+        if func_meta.using_placeholder_arguments:
+            # Check if using positional arguments (e.g. {0}, {1})
+            if func_meta.using_positional_arguments:
+                # For positional arguments, pass the args as a dictionary
+                arg_arr = [self.visit(arg) for arg in node.args]
+                try:
+                    return func_meta.clickhouse_name.format(*arg_arr)
+                except (KeyError, IndexError) as e:
+                    raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+            else:
+                # Original sequential placeholder behavior
+                placeholder_count = func_meta.clickhouse_name.count("{}")
+                if len(node.args) != placeholder_count:
+                    raise QueryError(
+                        f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+                    )
+                return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+
     def visit_call(self, node: ast.Call):
         func_meta = (
             find_hogql_aggregation(node.name)
@@ -526,45 +564,8 @@ class HogQLPrinter(Visitor[str]):
             or find_hogql_posthog_function(node.name)
         )
 
-        # Validate parametric arguments
-        if func_meta:
-            if func_meta.parametric_first_arg:
-                if not node.args:
-                    raise QueryError(f"Missing arguments in function '{node.name}'")
-                # Check that the first argument is a constant string
-                first_arg = node.args[0]
-                if not isinstance(first_arg, ast.Constant):
-                    raise QueryError(
-                        f"Expected constant string as first arg in function '{node.name}', got {first_arg.__class__.__name__}"
-                    )
-                if not isinstance(first_arg.type, StringType) or not isinstance(first_arg.value, str):
-                    raise QueryError(
-                        f"Expected constant string as first arg in function '{node.name}', got {first_arg.type.__class__.__name__} '{first_arg.value}'"
-                    )
-                # Check that the constant string is within our allowed set of functions
-                if not is_allowed_parametric_function(first_arg.value):
-                    raise QueryError(
-                        f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported."
-                    )
-
-            # Handle format strings in function names before checking function type
-            if func_meta.using_placeholder_arguments:
-                # Check if using positional arguments (e.g. {0}, {1})
-                if func_meta.using_positional_arguments:
-                    # For positional arguments, pass the args as a dictionary
-                    arg_arr = [self.visit(arg) for arg in node.args]
-                    try:
-                        return func_meta.clickhouse_name.format(*arg_arr)
-                    except (KeyError, IndexError) as e:
-                        raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
-                else:
-                    # Original sequential placeholder behavior
-                    placeholder_count = func_meta.clickhouse_name.count("{}")
-                    if len(node.args) != placeholder_count:
-                        raise QueryError(
-                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
-                        )
-                    return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+        if func_meta and (parametric_result := self._validate_parametric_arguments(func_meta, node)):
+            return parametric_result
 
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
@@ -614,7 +615,6 @@ class HogQLPrinter(Visitor[str]):
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
 
             return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
-
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(
                 node.args,
