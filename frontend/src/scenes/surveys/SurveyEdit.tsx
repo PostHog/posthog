@@ -4,7 +4,7 @@ import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconGitBranch, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -302,6 +302,13 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
 
     const [showFlowModal, setShowFlowModal] = useState(false)
 
+    // Auto-expand Steps panel when a language is selected for translation
+    useEffect(() => {
+        if (editingLanguage) {
+            setSelectedSection(SurveyEditSection.Steps)
+        }
+    }, [editingLanguage, setSelectedSection])
+
     const handleCancelClick = (): void => {
         editingSurvey(false)
         if (id === 'new') {
@@ -408,6 +415,14 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
+                {editingLanguage && (
+                    <div className="flex items-center gap-2 px-4 py-2 bg-warning-highlight rounded border border-warning">
+                        <IconInfo className="text-warning" />
+                        <span className="text-sm">
+                            Editing translation for <strong>{editingLanguage}</strong>
+                        </span>
+                    </div>
+                )}
             </div>
             <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
                 <div className="flex flex-col gap-2 flex-1 SurveyForm">
@@ -828,6 +843,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     </>
                                 ),
                             },
+                            {
+                                key: SurveyEditSection.Translations,
+                                header: 'Translations',
+                                content: <SurveyTranslations />,
+                            },
                             ...(survey.type !== SurveyType.API
                                 ? [
                                       {
@@ -880,11 +900,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                       },
                                   ]
                                 : []),
-                            {
-                                key: SurveyEditSection.Translations,
-                                header: 'Translations',
-                                content: <SurveyTranslations />,
-                            },
                             ...(survey.type !== SurveyType.ExternalSurvey
                                 ? [
                                       {
