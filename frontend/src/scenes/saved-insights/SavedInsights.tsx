@@ -46,7 +46,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
-import { isNonEmptyObject, pluralize } from 'lib/utils'
+import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
@@ -73,7 +73,7 @@ import {
 } from '~/types'
 
 import { ReloadInsight } from './ReloadInsight'
-import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
+import { savedInsightsLogic } from './savedInsightsLogic'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -677,17 +677,14 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
+    const { insights, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
 
     const { hasTagging } = useValues(organizationLogic)
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const { tab, page } = filters
-
-    const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
-    const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
+    const { tab } = filters
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
@@ -894,13 +891,6 @@ export function SavedInsights(): JSX.Element {
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
                     <LemonDivider className="my-0" />
-                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center my-0">
-                        <span className="text-secondary">
-                            {count
-                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
-                                : null}
-                        </span>
-                    </div>
                     {!insightsLoading && insights.count < 1 ? (
                         <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
