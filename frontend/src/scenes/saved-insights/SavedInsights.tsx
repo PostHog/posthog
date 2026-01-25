@@ -29,7 +29,7 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -788,7 +788,7 @@ export function SavedInsights(): JSX.Element {
                 {dateFrom && dateFrom !== 'all' && (
                     <>
                         <div className="my-1 border-t" />
-                        <LemonButton fullWidth onClick={() => onChange('all', null)} type="secondary">
+                        <LemonButton fullWidth onClick={() => onChange('all', null)} type="tertiary">
                             Clear filter
                         </LemonButton>
                     </>
@@ -804,6 +804,37 @@ export function SavedInsights(): JSX.Element {
             render: function renderType(_, insight) {
                 return <InsightIcon insight={insight} className="text-secondary text-2xl" />
             },
+            more: (
+                <div className="deprecated-space-y-px">
+                    {(INSIGHT_TYPE_OPTIONS as LemonSelectOption<string>[]).map((option) => (
+                        <LemonButton
+                            key={(option as LemonSelectOptionLeaf<string>).value}
+                            onClick={() =>
+                                setSavedInsightsFilters({
+                                    insightType: (option as LemonSelectOptionLeaf<string>).value,
+                                })
+                            }
+                            active={filters.insightType === (option as LemonSelectOptionLeaf<string>).value}
+                            icon={option.icon}
+                            fullWidth
+                        >
+                            {option.label}
+                        </LemonButton>
+                    ))}
+                    {filters.insightType && filters.insightType !== 'All types' && (
+                        <>
+                            <div className="my-1 border-t" />
+                            <LemonButton
+                                fullWidth
+                                onClick={() => setSavedInsightsFilters({ insightType: 'All types' })}
+                                type="tertiary"
+                            >
+                                Clear filter
+                            </LemonButton>
+                        </>
+                    )}
+                </div>
+            ),
         },
         {
             title: 'Name',
@@ -906,7 +937,7 @@ export function SavedInsights(): JSX.Element {
                                                   role="menuitem"
                                                   size="small"
                                                   onClick={() => setSavedInsightsFilters({ tags: [] })}
-                                                  type="secondary"
+                                                  type="tertiary"
                                               >
                                                   Clear selection
                                               </LemonButton>
@@ -991,7 +1022,7 @@ export function SavedInsights(): JSX.Element {
                                                   role="menuitem"
                                                   size="small"
                                                   onClick={() => setSavedInsightsFilters({ createdBy: 'All users' })}
-                                                  type="secondary"
+                                                  type="tertiary"
                                               >
                                                   Clear selection
                                               </LemonButton>

@@ -325,32 +325,6 @@ export function LemonTable<T extends Record<string, any>>({
                                                             textAlign: column.align,
                                                             ...(isPinned ? { left: `${leftPosition}px` } : {}),
                                                         }}
-                                                        onClick={
-                                                            column.sorter && !column.more
-                                                                ? (event) => {
-                                                                      const target = event.target as HTMLElement
-
-                                                                      // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
-                                                                      if (
-                                                                          target.classList.contains(
-                                                                              'LemonCheckbox__box'
-                                                                          ) ||
-                                                                          target.tagName.toLowerCase() === 'label' ||
-                                                                          target.tagName.toLowerCase() === 'input'
-                                                                      ) {
-                                                                          return // Do nothing if the click is on the checkbox
-                                                                      }
-
-                                                                      const nextSorting = getNextSorting(
-                                                                          currentSorting,
-                                                                          determineColumnKey(column, 'sorting'),
-                                                                          disableSortingCancellation
-                                                                      )
-
-                                                                      setLocalSorting(nextSorting)
-                                                                  }
-                                                                : undefined
-                                                        }
                                                     >
                                                         <div
                                                             className="LemonTable__header-content"
@@ -360,12 +334,41 @@ export function LemonTable<T extends Record<string, any>>({
                                                             <div
                                                                 className={clsx(
                                                                     'flex items-center',
-                                                                    column?.fullWidth && 'w-full'
+                                                                    column?.fullWidth && 'w-full',
+                                                                    column.sorter && 'cursor-pointer'
                                                                 )}
                                                                 /* eslint-disable-next-line react/forbid-dom-props */
                                                                 style={
                                                                     maxHeaderWidth
                                                                         ? { maxWidth: maxHeaderWidth }
+                                                                        : undefined
+                                                                }
+                                                                onClick={
+                                                                    column.sorter
+                                                                        ? (event) => {
+                                                                              const target = event.target as HTMLElement
+
+                                                                              // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
+                                                                              if (
+                                                                                  target.classList.contains(
+                                                                                      'LemonCheckbox__box'
+                                                                                  ) ||
+                                                                                  target.tagName.toLowerCase() ===
+                                                                                      'label' ||
+                                                                                  target.tagName.toLowerCase() ===
+                                                                                      'input'
+                                                                              ) {
+                                                                                  return // Do nothing if the click is on the checkbox
+                                                                              }
+
+                                                                              const nextSorting = getNextSorting(
+                                                                                  currentSorting,
+                                                                                  determineColumnKey(column, 'sorting'),
+                                                                                  disableSortingCancellation
+                                                                              )
+
+                                                                              setLocalSorting(nextSorting)
+                                                                          }
                                                                         : undefined
                                                                 }
                                                             >
