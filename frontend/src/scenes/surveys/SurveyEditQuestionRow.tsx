@@ -13,6 +13,7 @@ import { QuestionBranchingInput } from 'scenes/surveys/components/question-branc
 
 import {
     BasicSurveyQuestion,
+    LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
@@ -220,6 +221,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             <div className="flex flex-col gap-2">
                 <LemonField name="type" label="Question type" className="max-w-60">
                     <LemonSelect
+                        disabled={!!editingLanguage}
                         data-attr={`survey-question-type-${index}`}
                         onSelect={(newType) => {
                             const isCurrentMultipleChoice =
@@ -272,7 +274,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     />
                 </LemonField>
                 <LemonField name={getFieldName('question')} label="Label">
-                    <LemonInput data-attr={`survey-question-label-${index}`} value={displayQuestion.question || ''} />
+                    <LemonInput
+                        data-attr={`survey-question-label-${index}`}
+                        value={displayQuestion.question || ''}
+                        placeholder={editingLanguage ? question.question : undefined}
+                    />
                 </LemonField>
                 <LemonField name={getFieldName('description')} label="Description (optional)">
                     {({ value, onChange }) => (
@@ -288,8 +294,8 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     )}
                 </LemonField>
                 {survey.questions.length > 1 && (
-                    <LemonField name="optional">
-                        <LemonCheckbox label="Optional" checked={!!question.optional} />
+                    <LemonField name="optional" className="my-2">
+                        <LemonCheckbox label="Optional" checked={!!question.optional} disabled={!!editingLanguage} />
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Open && (
@@ -308,7 +314,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         label="Link"
                         info="Only https:// or mailto: links are supported."
                     >
-                        <LemonInput value={displayQuestion.link || ''} placeholder="https://posthog.com" />
+                        <LemonInput
+                            value={displayQuestion.link || ''}
+                            placeholder={editingLanguage ? question.link || 'https://posthog.com' : 'https://posthog.com'}
+                        />
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Rating && (
@@ -316,6 +325,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         <div className="flex flex-row gap-4">
                             <LemonField name="display" label="Display type" className="w-1/2">
                                 <LemonSelect
+                                    disabled={!!editingLanguage}
                                     options={[
                                         { label: 'Number', value: 'number' },
                                         { label: 'Emoji', value: 'emoji' },
@@ -339,6 +349,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             </LemonField>
                             <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
+                                    disabled={!!editingLanguage}
                                     options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
                                     onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
@@ -352,11 +363,17 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         </div>
                         {!isThumbQuestion(question) && (
                             <div className="flex flex-row gap-4">
-                                <LemonField name="lowerBoundLabel" label="Lower bound label" className="w-1/2">
-                                    <LemonInput value={question.lowerBoundLabel || ''} />
+                                <LemonField name={getFieldName('lowerBoundLabel')} label="Lower bound label" className="w-1/2">
+                                    <LemonInput
+                                        value={displayQuestion.lowerBoundLabel || ''}
+                                        placeholder={editingLanguage ? question.lowerBoundLabel : undefined}
+                                    />
                                 </LemonField>
-                                <LemonField name="upperBoundLabel" label="Upper bound label" className="w-1/2">
-                                    <LemonInput value={question.upperBoundLabel || ''} />
+                                <LemonField name={getFieldName('upperBoundLabel')} label="Upper bound label" className="w-1/2">
+                                    <LemonInput
+                                        value={displayQuestion.upperBoundLabel || ''}
+                                        placeholder={editingLanguage ? question.upperBoundLabel : undefined}
+                                    />
                                 </LemonField>
                             </div>
                         )}
@@ -367,6 +384,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         label="This is an NPS question"
                                         info="If checked, we'll calculate and display NPS on the survey results page."
                                         checked={isNpsQuestion !== false}
+                                        disabled={!!editingLanguage}
                                         onChange={toggleIsNpsQuestion}
                                     />
                                 )}
@@ -384,6 +402,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         <div className="flex flex-col gap-2">
                                             {(value || []).map((choice: string, index: number) => {
                                                 const isOpenChoice = hasOpenChoice && index === value?.length - 1
+                                                const originalChoices = (question.choices || []) as string[]
                                                 return (
                                                     <div className="flex flex-row gap-2 relative" key={index}>
                                                         <LemonInput
@@ -394,6 +413,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 newChoices[index] = val
                                                                 onChange(newChoices)
                                                             }}
+                                                            placeholder={
+                                                                editingLanguage ? originalChoices[index] : undefined
+                                                            }
                                                             suffix={
                                                                 isOpenChoice && (
                                                                     <LemonTag type="highlight">open-ended</LemonTag>
@@ -424,6 +446,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                             icon={<IconPlusSmall />}
                                                             type="secondary"
                                                             fullWidth={false}
+                                                            disabledReason={
+                                                                editingLanguage
+                                                                    ? 'Cannot modify choices while translating'
+                                                                    : undefined
+                                                            }
                                                             onClick={() => {
                                                                 if (!value) {
                                                                     onChange([''])
@@ -444,6 +471,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 icon={<IconPlusSmall />}
                                                                 type="secondary"
                                                                 fullWidth={false}
+                                                                disabledReason={
+                                                                    editingLanguage
+                                                                        ? 'Cannot modify choices while translating'
+                                                                        : undefined
+                                                                }
                                                                 onClick={() => {
                                                                     if (!value) {
                                                                         onChange(['Other'])
@@ -464,6 +496,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 <LemonCheckbox
                                                                     checked={!!shuffleOptions}
                                                                     label="Shuffle options"
+                                                                    disabled={!!editingLanguage}
                                                                     onChange={(checked) =>
                                                                         toggleShuffleOptions(checked)
                                                                     }
@@ -494,11 +527,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         {(!canSkipSubmitButton || (canSkipSubmitButton && !question.skipSubmitButton)) && (
                             <LemonInput
                                 value={
-                                    question.buttonText === undefined
+                                    displayQuestion.buttonText === undefined
                                         ? (survey.appearance?.submitButtonText ?? 'Submit')
-                                        : question.buttonText
+                                        : displayQuestion.buttonText
                                 }
                                 onChange={(val) => handleQuestionValueChange('buttonText', val)}
+                                placeholder={
+                                    editingLanguage
+                                        ? (question.buttonText ?? survey.appearance?.submitButtonText ?? 'Submit')
+                                        : undefined
+                                }
                             />
                         )}
                         {canSkipSubmitButton && (
