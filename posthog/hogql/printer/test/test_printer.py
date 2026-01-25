@@ -1356,11 +1356,11 @@ class TestPrinter(BaseTest):
         # See: https://github.com/PostHog/posthog/issues/41785
         self.assertEqual(
             self._select("select 1 from events cross join raw_groups"),
-            f"SELECT 1 FROM events CROSS JOIN (SELECT * FROM groups WHERE equals(team_id, {self.team.pk})) AS groups WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT 1 FROM events CROSS JOIN (SELECT * FROM groups WHERE equals(team_id, {self.team.pk})) AS `groups` WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             self._select("select 1 from events, raw_groups"),
-            f"SELECT 1 FROM events CROSS JOIN (SELECT * FROM groups WHERE equals(team_id, {self.team.pk})) AS groups WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT 1 FROM events CROSS JOIN (SELECT * FROM groups WHERE equals(team_id, {self.team.pk})) AS `groups` WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_left_join_team_id_in_on_clause(self):
@@ -1443,7 +1443,7 @@ class TestPrinter(BaseTest):
 
         # The JOINed table (e2) should be wrapped in a subquery with team_id filter
         # This ensures ClickHouse applies the filter BEFORE building the hash table
-        self.assertIn(f"(SELECT * FROM events WHERE equals(team_id, {self.team.pk})) AS e2", result)
+        self.assertIn(f"(SELECT * FROM events WHERE equals(team_id, {self.team.pk})) AS `e2`", result)
 
     def test_events_on_right_side_of_join_issue_41785(self):
         """
@@ -1470,7 +1470,7 @@ class TestPrinter(BaseTest):
 
         # The events table should be wrapped in a subquery with team_id filter
         # This ensures the filter is applied BEFORE building the hash table
-        self.assertIn(f"(SELECT * FROM events WHERE equals(team_id, {self.team.pk})) AS e", result)
+        self.assertIn(f"(SELECT * FROM events WHERE equals(team_id, {self.team.pk})) AS `e`", result)
 
         # The team_id filter should NOT be in the global WHERE clause for the joined events table
         # (it's already in the subquery)

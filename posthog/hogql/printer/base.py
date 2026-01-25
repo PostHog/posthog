@@ -278,7 +278,6 @@ class HogQLPrinter(Visitor[str]):
         self,
         table_type: ast.TableType | ast.LazyTableType,
         node: ast.JoinExpr,
-        team_id_filter: ast.Expr | None = None,
     ) -> str:
         if self.dialect == "hogql":
             return table_type.table.to_printed_hogql()
@@ -316,20 +315,14 @@ class HogQLPrinter(Visitor[str]):
                 # LEFT JOIN: add team_id to ON clause to preserve NULL rows
                 team_id_for_on_clause = team_id_expr
             elif is_joined_table and team_id_expr is not None:
-                # Joined table (right side of JOIN): wrap in subquery with team_id filter
-                # This ensures the filter is applied BEFORE ClickHouse builds the hash table
-                pass  # Will be handled in _print_table_ref via wrap_in_subquery_with_filter
+                # Joined table (right side of JOIN): wrap in subquery with team_id filter.
+                # This will be handled after the table reference and arguments are printed.
+                pass
             else:
                 # FROM table or no team_id needed: add to WHERE clause
                 extra_where = team_id_expr
 
-            # Pass team_id_expr for joined tables so they can be wrapped in a filtered subquery
-            wrapped_in_subquery = is_joined_table and not is_left_join and team_id_expr is not None
-            sql = self._print_table_ref(
-                table_type,
-                node,
-                team_id_filter=team_id_expr if wrapped_in_subquery else None,
-            )
+            sql = self._print_table_ref(table_type, node)
 
             if isinstance(table_type.table, FunctionCallTable) and table_type.table.requires_args:
                 if node.table_args is None:
@@ -352,16 +345,32 @@ class HogQLPrinter(Visitor[str]):
             elif node.table_args is not None:
                 raise QueryError(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")
 
-            join_strings.append(sql)
+            # Check if we should wrap in a team_id filtered subquery.
+            # This happens AFTER the table call/args are fully printed.
+            if is_joined_table and not is_left_join and team_id_expr is not None:
+                team_id_sql = self.visit(team_id_expr)
+                # Determine the alias to use. If node.alias is set, use it. Otherwise use a safe table name.
+                alias = node.alias
+                if not alias:
+                    # Fallback to the table's name if it has one, otherwise the printed table name.
+                    # Ensure it's a safe alias (no dots, no function call parentheses).
+                    if hasattr(table_type.table, "name") and isinstance(table_type.table.name, str):
+                        alias = table_type.table.name
+                    else:
+                        full_table_name = (
+                            table_type.table.to_printed_clickhouse(self.context)
+                            if self.dialect == "clickhouse"
+                            else table_type.table.to_printed_hogql()
+                        )
+                        # Take the last part of a qualified name and strip any function call parentheses
+                        alias = full_table_name.split(".")[-1].split("(")[0]
 
-            # Add alias: either explicit alias, or table name when wrapped in subquery (for reference)
-            if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
-                join_strings.append(f"AS {self._print_identifier(node.alias)}")
-            elif wrapped_in_subquery:
-                # When a table is wrapped in a subquery, it needs an alias for the rest of the query
-                # to reference it. Use the original table name as the alias.
-                table_name = table_type.table.to_printed_clickhouse(self.context) if self.dialect == "clickhouse" else table_type.table.to_printed_hogql()
-                join_strings.append(f"AS {self._print_identifier(table_name)}")
+                sql = f"(SELECT * FROM {sql} WHERE {team_id_sql}) AS {self._print_identifier(alias)}"
+                join_strings.append(sql)
+            else:
+                join_strings.append(sql)
+                if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
+                    join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
