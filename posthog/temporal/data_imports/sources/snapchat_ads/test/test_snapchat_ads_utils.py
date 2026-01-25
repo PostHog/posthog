@@ -131,6 +131,7 @@ class TestSnapchatStatsResourceTransforms:
         ]
     )
     def test_apply_stream_transformations_routes_correctly(self, name, endpoint_type):
+        reports: list[dict[str, Any]]
         if endpoint_type == EndpointType.STATS:
             reports = [{"timeseries_stat": {"id": "1", "type": "CAMPAIGN", "timeseries": []}}]
         elif endpoint_type == EndpointType.ENTITY:

@@ -153,17 +153,13 @@ class SnapchatStatsResource:
 
         for report in reports:
             # Each item is wrapped: {"campaign": {...}} or {"adsquad": {...}} or {"ad": {...}}
-            if isinstance(report, dict):
-                # Get the first (and only) value from the dict
-                inner_keys = ["campaign", "adsquad", "ad"]
-                for key in inner_keys:
-                    if key in report:
-                        processed_reports.append(report[key])
-                        break
-                else:
-                    # No wrapper found, use as-is
-                    processed_reports.append(report)
+            inner_keys = ["campaign", "adsquad", "ad"]
+            for key in inner_keys:
+                if key in report:
+                    processed_reports.append(report[key])
+                    break
             else:
+                # No wrapper found, use as-is
                 processed_reports.append(report)
 
         return processed_reports
@@ -179,8 +175,6 @@ class SnapchatStatsResource:
             case EndpointType.ENTITY:
                 return cls.transform_entity_reports(reports_list)
             case EndpointType.ACCOUNT:
-                return reports_list  # Account data doesn't need transformation
-            case _:
                 return reports_list
 
     @classmethod
