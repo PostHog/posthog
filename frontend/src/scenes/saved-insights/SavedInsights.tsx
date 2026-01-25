@@ -890,7 +890,6 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className="my-0" />
                     {!insightsLoading && insights.count < 1 ? (
                         <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
