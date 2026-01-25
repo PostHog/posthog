@@ -424,9 +424,11 @@ class HogQLPrinter(Visitor[str]):
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
+    def _get_tuple_function(self) -> str:
+        return "tuple"
+
     def visit_dict(self, node: ast.Dict):
-        tuple_function = "ROW" if self.dialect == "postgres" else "tuple"
-        str = f"{tuple_function}('__hx_tag', '__hx_obj'"
+        str = f"{self._get_tuple_function()}('__hx_tag', '__hx_obj'"
         for key, value in node.items:
             str += f", {self.visit(key)}, {self.visit(value)}"
         return str + ")"

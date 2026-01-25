@@ -156,6 +156,9 @@ class PostgresPrinter(HogQLPrinter):
         else:
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
+    def _get_tuple_function(self):
+        return "ROW"
+
     def visit_tuple(self, node: ast.Tuple) -> str:
         values = [self.visit(expr) for expr in node.exprs]
 
