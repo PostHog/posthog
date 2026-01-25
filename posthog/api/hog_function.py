@@ -508,9 +508,9 @@ class HogFunctionViewSet(
     @action(detail=True, methods=["POST"])
     def batch_retry(self, request: Request, *args, **kwargs):
         hog_function = self.get_object()
-        date_from = request.data.get("date_from")
-        date_to = request.data.get("date_to")
-        status = request.data.get("status", "error")
+        date_from = str(request.data.get("date_from") or "")
+        date_to = str(request.data.get("date_to") or "")
+        status = str(request.data.get("status") or "error")
 
         if not date_from or not date_to:
             raise serializers.ValidationError("date_from and date_to are required")

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -48,37 +48,59 @@ export function HogFunctionLogs(): JSX.Element | null {
     }
     const logic = hogFunctionLogsLogic(logsLogicProps)
 
-    const { selectingMany, selectedForRetry, retryRunning } = useValues(logic)
-    const { setSelectingMany, retrySelectedInvocations, selectAllForRetry, retryBatch } = useActions(logic)
+    const { selectingMany, selectedForRetry, retryRunning, isRetryModalOpen, logEntryParams, groupedLogs } =
+        useValues(logic)
+    const {
+        setSelectingMany,
+        retrySelectedInvocations,
+        selectAllForRetry,
+        retryBatch,
+        openRetryModal,
+        closeRetryModal,
+    } = useActions(logic)
 
     if (!id) {
         return null
     }
 
+    const hasErrors = groupedLogs.some((group: GroupedLogEntry) =>
+        group.entries.some((entry) => entry.level === 'ERROR')
+    )
+
     return (
         <>
-            {!selectingMany ? (
+            {!selectingMany && hasErrors ? (
                 <div className="flex justify-end mb-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Retry all failed invocations?',
-                                content: 'This will schedule a task to retry all failed invocations in the current date range. This may take a while.',
-                                primaryButton: {
-                                    children: 'Retry all in range',
-                                    onClick: () => retryBatch(),
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                },
-                            })
-                        }}
-                    >
+                    <LemonButton type="secondary" onClick={openRetryModal}>
                         Retry failures in range
                     </LemonButton>
                 </div>
             ) : null}
+
+            <LemonModal
+                isOpen={isRetryModalOpen}
+                onClose={closeRetryModal}
+                title="Retry failed invocations?"
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={closeRetryModal} disabled={retryRunning}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton type="primary" onClick={() => retryBatch()} loading={retryRunning}>
+                            Retry
+                        </LemonButton>
+                    </>
+                }
+            >
+                <p>
+                    This will schedule a background task to retry all failed invocations created between{' '}
+                    <b>{String(logEntryParams.dateFrom || 'the beginning')}</b> and{' '}
+                    <b>{String(logEntryParams.dateTo || 'now')}</b>.
+                </p>
+                <p>
+                    <b>Note:</b> This process may take some time depending on the number of failures.
+                </p>
+            </LemonModal>
             {selectingMany ? (
                 <div className="flex gap-2 items-center mb-2 justify-end">
                     <>
