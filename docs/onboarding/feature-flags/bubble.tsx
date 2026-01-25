@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getBubbleSteps as getBubbleStepsPA } from '../product-analytics/bubble'
 import { StepDefinition } from '../steps'
 
-export const getBubbleSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getBubbleSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet

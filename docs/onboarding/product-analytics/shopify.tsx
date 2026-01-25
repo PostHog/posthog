@@ -1,8 +1,8 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
 
-export const getShopifySteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getShopifySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     return [

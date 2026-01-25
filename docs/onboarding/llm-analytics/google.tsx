@@ -1,8 +1,8 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
 
-export const getGoogleSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 

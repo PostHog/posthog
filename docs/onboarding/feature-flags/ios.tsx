@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getIOSSteps as getIOSStepsPA } from '../product-analytics/ios'
 import { StepDefinition } from '../steps'
 
-export const getIOSSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     // Get installation steps from product-analytics

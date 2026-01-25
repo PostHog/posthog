@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getNuxtSteps as getNuxtStepsPA } from '../product-analytics/nuxt'
 import { StepDefinition } from '../steps'
 
-export const getNuxtSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getNuxtSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 

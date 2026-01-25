@@ -1,8 +1,8 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
 
-export const getLiteLLMSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, Blockquote, dedent, snippets } = ctx
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 

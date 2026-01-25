@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getFlutterSteps as getFlutterStepsPA } from '../product-analytics/flutter'
 import { StepDefinition } from '../steps'
 
-export const getFlutterSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     // Get installation steps from product-analytics

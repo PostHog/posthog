@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getRemixSteps as getRemixStepsPA } from '../product-analytics/remix'
 import { StepDefinition } from '../steps'
 
-export const getRemixSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet

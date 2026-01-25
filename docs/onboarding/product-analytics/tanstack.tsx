@@ -1,8 +1,8 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
 
-export const getTanStackSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
 
     const JSEventCapture = snippets?.JSEventCapture

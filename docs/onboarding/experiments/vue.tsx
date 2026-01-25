@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getVueSteps as getVueStepsPA } from '../product-analytics/vue'
 import { StepDefinition } from '../steps'
 
-export const getVueSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getVueSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 

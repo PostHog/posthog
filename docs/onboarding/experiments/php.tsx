@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getPHPSteps as getPHPStepsPA } from '../product-analytics/php'
 import { StepDefinition } from '../steps'
 
-export const getPHPSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getPHPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 

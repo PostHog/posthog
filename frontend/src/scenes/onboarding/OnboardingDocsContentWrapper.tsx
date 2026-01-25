@@ -13,7 +13,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-export interface OnboardingComponents {
+export interface OnboardingComponentsContext {
     Steps: React.ComponentType<StepsProps>
     Step: React.ComponentType<StepProps>
     CodeBlock: React.ComponentType<{
@@ -51,7 +51,7 @@ export interface OnboardingComponents {
     setSelectedFile?: (file: string) => void
 }
 
-const OnboardingContext = createContext<OnboardingComponents | null>(null)
+const OnboardingContext = createContext<OnboardingComponentsContext | null>(null)
 
 function Steps({ children }: StepsProps): JSX.Element {
     let stepNumber = 0
@@ -323,11 +323,11 @@ export function OnboardingDocsContentWrapper({
 }: {
     children: ReactNode
     snippets?: Record<string, React.ComponentType<any>>
-    createSnippets?: (components: OnboardingComponents) => Record<string, React.ComponentType<any>>
+    createSnippets?: (components: OnboardingComponentsContext) => Record<string, React.ComponentType<any>>
 }): JSX.Element {
     const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
 
-    const baseComponents = useMemo<Omit<OnboardingComponents, 'snippets'>>(
+    const baseComponents = useMemo<Omit<OnboardingComponentsContext, 'snippets'>>(
         () => ({
             Steps,
             Step,
@@ -347,17 +347,17 @@ export function OnboardingDocsContentWrapper({
 
     const finalSnippets = useMemo(() => {
         if (createSnippets) {
-            return createSnippets(baseComponents as OnboardingComponents)
+            return createSnippets(baseComponents as OnboardingComponentsContext)
         }
         return snippets
     }, [createSnippets, snippets, baseComponents])
 
-    const components = useMemo<OnboardingComponents>(
+    const components = useMemo<OnboardingComponentsContext>(
         () =>
             ({
                 ...baseComponents,
                 snippets: finalSnippets,
-            }) as OnboardingComponents,
+            }) as OnboardingComponentsContext,
         [baseComponents, finalSnippets]
     )
 
@@ -368,7 +368,7 @@ export function OnboardingDocsContentWrapper({
     )
 }
 
-export function useMDXComponents(): OnboardingComponents {
+export function useMDXComponents(): OnboardingComponentsContext {
     const context = useContext(OnboardingContext)
     if (!context) {
         throw new Error('useMDXComponents must be used within OnboardingDocsContentWrapper')
@@ -407,7 +407,7 @@ export function dedent(strings: TemplateStringsArray | string, ...values: any[])
  * Creates an Installation component from a steps function.
  */
 export function createInstallation(
-    getSteps: (ctx: OnboardingComponents) => StepDefinition[]
+    getSteps: (ctx: OnboardingComponentsContext) => StepDefinition[]
 ): React.ComponentType<StepModifier> {
     return function Installation({ modifySteps }: StepModifier = {}) {
         const components = useMDXComponents()

@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getAstroSteps as getAstroStepsPA } from '../product-analytics/astro'
 import { StepDefinition } from '../steps'
 
-export const getAstroSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 

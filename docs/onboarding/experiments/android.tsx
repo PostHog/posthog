@@ -1,9 +1,9 @@
-import { OnboardingComponents, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getAndroidSteps as getAndroidStepsPA } from '../product-analytics/android'
 import { StepDefinition } from '../steps'
 
-export const getAndroidSteps = (ctx: OnboardingComponents): StepDefinition[] => {
+export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
