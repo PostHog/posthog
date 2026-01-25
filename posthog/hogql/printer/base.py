@@ -589,7 +589,7 @@ class HogQLPrinter(Visitor[str]):
 
         return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
-    def _validate_hogql_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str | None:
+    def _validate_hogql_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta):
         validate_function_args(
             node.args,
             func_meta.min_args,

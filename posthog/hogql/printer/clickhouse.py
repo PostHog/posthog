@@ -16,6 +16,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions.core import HogQLFunctionMeta
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import HogQLPrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
@@ -974,7 +975,7 @@ class ClickHousePrinter(HogQLPrinter):
     def _get_table_name(self, table: ast.TableType) -> str:
         return table.table.to_printed_clickhouse(self.context)
 
-    def _print_hogql_function_call(self, node, func_meta):
+    def _print_hogql_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str:
         args_count = len(node.args) - func_meta.passthrough_suffix_args_count
         node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
 
@@ -1107,7 +1108,7 @@ class ClickHousePrinter(HogQLPrinter):
         args_part = f"({', '.join(args)})"
         return f"{relevant_clickhouse_name}{params_part}{args_part}"
 
-    def _print_hogql_posthog_function_call(self, node, func_meta):
+    def _print_hogql_posthog_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str:
         args = [self.visit(arg) for arg in node.args]
 
         if node.name == "embedText":
