@@ -1351,13 +1351,16 @@ class TestPrinter(BaseTest):
         )
 
     def test_select_cross_join(self):
+        # CROSS JOINed tables should have team_id filter in a subquery, not WHERE clause.
+        # This ensures ClickHouse filters the data BEFORE building the hash table.
+        # See: https://github.com/PostHog/posthog/issues/41785
         self.assertEqual(
             self._select("select 1 from events cross join raw_groups"),
-            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT 1 FROM events CROSS JOIN (SELECT * FROM groups WHERE equals(team_id, {self.team.pk})) AS groups WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             self._select("select 1 from events, raw_groups"),
-            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT 1 FROM events CROSS JOIN (SELECT * FROM groups WHERE equals(team_id, {self.team.pk})) AS groups WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_left_join_team_id_in_on_clause(self):
@@ -1401,8 +1404,11 @@ class TestPrinter(BaseTest):
         self.assertIn(f"equals(e2.team_id, {self.team.pk})", on_clause)
         self.assertNotIn("e2.team_id", where_clause)
 
-    def test_inner_join_team_id_in_where_clause(self):
-        # INNER JOINs should still have team_id in WHERE clause (current behavior)
+    def test_inner_join_team_id_in_subquery(self):
+        # INNER JOINs should have team_id filter in a subquery for the joined table.
+        # This ensures ClickHouse filters the data BEFORE building the hash table,
+        # preventing memory exhaustion when large tables like events are on the right side.
+        # See: https://github.com/PostHog/posthog/issues/41785
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         select_query = ast.SelectQuery(
@@ -1431,11 +1437,46 @@ class TestPrinter(BaseTest):
         )
         result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
 
-        # Both tables should have team_id filters in the WHERE clause for INNER JOIN
+        # The main events table should have its team_id filter in WHERE
+        where_start = result.find("WHERE equals(events.team_id")
+        self.assertNotEqual(where_start, -1, "Main events table should have team_id in WHERE clause")
+
+        # The JOINed table (e2) should be wrapped in a subquery with team_id filter
+        # This ensures ClickHouse applies the filter BEFORE building the hash table
+        self.assertIn(f"(SELECT * FROM events WHERE equals(team_id, {self.team.pk})) AS e2", result)
+
+    def test_events_on_right_side_of_join_issue_41785(self):
+        """
+        Regression test for https://github.com/PostHog/posthog/issues/41785
+
+        When the events table is on the right side of a JOIN, the team_id filter must be applied
+        BEFORE ClickHouse builds the hash table. Otherwise, ClickHouse will try to load ALL events
+        (from all teams) into memory, causing timeouts and memory exhaustion.
+
+        The fix wraps the joined events table in a subquery with the team_id filter:
+        JOIN (SELECT * FROM events WHERE team_id = X) AS e ON ...
+        """
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        # This is the exact pattern from the issue - a CTE joined with events on the right
+        query = """
+            WITH scope AS (SELECT 'doesnotmatter' AS distinct_id)
+            SELECT s.distinct_id, e.timestamp
+            FROM scope AS s
+            JOIN events AS e ON e.distinct_id = s.distinct_id
+        """
+
+        result = self._select(query, context)
+
+        # The events table should be wrapped in a subquery with team_id filter
+        # This ensures the filter is applied BEFORE building the hash table
+        self.assertIn(f"(SELECT * FROM events WHERE equals(team_id, {self.team.pk})) AS e", result)
+
+        # The team_id filter should NOT be in the global WHERE clause for the joined events table
+        # (it's already in the subquery)
         where_start = result.find("WHERE")
         where_clause = result[where_start:] if where_start != -1 else ""
-        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
-        self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
+        self.assertNotIn("e.team_id", where_clause)
 
     def test_select_array_join(self):
         self.assertEqual(

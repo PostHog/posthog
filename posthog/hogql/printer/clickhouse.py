@@ -893,7 +893,12 @@ class ClickHousePrinter(HogQLPrinter):
         ):
             return team_id_guard_for_table(node_type, self.context)
 
-    def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
+    def _print_table_ref(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node: ast.JoinExpr,
+        team_id_filter: ast.Expr | None = None,
+    ) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
@@ -901,6 +906,13 @@ class ClickHousePrinter(HogQLPrinter):
             node.next_join or node.join_type == "JOIN" or (node.join_type and node.join_type.startswith("GLOBAL "))
         ):
             sql = f"(SELECT * FROM {sql})"
+        # For joined tables with a team_id filter, wrap the table in a subquery with the filter.
+        # This ensures ClickHouse applies the team_id filter BEFORE building the hash table for JOINs,
+        # preventing memory exhaustion when large tables like events are on the right side of a JOIN.
+        # See: https://github.com/PostHog/posthog/issues/41785
+        elif team_id_filter is not None:
+            team_id_sql = self.visit(team_id_filter)
+            sql = f"(SELECT * FROM {sql} WHERE {team_id_sql})"
 
         return sql
 

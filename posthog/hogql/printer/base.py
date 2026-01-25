@@ -274,7 +274,12 @@ class HogQLPrinter(Visitor[str]):
         if self.dialect != "hogql":
             raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
 
-    def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
+    def _print_table_ref(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node: ast.JoinExpr,
+        team_id_filter: ast.Expr | None = None,
+    ) -> str:
         if self.dialect == "hogql":
             return table_type.table.to_printed_hogql()
         raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
@@ -298,16 +303,33 @@ class HogQLPrinter(Visitor[str]):
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
-            # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
-            # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
+            # :IMPORTANT: Ensures team_id filtering on every table.
+            # For LEFT JOINs, we add it to the ON clause (not WHERE) to preserve LEFT JOIN semantics.
+            # For other JOINs where the table is on the right side, we wrap the table in a subquery
+            # with the team_id filter. This ensures ClickHouse applies the filter BEFORE building
+            # the hash table, preventing memory exhaustion on large tables like events.
             team_id_expr = self._ensure_team_id_where_clause(table_type, node.type)
             is_left_join = node.join_type is not None and "LEFT" in node.join_type
+            is_joined_table = node.join_type is not None  # True if this is not the FROM table
+
             if is_left_join and team_id_expr is not None and node.constraint is not None:
+                # LEFT JOIN: add team_id to ON clause to preserve NULL rows
                 team_id_for_on_clause = team_id_expr
+            elif is_joined_table and team_id_expr is not None:
+                # Joined table (right side of JOIN): wrap in subquery with team_id filter
+                # This ensures the filter is applied BEFORE ClickHouse builds the hash table
+                pass  # Will be handled in _print_table_ref via wrap_in_subquery_with_filter
             else:
+                # FROM table or no team_id needed: add to WHERE clause
                 extra_where = team_id_expr
 
-            sql = self._print_table_ref(table_type, node)
+            # Pass team_id_expr for joined tables so they can be wrapped in a filtered subquery
+            wrapped_in_subquery = is_joined_table and not is_left_join and team_id_expr is not None
+            sql = self._print_table_ref(
+                table_type,
+                node,
+                team_id_filter=team_id_expr if wrapped_in_subquery else None,
+            )
 
             if isinstance(table_type.table, FunctionCallTable) and table_type.table.requires_args:
                 if node.table_args is None:
@@ -332,8 +354,14 @@ class HogQLPrinter(Visitor[str]):
 
             join_strings.append(sql)
 
+            # Add alias: either explicit alias, or table name when wrapped in subquery (for reference)
             if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
+            elif wrapped_in_subquery:
+                # When a table is wrapped in a subquery, it needs an alias for the rest of the query
+                # to reference it. Use the original table name as the alias.
+                table_name = table_type.table.to_printed_clickhouse(self.context) if self.dialect == "clickhouse" else table_type.table.to_printed_hogql()
+                join_strings.append(f"AS {self._print_identifier(table_name)}")
 
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
