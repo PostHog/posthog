@@ -21,7 +21,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { logsLogic } from '../../../logsLogic'
+import { logsSceneLogic } from '../../../logsSceneLogic'
 
 export const taxonomicFilterLogicKey = 'logs'
 export const taxonomicGroupTypes = [
@@ -31,12 +31,12 @@ export const taxonomicGroupTypes = [
 ]
 
 export const LogsFilterGroup = (): JSX.Element => {
-    const { filterGroup, tabId, utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsLogic)
-    const { setFilterGroup } = useActions(logsLogic)
+    const { filterGroup, tabId, utcDateRange, serviceNames } = useValues(logsSceneLogic)
+    const { setFilterGroup } = useActions(logsSceneLogic)
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup: logsFilterGroup,
+        filterGroup,
         serviceNames: serviceNames,
     }
 
@@ -57,7 +57,7 @@ export const LogsFilterGroup = (): JSX.Element => {
 
 const UniversalSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsLogic)
+    const { utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -93,7 +93,6 @@ const UniversalSearch = (): JSX.Element => {
             } as AnyPropertyFilter
             newValues.push(newPropertyFilter)
             setGroupValues(newValues)
-            setVisible(false)
         },
         onEnter: onClose,
         autoSelectItem: true,

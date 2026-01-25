@@ -13,7 +13,7 @@ use common_metrics::inc;
 use limiters::redis::ServiceName;
 use std::collections::HashMap;
 
-use super::types::RequestContext;
+use super::types::{Library, RequestContext};
 
 pub async fn check_limits(
     context: &RequestContext,
@@ -40,10 +40,14 @@ pub async fn check_limits(
 ///
 /// Only increments billing counters if there are billable flags present.
 /// Survey and product tour targeting flags are not billable.
+///
+/// The `library` parameter is passed in to avoid duplicate detection - it should
+/// be detected once at the start of request processing and reused.
 pub async fn record_usage(
     context: &RequestContext,
     filtered_flags: &FeatureFlagList,
     team_id: i32,
+    library: Library,
 ) {
     let has_billable_flags = contains_billable_flags(filtered_flags);
 
@@ -53,6 +57,7 @@ pub async fn record_usage(
             team_id,
             1,
             FlagRequestType::Decide,
+            Some(library),
         )
         .await
         {

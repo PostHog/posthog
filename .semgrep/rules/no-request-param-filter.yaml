@@ -32,3 +32,8 @@ rules:
           Instead, explicitly whitelist allowed parameters.
       languages: [python]
       severity: ERROR
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'

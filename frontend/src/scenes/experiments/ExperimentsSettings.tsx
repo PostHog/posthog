@@ -1,4 +1,5 @@
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { DefaultExperimentConfidenceLevel } from 'scenes/settings/environment/DefaultExperimentConfidenceLevel'
 import { ExperimentRecalculationTime } from 'scenes/settings/environment/ExperimentRecalculationTime'
 import { OrganizationExperimentStatsMethod } from 'scenes/settings/organization/OrgExperimentStatsMethod'
 
@@ -17,6 +18,7 @@ export function ExperimentsSettings(): JSX.Element {
                 </p>
                 <OrganizationExperimentStatsMethod />
             </div>
+            <DefaultExperimentConfidenceLevel />
             <ExperimentRecalculationTime />
         </div>
     )
