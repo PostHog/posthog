@@ -22,7 +22,7 @@ export interface InsightAIAnalysisProps {
 export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
-    const { currentPlatformAddon } = useValues(billingLogic)
+    const { currentPlatformAddon, billingLoading } = useValues(billingLogic)
     const { analysis, isAnalyzing, hasClickedAnalyze, analysisFeedbackGiven } = useValues(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
@@ -60,11 +60,13 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                         onClick={startAnalysis}
                         loading={isAnalyzing}
                         disabledReason={
-                            !hasBoostOrHigher
-                                ? 'Upgrade to at least the Boost add-on to use AI analysis'
-                                : insightDataLoading
-                                  ? 'Please wait for the insight to finish loading'
-                                  : undefined
+                            billingLoading
+                                ? 'Loading billing information...'
+                                : !hasBoostOrHigher
+                                  ? 'Upgrade to at least the Boost add-on to use AI analysis'
+                                  : insightDataLoading
+                                    ? 'Please wait for the insight to finish loading'
+                                    : undefined
                         }
                     >
                         Analyze with AI
