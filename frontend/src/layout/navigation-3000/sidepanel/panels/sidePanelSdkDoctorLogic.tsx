@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { SemanticVersion, diffVersions, parseVersion, versionToString } from 'lib/utils/semver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -63,10 +64,12 @@ export type AugmentedTeamSdkVersionsInfoRelease = {
     count: number
     latestVersion: string
     releaseDate: string | undefined
+    releasedAgo: string | undefined
     daysSinceRelease: number | undefined
     isOutdated: boolean
     isOld: boolean
     needsUpdating: boolean
+    isCurrentOrNewer: boolean
 }
 
 /**
@@ -311,6 +314,11 @@ function computeAugmentedInfoRelease(
         // Check if versions differ
         const diff = diffVersions(latestVersion, currentVersion)
 
+        // Check if current version is equal to or newer than cached latest
+        // This handles the case where events show a newer version than what's cached from GitHub
+        // diff === null means versions are equal; diff.diff <= 0 means current >= latest
+        const isCurrentOrNewer = diff === null || diff.diff <= 0
+
         // Count number of versions behind by estimating based on semantic version difference
         let releasesBehind = 0
         if (diff) {
@@ -396,7 +404,9 @@ function computeAugmentedInfoRelease(
             isOutdated,
             isOld, // Returned separately for "Old" badge in UI
             needsUpdating: isOutdated || isOld,
+            isCurrentOrNewer,
             releaseDate: usageEntry.release_date,
+            releasedAgo: usageEntry.release_date ? dayjs(usageEntry.release_date).fromNow() : undefined,
             daysSinceRelease,
             latestVersion: versionToString(latestVersion),
         }
@@ -410,7 +420,9 @@ function computeAugmentedInfoRelease(
             isOutdated: false,
             isOld: false,
             needsUpdating: false,
+            isCurrentOrNewer: false,
             releaseDate: undefined,
+            releasedAgo: undefined,
             daysSinceRelease: undefined,
             latestVersion: versionToString(latestVersion),
         }

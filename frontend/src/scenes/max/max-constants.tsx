@@ -7,6 +7,7 @@ import {
     IconDocument,
     IconGlobe,
     IconMemory,
+    IconNotebook,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -21,7 +22,6 @@ import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-mess
 import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
-import { isAgentMode } from './maxTypes'
 
 export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
@@ -826,7 +826,21 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             'Switch agent mode to another specialized mode like product analytics, SQL, or session replay analysis',
         icon: <IconShuffle />,
         displayFormatter: (toolCall) => {
-            const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
+            if (toolCall.args.new_mode === AgentMode.Execution) {
+                if (toolCall.status === 'completed') {
+                    return 'Plan is complete, switching to execution mode'
+                }
+                return 'Finalizing plan...'
+            } else if (toolCall.args.new_mode === AgentMode.Plan) {
+                if (toolCall.status === 'completed') {
+                    return 'Switched to plan mode'
+                }
+                return 'Switching to plan mode...'
+            }
+            // Use optional chaining since Plan and Research modes are not in MODE_DEFINITIONS
+            const newMode = toolCall.args.new_mode as string
+            const modeName =
+                newMode in MODE_DEFINITIONS ? MODE_DEFINITIONS[newMode as keyof typeof MODE_DEFINITIONS].name : null
             const modeText = (modeName ? ` to the ${modeName} mode` : 'mode').toLowerCase()
 
             if (toolCall.status === 'completed') {
@@ -898,9 +912,20 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a document...'
         },
     },
+    finalize_plan: {
+        name: 'Finalize plan',
+        description: 'Finalize plan',
+        icon: iconForType('notebook'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Finalized plan'
+            }
+            return 'Finalizing plan...'
+        },
+    },
 }
 
-export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
+export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution>, ModeDefinition> = {
     [AgentMode.ProductAnalytics]: {
         name: 'Product analytics',
         description: 'Creates insights and dashboards to analyze your product data.',
@@ -939,6 +964,12 @@ export const SPECIAL_MODES = {
         description:
             'Automatically selects the best mode based on your request. The tools that are available in all modes are listed below.',
         icon: <IconShuffle />,
+    },
+    plan: {
+        name: 'Plan',
+        description:
+            "Creates a plan to guide the agent's actions and achieve your goals. The tools that are available in all modes are listed below.",
+        icon: <IconNotebook />,
     },
     deep_research: {
         name: 'Research',
