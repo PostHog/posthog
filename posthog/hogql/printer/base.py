@@ -520,7 +520,7 @@ class HogQLPrinter(Visitor[str]):
         # When printing HogQL, we print the properties out as a chain as they are.
         return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
-    def _validate_parametric_arguments(self, func_meta: HogQLFunctionMeta, node: ast.Call) -> str | None:
+    def _validate_parametric_arguments(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str | None:
         if func_meta.parametric_first_arg:
             if not node.args:
                 raise QueryError(f"Missing arguments in function '{node.name}'")
@@ -557,6 +557,44 @@ class HogQLPrinter(Visitor[str]):
                     )
                 return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
 
+    def _validate_aggregation(self, node: ast.Call, func_meta: HogQLFunctionMeta):
+        validate_function_args(
+            node.args,
+            func_meta.min_args,
+            func_meta.max_args,
+            node.name,
+            function_term="aggregation",
+        )
+        if func_meta.min_params:
+            if node.params is None:
+                raise QueryError(f"Aggregation '{node.name}' requires parameters in addition to arguments")
+            validate_function_args(
+                node.params,
+                func_meta.min_params,
+                func_meta.max_params,
+                node.name,
+                function_term="aggregation",
+                argument_term="parameter",
+            )
+
+        # check that we're not running inside another aggregate
+        for stack_node in reversed(self.stack):
+            if isinstance(stack_node, ast.SelectQuery):
+                break
+            if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
+                raise QueryError(
+                    f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
+                )
+
+    def _print_aggregation_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str:
+        arg_strings = [self.visit(arg) for arg in node.args]
+        params = [self.visit(param) for param in node.params] if node.params is not None else None
+
+        params_part = f"({', '.join(params)})" if params is not None else ""
+        args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+
+        return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
+
     def visit_call(self, node: ast.Call):
         func_meta = (
             find_hogql_aggregation(node.name)
@@ -564,7 +602,7 @@ class HogQLPrinter(Visitor[str]):
             or find_hogql_posthog_function(node.name)
         )
 
-        if func_meta and (parametric_result := self._validate_parametric_arguments(func_meta, node)):
+        if func_meta and (parametric_result := self._validate_parametric_arguments(node, func_meta)):
             return parametric_result
 
         if node.name in HOGQL_COMPARISON_MAPPING:
@@ -579,42 +617,11 @@ class HogQLPrinter(Visitor[str]):
                     op=op,
                 )
             )
+
         elif func_meta := find_hogql_aggregation(node.name):
-            validate_function_args(
-                node.args,
-                func_meta.min_args,
-                func_meta.max_args,
-                node.name,
-                function_term="aggregation",
-            )
-            if func_meta.min_params:
-                if node.params is None:
-                    raise QueryError(f"Aggregation '{node.name}' requires parameters in addition to arguments")
-                validate_function_args(
-                    node.params,
-                    func_meta.min_params,
-                    func_meta.max_params,
-                    node.name,
-                    function_term="aggregation",
-                    argument_term="parameter",
-                )
+            self._validate_aggregation(node, func_meta)
+            return self._print_aggregation_call(node, func_meta)
 
-            # check that we're not running inside another aggregate
-            for stack_node in reversed(self.stack):
-                if isinstance(stack_node, ast.SelectQuery):
-                    break
-                if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
-                    raise QueryError(
-                        f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
-                    )
-
-            arg_strings = [self.visit(arg) for arg in node.args]
-            params = [self.visit(param) for param in node.params] if node.params is not None else None
-
-            params_part = f"({', '.join(params)})" if params is not None else ""
-            args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
-
-            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(
                 node.args,
@@ -768,6 +775,7 @@ class HogQLPrinter(Visitor[str]):
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(
                 node.args,
@@ -844,6 +852,7 @@ class HogQLPrinter(Visitor[str]):
 
             # If hogql dialect, just keep it as is
             return f"{node.name}({', '.join(args)})"
+
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
