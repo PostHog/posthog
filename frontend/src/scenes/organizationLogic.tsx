@@ -105,7 +105,6 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     })),
     selectors({
-        hasTagging: [() => [], () => true],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization, currentOrganizationLoading): boolean =>
