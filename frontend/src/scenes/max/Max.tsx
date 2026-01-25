@@ -143,7 +143,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                     </SidePanelContentContainer>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
-                    <SidePanelContentContainer>
+                    <SidePanelContentContainer flagOffClassName="contents">
                         <ThreadAutoScroller>
                             {conversation?.has_unsupported_content && (
                                 <div className="px-4 pt-4">
