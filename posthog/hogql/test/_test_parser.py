@@ -1709,6 +1709,16 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_cast_syntax_not_supported(self):
+            """Test that CAST(expr AS type) syntax is not supported for security reasons.
+            
+            Users should use type conversion functions instead: toJSON(x), toString(x), etc.
+            """
+            with self.assertRaises(NotImplementedError) as context:
+                self._expr("CAST(x AS String)")
+            self.assertIn("CAST(expr AS type) syntax is not supported", str(context.exception))
+            self.assertIn("toJSON", str(context.exception))
+
         def test_window_functions(self):
             query = "SELECT person.id, min(timestamp) over (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS timestamp FROM events"
             expr = self._select(query)

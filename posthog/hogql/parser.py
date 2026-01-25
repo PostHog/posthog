@@ -809,7 +809,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprSubstring")
 
     def visitColumnExprCast(self, ctx: HogQLParser.ColumnExprCastContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprCast")
+        raise NotImplementedError(
+            "CAST(expr AS type) syntax is not supported. "
+            "Use type conversion functions instead: toJSON(x), toString(x), toInt(x), etc."
+        )
 
     def visitColumnExprPrecedence1(self, ctx: HogQLParser.ColumnExprPrecedence1Context):
         if ctx.SLASH():

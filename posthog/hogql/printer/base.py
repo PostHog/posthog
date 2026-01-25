@@ -520,6 +520,12 @@ class HogQLPrinter(Visitor[str]):
         return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
     def visit_call(self, node: ast.Call):
+        if node.name == "toJSON":
+            if len(node.args) != 1:
+                raise QueryError("toJSON requires exactly 1 argument")
+            expr = self.visit(node.args[0])
+            return f"CAST({expr} AS JSON)"
+
         func_meta = (
             find_hogql_aggregation(node.name)
             or find_hogql_function(node.name)
