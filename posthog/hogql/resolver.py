@@ -252,6 +252,11 @@ class Resolver(CloningVisitor):
         new_node.having = self.visit(node.having)
         if node.group_by:
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
+        new_node.group_by_modifier = node.group_by_modifier
+        if node.grouping_sets:
+            new_node.grouping_sets = [
+                [self.visit(expr) for expr in grouping_set] for grouping_set in node.grouping_sets
+            ]
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
         new_node.limit_by = self.visit(node.limit_by)

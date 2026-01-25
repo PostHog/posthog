@@ -1567,6 +1567,27 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_select_group_by_cube(self):
+        """Test GROUP BY CUBE syntax output"""
+        self.assertEqual(
+            self._select("select event, timestamp, count() from events group by CUBE(event, timestamp)"),
+            f"SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, count() FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY CUBE(events.event, toTimeZone(events.timestamp, %(hogql_val_1)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_select_group_by_rollup(self):
+        """Test GROUP BY ROLLUP syntax output"""
+        self.assertEqual(
+            self._select("select event, timestamp, count() from events group by ROLLUP(event, timestamp)"),
+            f"SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, count() FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY ROLLUP(events.event, toTimeZone(events.timestamp, %(hogql_val_1)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_select_group_by_grouping_sets(self):
+        """Test GROUP BY GROUPING SETS syntax output"""
+        self.assertEqual(
+            self._select("select event, timestamp, count() from events group by GROUPING SETS ((event, timestamp), (event), ())"),
+            f"SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, count() FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY GROUPING SETS ((events.event, toTimeZone(events.timestamp, %(hogql_val_1)s)), (events.event), ()) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_select_distinct(self):
         self.assertEqual(
             self._select("select distinct event from events group by event, timestamp"),
@@ -3163,6 +3184,49 @@ class TestPrinter(BaseTest):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
         self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
+    def test_cube_column_limit(self):
+        """Test that CUBE is limited to MAX_CUBE_ROLLUP_COLUMNS columns"""
+        # 11 columns should exceed the limit of 10
+        with self.assertRaises(QueryError) as e:
+            self._select(
+                "SELECT count() FROM events GROUP BY CUBE(a, b, c, d, e, f, g, h, i, j, k)"
+            )
+        self.assertIn("CUBE is limited to 10 columns", str(e.exception))
+        self.assertIn("resource exhaustion", str(e.exception))
+
+    def test_rollup_column_limit(self):
+        """Test that ROLLUP is limited to MAX_CUBE_ROLLUP_COLUMNS columns"""
+        with self.assertRaises(QueryError) as e:
+            self._select(
+                "SELECT count() FROM events GROUP BY ROLLUP(a, b, c, d, e, f, g, h, i, j, k)"
+            )
+        self.assertIn("ROLLUP is limited to 10 columns", str(e.exception))
+        self.assertIn("resource exhaustion", str(e.exception))
+
+    def test_grouping_sets_limit(self):
+        """Test that GROUPING SETS is limited to MAX_GROUPING_SETS sets"""
+        # Generate 65 grouping sets (exceeds limit of 64)
+        sets = ", ".join([f"(col{i})" for i in range(65)])
+        with self.assertRaises(QueryError) as e:
+            self._select(f"SELECT count() FROM events GROUP BY GROUPING SETS ({sets})")
+        self.assertIn("GROUPING SETS is limited to 64 sets", str(e.exception))
+        self.assertIn("resource exhaustion", str(e.exception))
+
+    def test_cube_within_limit_allowed(self):
+        """Test that CUBE with 10 columns is allowed (exactly at the limit)"""
+        # Should not raise - exactly at the limit
+        result = self._select(
+            "SELECT count() FROM events GROUP BY CUBE(a, b, c, d, e, f, g, h, i, j)"
+        )
+        self.assertIn("GROUP BY CUBE", result)
+
+    def test_rollup_within_limit_allowed(self):
+        """Test that ROLLUP with 10 columns is allowed (exactly at the limit)"""
+        result = self._select(
+            "SELECT count() FROM events GROUP BY ROLLUP(a, b, c, d, e, f, g, h, i, j)"
+        )
+        self.assertIn("GROUP BY ROLLUP", result)
 
 
 @snapshot_clickhouse_queries

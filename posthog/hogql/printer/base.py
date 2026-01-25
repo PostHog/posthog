@@ -12,7 +12,14 @@ from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGro
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import AST
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.constants import (
+    HogQLDialect,
+    HogQLGlobalSettings,
+    LimitContext,
+    MAX_CUBE_ROLLUP_COLUMNS,
+    MAX_GROUPING_SETS,
+    get_max_limit_for_context,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
@@ -180,6 +187,21 @@ class HogQLPrinter(Visitor[str]):
         having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
+        # Security validation for CUBE/ROLLUP (following FINAL keyword pattern)
+        if node.group_by_modifier in ("CUBE", "ROLLUP") and node.group_by:
+            if len(node.group_by) > MAX_CUBE_ROLLUP_COLUMNS:
+                raise QueryError(
+                    f"{node.group_by_modifier} is limited to {MAX_CUBE_ROLLUP_COLUMNS} columns "
+                    f"to prevent resource exhaustion (2^{len(node.group_by)} = {2**len(node.group_by)} combinations)"
+                )
+
+        # Security validation for GROUPING SETS
+        if node.grouping_sets is not None:
+            if len(node.grouping_sets) > MAX_GROUPING_SETS:
+                raise QueryError(
+                    f"GROUPING SETS is limited to {MAX_GROUPING_SETS} sets to prevent resource exhaustion"
+                )
+
         array_join = ""
         if node.array_join_op is not None:
             if node.array_join_op not in (
@@ -202,7 +224,7 @@ class HogQLPrinter(Visitor[str]):
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,
-            f"GROUP BY{space}{comma.join(group_by)}" if group_by and len(group_by) > 0 else None,
+            self._build_group_by_clause(node, group_by, space, comma),
             f"HAVING{space}" + having if having else None,
             f"WINDOW{space}" + window if window else None,
             f"ORDER BY{space}{comma.join(order_by)}" if order_by and len(order_by) > 0 else None,
@@ -255,6 +277,32 @@ class HogQLPrinter(Visitor[str]):
                 response = f"({response})"
 
         return response
+
+    def _build_group_by_clause(
+        self,
+        node: ast.SelectQuery,
+        group_by: list[str] | None,
+        space: str,
+        comma: str,
+    ) -> str | None:
+        """Build the GROUP BY clause, handling CUBE, ROLLUP, and GROUPING SETS."""
+        # Handle GROUPING SETS
+        if node.grouping_sets is not None:
+            sets_str = ", ".join(
+                f"({comma.join(self.visit(expr) for expr in exprs)})" for exprs in node.grouping_sets
+            )
+            return f"GROUP BY{space}GROUPING SETS ({sets_str})"
+
+        # Handle CUBE/ROLLUP
+        if group_by and len(group_by) > 0:
+            if node.group_by_modifier == "CUBE":
+                return f"GROUP BY{space}CUBE({comma.join(group_by)})"
+            elif node.group_by_modifier == "ROLLUP":
+                return f"GROUP BY{space}ROLLUP({comma.join(group_by)})"
+            else:
+                return f"GROUP BY{space}{comma.join(group_by)}"
+
+        return None
 
     def _get_extra_select_clauses(
         self,

@@ -82,7 +82,13 @@ arrayJoinClause: (LEFT | INNER)? ARRAY JOIN columnExprList;
 windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN (COMMA identifier AS LPAREN windowExpr RPAREN)*;
 prewhereClause: PREWHERE columnExpr;
 whereClause: WHERE columnExpr;
-groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnExprList);
+groupByClause: GROUP BY (
+    (CUBE | ROLLUP) LPAREN columnExprList RPAREN
+    | GROUPING SETS LPAREN groupingSetsList RPAREN
+    | columnExprList
+);
+groupingSetsList: groupingSet (COMMA groupingSet)*;
+groupingSet: LPAREN columnExprList? RPAREN;
 havingClause: HAVING columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
@@ -290,12 +296,12 @@ keyword
     : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
     | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
     | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
-    | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
+    | FOR | FOLLOWING | FROM | FULL | GROUP | GROUPING | HAVING | ID | IS
     | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAST | LEADING | LEFT | LIKE | LIMIT
     | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PRECEDING | PREWHERE | RANGE | RETURN | RIGHT | ROLLUP | ROW
-    | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
+    | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
     | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
     ;

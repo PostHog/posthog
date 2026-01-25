@@ -817,6 +817,9 @@ class LimitByExpr(Expr):
     offset_value: Optional[Expr] = None
 
 
+GroupByModifier = Literal["CUBE", "ROLLUP"]
+
+
 @dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
@@ -832,6 +835,8 @@ class SelectQuery(Expr):
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
     group_by: Optional[list[Expr]] = None
+    group_by_modifier: Optional[GroupByModifier] = None  # For CUBE/ROLLUP
+    grouping_sets: Optional[list[list[Expr]]] = None  # For GROUPING SETS
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None
