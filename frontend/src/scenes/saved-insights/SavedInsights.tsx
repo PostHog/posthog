@@ -36,20 +36,16 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
@@ -72,7 +68,6 @@ import {
     AccessControlResourceType,
     ActivityScope,
     InsightType,
-    LayoutView,
     QueryBasedInsightModel,
     SavedInsightsTabs,
 } from '~/types'
@@ -679,44 +674,6 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
     )
 }
 
-function SavedInsightsGrid(): JSX.Element {
-    const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
-    const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
-    const { currentProjectId } = useValues(projectLogic)
-    const paginationState = usePagination(insights?.results || [], pagination)
-
-    return (
-        <>
-            <div className="saved-insights-grid mb-2">
-                {paginationState.dataSourcePage.map((insight) => {
-                    return (
-                        <InsightCard
-                            key={insight.short_id}
-                            insight={insight}
-                            rename={() => renameInsight(insight)}
-                            duplicate={() => duplicateInsight(insight)}
-                            deleteWithUndo={async () =>
-                                await deleteInsightWithUndo({
-                                    object: insight,
-                                    endpoint: `projects/${currentProjectId}/insights`,
-                                    callback: loadInsights,
-                                })
-                            }
-                            placement="SavedInsightGrid"
-                        />
-                    )
-                })}
-                {insightsLoading && (
-                    <div className="min-h-[30rem]">
-                        <SpinnerOverlay sceneLevel />
-                    </div>
-                )}
-            </div>
-            <PaginationControl {...paginationState} nouns={['insight', 'insights']} bordered />
-        </>
-    )
-}
-
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
@@ -727,7 +684,7 @@ export function SavedInsights(): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const { tab, layoutView, page } = filters
+    const { tab, page } = filters
 
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
@@ -943,53 +900,30 @@ export function SavedInsights(): JSX.Element {
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
                                 : null}
                         </span>
-                        <div>
-                            <LemonSegmentedButton
-                                onChange={(newValue) => setSavedInsightsFilters({ layoutView: newValue })}
-                                value={layoutView}
-                                options={[
-                                    {
-                                        value: LayoutView.List,
-                                        label: 'List',
-                                        icon: <IconListView />,
-                                    },
-                                    {
-                                        value: LayoutView.Card,
-                                        label: 'Cards',
-                                        icon: <IconGridView />,
-                                    },
-                                ]}
-                                size="small"
-                            />
-                        </div>
                     </div>
                     {!insightsLoading && insights.count < 1 ? (
                         <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
                         <>
                             <ReloadInsight />
-                            {layoutView === LayoutView.List ? (
-                                <LemonTable
-                                    loading={insightsLoading}
-                                    columns={columns}
-                                    dataSource={insights.results}
-                                    pagination={pagination}
-                                    noSortingCancellation
-                                    sorting={sorting}
-                                    onSort={(newSorting) =>
-                                        setSavedInsightsFilters({
-                                            order: newSorting
-                                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                                : undefined,
-                                        })
-                                    }
-                                    rowKey="id"
-                                    loadingSkeletonRows={15}
-                                    nouns={['insight', 'insights']}
-                                />
-                            ) : (
-                                <SavedInsightsGrid />
-                            )}
+                            <LemonTable
+                                loading={insightsLoading}
+                                columns={columns}
+                                dataSource={insights.results}
+                                pagination={pagination}
+                                noSortingCancellation
+                                sorting={sorting}
+                                onSort={(newSorting) =>
+                                    setSavedInsightsFilters({
+                                        order: newSorting
+                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                            : undefined,
+                                    })
+                                }
+                                rowKey="id"
+                                loadingSkeletonRows={15}
+                                nouns={['insight', 'insights']}
+                            />
                         </>
                     )}
                 </>
