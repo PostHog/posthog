@@ -1,5 +1,7 @@
+import re
 from datetime import date, datetime
 from typing import Any, List, Literal, cast  # noqa: UP035
+from urllib.parse import urlparse
 
 from django.core.exceptions import FieldError
 from django.db.models import Q
@@ -27,6 +29,7 @@ from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.heatmap_saved import SavedHeatmap
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -317,6 +320,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "name",
             "url",
             "data_url",
+            "image_url",
             "target_widths",
             "type",
             "status",
@@ -412,19 +416,57 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     widths = serializers.ListField(
         child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
     )
+    image_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=2000)
 
-    def validate_url(self, value: str) -> str:
+    def validate_url(self, value: str | None) -> str | None:
+        if value is None or value == "":
+            return value
         ok, err = is_url_allowed(value)
         if not ok:
             raise serializers.ValidationError(err or "URL not allowed")
         return value
 
+    def validate_image_url(self, value: str | None) -> str | None:
+        if not value:
+            return value
+
+        path = urlparse(value).path if value.startswith(("http://", "https://")) else value
+
+        if not path.startswith("/uploaded_media/"):
+            raise serializers.ValidationError("image_url must be from the uploaded_media API")
+
+        # Extract UUID and verify team ownership
+        match = re.match(r"^/uploaded_media/([0-9a-f-]+)/?$", path, re.IGNORECASE)
+        if not match:
+            raise serializers.ValidationError("Invalid uploaded_media URL format")
+
+        media_uuid = match.group(1)
+        team = self.context["team"]
+        if not UploadedMedia.objects.filter(id=media_uuid, team=team).exists():
+            raise serializers.ValidationError("Uploaded media not found or does not belong to your team")
+
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        heatmap_type = attrs.get("type", SavedHeatmap.Type.SCREENSHOT)
+        url = attrs.get("url")
+        image_url = attrs.get("image_url")
+
+        if heatmap_type == SavedHeatmap.Type.UPLOAD:
+            if not image_url:
+                raise serializers.ValidationError({"image_url": "image_url is required for upload type heatmaps"})
+        else:
+            if not url:
+                raise serializers.ValidationError({"url": "url is required for non-upload type heatmaps"})
+
+        return attrs
+
     class Meta:
         model = SavedHeatmap
-        fields = ["name", "url", "data_url", "widths", "type", "deleted"]
+        fields = ["name", "url", "data_url", "widths", "type", "deleted", "image_url"]
         extra_kwargs = {
             "name": {"required": False, "allow_null": True},
-            "url": {"required": True},
+            "url": {"required": False, "allow_null": True, "allow_blank": True},
             "data_url": {"required": False, "allow_null": True},
             "type": {"required": False, "default": SavedHeatmap.Type.SCREENSHOT},
             "deleted": {"required": False},
@@ -490,20 +532,22 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        serializer = SavedHeatmapRequestSerializer(data=request.data)
+        serializer = SavedHeatmapRequestSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
 
         name = serializer.validated_data.get("name")
-        url = serializer.validated_data["url"]
-        data_url = serializer.validated_data.get("data_url") or url
+        url = serializer.validated_data.get("url") or ""
+        data_url = serializer.validated_data.get("data_url") or url or None
         widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
         heatmap_type = serializer.validated_data.get("type", SavedHeatmap.Type.SCREENSHOT)
+        image_url = serializer.validated_data.get("image_url")
 
         screenshot = SavedHeatmap.objects.create(
             team=self.team,
             name=name,
             url=url,
             data_url=data_url,
+            image_url=image_url,
             target_widths=widths,
             type=heatmap_type,
             created_by=cast(User, request.user),
@@ -536,7 +580,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
-        serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
+        serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
 

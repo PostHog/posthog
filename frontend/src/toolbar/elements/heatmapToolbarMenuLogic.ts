@@ -9,11 +9,17 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 import { elementToSelector } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createVersionChecker } from 'lib/utils/semver'
 
 import { buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import {
+    captureHeatmapScreenshot,
+    getCurrentPageUrl,
+    getSuggestedDataUrlPattern,
+} from '~/toolbar/stats/heatmapScreenshotUtils'
+import { toolbarConfigLogic, toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { elementIsVisible, trimElement } from '~/toolbar/utils'
@@ -78,7 +84,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             currentPageLogic,
             ['href', 'wildcardHref'],
             toolbarConfigLogic,
-            ['posthog'],
+            ['posthog', 'uiHost'],
             heatmapDataLogic,
             [
                 'commonFilters',
@@ -136,6 +142,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
         setElementsLoading: (loading: boolean) => ({ loading }),
         setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
+        captureAndUploadHeatmapScreenshot: true,
+        setIsCapturingHeatmapScreenshot: (isCapturing: boolean) => ({ isCapturing }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -218,6 +226,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             false,
             {
                 setIsRefreshing: (_, { isRefreshing }) => isRefreshing,
+            },
+        ],
+        isCapturingHeatmapScreenshot: [
+            false,
+            {
+                setIsCapturingHeatmapScreenshot: (_, { isCapturing }) => isCapturing,
+                captureAndUploadHeatmapScreenshot: () => true,
             },
         ],
     }),
@@ -546,6 +561,49 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.resetHeatmapData()
             }
             actions.maybeLoadHeatmap()
+        },
+
+        captureAndUploadHeatmapScreenshot: async () => {
+            try {
+                toolbarPosthogJS.capture('toolbar heatmap screenshot capture started')
+
+                // Capture the screenshot
+                const screenshotFile = await captureHeatmapScreenshot()
+
+                // Upload the screenshot
+                const { url: imageUrl } = await toolbarUploadMedia(screenshotFile)
+
+                // Get current page URL and suggested data pattern
+                const pageUrl = getCurrentPageUrl()
+                const dataUrlPattern = getSuggestedDataUrlPattern()
+
+                // Build the redirect URL with query params
+                const params = new URLSearchParams({
+                    type: 'upload',
+                    image_url: imageUrl,
+                    url: pageUrl,
+                    data_url: dataUrlPattern,
+                })
+
+                const redirectUrl = `${values.uiHost}/heatmaps/new?${params.toString()}`
+
+                toolbarPosthogJS.capture('toolbar heatmap screenshot capture success', {
+                    image_url: imageUrl,
+                    page_url: pageUrl,
+                })
+
+                // Redirect to the heatmap creation page
+                window.location.href = redirectUrl
+            } catch (error) {
+                console.error('[Toolbar] Failed to capture heatmap screenshot:', error)
+                lemonToast.error(
+                    `Failed to capture screenshot: ${error instanceof Error ? error.message : 'Unknown error'}`
+                )
+                actions.setIsCapturingHeatmapScreenshot(false)
+                toolbarPosthogJS.capture('toolbar heatmap screenshot capture failed', {
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                })
+            }
         },
     })),
     afterMount(({ actions, cache, values }) => {

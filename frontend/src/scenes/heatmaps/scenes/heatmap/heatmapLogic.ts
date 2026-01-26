@@ -59,6 +59,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
         exportHeatmap: true,
         setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
+        setImageUrl: (imageUrl: string | null) => ({ imageUrl }),
+        setImageWidth: (imageWidth: number | null) => ({ imageWidth }),
+        setUploadedImageWidth: (uploadedImageWidth: number | null) => ({ uploadedImageWidth }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -74,6 +77,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
         heatmapId: [null as number | null, { setHeatmapId: (_, { id }) => id }],
         screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
+        imageUrl: [null as string | null, { setImageUrl: (_, { imageUrl }) => imageUrl }],
+        imageWidth: [null as number | null, { setImageWidth: (_, { imageWidth }) => imageWidth }],
+        // Width captured at runtime via onLoad (used for display scaling)
+        uploadedImageWidth: [
+            null as number | null,
+            { setUploadedImageWidth: (_, { uploadedImageWidth }) => uploadedImageWidth },
+        ],
     }),
     listeners(({ actions, values, props }) => ({
         load: async () => {
@@ -101,6 +111,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     } else {
                         actions.setScreenshotError(null)
                         actions.pollScreenshotStatus(item.id, desiredWidth)
+                    }
+                } else if (item.type === 'upload') {
+                    if (item.image_url) {
+                        actions.setImageUrl(item.image_url)
+                        // Width will be captured via onLoad in HeatmapScene
+                        actions.loadHeatmap()
                     }
                 }
             } finally {
@@ -167,11 +183,20 @@ export const heatmapLogic = kea<heatmapLogicType>([
         createHeatmap: async () => {
             actions.setLoading(true)
             try {
-                const data = {
+                const data: {
+                    name: string
+                    url: string
+                    data_url: string | null
+                    type: HeatmapType
+                    image_url?: string | null
+                } = {
                     name: values.name,
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
+                }
+                if (values.type === 'upload' && values.imageUrl) {
+                    data.image_url = values.imageUrl
                 }
                 const created = await api.savedHeatmaps.create(data)
                 actions.loadSavedHeatmaps()
@@ -191,6 +216,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
+                    image_url: values.type === 'upload' ? values.imageUrl : null,
                 }
                 await api.savedHeatmaps.update(props.id, data)
             } catch (error: any) {
@@ -200,14 +226,24 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
         exportHeatmap: () => {
-            if ((values.type === 'screenshot' && !values.screenshotUrl) || (!values.displayUrl && !values.dataUrl)) {
+            if (
+                (values.type === 'screenshot' && !values.screenshotUrl) ||
+                (values.type === 'upload' && !values.imageUrl) ||
+                (!values.displayUrl && !values.dataUrl)
+            ) {
                 return
             }
+            const heatmapUrl =
+                values.type === 'screenshot'
+                    ? (values.screenshotUrl ?? '')
+                    : values.type === 'upload'
+                      ? (values.imageUrl ?? '')
+                      : (values.displayUrl ?? '')
             actions.startHeatmapExport({
-                heatmap_url: values.type === 'screenshot' ? (values.screenshotUrl ?? '') : (values.displayUrl ?? ''),
+                heatmap_url: heatmapUrl,
                 heatmap_data_url: values.dataUrl ?? '',
                 heatmap_type: values.type,
-                width: values.widthOverride,
+                width: values.type === 'upload' ? values.uploadedImageWidth : values.widthOverride,
                 heatmap_color_palette: values.heatmapColorPalette,
                 heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
                 common_filters: values.commonFilters,
@@ -249,6 +285,26 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (s) => [s.widthOverride, s.containerWidth],
             (widthOverride: number, containerWidth: number | null) => {
                 const scale = containerWidth ? Math.min(1, containerWidth / widthOverride) : 1
+                return Math.round(scale * 100)
+            },
+        ],
+        // For upload type: effective width is min of image natural width and container
+        uploadEffectiveWidth: [
+            (s) => [s.uploadedImageWidth, s.containerWidth],
+            (uploadedImageWidth: number | null, containerWidth: number | null) => {
+                if (!uploadedImageWidth) {
+                    return null
+                }
+                return containerWidth ? Math.min(uploadedImageWidth, containerWidth) : uploadedImageWidth
+            },
+        ],
+        uploadScalePercent: [
+            (s) => [s.uploadedImageWidth, s.containerWidth],
+            (uploadedImageWidth: number | null, containerWidth: number | null) => {
+                if (!uploadedImageWidth || !containerWidth) {
+                    return 100
+                }
+                const scale = Math.min(1, containerWidth / uploadedImageWidth)
                 return Math.round(scale * 100)
             },
         ],

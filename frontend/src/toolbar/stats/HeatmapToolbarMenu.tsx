@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconCamera, IconMagicWand } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
@@ -92,6 +92,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         samplingFactor,
         elementsLoading,
         processingProgress,
+        isCapturingHeatmapScreenshot,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -102,6 +103,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
         setSamplingFactor,
+        captureAndUploadHeatmapScreenshot,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -336,6 +338,23 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     )}
                 </div>
             </ToolbarMenu.Body>
+            <ToolbarMenu.Footer>
+                <LemonButton
+                    type="secondary"
+                    icon={<IconCamera />}
+                    onClick={captureAndUploadHeatmapScreenshot}
+                    loading={isCapturingHeatmapScreenshot}
+                    data-attr="toolbar-capture-heatmap-screenshot"
+                    fullWidth
+                    center
+                    tooltip="Capture a screenshot of this page and create a new heatmap with it. Useful for auth-protected pages."
+                >
+                    <LemonTag type="warning" size="small">
+                        BETA
+                    </LemonTag>{' '}
+                    Capture screenshot for heatmap
+                </LemonButton>
+            </ToolbarMenu.Footer>
         </ToolbarMenu>
     )
 }

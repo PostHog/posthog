@@ -94,11 +94,15 @@ export function ViewportChooser(): JSX.Element {
     )
 }
 
+interface FilterPanelProps {
+    hideViewportChooser?: boolean
+}
+
 /**
  * values and actions are passed as props because they are different
  * between fixed and embedded mode
  */
-export function FilterPanel(): JSX.Element {
+export function FilterPanel({ hideViewportChooser = false }: FilterPanelProps): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const {
         heatmapFilters,
@@ -186,7 +190,7 @@ export function FilterPanel(): JSX.Element {
                         </Popover>
                     </div>
                 </div>
-                <ViewportChooser />
+                {!hideViewportChooser && <ViewportChooser />}
             </div>
             {heatmapEmpty ? (
                 <LemonBanner type="info" className="mb-2">
