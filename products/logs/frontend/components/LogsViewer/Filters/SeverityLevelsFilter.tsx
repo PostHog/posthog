@@ -22,9 +22,7 @@ const ALL_LOG_LEVELS = Object.values(options) as LogMessage['severity_text'][]
 
 export const SeverityLevelsFilter = (): JSX.Element => {
     const {
-        config: {
-            filters: { severityLevels },
-        },
+        filters: { severityLevels },
     } = useValues(logsViewerConfigLogic)
     const { setFilter } = useActions(logsViewerConfigLogic)
 

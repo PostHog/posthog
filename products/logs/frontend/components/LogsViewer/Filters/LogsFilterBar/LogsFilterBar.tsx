@@ -45,8 +45,12 @@ const taxonomicGroupTypes = [
 
 export const LogsFilterBar = (): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
-    const { logsLoading, liveTailRunning, liveTailDisabledReason, dateRange } = useValues(logsSceneLogic)
-    const { runQuery, zoomDateRange, setLiveTailRunning, setDateRange } = useActions(logsSceneLogic)
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsSceneLogic)
+    const { runQuery, zoomDateRange, setLiveTailRunning } = useActions(logsSceneLogic)
+    const {
+        filters: { dateRange },
+    } = useValues(logsViewerConfigLogic)
+    const { setFilter } = useActions(logsViewerConfigLogic)
 
     return (
         <LogsFilterGroup>
@@ -76,7 +80,10 @@ export const LogsFilterBar = (): JSX.Element => {
 
                         {!newLogsDateRangePicker && <DateRangeFilter />}
                         {newLogsDateRangePicker && (
-                            <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
+                            <LogsDateRangePicker
+                                dateRange={dateRange}
+                                setDateRange={(newDateRange) => setFilter('dateRange', newDateRange)}
+                            />
                         )}
 
                         <LemonButton
@@ -113,14 +120,16 @@ export const LogsFilterBar = (): JSX.Element => {
 }
 
 const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { filterGroup, tabId, utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
-    const { setFilterGroup } = useActions(logsSceneLogic)
+    const { tabId, utcDateRange } = useValues(logsSceneLogic)
+    const {
+        filters: { filterGroup, serviceNames },
+    } = useValues(logsViewerConfigLogic)
     const { setFilter } = useActions(logsViewerConfigLogic)
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup: logsFilterGroup,
-        serviceNames: serviceNames,
+        filterGroup,
+        serviceNames,
     }
 
     return (
@@ -131,7 +140,6 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
             endpointFilters={endpointFilters}
             onChange={(group) => {
                 const newFilterGroup = { type: FilterLogicalOperator.And, values: [group] }
-                setFilterGroup(newFilterGroup)
                 setFilter('filterGroup', newFilterGroup)
             }}
         >
@@ -142,7 +150,10 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
 
 const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
+    const { utcDateRange } = useValues(logsSceneLogic)
+    const {
+        filters: { filterGroup: logsFilterGroup, serviceNames },
+    } = useValues(logsViewerConfigLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
