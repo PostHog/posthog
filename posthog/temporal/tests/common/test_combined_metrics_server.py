@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from aiohttp import ClientSession, ClientTimeout
-from prometheus_client import CollectorRegistry, Counter, Gauge
+from prometheus_client import PLATFORM_COLLECTOR, PROCESS_COLLECTOR, CollectorRegistry, Counter, Gauge
 
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
 from posthog.temporal.common.worker import get_free_port
@@ -521,6 +521,54 @@ test_gauge 100.0
         # Should not raise any exception
         await server.stop()
         await server.stop()  # Multiple stops should also be safe
+
+    @pytest.mark.asyncio
+    async def test_exposes_platform_metrics(self):
+        """Verify that PLATFORM_COLLECTOR metrics (python_info) are exposed.
+
+        This tests the fix for the registry bug where an empty CollectorRegistry was
+        used, causing platform metrics to be missing. Note: PROCESS_COLLECTOR metrics
+        (process_*) are only available on Linux, not macOS, so we only test
+        PLATFORM_COLLECTOR here for cross-platform compatibility.
+        """
+        temporal_port = get_free_port()
+        metrics_port = get_free_port()
+
+        # Create registry with process and platform collectors (as in worker.py)
+        registry = CollectorRegistry()
+        registry.register(PROCESS_COLLECTOR)
+        registry.register(PLATFORM_COLLECTOR)
+
+        temporal_metrics = b"""# HELP temporal_workflow_completed Workflow completions
+# TYPE temporal_workflow_completed counter
+temporal_workflow_completed{namespace="default"} 1
+"""
+
+        mock_server = create_mock_temporal_server(temporal_port, temporal_metrics)
+        mock_thread = threading.Thread(target=mock_server.serve_forever, daemon=True)
+        mock_thread.start()
+
+        server = CombinedMetricsServer(
+            port=metrics_port,
+            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
+            registry=registry,
+        )
+        await server.start()
+
+        try:
+            url = f"http://127.0.0.1:{metrics_port}/metrics"
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    content = await response.text()
+
+            # Check Temporal metrics are included
+            assert "temporal_workflow_completed" in content
+            # Check platform metrics from PLATFORM_COLLECTOR are included
+            # (PROCESS_COLLECTOR metrics are only available on Linux)
+            assert "python_info" in content
+        finally:
+            await server.stop()
+            mock_server.shutdown()
 
 
 class TestGetFreePort:
