@@ -172,7 +172,7 @@ export class SessionBatchMetrics {
     }
 
     public static incrementNewSessionsRateLimited(teamId: number, count: number = 1): void {
-        this.newSessionsRateLimited.labels({ team_id: String(teamId) }).inc(count)
+        this.newSessionsRateLimited.labels({ team_id: teamId }).inc(count)
     }
 
     public static incrementSessionTrackerCacheHit(count: number = 1): void {
