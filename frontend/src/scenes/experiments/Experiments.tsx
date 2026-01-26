@@ -39,8 +39,8 @@ import {
     AccessControlResourceType,
     ActivityScope,
     Experiment,
+    ExperimentProgressStatus,
     ExperimentsTabs,
-    ProgressStatus,
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
@@ -130,15 +130,15 @@ const ExperimentsTableFilters = ({
                                 const { status: _, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ status: status as ProgressStatus, page: 1 })
+                                onFiltersChange({ status: status as ExperimentProgressStatus, page: 1 })
                             }
                         }}
                         options={
                             [
                                 { label: 'All', value: 'all' },
-                                { label: 'Draft', value: ProgressStatus.Draft },
-                                { label: 'Running', value: ProgressStatus.Running },
-                                { label: 'Complete', value: ProgressStatus.Complete },
+                                { label: 'Draft', value: ExperimentProgressStatus.Draft },
+                                { label: 'Running / Paused', value: ExperimentProgressStatus.Running },
+                                { label: 'Complete', value: ExperimentProgressStatus.Complete },
                             ] as { label: string; value: string }[]
                         }
                         value={filters.status ?? 'all'}

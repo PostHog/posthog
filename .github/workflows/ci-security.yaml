@@ -159,6 +159,7 @@ jobs:
                     --exclude ./posthog/ \
                     --exclude ./products/ \
                     --exclude ./rust/ \
+                    --exclude ./.semgrep/ \
                     .
 
     semgrep-test-rules:

@@ -85,7 +85,14 @@ class EventIngestionRestrictionConfig(UUIDTModel):
 
 
 def regenerate_redis_for_restriction_type(restriction_type: str):
-    """Regenerate the Redis cache for a specific restriction type by fetching all configs from the database"""
+    """
+    Regenerate the Redis cache for a specific restriction type by fetching all configs from the database.
+
+    Generates v2 format with arrays for each filter type. Filter logic (matching Rust implementation):
+    - AND between filter types (distinct_ids AND session_ids AND event_names AND event_uuids)
+    - OR within each filter type (value in array)
+    - Empty array = matches all (neutral in AND)
+    """
     redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
     redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{restriction_type}"
 
@@ -97,47 +104,19 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
         redis_client.delete(redis_key)
         return
 
-    # Build the new data array from all configs in the database
+    # Build the new data array from all configs in the database (v2 format)
     data = []
     for config in configs:
-        entry_base = {
+        entry = {
+            "version": 2,
             "token": config.token,
             "pipelines": config.pipelines or [],
+            "distinct_ids": config.distinct_ids or [],
+            "session_ids": config.session_ids or [],
+            "event_names": config.event_names or [],
+            "event_uuids": config.event_uuids or [],
         }
-
-        has_specific_filters = config.distinct_ids or config.session_ids or config.event_names or config.event_uuids
-
-        if not has_specific_filters:
-            # No specific IDs - applies to all events for this token
-            data.append(entry_base)
-        else:
-            # Add entries for each distinct_id
-            if config.distinct_ids:
-                for distinct_id in config.distinct_ids:
-                    entry = entry_base.copy()
-                    entry["distinct_id"] = distinct_id
-                    data.append(entry)
-
-            # Add entries for each session_id
-            if config.session_ids:
-                for session_id in config.session_ids:
-                    entry = entry_base.copy()
-                    entry["session_id"] = session_id
-                    data.append(entry)
-
-            # Add entries for each event_name
-            if config.event_names:
-                for event_name in config.event_names:
-                    entry = entry_base.copy()
-                    entry["event_name"] = event_name
-                    data.append(entry)
-
-            # Add entries for each event_uuid
-            if config.event_uuids:
-                for event_uuid in config.event_uuids:
-                    entry = entry_base.copy()
-                    entry["event_uuid"] = event_uuid
-                    data.append(entry)
+        data.append(entry)
 
     redis_client.set(redis_key, json.dumps(data))
 

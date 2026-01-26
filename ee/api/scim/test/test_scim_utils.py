@@ -1,6 +1,13 @@
 from parameterized import parameterized
 
-from ee.api.scim.utils import mask_email, mask_pii_value, mask_scim_filter, mask_scim_payload, mask_string
+from ee.api.scim.utils import (
+    mask_email,
+    mask_pii_value,
+    mask_scim_filter,
+    mask_scim_payload,
+    mask_string,
+    normalize_scim_operations,
+)
 
 
 class TestMaskString:
@@ -134,3 +141,62 @@ class TestMaskScimFilter:
     )
     def test_mask_scim_filter(self, input_value, expected):
         assert mask_scim_filter(input_value) == expected
+
+
+class TestNormalizeScimOperations:
+    @parameterized.expand(
+        [
+            # String "True"/"False" to boolean when path is "active"
+            (
+                [{"op": "replace", "path": "active", "value": "True"}],
+                [{"op": "replace", "path": "active", "value": True}],
+            ),
+            (
+                [{"op": "replace", "path": "active", "value": "true"}],
+                [{"op": "replace", "path": "active", "value": True}],
+            ),
+            (
+                [{"op": "replace", "path": "active", "value": "FALSE"}],
+                [{"op": "replace", "path": "active", "value": False}],
+            ),
+            (
+                [{"op": "replace", "path": "active", "value": "false"}],
+                [{"op": "replace", "path": "active", "value": False}],
+            ),
+            ([{"op": "add", "path": "active", "value": "True"}], [{"op": "add", "path": "active", "value": True}]),
+            # String in nested value dict
+            ([{"op": "replace", "value": {"active": "True"}}], [{"op": "replace", "value": {"active": True}}]),
+            (
+                [{"op": "replace", "value": {"active": "false", "name": "Test"}}],
+                [{"op": "replace", "value": {"active": False, "name": "Test"}}],
+            ),
+            # Boolean values pass through unchanged
+            (
+                [{"op": "replace", "path": "active", "value": True}],
+                [{"op": "replace", "path": "active", "value": True}],
+            ),
+            (
+                [{"op": "replace", "path": "active", "value": False}],
+                [{"op": "replace", "path": "active", "value": False}],
+            ),
+            ([{"op": "replace", "value": {"active": True}}], [{"op": "replace", "value": {"active": True}}]),
+            # Non-active operations pass through unchanged
+            (
+                [{"op": "replace", "path": "userName", "value": "test@example.com"}],
+                [{"op": "replace", "path": "userName", "value": "test@example.com"}],
+            ),
+            (
+                [{"op": "replace", "path": "name.givenName", "value": "John"}],
+                [{"op": "replace", "path": "name.givenName", "value": "John"}],
+            ),
+            # Empty operations list
+            ([], []),
+        ]
+    )
+    def test_normalize_scim_operations(self, input_ops, expected_ops):
+        assert normalize_scim_operations(input_ops) == expected_ops
+
+    def test_does_not_mutate_original_operations(self):
+        original: list[dict] = [{"op": "replace", "value": {"active": "True"}}]
+        normalize_scim_operations(original)
+        assert original[0]["value"]["active"] == "True"
