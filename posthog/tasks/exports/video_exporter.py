@@ -209,7 +209,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 # Phase 1: Detect actual recording resolution
                 default_width = 1400  # Default fallback
                 default_height = 600  # Default fallback
-                width, height = detect_recording_resolution(
+                width, height = self._detect_recording_resolution(
                     browser=browser,
                     url_to_render=self.opts.url_to_render,
                     wait_for_css_selector=self.opts.wait_for_css_selector,
@@ -218,7 +218,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 )
                 logger.info("video_exporter.using_detected_dimensions", width=width, height=height)
             # Scale dimensions if needed to fit within max width while maintaining aspect ratio
-            width, height = _scale_dimensions_if_needed(width, height)
+            width, height = self._scale_dimensions_if_needed(width, height)
             # Phase 2: Create recording context with exact resolution
             context = browser.new_context(
                 viewport={"width": width, "height": height},
@@ -237,8 +237,10 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 else self.opts.playback_speed
             )
             # Navigate with correct dimensions
-            _wait_for_page_ready(
-                page, ensure_playback_speed(self.opts.url_to_render, playback_speed), self.opts.wait_for_css_selector
+            self._wait_for_page_ready(
+                page,
+                self._ensure_playback_speed(self.opts.url_to_render, playback_speed),
+                self.opts.wait_for_css_selector,
             )
             measured_width: Optional[int] = None
             try:
@@ -274,14 +276,14 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
             # Wait for playback to reach the end while tracking segment changes
             # This allows us to record accurate video timestamps for each segment
             max_wait_ms = int((self.opts.recording_duration / playback_speed) * 1000)
-            segment_start_timestamps = wait_for_recording_with_segments(
+            segment_start_timestamps = self._wait_for_recording_with_segments(
                 page=page,
                 max_wait_ms=max_wait_ms,
                 playback_started=ready_at,
             )
             # Collect inactivity periods and merge with segment timestamps
             # Pass playback_speed to adjust timestamps for the final slowed-down video
-            inactivity_periods = detect_inactivity_periods(
+            inactivity_periods = self._detect_inactivity_periods(
                 page=page,
                 playback_speed=playback_speed,
                 segment_start_timestamps=segment_start_timestamps,
@@ -315,6 +317,237 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 inactivity_periods=inactivity_periods,
                 segment_start_timestamps=segment_start_timestamps,
             )
+
+    def _wait_for_page_ready(self, page: Page, url_to_render: str, wait_for_css_selector: str) -> None:
+        """Helper function to wait for page to be ready for recording."""
+        try:
+            page.goto(url_to_render, wait_until="load", timeout=30000)
+        except PlaywrightTimeoutError:
+            pass
+
+        try:
+            page.wait_for_selector(wait_for_css_selector, state="visible", timeout=20000)
+        except PlaywrightTimeoutError:
+            pass
+
+        try:
+            page.wait_for_selector(".Spinner", state="detached", timeout=20000)
+        except PlaywrightTimeoutError:
+            pass
+
+    def _scale_dimensions_if_needed(self, width: int, height: int, max_size: int = 1400) -> tuple[int, int]:
+        """Scale down dimensions while maintaining aspect ratio if either dimension exceeds max_size."""
+        if width <= max_size and height <= max_size:
+            return width, height
+
+        # Determine which dimension is larger and scale based on that
+        if width > height:
+            # Width is larger, scale based on width
+            scale_factor = max_size / width
+            scaled_width = max_size
+            scaled_height = int(height * scale_factor)
+        else:
+            # Height is larger (or equal), scale based on height
+            scale_factor = max_size / height
+            scaled_width = int(width * scale_factor)
+            scaled_height = max_size
+
+        logger.info(
+            "video_exporter.dimensions_scaled",
+            original_width=width,
+            original_height=height,
+            scaled_width=scaled_width,
+            scaled_height=scaled_height,
+            scale_factor=scale_factor,
+        )
+
+        return scaled_width, scaled_height
+
+    def _detect_recording_resolution(
+        self,
+        browser: Browser,
+        url_to_render: str,
+        wait_for_css_selector: str,
+        default_width: int,
+        default_height: int,
+    ) -> tuple[int, int]:
+        logger.info("video_exporter.resolution_detection_start")
+
+        # Create temporary context just for resolution detection
+        context = browser.new_context(
+            viewport={"width": default_width, "height": default_height},
+        )
+        page = context.new_page()
+
+        try:
+            # Navigate and wait for player to load
+            self._wait_for_page_ready(page, url_to_render, wait_for_css_selector)
+
+            # Wait for resolution to be available from sessionRecordingPlayerLogic global variable
+            try:
+                logger.debug("video_exporter.waiting_for_resolution_global")
+                resolution = page.wait_for_function(
+                    """
+                    () => {
+                    const r = (window).__POSTHOG_RESOLUTION__;
+                    if (!r) return false;
+                    const w = Number(r.width), h = Number(r.height);
+                    return (w > 0 && h > 0) ? {width: w, height: h} : false;
+                    }
+                    """,
+                    timeout=15000,
+                ).json_value()
+
+                detected_width = int(resolution["width"])
+                detected_height = int(resolution["height"])
+                logger.debug("video_exporter.resolution_detected", width=detected_width, height=detected_height)
+                return detected_width, detected_height
+
+            except Exception as e:
+                logger.warning("video_exporter.resolution_detection_failed", error=str(e))
+                return default_width, default_height
+
+        finally:
+            # Clean up detection context
+            page.close()
+            context.close()
+            logger.info("video_exporter.resolution_detection_complete")
+
+    def _detect_inactivity_periods(
+        self,
+        page: Page,
+        playback_speed: int,
+        segment_start_timestamps: dict[int, float] | None = None,
+    ) -> list[ReplayInactivityPeriod] | None:
+        """
+        Detect inactivity periods when recording session videos.
+        If segment_timestamps is provided, merges video timestamps into periods.
+        Timestamps are adjusted for playback_speed since the final video is slowed down
+        using setpts={playback_speed}*PTS to show the session at normal 1x speed.
+        """
+        try:
+            # Get data from the global variable using browser
+            logger.debug("video_exporter.waiting_for_inactivity_periods_global")
+            inactivity_periods_raw = page.wait_for_function(
+                """
+                () => {
+                    const r = (window).__POSTHOG_INACTIVITY_PERIODS__;
+                    if (!r) return [];
+                    return r.map(p => ({
+                        ts_from_s: Number(p.ts_from_s),
+                        ts_to_s: p.ts_to_s !== undefined ? Number(p.ts_to_s) : null,
+                        active: Boolean(p.active),
+                    }));
+                }
+                """,
+                timeout=15000,
+            ).json_value()
+
+            # Merge segment timestamps into periods if provided
+            # Adjust for playback_speed since video is slowed down in post-processing
+            if segment_start_timestamps:
+                for period in inactivity_periods_raw:
+                    ts_from_s = period.get("ts_from_s")
+                    if ts_from_s is not None and ts_from_s in segment_start_timestamps:
+                        # Raw timestamp * playback_speed = final video timestamp
+                        # (video is slowed down by playback_speed in ffmpeg)
+                        raw_timestamp = segment_start_timestamps[ts_from_s]
+                        period["recording_ts_from_s"] = round(raw_timestamp * playback_speed)
+
+            inactivity_periods = [ReplayInactivityPeriod.model_validate(period) for period in inactivity_periods_raw]
+            logger.debug("video_exporter.inactivity_periods_detected", inactivity_periods=inactivity_periods)
+            return inactivity_periods
+        except Exception as e:
+            logger.exception("video_exporter.inactivity_periods_detection_failed", error=str(e))
+            return None
+
+    def _wait_for_recording_with_segments(
+        self,
+        page: Page,
+        max_wait_ms: int,
+        playback_started: float,
+    ) -> dict[int, float]:
+        """
+        Wait for recording to end while tracking segment changes.
+        Returns a dict mapping ts_from_s -> video_timestamp_seconds for each segment.
+        """
+
+        # Track time from the video start related to the in-player start timestamps
+        segment_start_timestamps: dict[int, float] = {}
+        last_counter = 0
+        logger.debug("video_exporter.waiting_for_recording_with_segments")
+
+        while True:
+            # Check if the recording should be ended by now and stop it manually
+            elapsed_ms = (time.monotonic() - playback_started) * 1000
+            if elapsed_ms >= max_wait_ms:
+                logger.warning("video_exporter.recording_wait_timeout", elapsed_ms=elapsed_ms, max_wait_ms=max_wait_ms)
+                break
+            try:
+                # Wait for either: recording ended OR segment counter changed
+                remaining_ms = max_wait_ms - elapsed_ms
+                result = page.wait_for_function(
+                    f"""
+                    () => {{
+                        if (window.__POSTHOG_RECORDING_ENDED__) return {{ ended: true }};
+                        const counter = window.__POSTHOG_SEGMENT_COUNTER__ || 0;
+                        if (counter > {last_counter}) return {{
+                            counter: counter,
+                            segment_start_ts: window.__POSTHOG_CURRENT_SEGMENT_START_TS__
+                        }};
+                        return null;
+                    }}
+                    """,
+                    # The check should be instant (if present), or up to 1s
+                    timeout=min(1000, remaining_ms),
+                ).json_value()
+                # If no globals are available
+                if result is None:
+                    continue
+                # If the recording ended, assuming all the required data was already collected
+                if result.get("ended"):
+                    logger.debug("video_exporter.recording_ended_detected")
+                    break
+                # Segment changed - record the video timestamp on BE to be consistent (rendering delays, etc.)
+                segment_start_ts = result.get("segment_start_ts")
+                new_counter = result.get("counter", 0)
+                if segment_start_ts is not None and new_counter > last_counter:
+                    video_time = time.monotonic() - playback_started
+                    segment_start_timestamps[segment_start_ts] = video_time
+                    logger.debug(
+                        "video_exporter.segment_change_detected",
+                        segment_start_ts=segment_start_ts,
+                        video_time=video_time,
+                        counter=new_counter,
+                    )
+                    last_counter = new_counter
+
+            # No change in 1s, continue waiting
+            except PlaywrightTimeoutError:
+                continue
+            # Unexpected error, continue waiting
+            except Exception as e:
+                logger.exception("video_exporter.segment_tracking_error", error=str(e))
+                # Continue waiting despite errors
+                continue
+
+        logger.debug("video_exporter.segment_tracking_complete", segments_tracked=len(segment_start_timestamps))
+        # TODO: Remove after testing
+        with open("segment_start_timestamps.json", "w") as f:
+            json.dump(segment_start_timestamps, f)
+        return segment_start_timestamps
+
+    def _ensure_playback_speed(self, url_to_render: str, playback_speed: int) -> str:
+        """
+        the export function might choose to change the playback speed
+        and so needs to update the URL to let the UI know what playback speed
+        to use when rendering the video.
+        """
+        parsed_url = urlparse(url_to_render)
+        query_params = parse_qs(parsed_url.query)
+        query_params["playerSpeed"] = [str(playback_speed)]
+        new_query = urlencode(query_params, doseq=True)
+        return str(urlunparse(parsed_url._replace(query=new_query)))
 
 
 class ReplayVideoRenderer:
@@ -440,240 +673,6 @@ class ReplayVideoRenderer:
             if e.stderr:
                 error_msg += f": {e.stderr.strip()}"
             raise RuntimeError(error_msg) from e
-
-
-def _wait_for_page_ready(page: Page, url_to_render: str, wait_for_css_selector: str) -> None:
-    """Helper function to wait for page to be ready for recording."""
-    try:
-        page.goto(url_to_render, wait_until="load", timeout=30000)
-    except PlaywrightTimeoutError:
-        pass
-
-    try:
-        page.wait_for_selector(wait_for_css_selector, state="visible", timeout=20000)
-    except PlaywrightTimeoutError:
-        pass
-
-    try:
-        page.wait_for_selector(".Spinner", state="detached", timeout=20000)
-    except PlaywrightTimeoutError:
-        pass
-
-
-def _scale_dimensions_if_needed(width: int, height: int, max_size: int = 1400) -> tuple[int, int]:
-    """Scale down dimensions while maintaining aspect ratio if either dimension exceeds max_size."""
-    if width <= max_size and height <= max_size:
-        return width, height
-
-    # Determine which dimension is larger and scale based on that
-    if width > height:
-        # Width is larger, scale based on width
-        scale_factor = max_size / width
-        scaled_width = max_size
-        scaled_height = int(height * scale_factor)
-    else:
-        # Height is larger (or equal), scale based on height
-        scale_factor = max_size / height
-        scaled_width = int(width * scale_factor)
-        scaled_height = max_size
-
-    logger.info(
-        "video_exporter.dimensions_scaled",
-        original_width=width,
-        original_height=height,
-        scaled_width=scaled_width,
-        scaled_height=scaled_height,
-        scale_factor=scale_factor,
-    )
-
-    return scaled_width, scaled_height
-
-
-def detect_recording_resolution(
-    browser: Browser,
-    url_to_render: str,
-    wait_for_css_selector: str,
-    default_width: int,
-    default_height: int,
-) -> tuple[int, int]:
-    logger.info("video_exporter.resolution_detection_start")
-
-    # Create temporary context just for resolution detection
-    context = browser.new_context(
-        viewport={"width": default_width, "height": default_height},
-    )
-    page = context.new_page()
-
-    try:
-        # Navigate and wait for player to load
-        _wait_for_page_ready(page, url_to_render, wait_for_css_selector)
-
-        # Wait for resolution to be available from sessionRecordingPlayerLogic global variable
-        try:
-            logger.debug("video_exporter.waiting_for_resolution_global")
-            resolution = page.wait_for_function(
-                """
-                () => {
-                  const r = (window).__POSTHOG_RESOLUTION__;
-                  if (!r) return false;
-                  const w = Number(r.width), h = Number(r.height);
-                  return (w > 0 && h > 0) ? {width: w, height: h} : false;
-                }
-                """,
-                timeout=15000,
-            ).json_value()
-
-            detected_width = int(resolution["width"])
-            detected_height = int(resolution["height"])
-            logger.debug("video_exporter.resolution_detected", width=detected_width, height=detected_height)
-            return detected_width, detected_height
-
-        except Exception as e:
-            logger.warning("video_exporter.resolution_detection_failed", error=str(e))
-            return default_width, default_height
-
-    finally:
-        # Clean up detection context
-        page.close()
-        context.close()
-        logger.info("video_exporter.resolution_detection_complete")
-
-
-def detect_inactivity_periods(
-    page: Page,
-    playback_speed: int,
-    segment_start_timestamps: dict[int, float] | None = None,
-) -> list[ReplayInactivityPeriod] | None:
-    """
-    Detect inactivity periods when recording session videos.
-    If segment_timestamps is provided, merges video timestamps into periods.
-    Timestamps are adjusted for playback_speed since the final video is slowed down
-    using setpts={playback_speed}*PTS to show the session at normal 1x speed.
-    """
-    try:
-        # Get data from the global variable using browser
-        logger.debug("video_exporter.waiting_for_inactivity_periods_global")
-        inactivity_periods_raw = page.wait_for_function(
-            """
-            () => {
-                const r = (window).__POSTHOG_INACTIVITY_PERIODS__;
-                if (!r) return [];
-                return r.map(p => ({
-                    ts_from_s: Number(p.ts_from_s),
-                    ts_to_s: p.ts_to_s !== undefined ? Number(p.ts_to_s) : null,
-                    active: Boolean(p.active),
-                }));
-            }
-            """,
-            timeout=15000,
-        ).json_value()
-
-        # Merge segment timestamps into periods if provided
-        # Adjust for playback_speed since video is slowed down in post-processing
-        if segment_start_timestamps:
-            for period in inactivity_periods_raw:
-                ts_from_s = period.get("ts_from_s")
-                if ts_from_s is not None and ts_from_s in segment_start_timestamps:
-                    # Raw timestamp * playback_speed = final video timestamp
-                    # (video is slowed down by playback_speed in ffmpeg)
-                    raw_timestamp = segment_start_timestamps[ts_from_s]
-                    period["recording_ts_from_s"] = round(raw_timestamp * playback_speed)
-
-        inactivity_periods = [ReplayInactivityPeriod.model_validate(period) for period in inactivity_periods_raw]
-        logger.debug("video_exporter.inactivity_periods_detected", inactivity_periods=inactivity_periods)
-        return inactivity_periods
-    except Exception as e:
-        logger.exception("video_exporter.inactivity_periods_detection_failed", error=str(e))
-        return None
-
-
-def wait_for_recording_with_segments(
-    page: Page,
-    max_wait_ms: int,
-    playback_started: float,
-) -> dict[int, float]:
-    """
-    Wait for recording to end while tracking segment changes.
-    Returns a dict mapping ts_from_s -> video_timestamp_seconds for each segment.
-    """
-
-    # Track time from the video start related to the in-player start timestamps
-    segment_start_timestamps: dict[int, float] = {}
-    last_counter = 0
-    logger.debug("video_exporter.waiting_for_recording_with_segments")
-
-    while True:
-        # Check if the recording should be ended by now and stop it manually
-        elapsed_ms = (time.monotonic() - playback_started) * 1000
-        if elapsed_ms >= max_wait_ms:
-            logger.warning("video_exporter.recording_wait_timeout", elapsed_ms=elapsed_ms, max_wait_ms=max_wait_ms)
-            break
-        try:
-            # Wait for either: recording ended OR segment counter changed
-            remaining_ms = max_wait_ms - elapsed_ms
-            result = page.wait_for_function(
-                f"""
-                () => {{
-                    if (window.__POSTHOG_RECORDING_ENDED__) return {{ ended: true }};
-                    const counter = window.__POSTHOG_SEGMENT_COUNTER__ || 0;
-                    if (counter > {last_counter}) return {{
-                        counter: counter,
-                        segment_start_ts: window.__POSTHOG_CURRENT_SEGMENT_START_TS__
-                    }};
-                    return null;
-                }}
-                """,
-                # The check should be instant (if present), or up to 1s
-                timeout=min(1000, remaining_ms),
-            ).json_value()
-            # If no globals are available
-            if result is None:
-                continue
-            # If the recording ended, assuming all the required data was already collected
-            if result.get("ended"):
-                logger.debug("video_exporter.recording_ended_detected")
-                break
-            # Segment changed - record the video timestamp on BE to be consistent (rendering delays, etc.)
-            segment_start_ts = result.get("segment_start_ts")
-            new_counter = result.get("counter", 0)
-            if segment_start_ts is not None and new_counter > last_counter:
-                video_time = time.monotonic() - playback_started
-                segment_start_timestamps[segment_start_ts] = video_time
-                logger.debug(
-                    "video_exporter.segment_change_detected",
-                    segment_start_ts=segment_start_ts,
-                    video_time=video_time,
-                    counter=new_counter,
-                )
-                last_counter = new_counter
-
-        # No change in 1s, continue waiting
-        except PlaywrightTimeoutError:
-            continue
-        # Unexpected error, continue waiting
-        except Exception as e:
-            logger.exception("video_exporter.segment_tracking_error", error=str(e))
-            # Continue waiting despite errors
-            continue
-
-    logger.debug("video_exporter.segment_tracking_complete", segments_tracked=len(segment_start_timestamps))
-    # TODO: Remove after testing
-    with open("segment_start_timestamps.json", "w") as f:
-        json.dump(segment_start_timestamps, f)
-    return segment_start_timestamps
-
-
-def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
-    """
-    the export function might choose to change the playback speed
-    and so needs to update the URL to let the UI know what playback speed
-    to use when rendering the video.
-    """
-    parsed_url = urlparse(url_to_render)
-    query_params = parse_qs(parsed_url.query)
-    query_params["playerSpeed"] = [str(playback_speed)]
-    new_query = urlencode(query_params, doseq=True)
-    return str(urlunparse(parsed_url._replace(query=new_query)))
 
 
 def record_replay_to_file(
