@@ -15578,7 +15578,8 @@
                 "folder",
                 "folder_open",
                 "conversations",
-                "toolbar"
+                "toolbar",
+                "settings"
             ],
             "type": "string"
         },

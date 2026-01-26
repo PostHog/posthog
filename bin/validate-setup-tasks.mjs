@@ -65,9 +65,9 @@ function checkTaskHasCompletionCode(taskId) {
         }
 
         try {
-            // Safe: taskId is extracted from our own source code via regex matching only [A-Za-z]+ characters
-            // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
             execSync(
+                // Safe: taskId is extracted from our own source code via regex matching only [A-Za-z]+ characters
+                // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
                 `grep -r "${pattern}" "${fullPath}" --include="*.ts" --include="*.tsx" --exclude="types.ts" --exclude="productSetupRegistry.ts" -q 2>/dev/null`,
                 {
                     encoding: 'utf-8',
@@ -187,7 +187,7 @@ function checkTaskRequiresManualCompletion(taskId) {
 }
 
 function main() {
-    console.log('Validating setup tasks configuration...\n')
+    
 
     if (!fs.existsSync(TYPES_FILE)) {
         console.error(`ERROR: Types file not found at ${TYPES_FILE}`)
@@ -204,7 +204,7 @@ function main() {
     // ========================================================================
     // Validate SetupTaskId completion
     // ========================================================================
-    console.log('1. Validating SetupTaskId completion...\n')
+    
 
     const taskIds = extractSetupTaskIds()
     const tasks = []
@@ -226,14 +226,14 @@ function main() {
         }
     }
 
-    const totalCount = tasks.length
-    const manualCount = tasks.filter((t) => t.requiresManualCompletion).length
-    const autoCount = tasks.filter((t) => t.hasCompletionCode && !t.requiresManualCompletion).length
+    
+    
+    
 
-    console.log(`   Found ${totalCount} SetupTaskId values in types.ts`)
-    console.log(`     - ${manualCount} require manual completion (user marks done)`)
-    console.log(`     - ${autoCount} have auto-completion code`)
-    console.log('')
+    
+    
+    
+    
 
     if (missingTasks.length > 0) {
         hasErrors = true
@@ -251,20 +251,20 @@ function main() {
         console.error('     - Add requiresManualCompletion: true to the task definition')
         console.error('')
     } else {
-        console.log(`   ✓ All ${totalCount} tasks have proper completion logic.\n`)
+        
     }
 
     // ========================================================================
     // Validate targetSelector data-attrs exist
     // ========================================================================
-    console.log('2. Validating targetSelector data-attrs...\n')
+    
 
     const selectors = extractTargetSelectors()
     const foundAttrs = findAllDataAttrsInCodebase()
     const missingSelectors = selectors.filter((selector) => !foundAttrs.has(selector))
 
-    console.log(`   Found ${selectors.length} targetSelector data-attrs in registry`)
-    console.log(`   Found ${foundAttrs.size} data-attr values in codebase`)
+    
+    
 
     if (missingSelectors.length > 0) {
         hasErrors = true
@@ -282,7 +282,7 @@ function main() {
         console.error('     - Remove the targetSelector if highlighting is no longer needed')
         console.error('')
     } else {
-        console.log(`   ✓ All ${selectors.length} targetSelector data-attrs exist in codebase.\n`)
+        
     }
 
     // ========================================================================
@@ -293,7 +293,7 @@ function main() {
         process.exit(1)
     }
 
-    console.log('Validation passed!')
+    
 }
 
 main()

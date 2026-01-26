@@ -78,6 +78,7 @@ export function ProductSetupPopover({
 
     const config = getProductSetupConfig(selectedProduct)
     const [hoveredTask, setHoveredTask] = useState<SetupTaskWithState | null>(null)
+    const [announcement, setAnnouncement] = useState<string>('')
 
     // Calculate other products with remaining tasks
     const otherProductsWithTasks = useOtherProductsWithTasks(selectedProduct, savedOnboardingTasks)
@@ -87,12 +88,18 @@ export function ProductSetupPopover({
     const previouslyComplete = useRef(isSetupComplete)
 
     useEffect(() => {
+        let hogfettiTimeoutHandlers: NodeJS.Timeout[] = []
+
         if (isSetupComplete && !previouslyComplete.current && visible) {
             setShowCelebration(true)
-            ;[0, 400, 800].forEach((delay) => setTimeout(triggerHogfetti, delay))
+            hogfettiTimeoutHandlers = [0, 400, 800].map((delay) => setTimeout(triggerHogfetti, delay))
         }
         if (visible) {
             previouslyComplete.current = isSetupComplete
+        }
+
+        return () => {
+            hogfettiTimeoutHandlers.forEach((handler) => clearTimeout(handler))
         }
     }, [isSetupComplete, visible, triggerHogfetti, setShowCelebration])
 
@@ -127,24 +134,33 @@ export function ProductSetupPopover({
         runTask(task.id)
     }
 
+    const getTaskTitle = (taskId: SetupTaskId): string => {
+        const task = tasksWithState.find((t) => t.id === taskId)
+        return task?.title || taskId
+    }
+
     const handleSkip = (e: React.MouseEvent, taskId: SetupTaskId): void => {
         e.stopPropagation()
         markTaskAsSkipped(taskId)
+        setAnnouncement(`${getTaskTitle(taskId)} skipped`)
     }
 
     const handleUnskip = (e: React.MouseEvent, taskId: SetupTaskId): void => {
         e.stopPropagation()
         unmarkTaskAsSkipped(taskId)
+        setAnnouncement(`${getTaskTitle(taskId)} restored`)
     }
 
     const handleMarkComplete = (e: React.MouseEvent, taskId: SetupTaskId): void => {
         e.stopPropagation()
         markTaskAsCompleted(taskId)
+        setAnnouncement(`${getTaskTitle(taskId)} marked as complete`)
     }
 
     const handleUnmarkComplete = (e: React.MouseEvent, taskId: SetupTaskId): void => {
         e.stopPropagation()
         unmarkTaskAsCompleted(taskId)
+        setAnnouncement(`${getTaskTitle(taskId)} marked as incomplete`)
     }
 
     const handleMinimize = (): void => {
@@ -188,7 +204,11 @@ export function ProductSetupPopover({
                 placement="bottom-end"
                 padded={false}
                 overlay={
-                    <div className="w-80 max-h-[70vh] flex flex-col">
+                    <div className="w-80 max-h-[70vh] flex flex-col" role="dialog" aria-label="Quick start guide">
+                        {/* Screen reader announcements */}
+                        <div className="sr-only" aria-live="polite" aria-atomic="true">
+                            {announcement}
+                        </div>
                         <PopoverHeader
                             showCelebration={showCelebration}
                             isSetupComplete={isSetupComplete}
@@ -353,7 +373,7 @@ function ProgressBar({ completedCount, totalTasks }: ProgressBarProps): JSX.Elem
     return (
         <div className="h-1 bg-border rounded-full mt-2 overflow-hidden">
             <div
-                className="h-full bg-success rounded-full transition-all duration-300"
+                className="h-full bg-success dark:bg-success-light rounded-full transition-all duration-300"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${percent}%` }}
             />
@@ -395,8 +415,17 @@ interface ProductSuggestionItemProps {
 function ProductSuggestionItem({ product, onSelect }: ProductSuggestionItemProps): JSX.Element {
     return (
         <div
-            className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-primary-highlight active:bg-fill-primary-highlight-hover"
+            role="button"
+            tabIndex={0}
+            aria-label={`Continue with ${product.name}, ${product.remainingCount} tasks remaining`}
+            className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-primary-highlight active:bg-fill-primary-highlight-hover focus-visible:bg-fill-primary-highlight focus-visible:outline-none"
             onClick={() => onSelect(product.productKey)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onSelect(product.productKey)
+                }
+            }}
         >
             <IconTarget className="w-4 h-4 text-muted" />
             <span className="flex-1 text-sm">{product.name}</span>
@@ -484,24 +513,29 @@ function TaskSection({
     onHover,
     actionButton,
 }: TaskSectionProps): JSX.Element {
+    const completedCount = tasks.filter((t) => t.completed || t.skipped).length
+
     return (
-        <div className="py-1">
+        <div className="py-1" role="group" aria-label={`${title} (${completedCount} of ${tasks.length} complete)`}>
             <div className="px-3 py-1 flex items-center justify-between">
                 <span className="text-[10px] font-semibold text-muted uppercase tracking-wider">{title}</span>
                 {actionButton}
             </div>
-            {tasks.map((task) => (
-                <TaskItem
-                    key={task.id}
-                    task={task}
-                    onClick={() => onTaskClick(task)}
-                    onSkip={onSkip}
-                    onUnskip={onUnskip}
-                    onMarkComplete={onMarkComplete}
-                    onUnmarkComplete={onUnmarkComplete}
-                    onHover={onHover}
-                />
-            ))}
+            <div role="list">
+                {tasks.map((task) => (
+                    <div key={task.id} role="listitem">
+                        <TaskItem
+                            task={task}
+                            onClick={() => onTaskClick(task)}
+                            onSkip={onSkip}
+                            onUnskip={onUnskip}
+                            onMarkComplete={onMarkComplete}
+                            onUnmarkComplete={onUnmarkComplete}
+                            onHover={onHover}
+                        />
+                    </div>
+                ))}
+            </div>
         </div>
     )
 }
@@ -531,16 +565,30 @@ function TaskItem({
     const isLocked = !!task.lockedReason
     const isClickable = !isDone && !isLocked
 
+    const handleKeyDown = (e: React.KeyboardEvent): void => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            if (isClickable) {
+                onClick()
+            }
+        }
+    }
+
     const content = (
         <div
+            role="button"
+            tabIndex={isClickable ? 0 : -1}
+            aria-disabled={!isClickable}
+            aria-label={`${task.title}${isCompleted ? ' (completed)' : isSkipped ? ' (skipped)' : isLocked ? ' (locked)' : ''}`}
             className={`group flex items-center gap-2 px-3 py-1.5 transition-colors ${
                 isDone
                     ? 'opacity-50 hover:opacity-70'
                     : isLocked
                       ? 'opacity-60 cursor-not-allowed'
-                      : 'cursor-pointer hover:bg-fill-primary-highlight active:bg-fill-primary-highlight-hover'
+                      : 'cursor-pointer hover:bg-fill-primary-highlight active:bg-fill-primary-highlight-hover focus-visible:bg-fill-primary-highlight focus-visible:outline-none'
             }`}
             onClick={isClickable ? onClick : undefined}
+            onKeyDown={handleKeyDown}
             onMouseEnter={() => onHover?.(task)}
         >
             <TaskStatusIndicator
@@ -589,9 +637,23 @@ interface TaskStatusIndicatorProps {
 
 function TaskStatusIndicator({ isCompleted, isSkipped, isLocked, onToggle }: TaskStatusIndicatorProps): JSX.Element {
     return (
-        <div className="flex-shrink-0 cursor-pointer" onClick={onToggle}>
+        <div
+            className="flex-shrink-0 cursor-pointer"
+            onClick={onToggle}
+            role="checkbox"
+            aria-checked={isCompleted}
+            aria-label={isCompleted ? 'Mark as incomplete' : isLocked ? 'Locked' : 'Mark as complete'}
+            tabIndex={0}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onToggle(e as unknown as React.MouseEvent)
+                }
+            }}
+        >
             {isCompleted ? (
-                <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
+                <div className="w-4 h-4 rounded-full bg-success dark:bg-success-light flex items-center justify-center">
                     <IconCheck className="w-2.5 h-2.5 text-white" />
                 </div>
             ) : isSkipped ? (
@@ -601,7 +663,7 @@ function TaskStatusIndicator({ isCompleted, isSkipped, isLocked, onToggle }: Tas
                     <IconLock className="w-2.5 h-2.5 text-muted" />
                 </div>
             ) : (
-                <div className="w-4 h-4 rounded-full border-2 border-border hover:border-success hover:bg-success/10 transition-colors" />
+                <div className="w-4 h-4 rounded-full border-2 border-border dark:border-white hover:border-success dark:hover:border-success-light hover:bg-fill-success-highlight transition-colors" />
             )}
         </div>
     )
@@ -653,7 +715,7 @@ function TaskActions({
 }: TaskActionsProps): JSX.Element | null {
     if (isSkipped) {
         return (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 <LemonButton
                     type="tertiary"
                     size="xsmall"
@@ -668,7 +730,7 @@ function TaskActions({
 
     if (isCompleted && onUnmarkComplete) {
         return (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 <LemonButton
                     type="tertiary"
                     size="xsmall"
@@ -683,7 +745,7 @@ function TaskActions({
 
     if (!isDone && !isLocked) {
         return (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 {onMarkComplete && (
                     <LemonButton
                         type="tertiary"

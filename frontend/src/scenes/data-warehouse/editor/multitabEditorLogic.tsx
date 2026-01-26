@@ -1098,7 +1098,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         {
                             key: view.id,
                             name: view.name,
-                            path: urls.sqlEditor(undefined, view.id),
+                            path: urls.sqlEditor({ view_id: view.id }),
                             iconType: 'sql_editor',
                         },
                     ]
@@ -1108,7 +1108,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         {
                             key: insight.id,
                             name: insight.name || insight.derived_name || 'Untitled',
-                            path: urls.sqlEditor(undefined, undefined, insight.short_id),
+                            path: urls.sqlEditor({ insightShortId: insight.short_id }),
                             iconType: 'sql_editor',
                         },
                     ]
@@ -1118,7 +1118,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         {
                             key: draft.id,
                             name: draft.name || 'Untitled',
-                            path: urls.sqlEditor(undefined, undefined, undefined, draft.id),
+                            path: urls.sqlEditor({ draftId: draft.id }),
                             iconType: 'sql_editor',
                         },
                     ]
