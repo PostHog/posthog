@@ -18,6 +18,8 @@ export interface WorkflowSceneLogicProps {
     id?: string
     tab?: WorkflowTab
     tabId?: string
+    templateId?: string
+    editTemplateId?: string
 }
 
 export const workflowSceneLogic = kea<workflowSceneLogicType>([

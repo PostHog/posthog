@@ -3,10 +3,8 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconClock } from '@posthog/icons'
-import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,42 +24,40 @@ import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './work
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
     logic: workflowSceneLogic,
-    paramsToProps: ({ params: { id, tab } }) => ({
+    paramsToProps: ({ params: { id, tab }, searchParams }) => ({
         id: id || 'new',
         tab: tab || 'workflow',
+        templateId: searchParams.templateId as string | undefined,
+        editTemplateId: searchParams.editTemplateId as string | undefined,
     }),
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const sceneLogic = workflowSceneLogic(props)
     const { currentTab } = useValues(sceneLogic)
-    const { searchParams } = useValues(router)
-    const templateId = searchParams.templateId as string | undefined
-    const editTemplateId = searchParams.editTemplateId as string | undefined
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: props.id })
     const { futureJobs } = useValues(batchJobsLogic)
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow } = useValues(logic)
+    // Construct complete logic props with all needed fields
+    // templateId and editTemplateId come from props (via paramsToProps) which are tab-specific
+    const logicProps = {
+        id: props.id,
+        templateId: props.templateId,
+        editTemplateId: props.editTemplateId,
+        tabId: props.tabId,
+    }
+    const logic = workflowLogic(logicProps)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
     useAttachedLogic(logic, sceneLogic)
 
-    if (!originalWorkflow && workflowLoading) {
-        return <SpinnerOverlay sceneLevel />
-    }
-
-    if (!originalWorkflow) {
-        return <NotFound object="workflow" />
-    }
-
     const tabs: (LemonTab<WorkflowTab> | null)[] = [
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <Workflow {...props} />,
+            content: <Workflow {...logicProps} />,
         },
 
         {
@@ -105,7 +101,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <WorkflowSceneHeader {...props} />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (
-                <Workflow {...props} />
+                <Workflow {...logicProps} />
             ) : (
                 <LemonTabs
                     activeKey={currentTab}

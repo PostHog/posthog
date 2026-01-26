@@ -80,7 +80,20 @@ export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `${props.id}`),
+    key((props) => {
+        // Use the same key logic as workflowLogic to ensure proper isolation between tabs
+        // For existing workflows, use the id
+        if (props.id && props.id !== 'new') {
+            return props.id
+        }
+        // For new workflows, use tabId to ensure each tab gets its own logic instance
+        const templateKey = props.templateId
+            ? `-template-${props.templateId}`
+            : props.editTemplateId
+              ? `-edit-${props.editTemplateId}`
+              : ''
+        return props.tabId ? `new-${props.tabId}${templateKey}` : `new${templateKey}`
+    }),
     connect((props: WorkflowLogicProps) => ({
         values: [
             workflowLogic(props),
