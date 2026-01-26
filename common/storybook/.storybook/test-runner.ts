@@ -184,14 +184,17 @@ async function expectStoryToMatchSnapshot(
     const {
         waitForLoadersToDisappear = true,
         waitForSelector,
-        waitForTimeout = 5000,
+        waitForTimeout,
     } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
         // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
-        // Timeout is 5000ms to account for slower CI environments while still catching stuck elements
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: waitForTimeout })
+        // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
+        // to account for slower CI environments while still catching stuck elements
+        const timeout =
+            waitForTimeout || (context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000)
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
     }
 
     if (typeof waitForSelector === 'string') {

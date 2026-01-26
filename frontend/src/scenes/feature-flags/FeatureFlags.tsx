@@ -35,7 +35,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -46,7 +45,6 @@ import {
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
-    AvailableFeature,
     BaseMathType,
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
@@ -274,7 +272,6 @@ export function OverViewTab({
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const page = filters.page || 1
@@ -314,30 +311,26 @@ export function OverViewTab({
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof FeatureFlagType,
-                      render: function Render(_, featureFlag: FeatureFlagType) {
-                          const tags = featureFlag.tags
-                          if (!tags || tags.length === 0) {
-                              return null
-                          }
-                          return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                              <FeatureFlagEvaluationTags
-                                  tags={tags}
-                                  evaluationTags={featureFlag.evaluation_tags || []}
-                                  flagId={featureFlag.id}
-                                  context="static"
-                              />
-                          ) : (
-                              <ObjectTags tags={tags} staticOnly />
-                          )
-                      },
-                  } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof FeatureFlagType,
+            render: function Render(_, featureFlag: FeatureFlagType) {
+                const tags = featureFlag.tags
+                if (!tags || tags.length === 0) {
+                    return null
+                }
+                return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                    <FeatureFlagEvaluationTags
+                        tags={tags}
+                        evaluationTags={featureFlag.evaluation_tags || []}
+                        flagId={featureFlag.id}
+                        context="static"
+                    />
+                ) : (
+                    <ObjectTags tags={tags} staticOnly />
+                )
+            },
+        } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         updatedAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
@@ -455,7 +448,7 @@ export function OverViewTab({
                 type: true,
                 status: true,
                 createdBy: true,
-                tags: hasAvailableFeature(AvailableFeature.TAGGING),
+                tags: true,
                 runtime: true,
             }}
         />

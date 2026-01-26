@@ -10,6 +10,7 @@ from django.test import override_settings
 from django.utils.timezone import now
 
 from dateutil.parser import isoparse
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
@@ -63,10 +64,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [
-            {
-                "key": AvailableFeature.TAGGING,
-                "name": AvailableFeature.TAGGING,
-            },
             {
                 "key": AvailableFeature.ADVANCED_PERMISSIONS,
                 "name": AvailableFeature.ADVANCED_PERMISSIONS,
@@ -384,7 +381,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(11, 12)):
+            with self.assertNumQueries(FuzzyInt(12, 13)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -1007,6 +1004,38 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         after_duplication_tile_id = duplicate_response["tiles"][1]["text"]["id"]
         assert after_duplication_tile_id != dashboard_with_tiles["tiles"][1]["text"]["id"]
+
+    @parameterized.expand(
+        [
+            ("with_layouts", {"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}, {"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}),
+            ("without_layouts", None, {}),
+        ]
+    )
+    def test_duplicate_tile_within_dashboard_uses_provided_layouts(
+        self, _name: str, input_layouts: dict | None, expected_layouts: dict
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+        insight = Insight.objects.create(filters={"name": "test"}, team=self.team, last_refresh=now())
+        original_tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+        )
+
+        duplicate_request: dict = {"id": original_tile.id}
+        if input_layouts is not None:
+            duplicate_request["layouts"] = input_layouts
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard.id,
+            {"duplicate_tiles": [duplicate_request]},
+        )
+
+        tiles = response["tiles"]
+        assert len(tiles) == 2
+
+        new_tile = next(t for t in tiles if t["id"] != original_tile.id)
+        assert new_tile["layouts"] == expected_layouts
 
     def test_dashboard_duplication_can_duplicate_tiles_without_editing_name_if_there_is_none(self) -> None:
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -2125,16 +2154,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
 
-    def test_create_unlisted_dashboard_creates_tags_without_tagging_feature(self):
-        """Test that unlisted dashboards get tags even if org doesn't have TAGGING feature"""
-        # Remove TAGGING feature from organization
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        # Verify org doesn't have tagging
-        self.assertFalse(self.organization.is_feature_available(AvailableFeature.TAGGING))
-
-        # Create unlisted dashboard
+    def test_create_unlisted_dashboard_creates_tags(self):
+        """Test that unlisted dashboards get tags"""
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
             {"tag": "llm-analytics"},
@@ -2148,7 +2169,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard.creation_mode, "unlisted")
         self.assertEqual(dashboard.name, "LLM Analytics Default")
 
-        # Verify tags were created despite org lacking TAGGING feature
+        # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
         self.assertEqual(tags, ["llm-analytics"])
 

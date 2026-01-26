@@ -30,11 +30,7 @@ if (length(parts) != 4) {
 // Validate each octet is a number between 0 and 255
 for (let i := 1; i <= 4; i := i + 1) {
     let octet := toInt(parts[i])
-    if (octet = null) {
-        print('Invalid IP address: octets must be numbers between 0 and 255')
-        return event
-    }
-    if (octet < 0 or octet > 255) {
+    if (octet = null or octet < 0 or octet > 255) {
         print('Invalid IP address: octets must be numbers between 0 and 255')
         return event
     }

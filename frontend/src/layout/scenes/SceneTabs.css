@@ -14,7 +14,7 @@
     bottom: -6px;
     width: calc(100% + 10px);
     height: 7px;
-    background-color: var(--color-bg-primary);
+    background-color: var(--scene-layout-background);
 }
 
 .scene-tab-active-indicator::before {
