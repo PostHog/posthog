@@ -224,17 +224,6 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
 
         config = catalog.to_config()
         cross_account_dest = catalog.to_cross_account_destination()
-        if cross_account_dest is None:
-            logger.error(
-                "No cross-account S3 settings configured for team",
-                team_id=inputs.team_id,
-            )
-            raise ApplicationError(
-                f"No cross-account S3 settings configured for team {inputs.team_id}. "
-                "Set cross_account_role_arn in the DuckLakeCatalog entry.",
-                non_retryable=True,
-            )
-
         alias = "ducklake"
 
         with duckdb.connect() as conn:
@@ -335,17 +324,6 @@ def verify_data_imports_ducklake_copy_activity(
 
         config = catalog.to_config()
         cross_account_dest = catalog.to_cross_account_destination()
-        if cross_account_dest is None:
-            logger.error(
-                "No cross-account S3 settings configured for team",
-                team_id=inputs.team_id,
-            )
-            raise ApplicationError(
-                f"No cross-account S3 settings configured for team {inputs.team_id}. "
-                "Set cross_account_role_arn in the DuckLakeCatalog entry.",
-                non_retryable=True,
-            )
-
         alias = "ducklake"
         results: list[DuckLakeCopyDataImportsVerificationResult] = []
 
