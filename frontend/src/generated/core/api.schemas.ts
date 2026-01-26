@@ -2513,6 +2513,16 @@ export interface PatchedAnnotationApi {
 }
 
 /**
+ * * `1` - Test users
+ */
+export type SystemTypeEnumApi = (typeof SystemTypeEnumApi)[keyof typeof SystemTypeEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const SystemTypeEnumApi = {
+    NUMBER_1: 1,
+} as const
+
+/**
  * * `static` - static
  * `person_property` - person_property
  * `behavioral` - behavioral
@@ -2612,6 +2622,10 @@ export interface CohortApi {
     /** @nullable */
     readonly count: number | null
     is_static?: boolean
+    /** Type of system cohort, or NULL for user-created cohorts
+
+* `1` - Test users */
+    readonly system_type: SystemTypeEnumApi | NullEnumApi
     /** Type of cohort based on filter complexity
 
 * `static` - static
@@ -2716,6 +2730,10 @@ export interface PatchedCohortApi {
     /** @nullable */
     readonly count?: number | null
     is_static?: boolean
+    /** Type of system cohort, or NULL for user-created cohorts
+
+* `1` - Test users */
+    readonly system_type?: SystemTypeEnumApi | NullEnumApi
     /** Type of cohort based on filter complexity
 
 * `static` - static
