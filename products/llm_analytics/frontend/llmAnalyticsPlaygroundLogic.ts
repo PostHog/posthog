@@ -155,6 +155,21 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
     reducers({
         model: ['', { setModel: (_, { model }) => model }],
+        modelOptionsErrorStatus: [
+            null as number | null,
+            {
+                loadModelOptions: () => null,
+                loadModelOptionsSuccess: () => null,
+                loadModelOptionsFailure: (_, { error }) => {
+                    const err = error as unknown
+                    if (err instanceof ApiError) {
+                        return err.status ?? null
+                    }
+
+                    return null
+                },
+            },
+        ],
         systemPrompt: ['You are a helpful AI assistant.', { setSystemPrompt: (_, { systemPrompt }) => systemPrompt }],
         maxTokens: [null as number | null, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
         thinking: [false, { setThinking: (_, { thinking }) => thinking }],
@@ -297,21 +312,20 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         modelOptions: {
             __default: [] as ModelOption[],
             loadModelOptions: async () => {
-                try {
-                    const response = await api.get('/api/llm_proxy/models/')
-                    if (!response) {
-                        return []
-                    }
-                    const options = response as ModelOption[]
-                    const closestMatch = matchClosestModel(values.model, options)
-                    if (values.model !== closestMatch) {
-                        llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
-                    }
-                    return options
-                } catch (error) {
-                    console.error('Error loading model options:', error)
-                    return values.modelOptions
+                const response = await api.get('/api/llm_proxy/models/')
+
+                if (!response) {
+                    return []
                 }
+
+                const options = response as ModelOption[]
+                const closestMatch = matchClosestModel(values.model, options)
+
+                if (values.model !== closestMatch) {
+                    llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
+                }
+
+                return options
             },
         },
     })),

@@ -113,9 +113,9 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconExternal />}
-                            onClick={() => window.open(`array://task/${task.id}`, '_blank')}
+                            onClick={() => window.open(`twig://task/${task.id}`, '_blank')}
                         >
-                            Open in Array
+                            Open in Twig
                         </LemonButton>
                         {prUrl && (
                             <LemonButton
