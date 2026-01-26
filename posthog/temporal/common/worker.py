@@ -5,7 +5,7 @@ import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from prometheus_client import PLATFORM_COLLECTOR, PROCESS_COLLECTOR, CollectorRegistry
+from prometheus_client import REGISTRY
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
@@ -119,20 +119,10 @@ async def create_worker(
         temporal_metrics_port = get_free_port()
         temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
 
-        # Create a separate CollectorRegistry for the metrics server to avoid lock contention
-        # with any other parts of the application that might use the global REGISTRY.
-        # This ensures the metrics server thread cannot deadlock with other threads.
-        # We register PROCESS_COLLECTOR and PLATFORM_COLLECTOR to expose essential process
-        # metrics (CPU, memory, open FDs, Python info) without the application-specific
-        # metrics that could cause contention issues.
-        metrics_server_registry = CollectorRegistry()
-        metrics_server_registry.register(PROCESS_COLLECTOR)
-        metrics_server_registry.register(PLATFORM_COLLECTOR)
-
         metrics_server = CombinedMetricsServer(
             port=metrics_port,
             temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
-            registry=metrics_server_registry,
+            registry=REGISTRY,
         )
     else:
         # Expose Temporal SDK metrics directly on the public metrics port.
