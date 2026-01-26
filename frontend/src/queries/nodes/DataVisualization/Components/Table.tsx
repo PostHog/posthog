@@ -100,7 +100,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 ),
                 render: (_, data, recordIndex: number, rowCount: number) => {
                     return (
-                        <div className="LemonTable__cell-content-wrapper">
+                        <div className="truncate">
                             {renderColumn(column.name, data[index].formattedValue, data, recordIndex, rowCount, {
                                 kind: NodeKind.DataTableNode,
                                 source: props.query.source,
