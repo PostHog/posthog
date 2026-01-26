@@ -75,16 +75,20 @@ async def prime_session_embeddings_activity(
     sessions_summarized = 0
     sessions_failed = 0
     if sessions_to_summarize:
-        results = await asyncio.gather(
-            *[
-                execute_summarize_session(
+        # Limit concurrent summarizations to avoid overwhelming workers
+        semaphore = asyncio.Semaphore(50)
+
+        async def summarize_with_limit(session_id: str):
+            async with semaphore:
+                return await execute_summarize_session(
                     session_id=session_id,
                     user=system_user,
                     team=team,
                     video_validation_enabled="full",
                 )
-                for session_id in sessions_to_summarize
-            ],
+
+        results = await asyncio.gather(
+            *[summarize_with_limit(session_id) for session_id in sessions_to_summarize],
             return_exceptions=True,
         )
         for session_id, result in zip(sessions_to_summarize, results):
