@@ -664,7 +664,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             old_last_updated = self.instance.logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed
-            if old_retention is not None and old_retention != new_retention:
+            if old_retention is not None and new_retention is not None and old_retention != new_retention:
                 # Check if retention_last_updated exists and is within 24 hours
                 if old_last_updated:
                     last_updated = parse_datetime(old_last_updated)
