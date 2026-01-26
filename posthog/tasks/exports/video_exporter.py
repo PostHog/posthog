@@ -710,8 +710,10 @@ def record_replay_to_file(
                 record_dir=record_dir,
                 opts=opts,
             ).record()
-
         # ============ Common post-processing (ffmpeg) ============
+        # TODO: Remove after testing
+        with open(f"video_rendered_{uuid.uuid4()}_{'nodejs' if use_nodejs else 'playwright'}.webm", "w") as f:
+            f.write(tmp_webm)
         logger.info(
             "video_exporter.recording_complete",
             pre_roll=result.pre_roll,
