@@ -319,7 +319,7 @@ describe('createOverflowLaneTTLRefreshStep', () => {
         await step(events)
 
         expect(service.handleEventBatch).toHaveBeenCalledWith('events', [
-            { key: { token: 'token1', distinctId: 'user1' }, eventCount: 1, firstTimestamp: baseTime.getTime() },
+            { key: { token: 'token1', distinctId: 'user1' }, eventCount: 2, firstTimestamp: baseTime.getTime() },
             { key: { token: 'token1', distinctId: 'user2' }, eventCount: 1, firstTimestamp: baseTime.getTime() },
         ])
     })
