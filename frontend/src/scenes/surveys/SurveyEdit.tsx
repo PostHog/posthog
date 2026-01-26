@@ -247,8 +247,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         surveyErrors,
         user,
         surveyLoading,
-        choicesMismatchedLanguages,
-        hasChoicesMismatch,
+        translationValidationErrors,
+        hasTranslationValidationErrors,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -429,8 +429,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 form="survey"
                                 size="small"
                                 disabledReason={
-                                    hasChoicesMismatch
-                                        ? `Cannot save: choices translations don't match. Please update translations for: ${choicesMismatchedLanguages.join(', ')}`
+                                    hasTranslationValidationErrors
+                                        ? 'Cannot save: please fix translation validation errors below'
                                         : undefined
                                 }
                             >
@@ -457,22 +457,69 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         </span>
                     </div>
                 )}
-                {hasChoicesMismatch && (
-                    <div className="px-4 py-2 bg-danger-highlight rounded border border-danger mt-4">
-                        <span className="text-sm">
-                            ⚠️ Choices were modified in the default language. Please update choices translations for:{' '}
-                            {choicesMismatchedLanguages.map((lang, index) => (
-                                <span key={lang}>
-                                    {index > 0 && ', '}
-                                    <button
-                                        onClick={() => setEditingLanguage(lang)}
-                                        className="font-bold hover:underline cursor-pointer text-danger"
-                                    >
-                                        {COMMON_LANGUAGES.find((l) => l.value === lang)?.label || lang}
-                                    </button>
-                                </span>
-                            ))}
-                        </span>
+                {hasTranslationValidationErrors && (
+                    <div className="px-4 py-2 bg-warning-highlight rounded border border-warning mt-4">
+                        <LemonCollapse
+                            embedded
+                            defaultActiveKey="validation-errors"
+                            panels={[
+                                {
+                                    key: 'validation-errors',
+                                    header: {
+                                        children: (
+                                            <span className="text-sm font-semibold">
+                                                ⚠️ Translation validation issues ({translationValidationErrors.length})
+                                            </span>
+                                        ),
+                                    },
+                                    content: (
+                                        <div className="text-sm">
+                                            {(() => {
+                                                // Group errors by language
+                                                const errorsByLanguage = translationValidationErrors.reduce(
+                                                    (acc, error) => {
+                                                        const lang = error.language
+                                                        if (!acc[lang]) {
+                                                            acc[lang] = []
+                                                        }
+                                                        acc[lang].push(error)
+                                                        return acc
+                                                    },
+                                                    {} as Record<string, typeof translationValidationErrors>
+                                                )
+
+                                                return Object.entries(errorsByLanguage).map(([lang, errors]) => (
+                                                    <div key={lang} className="mb-2">
+                                                        <button
+                                                            onClick={() =>
+                                                                setEditingLanguage(lang === 'default' ? null : lang)
+                                                            }
+                                                            className="font-semibold hover:underline cursor-pointer"
+                                                        >
+                                                            {lang === 'default'
+                                                                ? 'Default language'
+                                                                : COMMON_LANGUAGES.find((l) => l.value === lang)
+                                                                      ?.label || lang}
+                                                        </button>
+                                                        :
+                                                        <ul className="ml-4 list-disc">
+                                                            {errors.map((error, idx) => (
+                                                                <li key={idx}>
+                                                                    {error.questionIndex >= 0
+                                                                        ? `Question ${error.questionIndex + 1}`
+                                                                        : 'Survey'}{' '}
+                                                                    - {error.field}: {error.error}
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                ))
+                                            })()}
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
                     </div>
                 )}
             </div>
