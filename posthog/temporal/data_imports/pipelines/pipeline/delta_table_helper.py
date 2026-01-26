@@ -73,7 +73,7 @@ class DeltaTableHelper:
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
-        delta_table_schema = delta_table.schema().to_arrow()
+        delta_table_schema = pa.schema(delta_table.schema().to_arrow())
 
         new_fields = [
             deltalake.Field.from_arrow(field)
