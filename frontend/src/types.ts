@@ -1575,11 +1575,6 @@ export enum GroupsTabType {
     OVERVIEW = 'overview',
 }
 
-export enum LayoutView {
-    Card = 'card',
-    List = 'list',
-}
-
 export interface EventsTableAction {
     name: string
     id: string

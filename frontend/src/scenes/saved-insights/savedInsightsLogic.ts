@@ -371,7 +371,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
         return {
             loadInsights: changeUrl,
-            setLayoutView: changeUrl,
         }
     }),
     tabAwareUrlToAction(({ actions, values }) => ({

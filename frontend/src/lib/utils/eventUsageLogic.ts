@@ -429,7 +429,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ insight, dashboardId }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
-        reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
         reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportHelpButtonViewed: true,
@@ -1101,9 +1100,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportSavedInsightTabChanged: ({ tab }) => {
             posthog.capture('saved insights list page tab changed', { tab })
-        },
-        reportSavedInsightLayoutChanged: ({ layout }) => {
-            posthog.capture('saved insights list page layout changed', { layout })
         },
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
