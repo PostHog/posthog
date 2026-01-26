@@ -61,6 +61,7 @@ export const clustersLogic = kea<clustersLogicType>([
 
     actions({
         setClusteringLevel: (level: ClusteringLevel) => ({ level }),
+        syncClusteringLevelFromRun: (level: ClusteringLevel) => ({ level }),
         setSelectedRunId: (runId: string | null) => ({ runId }),
         toggleClusterExpanded: (clusterId: number) => ({ clusterId }),
         toggleScatterPlotExpanded: true,
@@ -74,6 +75,8 @@ export const clustersLogic = kea<clustersLogicType>([
             'trace' as ClusteringLevel,
             {
                 setClusteringLevel: (_, { level }) => level,
+                // Sync from run without triggering reload (used when loading a run from URL)
+                syncClusteringLevelFromRun: (_, { level }) => level,
             },
         ],
         selectedRunId: [
@@ -162,10 +165,6 @@ export const clustersLogic = kea<clustersLogicType>([
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(runId)
                     // Derive level from runId to ensure correct event is queried even on direct URL navigation
                     const level = getLevelFromRunId(runId)
-                    // Update clusteringLevel state if it doesn't match the runId's level
-                    if (level !== values.clusteringLevel) {
-                        actions.setClusteringLevel(level)
-                    }
                     const eventName = level === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
 
                     const response = await api.queryHogQL(
@@ -398,6 +397,11 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         loadClusteringRunSuccess: ({ currentRun }) => {
+            // Sync clusteringLevel with the loaded run's level (without triggering reload)
+            // This handles direct URL navigation to a run with a different level
+            if (currentRun?.level && currentRun.level !== values.clusteringLevel) {
+                actions.syncClusteringLevelFromRun(currentRun.level)
+            }
             // Load all trace summaries when a run is loaded for scatter plot tooltips
             if (currentRun) {
                 actions.loadTraceSummariesForRun(currentRun)
