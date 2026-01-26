@@ -28,8 +28,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _handle_null_columns_with_definitions,
     normalize_table_column_names,
 )
-from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka_batch_producer import KafkaBatchProducer, SyncTypeLiteral
-from posthog.temporal.data_imports.pipelines.pipeline_v3.s3_batch_writer import BatchWriteResult, S3BatchWriter
+from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaBatchProducer, SyncTypeLiteral
+from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult, S3BatchWriter
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
@@ -86,6 +86,15 @@ class PipelineV3(Generic[ResumableData]):
         elif self._schema.is_append:
             sync_type = "append"
 
+        partition_count = self._schema.partition_count or self._resource.partition_count
+        partition_size = self._schema.partition_size or self._resource.partition_size
+        partition_keys = self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
+        partition_format = self._schema.partition_format or self._resource.partition_format
+        partition_mode = self._schema.partition_mode or self._resource.partition_mode
+
+        # Determine if this is the first-ever sync (no DWH table exists yet)
+        is_first_ever_sync = self._schema.table is None
+
         self._kafka_producer = KafkaBatchProducer(
             team_id=self._job.team_id,
             job_id=str(self._job.id),
@@ -95,6 +104,13 @@ class PipelineV3(Generic[ResumableData]):
             sync_type=sync_type,
             run_uuid=self._s3_batch_writer.get_run_uuid(),
             logger=self._logger,
+            primary_keys=self._resource.primary_keys,
+            partition_count=partition_count,
+            partition_size=partition_size,
+            partition_keys=partition_keys,
+            partition_format=partition_format,
+            partition_mode=partition_mode,
+            is_first_ever_sync=is_first_ever_sync,
         )
 
         self._resumable_source_manager = resumable_source_manager
@@ -209,7 +225,7 @@ class PipelineV3(Generic[ResumableData]):
         batch_result = self._s3_batch_writer.write_batch(pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False)
+        self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
@@ -260,6 +276,7 @@ class PipelineV3(Generic[ResumableData]):
             total_rows=row_count,
             data_folder=self._s3_batch_writer.get_data_folder(),
             schema_path=schema_path,
+            cumulative_row_count=row_count,
         )
 
         self._kafka_producer.flush()
