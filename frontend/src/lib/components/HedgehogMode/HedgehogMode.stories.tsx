@@ -6,17 +6,13 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { MinimalHedgehogConfig } from '~/types'
 
+import { HedgehogMode } from './HedgehogMode'
 import { HedgehogModeStatic } from './HedgehogModeStatic'
 
 const meta: Meta<typeof HedgehogModeStatic> = {
     title: 'Components/HedgehogMode',
     component: HedgehogModeStatic,
     tags: ['autodocs'],
-    // parameters: {
-    //     testOptions: {
-    //         waitForTimeout: 10000,
-    //     },
-    // },
 }
 export default meta
 
@@ -74,3 +70,12 @@ export const ProfilePictureHog: StoryFn = () => {
         </div>
     )
 }
+
+export const HedgehogModePlayground: StoryFn = () => {
+    return (
+        <>
+            <HedgehogMode enabledOverride={true} />
+        </>
+    )
+}
+HedgehogModePlayground.tags = ['test-skip']
