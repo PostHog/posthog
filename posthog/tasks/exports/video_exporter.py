@@ -7,7 +7,6 @@ import shutil
 import tempfile
 import subprocess
 from dataclasses import asdict, dataclass
-from io import open_code
 from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -712,9 +711,9 @@ def record_replay_to_file(
             ).record()
         # ============ Common post-processing (ffmpeg) ============
         # TODO: Remove after testing
-        with open_code(result.video_path, "rb") as f:
+        with open(result.video_path, "rb") as f:
             content = f.read()
-            with open(f"video_rendered_{uuid.uuid4()}_{'nodejs' if use_nodejs else 'playwright'}.webm", "w") as f:
+            with open(f"video_rendered_{uuid.uuid4()}_{'nodejs' if use_nodejs else 'playwright'}.webm", "wb") as f:
                 f.write(content)
         logger.info(
             "video_exporter.recording_complete",
