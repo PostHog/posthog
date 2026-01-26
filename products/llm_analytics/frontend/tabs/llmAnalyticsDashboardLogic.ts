@@ -584,10 +584,7 @@ export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
-        if (
-            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
-            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-        ) {
+        if (values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) {
             actions.loadLLMDashboards()
         }
     }),
