@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,10 +21,11 @@ export interface LLMAnalyticsTracesTabLogicProps {
 
 export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsTracesTabLogic']),
+    key((props: LLMAnalyticsTracesTabLogicProps) => props?.personId || 'llmAnalyticsScene'),
     props({} as LLMAnalyticsTracesTabLogicProps),
-    connect({
+    connect((props: LLMAnalyticsTracesTabLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic(props),
             ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
@@ -33,7 +34,7 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
             userLogic,
             ['user'],
         ],
-    }),
+    })),
 
     actions({
         setTracesQuery: (query: DataTableNode) => ({ query }),
