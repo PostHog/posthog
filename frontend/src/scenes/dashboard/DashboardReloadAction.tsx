@@ -100,7 +100,6 @@ export function DashboardReloadAction(): JSX.Element {
                 )}
             </span>
 
-            {/* Refresh/Cancel button - transforms based on loading state */}
             <AppShortcut
                 name="DashboardRefresh"
                 keybind={[keyBinds.refresh]}
