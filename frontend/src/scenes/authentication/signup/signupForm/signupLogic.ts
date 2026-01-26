@@ -1,3 +1,4 @@
+import { startRegistration } from '@simplewebauthn/browser'
 import { isString } from '@tiptap/core'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
@@ -12,6 +13,8 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
+import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import { urls } from 'scenes/urls'
 
 import type { signupLogicType } from './signupLogicType'
@@ -441,71 +444,38 @@ export const signupLogic = kea<signupLogicType>([
 
             try {
                 // Step 1: Begin registration - get options from server
-                const beginResponse = await api.create('api/webauthn/signup-register/begin/', { email })
+                const beginResponse = await api.create<RegistrationBeginResponse>(
+                    'api/webauthn/signup-register/begin/',
+                    { email }
+                )
 
-                if (beginResponse?.already_registered) {
+                if (beginResponse.already_registered) {
                     actions.setPasskeyRegistered(true)
                     actions.setSignupPanelAuthValue('password', '')
                     return
                 }
 
-                // Step 2: Create credential using browser WebAuthn API
-                const credential = await navigator.credentials.create({
-                    publicKey: {
-                        challenge: base64ToArrayBuffer(beginResponse.challenge),
-                        rp: {
-                            name: beginResponse.rp.name,
-                            id: beginResponse.rp.id,
-                        },
-                        user: {
-                            id: base64ToArrayBuffer(beginResponse.user.id),
-                            name: beginResponse.user.name,
-                            displayName: beginResponse.user.displayName,
-                        },
-                        pubKeyCredParams: beginResponse.pubKeyCredParams,
+                // Step 2: Create credential using SimpleWebAuthn
+                const attestation = await startRegistration({
+                    optionsJSON: {
+                        rp: beginResponse.rp,
+                        user: beginResponse.user,
+                        challenge: beginResponse.challenge,
+                        pubKeyCredParams: beginResponse.pubKeyCredParams as PublicKeyCredentialParameters[],
                         timeout: beginResponse.timeout,
-                        authenticatorSelection: beginResponse.authenticatorSelection,
-                        attestation: beginResponse.attestation || 'none',
+                        excludeCredentials: beginResponse.excludeCredentials ?? [],
+                        authenticatorSelection: beginResponse.authenticatorSelection as AuthenticatorSelectionCriteria,
+                        attestation: beginResponse.attestation as AttestationConveyancePreference,
                     },
                 })
 
-                if (!credential || !(credential instanceof PublicKeyCredential)) {
-                    throw new Error('Failed to create credential')
-                }
-
-                const attestationResponse = credential.response as AuthenticatorAttestationResponse
-
                 // Step 3: Complete registration - send attestation to server
-                const completePayload = {
-                    id: arrayBufferToBase64Url(credential.rawId),
-                    rawId: arrayBufferToBase64Url(credential.rawId),
-                    type: credential.type,
-                    response: {
-                        attestationObject: arrayBufferToBase64Url(attestationResponse.attestationObject),
-                        clientDataJSON: arrayBufferToBase64Url(attestationResponse.clientDataJSON),
-                        transports: attestationResponse.getTransports?.() || [],
-                    },
-                }
-
-                await api.create('api/webauthn/signup-register/complete/', completePayload)
+                await api.create('api/webauthn/signup-register/complete/', attestation)
 
                 actions.setPasskeyRegistered(true)
                 actions.setSignupPanelAuthValue('password', '') // Clear password since we're using passkey
             } catch (e: any) {
-                console.error('Passkey registration error:', e)
-                let errorMessage = 'Failed to register passkey. Please try again.'
-
-                if (e.name === 'NotAllowedError') {
-                    errorMessage = 'Passkey registration was cancelled or timed out.'
-                } else if (e.name === 'NotSupportedError') {
-                    errorMessage = 'Passkeys are not supported on this device or browser.'
-                } else if (e.detail) {
-                    errorMessage = e.detail
-                } else if (e.error) {
-                    errorMessage = e.error
-                }
-
-                actions.setPasskeyError(errorMessage)
+                actions.setPasskeyError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
             } finally {
                 actions.setPasskeyRegistering(false)
             }
@@ -557,27 +527,3 @@ export const signupLogic = kea<signupLogicType>([
         },
     })),
 ])
-
-// Helper functions for WebAuthn
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-    // Handle base64url encoding
-    const base64Standard = base64.replace(/-/g, '+').replace(/_/g, '/')
-    const padding = '='.repeat((4 - (base64Standard.length % 4)) % 4)
-    const binaryString = atob(base64Standard + padding)
-    const bytes = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i)
-    }
-    return bytes.buffer
-}
-
-function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer)
-    let binary = ''
-    for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i])
-    }
-    const base64 = btoa(binary)
-    // Convert to base64url
-    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
