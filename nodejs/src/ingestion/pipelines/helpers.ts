@@ -36,35 +36,32 @@ export function createBatch<T extends DefaultContext>(items: T[]) {
 export type CreateContextResult<T, PartialContext> = {
     result: PipelineResult<T>
     context: {
-        message: Message
         lastStep: string | undefined
         sideEffects: Promise<unknown>[]
         warnings: PipelineWarning[]
-    } & Omit<PartialContext, 'message' | 'lastStep' | 'sideEffects' | 'warnings'>
+    } & PartialContext
 }
 
 /**
  * Helper function to create a PipelineResultWithContext from a result and partial context
  */
-export function createContext<T, PartialContext>(
+export function createContext<T, PartialContext extends Record<string, unknown> = Record<string, never>>(
     result: PipelineResult<T>,
     partialContext: PartialContext & {
-        message: Message
         lastStep?: string
         sideEffects?: Promise<unknown>[]
         warnings?: PipelineWarning[]
-    }
+    } = {} as PartialContext & { lastStep?: string; sideEffects?: Promise<unknown>[]; warnings?: PipelineWarning[] }
 ): CreateContextResult<T, PartialContext> {
-    const { message, lastStep, sideEffects, warnings, ...rest } = partialContext
+    const { lastStep, sideEffects, warnings, ...rest } = partialContext
     return {
         result,
         context: {
-            message: message,
             lastStep: lastStep,
             sideEffects: sideEffects || [],
             warnings: warnings || [],
             ...rest,
-        },
+        } as CreateContextResult<T, PartialContext>['context'],
     }
 }
 
