@@ -1024,9 +1024,13 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
 
         # Verify the user is in half-authed state
         session_user, session_error = self._get_half_authed_user(request)
-        if session_error:
+        if session_error or not session_user:
             return Response(
-                {"success": False, "error": session_error, "requires_login": True},
+                {
+                    "success": False,
+                    "error": session_error or "You must log in with your credentials first.",
+                    "requires_login": True,
+                },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -1072,9 +1076,13 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
 
         # Verify the user is in half-authed state
         session_user, session_error = self._get_half_authed_user(request)
-        if session_error:
+        if session_error or not session_user:
             return Response(
-                {"success": False, "error": session_error, "requires_login": True},
+                {
+                    "success": False,
+                    "error": session_error or "You must log in with your credentials first.",
+                    "requires_login": True,
+                },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
