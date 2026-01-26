@@ -167,11 +167,11 @@ impl StoreManager {
             warn!(
                 topic = topic,
                 partition = partition,
-                "No store registered for partition - message will be dropped (partition likely revoked)"
+                "No store registered for partition - message will be dropped (partition may have been revoked or not yet assigned)"
             );
             metrics::counter!(crate::metrics_const::MESSAGES_DROPPED_NO_STORE).increment(1);
             anyhow::anyhow!(
-                "No store registered for partition {}:{} - partition was likely revoked",
+                "No store registered for partition {}:{} - partition may have been revoked or not yet assigned",
                 topic,
                 partition
             )
@@ -709,7 +709,6 @@ impl StoreManager {
 
                         // Then check if we need capacity-based cleanup
                         if manager.needs_cleanup() {
-                            info!("Global capacity exceeded, triggering cleanup");
                             match manager.cleanup_old_entries_if_needed() {
                                 Ok(0) => {
                                     debug!("Cleanup skipped (may be already running or no data to clean)");
@@ -777,7 +776,7 @@ impl StoreManager {
                 std::fs::create_dir_all(parent).with_context(|| {
                     format!("Failed to create parent directory: {}", parent.display())
                 })?;
-                info!("Created parent directory: {}", parent.display());
+                debug!("Created parent directory: {}", parent.display());
             }
         }
 
