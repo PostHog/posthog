@@ -23,7 +23,10 @@ export const template: HogFunctionTemplate = {
     })
 }
 
-let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: "{inputs.title}" description: "{inputs.description}" teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
+let escaped_title := replaceAll(replaceAll(inputs.title, '"', '\\\\"'), '\n', ' ');
+let escaped_description := replaceAll(replaceAll(inputs.description, '"', '\\\\"'), '\n', ' ');
+
+let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: "{escaped_title}" description: "{escaped_description}" teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
 
 let issue_response := query(issue_mutation);
 
