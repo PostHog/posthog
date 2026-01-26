@@ -153,7 +153,7 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             user_distinct_id = cast("User", request.user).distinct_id
-            client = get_llm_client()
+            client = get_llm_client("growth")
             model = "gpt-5-mini"
 
             logger.debug(

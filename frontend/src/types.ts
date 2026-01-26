@@ -5915,7 +5915,12 @@ export type HogFunctionType = {
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 
 // Contexts change the way the UI is rendered allowing different teams to customize the UI for their use case
-export type HogFunctionConfigurationContextId = 'standard' | 'error-tracking' | 'activity-log' | 'insight-alerts'
+export type HogFunctionConfigurationContextId =
+    | 'standard'
+    | 'error-tracking'
+    | 'activity-log'
+    | 'discussion-mention'
+    | 'insight-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -5924,6 +5929,7 @@ export type HogFunctionSubTemplateIdType =
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'
+    | 'discussion-mention'
     | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
