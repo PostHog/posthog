@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -11,6 +11,9 @@ import { ActivationTaskStatus } from '~/types'
 import type { globalSetupLogicType } from './globalSetupLogicType'
 import { PRODUCTS_WITH_SETUP } from './productSetupRegistry'
 import { SetupTaskId } from './types'
+
+/** URL search param that triggers opening the quick start popover */
+export const QUICK_START_PARAM = 'quickstart'
 
 /**
  * Global setup logic - the single source of truth for task completion and UI state.
@@ -121,6 +124,21 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
         markTaskAsCompleted: async ({ taskIdOrIds }) => {
             const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
 
+            const teamLogic = globalTeamLogic.findMounted()
+            if (!teamLogic) {
+                return
+            }
+
+            const currentTeam = teamLogic.values.currentTeam
+            if (!currentTeam || !('onboarding_tasks' in currentTeam)) {
+                return
+            }
+
+            // If all tasks already completed, don't do anything
+            if (taskIds.every((taskId) => currentTeam.onboarding_tasks?.[taskId] === ActivationTaskStatus.COMPLETED)) {
+                return
+            }
+
             // Optimistically update UI immediately
             const optimisticStatuses: Record<string, ActivationTaskStatus> = {}
             for (const taskId of taskIds) {
@@ -137,6 +155,13 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             }
 
             // Persist to server in the background
+            const onboardingTasks = { ...currentTeam.onboarding_tasks, ...optimisticStatuses }
+            teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
+        },
+
+        markTaskAsSkipped: async ({ taskIdOrIds }) => {
+            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
+
             const teamLogic = globalTeamLogic.findMounted()
             if (!teamLogic) {
                 return
@@ -147,12 +172,10 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 return
             }
 
-            const onboardingTasks = { ...currentTeam.onboarding_tasks, ...optimisticStatuses }
-            teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
-        },
-
-        markTaskAsSkipped: async ({ taskIdOrIds }) => {
-            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
+            // If all tasks already skipped, don't do anything
+            if (taskIds.every((taskId) => currentTeam.onboarding_tasks?.[taskId] === ActivationTaskStatus.SKIPPED)) {
+                return
+            }
 
             // Optimistically update UI immediately
             const optimisticStatuses: Record<string, ActivationTaskStatus> = {}
@@ -164,17 +187,6 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             // Track analytics for each task
             for (const taskId of taskIds) {
                 posthog.capture('product setup task skipped', { task: taskId })
-            }
-
-            // Persist to server in the background
-            const teamLogic = globalTeamLogic.findMounted()
-            if (!teamLogic) {
-                return
-            }
-
-            const currentTeam = teamLogic.values.currentTeam
-            if (!currentTeam || !('onboarding_tasks' in currentTeam)) {
-                return
             }
 
             const onboardingTasks = { ...currentTeam.onboarding_tasks, ...optimisticStatuses }
@@ -249,4 +261,19 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        // Check if URL has quickstart param set to 'true' - if so, open the popover and remove the param
+        const searchParams = new URLSearchParams(window.location.search)
+        const quickstartValue = searchParams.get(QUICK_START_PARAM)
+
+        if (quickstartValue === 'true') {
+            actions.openGlobalSetup()
+
+            // Remove the param from URL without triggering navigation
+            searchParams.delete(QUICK_START_PARAM)
+            const newSearch = searchParams.toString()
+            const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash
+            window.history.replaceState({}, '', newUrl)
+        }
+    }),
 ])

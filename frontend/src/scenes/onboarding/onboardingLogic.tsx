@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { QUICK_START_PARAM } from 'lib/components/ProductSetup/globalSetupLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -54,24 +55,35 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type OnboardingStepType = OnboardingStepElement
 
 export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
+    let baseUrl: string
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return urls.insightNew()
+            baseUrl = urls.insightNew()
+            break
         case ProductKey.WEB_ANALYTICS:
-            return urls.webAnalytics()
+            baseUrl = urls.webAnalytics()
+            break
         case ProductKey.SESSION_REPLAY:
-            return urls.replay()
+            baseUrl = urls.replay()
+            break
         case ProductKey.FEATURE_FLAGS:
-            return urls.featureFlag('new')
+            baseUrl = urls.featureFlag('new')
+            break
         case ProductKey.SURVEYS:
-            return urls.surveyTemplates()
+            baseUrl = urls.surveyTemplates()
+            break
         case ProductKey.ERROR_TRACKING:
-            return urls.errorTracking()
+            baseUrl = urls.errorTracking()
+            break
         case ProductKey.LLM_ANALYTICS:
-            return urls.llmAnalyticsDashboard()
+            baseUrl = urls.llmAnalyticsDashboard()
+            break
         default:
-            return urls.default()
+            baseUrl = urls.default()
     }
+
+    // Append quickstart param to open the quick start popover after onboarding
+    return `${baseUrl}?${QUICK_START_PARAM}=true`
 }
 
 export const onboardingLogic = kea<onboardingLogicType>([
