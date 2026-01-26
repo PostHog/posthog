@@ -15,7 +15,7 @@ export const SidePanelAccessControl = ({ isScenePanel }: { isScenePanel?: boolea
     return (
         <div className="flex flex-col overflow-hidden">
             {isScenePanel ? null : <SidePanelPaneHeader title="Access control" />}
-            <div className={cn('flex-1overflow-y-auto', isScenePanel ? 'px-1' : 'p-4')}>
+            <div className={cn('flex-1 overflow-y-auto', isScenePanel ? 'px-1' : 'p-4')}>
                 {sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id ? (
                     <AccessControlObject
                         resource={sceneSidePanelContext.access_control_resource}
