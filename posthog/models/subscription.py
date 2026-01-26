@@ -66,6 +66,11 @@ class Subscription(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    dashboard_export_insights = models.ManyToManyField(
+        "posthog.Insight",
+        blank=True,
+        related_name="subscriptions_dashboard_export",
+    )
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
