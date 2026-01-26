@@ -1695,6 +1695,31 @@ export class ApiClient {
     }
 
     /**
+     * Max Tools proxy - invokes Django max tools endpoints
+     */
+    maxTools({ projectId }: { projectId: string }): Endpoint {
+        return {
+            invoke: async ({
+                toolName,
+                args,
+            }: {
+                toolName: string
+                args: Record<string, any>
+            }) => {
+                const responseSchema = z.object({
+                    content: z.string(),
+                    artifact: z.unknown().nullable(),
+                })
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/environments/${projectId}/max_tools/${toolName}/`,
+                    responseSchema,
+                    { method: 'POST', body: JSON.stringify(args) }
+                )
+            },
+        }
+    }
+
+    /**
      * Global search across PostHog entities
      */
     search({ projectId }: { projectId: string }): Endpoint {

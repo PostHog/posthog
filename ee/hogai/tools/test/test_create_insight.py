@@ -359,7 +359,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         invoked_state = None
 
-        async def capture_invoked_state(state):
+        async def capture_invoked_state(state, config=None):
             nonlocal invoked_state
             invoked_state = state
             return mock_state.model_dump()

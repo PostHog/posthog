@@ -2,6 +2,9 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pydantic
+from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema
+from pydantic import BaseModel
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -15,7 +18,14 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
+from products.error_tracking.backend.tools.search_issues import SearchErrorTrackingIssuesTool
+
+from ee.hogai.tool import MaxTool
+from ee.hogai.tools import CreateInsightTool, ExecuteSQLTool, UpsertDashboardTool
+from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
+from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import NodePath
 from ee.models.assistant import Conversation
 
 
@@ -35,6 +45,90 @@ class InsightsToolCallSerializer(serializers.Serializer):
         except pydantic.ValidationError:
             raise serializers.ValidationError("Invalid state content.")
         return data
+
+
+MAX_TOOLS: dict[str, type[MaxTool]] = {
+    "create_insight": CreateInsightTool,
+    "execute_sql": ExecuteSQLTool,
+    "filter_session_recordings": FilterSessionRecordingsTool,
+    "search_error_tracking_issues": SearchErrorTrackingIssuesTool,
+    "summarize_sessions": SummarizeSessionsTool,
+    "upsert_dashboard": UpsertDashboardTool,
+}
+
+
+def _create_tool_action(tool_name: str, tool_class: type[MaxTool]):
+    """Create an action method for a specific tool."""
+
+    # Some tools define args_schema dynamically in create_tool_class, so check if it exists as class attr
+    args_schema = getattr(tool_class, "args_schema", None)
+    request_schema = args_schema if isinstance(args_schema, type) and issubclass(args_schema, BaseModel) else None
+
+    @extend_schema(request=request_schema, tags=["MaxTools"])
+    def tool_action(self, request: Request, **kwargs):
+        # Create a conversation for this tool call so artifacts can be stored
+        conversation = self.get_queryset().create(
+            user=request.user,
+            team=self.team,
+            type=Conversation.Type.TOOL_CALL,
+        )
+
+        # Generate a unique tool_call_id for this invocation
+        tool_call_id = str(uuid4())
+
+        # Create a config with the conversation ID as thread_id
+        config = {"configurable": {"thread_id": str(conversation.id)}}
+
+        # Create a node_path with the tool_call_id (required by tools that generate messages)
+        node_path = (NodePath(name=f"max_tools.{tool_name}", tool_call_id=tool_call_id),)
+
+        # Create tool instance with config - some tools define args_schema dynamically
+        tool = async_to_sync(tool_class.create_tool_class)(
+            team=self.team,
+            user=cast(User, request.user),
+            config=config,
+            node_path=node_path,
+        )
+
+        # Get schema from instance (may differ from class attr for dynamic tools)
+        instance_schema = getattr(tool, "args_schema", None)
+        if not instance_schema or not isinstance(instance_schema, type) or not issubclass(instance_schema, BaseModel):
+            raise serializers.ValidationError(f"Tool '{tool_name}' has no valid args schema")
+
+        try:
+            validated_args = instance_schema.model_validate(request.data)
+        except pydantic.ValidationError as e:
+            raise serializers.ValidationError({"errors": e.errors()})
+
+        # Extract field values directly from the Pydantic model (preserves nested Pydantic models)
+        # Using model_dump() would convert nested models to dicts, breaking tools that expect Pydantic types
+        args_dict = {field_name: getattr(validated_args, field_name) for field_name in validated_args.model_fields}
+        result_content, result_artifact = async_to_sync(tool._arun_impl)(**args_dict)
+
+        # Handle artifact serialization - some tools return Pydantic models, some return dicts
+        if result_artifact is None:
+            artifact_data = None
+        elif isinstance(result_artifact, BaseModel):
+            artifact_data = result_artifact.model_dump()
+        else:
+            artifact_data = result_artifact
+
+        return Response(
+            {
+                "content": result_content,
+                "artifact": artifact_data,
+            }
+        )
+
+    tool_action.__name__ = f"invoke_{tool_name}"
+    tool_action.__doc__ = tool_class.description if hasattr(tool_class, "description") else f"Invoke {tool_name} tool"
+
+    return action(
+        detail=False,
+        methods=["POST"],
+        url_path=f"{tool_name}",
+        required_scopes=["query:read"],
+    )(tool_action)
 
 
 class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -72,3 +166,8 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 for event_type, data in assistant.invoke()
             ]
         )
+
+
+# Dynamically add tool actions to the viewset
+for _tool_name, _tool_class in MAX_TOOLS.items():
+    setattr(MaxToolsViewSet, f"invoke_{_tool_name}", _create_tool_action(_tool_name, _tool_class))
