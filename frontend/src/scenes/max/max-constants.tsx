@@ -925,6 +925,17 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Finalizing plan...'
         },
     },
+    recommend_products: {
+        name: 'Recommend products',
+        description: 'Recommend PostHog products based on user needs',
+        icon: iconForType('product_analytics'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Recommended products'
+            }
+            return 'Recommending products...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution>, ModeDefinition> = {
