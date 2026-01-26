@@ -5,21 +5,18 @@ export type ClusteringLevel = 'trace' | 'generation'
 
 /**
  * Extract day bounds from a clustering run ID for efficient timestamp filtering.
- * Run IDs are formatted as `<team_id>_<YYYYMMDD>_<HHMMSS>`.
+ * Run IDs are formatted as `<team_id>_<level>_<YYYYMMDD>_<HHMMSS>` where level is "trace" or "generation".
  * Returns start and end of the day to ensure we capture the event.
  * Falls back to last 7 days if parsing fails.
  */
 export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; dayEnd: string } {
     const parts = runId.split('_')
-    // Use format compatible with ClickHouse DateTime64 comparisons
     const dateFormat = 'YYYY-MM-DD HH:mm:ss'
 
-    if (parts.length >= 3) {
-        // Parts: [team_id, YYYYMMDD, HHMMSS]
-        const dateStr = parts[1]
-        const timeStr = parts[2]
+    if (parts.length >= 4) {
+        const dateStr = parts[2]
+        const timeStr = parts[3]
 
-        // Parse YYYYMMDD_HHMMSS format as UTC (backend generates run_id using workflow.now() which is UTC)
         const parsed = dayjs.utc(`${dateStr}_${timeStr}`, 'YYYYMMDD_HHmmss')
         if (parsed.isValid()) {
             return {
@@ -29,7 +26,6 @@ export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; 
         }
     }
 
-    // Fallback to last 7 days
     return {
         dayStart: dayjs().subtract(7, 'day').startOf('day').utc().format(dateFormat),
         dayEnd: dayjs().endOf('day').utc().format(dateFormat),
