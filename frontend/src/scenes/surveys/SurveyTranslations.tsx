@@ -51,25 +51,30 @@ export function SurveyTranslations(): JSX.Element {
             return
         }
 
-        // Initialize translation with empty choices arrays for multiple choice questions
-        const initialTranslation: Record<string, any> = {}
-        survey.questions?.forEach((question, index) => {
+        // Initialize each question's translation with choices arrays for multiple choice questions
+        const updatedQuestions = survey.questions.map((question) => {
             if (
                 question.type === SurveyQuestionType.SingleChoice ||
                 question.type === SurveyQuestionType.MultipleChoice
             ) {
-                if (!initialTranslation.questions) {
-                    initialTranslation.questions = []
-                }
-                initialTranslation.questions[index] = {
-                    choices: question.choices || [],
+                return {
+                    ...question,
+                    translations: {
+                        ...question.translations,
+                        [lang]: {
+                            ...question.translations?.[lang],
+                            choices: question.choices || [],
+                        },
+                    },
                 }
             }
+            return question
         })
 
+        setSurveyValue('questions', updatedQuestions)
         setSurveyValue('translations', {
             ...currentTranslations,
-            [lang]: initialTranslation,
+            [lang]: {},
         })
         setEditingLanguage(lang)
     }
