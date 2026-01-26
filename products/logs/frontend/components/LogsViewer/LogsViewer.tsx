@@ -2,12 +2,15 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar'
+import { LogsFilterBar as LogsFilterBarV2 } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
@@ -113,6 +116,7 @@ function LogsViewerContent({
     onSparklineBreakdownByChange,
     onExpandTimeRange,
 }: LogsViewerContentProps): JSX.Element {
+    const newLogsFilterBar = useFeatureFlag('NEW_LOGS_FILTER_BAR')
     const {
         tabId,
         wrapBody,
@@ -306,6 +310,7 @@ function LogsViewerContent({
 
     return (
         <div className="flex flex-col gap-2 h-full">
+            {newLogsFilterBar ? <LogsFilterBarV2 /> : <LogsFilterBar />}
             <LogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
