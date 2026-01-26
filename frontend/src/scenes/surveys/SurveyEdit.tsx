@@ -360,105 +360,85 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
 
     return (
         <SceneContent>
-            <div className="sticky top-0 z-[100] bg-bg-3000 pb-4">
-                <SceneTitleSection
-                    name={editingLanguage ? (survey.translations?.[editingLanguage]?.name ?? '') : survey.name}
-                    description={
-                        editingLanguage
-                            ? (survey.translations?.[editingLanguage]?.description ?? '')
-                            : survey.description
+            <SceneTitleSection
+                name={editingLanguage ? (survey.translations?.[editingLanguage]?.name ?? '') : survey.name}
+                description={
+                    editingLanguage ? (survey.translations?.[editingLanguage]?.description ?? '') : survey.description
+                }
+                resourceType={{
+                    type: 'survey',
+                }}
+                canEdit
+                onNameChange={(name) => {
+                    if (editingLanguage) {
+                        setSurveyValue('translations', {
+                            ...survey.translations,
+                            [editingLanguage]: {
+                                ...survey.translations?.[editingLanguage],
+                                name,
+                            },
+                        })
+                    } else {
+                        setSurveyValue('name', name)
                     }
-                    resourceType={{
-                        type: 'survey',
-                    }}
-                    canEdit
-                    onNameChange={(name) => {
-                        if (editingLanguage) {
-                            setSurveyValue('translations', {
-                                ...survey.translations,
-                                [editingLanguage]: {
-                                    ...survey.translations?.[editingLanguage],
-                                    name,
-                                },
-                            })
-                        } else {
-                            setSurveyValue('name', name)
-                        }
-                    }}
-                    onDescriptionChange={(description) => {
-                        if (editingLanguage) {
-                            setSurveyValue('translations', {
-                                ...survey.translations,
-                                [editingLanguage]: {
-                                    ...survey.translations?.[editingLanguage],
-                                    description,
-                                },
-                            })
-                        } else {
-                            setSurveyValue('description', description)
-                        }
-                    }}
-                    renameDebounceMs={0}
-                    forceEdit
-                    actions={
-                        <>
-                            {guidedEditorEnabled && survey.type === SurveyType.Popover && (
-                                <LemonButton
-                                    data-attr="switch-to-wizard"
-                                    type="tertiary"
-                                    size="small"
-                                    to={urls.surveyWizard(id)}
-                                >
-                                    Guided editor
-                                </LemonButton>
-                            )}
-                            <LemonButton
-                                data-attr="cancel-survey"
-                                type="secondary"
-                                loading={surveyLoading}
-                                onClick={handleCancelClick}
-                                size="small"
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-survey"
-                                htmlType="submit"
-                                loading={surveyLoading}
-                                form="survey"
-                                size="small"
-                                disabledReason={
-                                    hasTranslationValidationErrors
-                                        ? 'Cannot save: please fix translation validation errors below'
-                                        : undefined
-                                }
-                            >
-                                {id === 'new' ? 'Save as draft' : 'Save'}
-                            </LemonButton>
-                        </>
+                }}
+                onDescriptionChange={(description) => {
+                    if (editingLanguage) {
+                        setSurveyValue('translations', {
+                            ...survey.translations,
+                            [editingLanguage]: {
+                                ...survey.translations?.[editingLanguage],
+                                description,
+                            },
+                        })
+                    } else {
+                        setSurveyValue('description', description)
                     }
-                />
-                {editingLanguage && (
-                    <div className="px-4 py-2 bg-warning-highlight rounded border border-warning mt-4">
-                        <span className="text-sm">
-                            Editing translation for{' '}
-                            <strong>
-                                {COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage}
-                            </strong>
-                            . Only user-facing text can be translated - all other fields are editable in the{' '}
-                            <button
-                                onClick={() => setEditingLanguage(null)}
-                                className="font-semibold hover:underline cursor-pointer"
+                }}
+                renameDebounceMs={0}
+                forceEdit
+                actions={
+                    <>
+                        {guidedEditorEnabled && survey.type === SurveyType.Popover && (
+                            <LemonButton
+                                data-attr="switch-to-wizard"
+                                type="tertiary"
+                                size="small"
+                                to={urls.surveyWizard(id)}
                             >
-                                default language
-                            </button>{' '}
-                            only.
-                        </span>
-                    </div>
-                )}
-                {hasTranslationValidationErrors && (
-                    <div className="px-4 py-2 bg-warning-highlight rounded border border-warning mt-4">
+                                Guided editor
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            data-attr="cancel-survey"
+                            type="secondary"
+                            loading={surveyLoading}
+                            onClick={handleCancelClick}
+                            size="small"
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            data-attr="save-survey"
+                            htmlType="submit"
+                            loading={surveyLoading}
+                            form="survey"
+                            size="small"
+                            disabledReason={
+                                hasTranslationValidationErrors
+                                    ? 'Cannot save: please fix translation validation errors below'
+                                    : undefined
+                            }
+                        >
+                            {id === 'new' ? 'Save as draft' : 'Save'}
+                        </LemonButton>
+                    </>
+                }
+            />
+            <div className="sticky top-[34px] z-[100] bg-bg-3000">
+                {hasTranslationValidationErrors ? (
+                    <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
                         <LemonCollapse
                             embedded
                             defaultActiveKey="validation-errors"
@@ -521,9 +501,26 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                             ]}
                         />
                     </div>
-                )}
+                ) : editingLanguage ? (
+                    <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
+                        <span className="text-sm">
+                            Editing translation for{' '}
+                            <strong>
+                                {COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage}
+                            </strong>
+                            . Only user-facing text can be translated - all other fields are editable in the{' '}
+                            <button
+                                onClick={() => setEditingLanguage(null)}
+                                className="font-semibold hover:underline cursor-pointer"
+                            >
+                                default language
+                            </button>{' '}
+                            only.
+                        </span>
+                    </div>
+                ) : null}
             </div>
-            <div className="flex flex-col gap-y-4">
+            <div className={`flex flex-col gap-y-4 ${editingLanguage || hasTranslationValidationErrors ? 'mt-1' : ''}`}>
                 <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
                     <div className="flex flex-col gap-2 flex-1 SurveyForm">
                         <LemonCollapse
@@ -1625,7 +1622,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         />
                     </div>
                     <div className="h-full">
-                        <div className="sticky top-16">
+                        <div
+                            className={`sticky ${editingLanguage || hasTranslationValidationErrors ? 'top-28' : 'top-16'}`}
+                        >
                             <SurveyFormAppearance
                                 previewPageIndex={selectedPageIndex || 0}
                                 survey={previewSurvey}
