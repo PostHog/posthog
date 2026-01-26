@@ -728,7 +728,7 @@ class HedgeboxPerson(SimPerson):
         )
         self.active_client.capture(EVENT_SIGNED_UP, {"from_invite": False})
         self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
-        person_properties = {"email": self.email, "name": self.name}
+        person_properties: dict[str, str | bool] = {"email": self.email, "name": self.name}
         if self.cluster.is_test_cluster:
             person_properties["$test_user"] = True
         self.active_client.identify(self.in_product_id, person_properties)
