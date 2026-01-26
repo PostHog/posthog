@@ -58,23 +58,24 @@ SANDBOX_PROVIDER=docker
 
 Requires Docker to be running locally.
 
-### Testing with a local agent package
+### Testing with local agent packages
 
-To test changes to the `@posthog/agent` package before publishing, use the `LOCAL_AGENT_PACKAGE` environment variable:
+To test changes to `@posthog/agent` or `@posthog/agent-server` before publishing, use the `LOCAL_ARRAY_REPO` environment variable:
 
 ```bash
-# Build the agent package first
+# Build the packages first
 cd /path/to/array/packages/agent && pnpm build
+cd /path/to/array/packages/agent-server && pnpm build
 
-# Run with local agent
-LOCAL_AGENT_PACKAGE=/path/to/array/packages/agent \
+# Run with local packages
+LOCAL_ARRAY_REPO=/path/to/array \
   python products/tasks/scripts/run_agent_in_docker.py --repository org/repo
 ```
 
 This uses a two-layer Docker image approach:
 
-1. `posthog-sandbox-base` - Base image with `@posthog/agent` from npm
-2. `posthog-sandbox-base-local` - Dev image that overlays your local agent package
+1. `posthog-sandbox-base` - Base image with `@posthog/agent` and `@posthog/agent-server` from npm
+2. `posthog-sandbox-base-local` - Dev image that overlays your local packages
 
 The local image is rebuilt each time to pick up your changes. The base image is cached.
 

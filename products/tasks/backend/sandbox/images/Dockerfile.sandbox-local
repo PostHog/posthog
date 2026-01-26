@@ -1,16 +1,29 @@
 # Dockerfile for local agent development - builds on top of sandbox-base
 # This image should be rebuilt when the local agent package changes
-# Set LOCAL_AGENT_PACKAGE to the path to the local agent package to use this in DockerSandbox
+# Set LOCAL_ARRAY_REPO to the root of the array repo to use local agent packages
 
 FROM posthog-sandbox-base
 
+# Copy local packages (may be empty if not provided)
 COPY local-agent /local-agent
+COPY local-agent-server /local-agent-server
 
-# Build the agent package (install deps including devDeps for TypeScript, compile TypeScript)
-# --include=dev ensures @types/node is installed for DTS generation
-RUN cd /local-agent && \
-    npm install --include=dev && \
-    npm run build && \
-    npm pack && \
-    cd /scripts && npm install /local-agent/*.tgz && \
+# Build and install local agent package if present
+RUN if [ -f /local-agent/package.json ]; then \
+        cd /local-agent && \
+        npm install --include=dev && \
+        npm run build && \
+        npm pack && \
+        cd /scripts && npm install /local-agent/*.tgz; \
+    fi && \
     rm -rf /local-agent
+
+# Build and install local agent-server package if present
+RUN if [ -f /local-agent-server/package.json ]; then \
+        cd /local-agent-server && \
+        npm install --include=dev && \
+        npm run build && \
+        npm pack && \
+        cd /scripts && npm install /local-agent-server/*.tgz; \
+    fi && \
+    rm -rf /local-agent-server

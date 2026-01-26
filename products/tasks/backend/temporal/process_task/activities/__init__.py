@@ -7,6 +7,7 @@ from .get_sandbox_for_repository import (
 )
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
+from .start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
@@ -17,6 +18,8 @@ __all__ = [
     "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
     "PostSlackUpdateInput",
+    "StartAgentServerInput",
+    "StartAgentServerOutput",
     "TaskProcessingContext",
     "TrackWorkflowEventInput",
     "UpdateTaskRunStatusInput",
@@ -25,6 +28,7 @@ __all__ = [
     "get_sandbox_for_repository",
     "get_task_processing_context",
     "post_slack_update",
+    "start_agent_server",
     "track_workflow_event",
     "update_task_run_status",
 ]
