@@ -177,6 +177,10 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             valid_products = [p for p in result.products if p in VALID_PRODUCTS][:PRODUCTS_LIMIT]
 
+            # Fallback to product_analytics if no valid products were recommended
+            if not valid_products:
+                valid_products = [Product.PRODUCT_ANALYTICS]
+
             return response.Response(
                 {
                     "products": [p.value for p in valid_products],
