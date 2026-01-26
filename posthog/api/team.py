@@ -814,20 +814,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             validated_data, instance.conversations_enabled, instance.conversations_settings
         )
 
-        # Handle logs_settings: merge with existing and auto-set retention_last_updated
-        if "logs_settings" in validated_data and validated_data["logs_settings"] is not None:
-            existing_settings = instance.logs_settings or {}
-            new_settings = validated_data["logs_settings"]
-            merged_settings = {**existing_settings, **new_settings}
-
-            # Auto-set retention_last_updated if retention_days is being changed
-            old_retention = existing_settings.get("retention_days")
-            new_retention = new_settings.get("retention_days")
-            if old_retention != new_retention and new_retention is not None:
-                merged_settings["retention_last_updated"] = timezone.now().isoformat()
-
-            validated_data["logs_settings"] = merged_settings
-
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
             validated_data["modifiers"] = {
