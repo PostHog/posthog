@@ -44,15 +44,18 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
-import { isNonEmptyObject } from 'lib/utils'
+import { dateMapping, fullName, isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
@@ -684,6 +687,12 @@ export function SavedInsights(): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
 
+    const { filteredTags, search: tagSearch } = useValues(tagSelectLogic)
+    const { setSearch: setTagSearch } = useActions(tagSelectLogic)
+
+    const { meFirstMembers, filteredMembers, search: memberSearch } = useValues(membersLogic)
+    const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+
     const { tab } = filters
 
     const handleTagToggle = (tag: string): void => {
@@ -833,6 +842,66 @@ export function SavedInsights(): JSX.Element {
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={tags} staticOnly />
             },
+            more: (
+                <div className="max-w-100 deprecated-space-y-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search tags"
+                        autoFocus
+                        value={tagSearch}
+                        onChange={setTagSearch}
+                        fullWidth
+                        className="max-w-full"
+                    />
+                    <ul className="deprecated-space-y-px">
+                        {filteredTags.map((tag: string) => (
+                            <li key={tag}>
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitem"
+                                    size="small"
+                                    onClick={() => handleTagToggle(tag)}
+                                >
+                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                        <span className="flex items-center gap-2 max-w-full">
+                                            <input
+                                                type="checkbox"
+                                                className="cursor-pointer"
+                                                checked={filters.tags?.includes(tag) || false}
+                                                readOnly
+                                            />
+                                            <span>{tag}</span>
+                                        </span>
+                                    </span>
+                                </LemonButton>
+                            </li>
+                        ))}
+                        {filteredTags.length === 0 ? (
+                            <div className="p-2 text-secondary italic truncate border-t">
+                                {tagSearch ? <span>No matching tags</span> : <span>No tags</span>}
+                            </div>
+                        ) : null}
+                        {(filters.tags?.length || 0) > 0 && (
+                            <>
+                                <div className="my-1 border-t" />
+                                <li>
+                                    <LemonButton
+                                        fullWidth
+                                        role="menuitem"
+                                        size="small"
+                                        onClick={() => setSavedInsightsFilters({ tags: [] })}
+                                        type="tertiary"
+                                    >
+                                        Clear selection
+                                    </LemonButton>
+                                </li>
+                            </>
+                        )}
+                    </ul>
+                </div>
+            ),
+            moreIcon: <IconFilter />,
+            moreFilterCount: filters.tags?.length || 0,
         },
         ...(tab === SavedInsightsTabs.Yours
             ? []
@@ -1081,31 +1150,34 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    {!insightsLoading && insights.count < 1 ? (
-                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
-                    ) : (
-                        <>
-                            <ReloadInsight />
-                            <LemonTable
-                                loading={insightsLoading}
-                                columns={columns}
-                                dataSource={insights.results}
-                                pagination={pagination}
-                                noSortingCancellation
-                                sorting={sorting}
-                                onSort={(newSorting) =>
-                                    setSavedInsightsFilters({
-                                        order: newSorting
-                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                            : undefined,
-                                    })
-                                }
-                                rowKey="id"
-                                loadingSkeletonRows={15}
-                                nouns={['insight', 'insights']}
-                            />
-                        </>
-                    )}
+
+                    <ReloadInsight />
+                    <LemonTable
+                        loading={insightsLoading}
+                        columns={columns}
+                        dataSource={insights.results}
+                        pagination={pagination}
+                        noSortingCancellation
+                        sorting={sorting}
+                        onSort={(newSorting) =>
+                            setSavedInsightsFilters({
+                                order: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                            })
+                        }
+                        rowKey="id"
+                        loadingSkeletonRows={15}
+                        nouns={['insight', 'insights']}
+                        hideSortingIndicatorWhenInactive
+                        emptyState={
+                            !insightsLoading && insights.count < 1 ? (
+                                <div className="py-8">
+                                    <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
+                                </div>
+                            ) : undefined
+                        }
+                    />
                 </>
             )}
         </SceneContent>
