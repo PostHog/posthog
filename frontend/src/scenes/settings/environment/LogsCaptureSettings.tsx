@@ -67,8 +67,8 @@ export function LogsJsonParseSettings(): JSX.Element {
     return (
         <>
             <p>
-                This will parse any log lines which are valid JSON and add those JSON fields as log attributes we can be
-                used in filters
+                This will parse any log lines which are valid JSON and add those JSON fields as log attributes that can
+                be used in filters
             </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.Logs}
