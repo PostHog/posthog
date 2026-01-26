@@ -1909,7 +1909,26 @@ class HeatmapSettings(BaseModel):
     yAxisLabel: str | None = None
 
 
-class HedgehogColorOptions(StrEnum):
+class HedgehogActorAccessoryOption(StrEnum):
+    BERET = "beret"
+    CAP = "cap"
+    CHEF = "chef"
+    COWBOY = "cowboy"
+    EYEPATCH = "eyepatch"
+    FLAG = "flag"
+    GLASSES = "glasses"
+    GRADUATION = "graduation"
+    PARROT = "parrot"
+    PARTY = "party"
+    PINEAPPLE = "pineapple"
+    SUNGLASSES = "sunglasses"
+    TOPHAT = "tophat"
+    XMAS_HAT = "xmas-hat"
+    XMAS_ANTLERS = "xmas-antlers"
+    XMAS_SCARF = "xmas-scarf"
+
+
+class HedgehogActorColorOption(StrEnum):
     GREEN = "green"
     RED = "red"
     BLUE = "blue"

@@ -16919,8 +16919,33 @@
             },
             "type": "object"
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+        "HedgehogActorAccessoryOption": {
+            "enum": [
+                "beret",
+                "cap",
+                "chef",
+                "cowboy",
+                "eyepatch",
+                "flag",
+                "glasses",
+                "graduation",
+                "parrot",
+                "party",
+                "pineapple",
+                "sunglasses",
+                "tophat",
+                "xmas-hat",
+                "xmas-antlers",
+                "xmas-scarf"
+            ],
+            "type": "string"
+        },
+        "HedgehogActorColorOption": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "greyscale", "sepia", "invert", "rainbow"],
+            "type": "string"
+        },
+        "HedgehogActorSkinOption": {
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
             "type": "string"
         },
         "HogCompileResponse": {
