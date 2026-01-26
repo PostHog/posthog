@@ -232,6 +232,13 @@ export const searchLogic = kea<searchLogicType>([
                 loadSceneLogViewsFailure: () => true,
             },
         ],
+        isAppsLoading: [
+            true,
+            {
+                loadSceneLogViewsSuccess: () => false,
+                loadSceneLogViewsFailure: () => false,
+            },
+        ],
     }),
     selectors({
         sceneLogViewsByRef: [
@@ -619,13 +626,13 @@ export const searchLogic = kea<searchLogicType>([
                 s.groupItems,
                 s.playlistItems,
                 s.unifiedSearchItems,
-                s.unifiedSearchResults,
+                s.unifiedSearchResultsLoading,
                 s.recentsLoading,
                 s.recentsHasLoaded,
-                s.sceneLogViewsLoading,
-                s.sceneLogViewsHasLoaded,
+                s.isAppsLoading,
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
+                s.playlistSearchResultsLoading,
                 s.search,
             ],
             (
@@ -637,13 +644,13 @@ export const searchLogic = kea<searchLogicType>([
                 groupItems,
                 playlistItems,
                 unifiedSearchItems,
-                unifiedSearchResults,
+                unifiedSearchResultsLoading,
                 recentsLoading,
                 recentsHasLoaded,
-                sceneLogViewsLoading,
-                sceneLogViewsHasLoaded,
+                isAppsLoading,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
+                playlistSearchResultsLoading,
                 search
             ): SearchCategory[] => {
                 const categories: SearchCategory[] = []
@@ -673,7 +680,6 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 // Filter apps and data management by search
-                const isAppsLoading = sceneLogViewsLoading || !sceneLogViewsHasLoaded
                 const filteredApps = filterBySearch(appsItems)
                 const filteredDataManagement = filterBySearch(dataManagementItems)
 
@@ -736,8 +742,7 @@ export const searchLogic = kea<searchLogicType>([
 
                 // Only show unified search results when searching
                 if (hasSearch) {
-                    // unifiedSearchResults is null when still loading (initial state)
-                    const unifiedLoading = unifiedSearchResults === null
+                    const unifiedLoading = unifiedSearchResultsLoading
 
                     // Add unified search categories
                     const categoryOrder = [
@@ -767,11 +772,11 @@ export const searchLogic = kea<searchLogicType>([
                     }
 
                     // Add session recording playlists
-                    if (playlistItems.length > 0) {
+                    if (playlistItems.length > 0 || playlistSearchResultsLoading) {
                         categories.push({
                             key: 'session_recording_playlist',
                             items: playlistItems,
-                            isLoading: false,
+                            isLoading: playlistSearchResultsLoading,
                         })
                     }
 

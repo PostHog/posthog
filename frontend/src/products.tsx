@@ -811,7 +811,7 @@ export const fileSystemTypes = {
         filterKey: 'revenue',
     },
     session_recording_playlist: {
-        name: 'Replay playlist',
+        name: 'Replay saved filter',
         iconType: 'session_replay',
         href: (ref: string) => urls.replayPlaylist(ref),
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
