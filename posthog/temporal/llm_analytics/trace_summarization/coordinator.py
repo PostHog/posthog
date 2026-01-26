@@ -109,14 +109,14 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 teams_processed=0,
                 teams_failed=0,
                 failed_team_ids=[],
-                total_traces=0,
+                total_items=0,
                 total_summaries=0,
             )
 
         logger.info("Processing teams from allowlist", team_count=len(team_ids), team_ids=team_ids)
 
         # Spawn child workflows for each team
-        total_traces = 0
+        total_items = 0
         total_summaries = 0
         failed_teams = []
 
@@ -139,7 +139,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )
 
-                total_traces += workflow_result.metrics.traces_queried
+                total_items += workflow_result.metrics.items_queried
                 total_summaries += workflow_result.metrics.summaries_generated
 
             except Exception as e:
@@ -151,6 +151,6 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             teams_processed=len(team_ids),
             teams_failed=len(failed_teams),
             failed_team_ids=failed_teams,
-            total_traces=total_traces,
+            total_items=total_items,
             total_summaries=total_summaries,
         )

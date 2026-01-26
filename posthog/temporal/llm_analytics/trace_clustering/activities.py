@@ -61,8 +61,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    # Generate run_id with optional label suffix for experiment tracking
-    base_run_id = f"{inputs.team_id}_{window_end.strftime('%Y%m%d_%H%M%S')}"
+    # Generate run_id with analysis_level for uniqueness and optional label suffix for experiment tracking
+    base_run_id = f"{inputs.team_id}_{inputs.analysis_level}_{window_end.strftime('%Y%m%d_%H%M%S')}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
     team = Team.objects.get(id=inputs.team_id)

@@ -107,5 +107,5 @@ class CoordinatorResult:
     teams_processed: int
     teams_failed: int
     failed_team_ids: list[int]
-    total_traces: int
+    total_items: int  # traces or generations depending on analysis_level
     total_summaries: int
