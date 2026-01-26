@@ -217,6 +217,9 @@ class TestSurvey(APIBaseTest):
                     "es": {
                         "name": "<script>alert('xss')</script>Título",
                         "description": "<b>Bold</b> <script>evil()</script>",
+                        "thankYouMessageHeader": "<i>Gracias</i><script>xss()</script>",
+                        "thankYouMessageDescription": "<em>Apreciamos tu respuesta</em><script>bad()</script>",
+                        "thankYouMessageCloseButtonText": "<strong>Cerrar</strong><script>evil()</script>",
                     },
                 },
             },
@@ -229,6 +232,12 @@ class TestSurvey(APIBaseTest):
         assert "Título" in survey.translations["es"]["name"]
         assert "<b>Bold</b>" in survey.translations["es"]["description"]
         assert "<script>" not in survey.translations["es"]["description"]
+        assert "<i>Gracias</i>" in survey.translations["es"]["thankYouMessageHeader"]
+        assert "<script>" not in survey.translations["es"]["thankYouMessageHeader"]
+        assert "<em>Apreciamos tu respuesta</em>" in survey.translations["es"]["thankYouMessageDescription"]
+        assert "<script>" not in survey.translations["es"]["thankYouMessageDescription"]
+        assert "<strong>Cerrar</strong>" in survey.translations["es"]["thankYouMessageCloseButtonText"]
+        assert "<script>" not in survey.translations["es"]["thankYouMessageCloseButtonText"]
 
     def test_inline_question_translations_sanitize_all_fields(self):
         response = self.client.post(
