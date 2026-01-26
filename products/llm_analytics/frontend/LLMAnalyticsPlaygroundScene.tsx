@@ -496,16 +496,30 @@ function OutputSection(): JSX.Element {
     )
 }
 
+function getModelOptionsErrorMessage(errorStatus: number | null): string | null {
+    if (errorStatus === null) {
+        return null
+    }
+
+    if (errorStatus === 429) {
+        return 'Too many requests. Please wait a moment and try again.'
+    }
+
+    return 'Failed to load models. Please refresh the page or try again later.'
+}
+
 function ConfigurationPanel(): JSX.Element {
-    const { maxTokens, thinking, reasoningLevel, model, modelOptions, modelOptionsLoading } =
+    const { maxTokens, thinking, reasoningLevel, model, modelOptions, modelOptionsLoading, modelOptionsErrorStatus } =
         useValues(llmAnalyticsPlaygroundLogic)
-    const { setMaxTokens, setThinking, setReasoningLevel, setModel } = useActions(llmAnalyticsPlaygroundLogic)
+    const { setMaxTokens, setThinking, setReasoningLevel, setModel, loadModelOptions } =
+        useActions(llmAnalyticsPlaygroundLogic)
 
     const handleThinkingToggle = (e: React.ChangeEvent<HTMLInputElement>): void => {
         setThinking(e.target.checked)
     }
 
     const options = Array.isArray(modelOptions) ? modelOptions : []
+    const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
 
     return (
         <div className="space-y-4">
@@ -530,7 +544,18 @@ function ConfigurationPanel(): JSX.Element {
                     />
                 )}
                 {options.length === 0 && !modelOptionsLoading && (
-                    <p className="text-xs text-danger mt-1">No models available. Check proxy status.</p>
+                    <div className="mt-1">
+                        <p className="text-xs text-danger">
+                            {errorMessage || 'No models available. Check proxy status.'}
+                        </p>
+                        <button
+                            type="button"
+                            className="text-xs text-link mt-1 underline"
+                            onClick={() => loadModelOptions()}
+                        >
+                            Retry
+                        </button>
+                    </div>
                 )}
             </div>
 
