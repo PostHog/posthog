@@ -355,6 +355,8 @@ impl KafkaDeduplicatorService {
                 .with_queued_max_messages_kbytes(
                     self.config.kafka_consumer_queued_max_messages_kbytes,
                 )
+                // Consumer group membership settings
+                .with_max_poll_interval_ms(self.config.kafka_max_poll_interval_ms)
                 .build();
 
         // Create shutdown channel

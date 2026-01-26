@@ -150,9 +150,10 @@ where
             }
 
             match importer
-                .import_checkpoint_for_topic_partition(
+                .import_checkpoint_for_topic_partition_cancellable(
                     partition.topic(),
                     partition.partition_number(),
+                    Some(cancel_token),
                 )
                 .await
             {
@@ -170,8 +171,10 @@ where
                         )
                         .increment(1);
                         // Clean up the downloaded files since we won't use them
-                        if path.exists() {
-                            if let Err(e) = std::fs::remove_dir_all(&path) {
+                        match tokio::fs::remove_dir_all(&path).await {
+                            Ok(_) => {}
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(e) => {
                                 warn!(
                                     "Failed to clean up cancelled checkpoint download at {}: {}",
                                     path.display(),
