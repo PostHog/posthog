@@ -20,7 +20,13 @@ from llm_gateway.metrics.prometheus import (
     STREAMING_CLIENT_DISCONNECT,
 )
 from llm_gateway.observability import capture_exception
-from llm_gateway.request_context import RequestContext, get_request_id, set_auth_user, set_request_context
+from llm_gateway.request_context import (
+    RequestContext,
+    get_request_id,
+    set_auth_user,
+    set_request_context,
+    set_time_to_first_token,
+)
 from llm_gateway.streaming.sse import format_sse_stream
 
 logger = structlog.get_logger(__name__)
@@ -139,6 +145,7 @@ async def _handle_streaming_request(
                     LLM_TIME_TO_FIRST_TOKEN.labels(provider=provider_config.name, model=model, product=product).observe(
                         time_to_first
                     )
+                    set_time_to_first_token(time_to_first)
                 yield chunk
 
         except asyncio.CancelledError:
