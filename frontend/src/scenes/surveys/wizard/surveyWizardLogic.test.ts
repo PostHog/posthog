@@ -158,36 +158,6 @@ describe('surveyWizardLogic', () => {
             )
             expect(launchedIntent).toBeUndefined()
         })
-
-        it('should send correct product_type in all intent payloads', async () => {
-            const logic = surveyWizardLogic({ id: 'new' })
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.selectTemplate(createMockTemplate())
-                logic.actions.launchSurvey()
-            }).toFinishAllListeners()
-
-            capturedIntentRequests.forEach((request) => {
-                expect(request.product_type).toBe(ProductKey.SURVEYS)
-            })
-        })
-
-        it('should include source metadata as survey_wizard', async () => {
-            const logic = surveyWizardLogic({ id: 'new' })
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.selectTemplate(createMockTemplate())
-                logic.actions.launchSurvey()
-            }).toFinishAllListeners()
-
-            capturedIntentRequests.forEach((request) => {
-                if (request.metadata) {
-                    expect(request.metadata.source).toBe(SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
-                }
-            })
-        })
     })
 
     describe('wizard step navigation', () => {

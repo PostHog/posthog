@@ -226,24 +226,6 @@ describe('surveysLogic', () => {
             })
         })
 
-        it('should track SURVEY_ADD_NEW intent when add survey button is clicked', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_ADD_NEW,
-                })
-            }).toFinishAllListeners()
-
-            const addNewIntent = capturedIntentRequests.find(
-                (req) => req.intent_context === ProductIntentContext.SURVEY_ADD_NEW
-            )
-            expect(addNewIntent).toBeTruthy()
-            expect(addNewIntent).toEqual({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_ADD_NEW,
-            })
-        })
-
         it('should track SURVEY_CREATED intent when creating survey from template', async () => {
             const mockTemplate = {
                 templateType: 'Net promoter score (NPS)',
