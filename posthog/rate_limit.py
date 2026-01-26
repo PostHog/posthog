@@ -305,9 +305,9 @@ class SignupIPThrottle(IPThrottle):
     rate = "5/day"
 
 
-class SignupEmailPrecheckThrottle(UserOrEmailRateThrottle):
+class SignupEmailPrecheckThrottle(IPThrottle):
     """
-    Rate limit signup email precheck requests by user/email.
+    Rate limit signup email precheck requests by IP.
     """
 
     scope = "signup_email_precheck"
