@@ -11,6 +11,7 @@ import structlog
 from celery import shared_task
 
 from .. import logic
+from ..diff import compute_diff
 from ..domain_types import SnapshotResult
 
 logger = structlog.get_logger(__name__)
@@ -64,24 +65,48 @@ def _diff_snapshot(snapshot) -> None:
     """
     Compute diff between baseline and current artifact.
 
-    TODO: Integrate Rust-based image diff engine.
-
-    The Rust engine would:
-    1. Download both images from S3
-    2. Decode PNGs to raw RGBA
-    3. Run pixelmatch algorithm
-    4. Generate diff image
-    5. Return diff metrics (percentage, pixel count)
+    Downloads both images, computes pixel diff, uploads diff image.
     """
-    # Placeholder - actual implementation will call Rust diff engine
-    # via PyO3 bindings or subprocess
-    #
-    # Example future integration:
-    # from visual_review_diff import compute_diff  # Rust PyO3 module
-    # result = compute_diff(baseline_path, current_path)
-    # logic.update_snapshot_diff(snapshot.id, result.diff_artifact, ...)
+    project_id = snapshot.run.project_id
+
+    # Download images from storage
+    baseline_bytes = logic.read_artifact_bytes(project_id, snapshot.baseline_artifact.content_hash)
+    current_bytes = logic.read_artifact_bytes(project_id, snapshot.current_artifact.content_hash)
+
+    if not baseline_bytes or not current_bytes:
+        logger.warning(
+            "visual_review.diff_skipped_missing_artifact",
+            snapshot_id=str(snapshot.id),
+            identifier=snapshot.identifier,
+            has_baseline=baseline_bytes is not None,
+            has_current=current_bytes is not None,
+        )
+        return
+
+    # Compute diff
+    result = compute_diff(baseline_bytes, current_bytes)
+
+    # Upload diff image
+    diff_artifact = logic.write_artifact_bytes(
+        project_id=project_id,
+        content_hash=result.diff_hash,
+        content=result.diff_image,
+        width=result.width,
+        height=result.height,
+    )
+
+    # Update snapshot with diff results
+    logic.update_snapshot_diff(
+        snapshot_id=snapshot.id,
+        diff_artifact=diff_artifact,
+        diff_percentage=result.diff_percentage,
+        diff_pixel_count=result.diff_pixel_count,
+    )
+
     logger.info(
-        "visual_review.diff_skipped_not_implemented",
+        "visual_review.diff_computed",
         snapshot_id=str(snapshot.id),
         identifier=snapshot.identifier,
+        diff_percentage=result.diff_percentage,
+        diff_pixel_count=result.diff_pixel_count,
     )

@@ -105,7 +105,7 @@ class TestProcessRunDiffs:
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.NEW
 
-    def test_process_diffs_logs_changed_snapshots(self, project):
+    def test_process_diffs_attempts_diff_for_changed(self, project):
         # Create baseline artifact
         api.register_artifact(
             RegisterArtifactInput(
@@ -134,12 +134,11 @@ class TestProcessRunDiffs:
             )
         )
 
-        # Process - should attempt to diff changed snapshot
-        # Since diff is stubbed, it just logs
+        # Process - should attempt to diff but fail because artifacts aren't in storage
         with patch("products.visual_review.backend.tasks.tasks.logger") as mock_logger:
             _process_diffs(create_result.run_id)
 
-            # Check that diff_skipped was logged for the changed snapshot
-            mock_logger.info.assert_called()
-            call_args = [call[0][0] for call in mock_logger.info.call_args_list]
-            assert any("diff_skipped" in arg for arg in call_args)
+            # Check that warning was logged about missing artifacts
+            mock_logger.warning.assert_called()
+            call_args = [call[0][0] for call in mock_logger.warning.call_args_list]
+            assert any("diff_skipped_missing_artifact" in arg for arg in call_args)

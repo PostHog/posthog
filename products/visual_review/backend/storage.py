@@ -74,3 +74,13 @@ class ArtifactStorage:
         key = self._key(content_hash)
         object_storage.write(key, content, extras={"ContentType": "image/png"})
         return key
+
+    def read(self, content_hash: str) -> bytes | None:
+        """
+        Read artifact content from storage.
+        Returns None if not found.
+        """
+        if not settings.OBJECT_STORAGE_ENABLED:
+            return None
+
+        return object_storage.read_bytes(self._key(content_hash), missing_ok=True)

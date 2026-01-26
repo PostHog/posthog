@@ -90,6 +90,39 @@ def get_presigned_download_url(project_id: UUID, content_hash: str) -> str | Non
     return storage.get_presigned_download_url(content_hash)
 
 
+def read_artifact_bytes(project_id: UUID, content_hash: str) -> bytes | None:
+    """Read artifact content from storage."""
+    storage = ArtifactStorage(str(project_id))
+    return storage.read(content_hash)
+
+
+def write_artifact_bytes(
+    project_id: UUID,
+    content_hash: str,
+    content: bytes,
+    width: int | None = None,
+    height: int | None = None,
+) -> Artifact:
+    """
+    Write artifact content to storage and create DB record.
+    Used for server-generated artifacts like diff images.
+    """
+    storage = ArtifactStorage(str(project_id))
+    storage_path = storage.write(content_hash, content)
+
+    artifact, _ = Artifact.objects.get_or_create(
+        project_id=project_id,
+        content_hash=content_hash,
+        defaults={
+            "storage_path": storage_path,
+            "width": width,
+            "height": height,
+            "size_bytes": len(content),
+        },
+    )
+    return artifact
+
+
 # --- Run Operations ---
 
 
