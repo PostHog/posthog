@@ -1,5 +1,3 @@
-from django.conf import settings
-
 import posthoganalytics
 
 from posthog.models import Team, User
@@ -16,9 +14,6 @@ def has_web_search_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_onboarding_mode_feature_flag(team: Team, user: User) -> bool:
-    # Allow enabling via PERSISTED_FEATURE_FLAGS in development
-    if settings.DEBUG and "onboarding-ai-product-recommendations" in settings.PERSISTED_FEATURE_FLAGS:
-        return settings.PERSISTED_FEATURE_FLAGS.get("onboarding-ai-product-recommendations") == "chat"
     variant = posthoganalytics.get_feature_flag(
         "onboarding-ai-product-recommendations",
         str(user.distinct_id),

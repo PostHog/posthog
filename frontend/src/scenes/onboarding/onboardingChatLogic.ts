@@ -12,6 +12,7 @@ import {
     AssistantGenerationStatusType,
     AssistantMessage,
     AssistantMessageType,
+    AssistantToolCallMessage,
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -28,39 +29,29 @@ export interface OnboardingChatMessage {
     status: MessageStatus
 }
 
-// Product keywords the AI uses when recommending products
-// The AI is instructed to use exact product names in bold, so we match those specifically
-const PRODUCT_KEYWORDS: Record<string, ProductKey> = {
-    'product analytics': ProductKey.PRODUCT_ANALYTICS,
-    'session replay': ProductKey.SESSION_REPLAY,
-    'session recording': ProductKey.SESSION_REPLAY,
-    'session recordings': ProductKey.SESSION_REPLAY,
-    'feature flags': ProductKey.FEATURE_FLAGS,
-    'feature flag': ProductKey.FEATURE_FLAGS,
+// Map from tool product keys to PostHog ProductKey enum
+const TOOL_PRODUCT_TO_PRODUCT_KEY: Record<string, ProductKey> = {
+    product_analytics: ProductKey.PRODUCT_ANALYTICS,
+    session_replay: ProductKey.SESSION_REPLAY,
+    feature_flags: ProductKey.FEATURE_FLAGS,
     experiments: ProductKey.EXPERIMENTS,
-    'a/b test': ProductKey.EXPERIMENTS,
-    'a/b testing': ProductKey.EXPERIMENTS,
     surveys: ProductKey.SURVEYS,
-    survey: ProductKey.SURVEYS,
-    'error tracking': ProductKey.ERROR_TRACKING,
-    'web analytics': ProductKey.WEB_ANALYTICS,
-    'website analytics': ProductKey.WEB_ANALYTICS,
-    'llm observability': ProductKey.LLM_ANALYTICS,
-    'data warehouse': ProductKey.DATA_WAREHOUSE,
+    web_analytics: ProductKey.WEB_ANALYTICS,
+    error_tracking: ProductKey.ERROR_TRACKING,
+    data_warehouse: ProductKey.DATA_WAREHOUSE,
+    llm_observability: ProductKey.LLM_ANALYTICS,
 }
 
-// Extract product recommendations from AI message content
-function extractRecommendedProducts(content: string): ProductKey[] {
-    const lowerContent = content.toLowerCase()
-    const products = new Set<ProductKey>()
-
-    for (const [keyword, productKey] of Object.entries(PRODUCT_KEYWORDS)) {
-        if (lowerContent.includes(keyword)) {
-            products.add(productKey)
-        }
+// Extract product recommendations from recommend_products tool call
+function extractProductsFromToolCall(toolCallMessage: AssistantToolCallMessage): ProductKey[] {
+    const payload = toolCallMessage.ui_payload
+    if (!payload || !Array.isArray(payload.products)) {
+        return []
     }
 
-    return Array.from(products)
+    return payload.products
+        .map((product: string) => TOOL_PRODUCT_TO_PRODUCT_KEY[product])
+        .filter((key: ProductKey | undefined): key is ProductKey => key !== undefined)
 }
 
 export const onboardingChatLogic = kea<onboardingChatLogicType>([
@@ -214,9 +205,12 @@ export const onboardingChatLogic = kea<onboardingChatLogicType>([
                                             content: fullContent,
                                             status: message.id?.startsWith('temp-') ? 'loading' : 'completed',
                                         })
-
-                                        // Extract product recommendations from the response
-                                        const products = extractRecommendedProducts(fullContent)
+                                    }
+                                } else if (message.type === AssistantMessageType.ToolCall) {
+                                    // Handle tool call messages - extract product recommendations
+                                    const toolCallMsg = message as AssistantToolCallMessage
+                                    if (toolCallMsg.ui_payload?.products) {
+                                        const products = extractProductsFromToolCall(toolCallMsg)
                                         if (products.length > 0) {
                                             actions.setRecommendedProducts(products)
                                         }

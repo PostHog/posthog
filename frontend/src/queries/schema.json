@@ -1981,7 +1981,8 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
-                "finalize_plan"
+                "finalize_plan",
+                "recommend_products"
             ],
             "type": "string"
         },

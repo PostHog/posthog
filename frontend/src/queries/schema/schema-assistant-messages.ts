@@ -437,6 +437,7 @@ export type AssistantTool =
     | 'create_notebook'
     | 'list_data'
     | 'finalize_plan'
+    | 'recommend_products'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

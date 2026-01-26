@@ -17,7 +17,9 @@ class OnboardingAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        return []
+        from ee.hogai.tools import RecommendProductsTool
+
+        return [RecommendProductsTool]
 
 
 onboarding_agent = AgentModeDefinition(
