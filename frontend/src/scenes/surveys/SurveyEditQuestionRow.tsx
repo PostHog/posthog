@@ -12,7 +12,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
 import {
-    LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
@@ -180,6 +179,13 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         ? {
               ...question,
               ...question.translations?.[editingLanguage],
+              // Ensure choices array exists for translations by using original choices if translation is empty
+              choices:
+                  question.translations?.[editingLanguage]?.choices ||
+                  (question.type === SurveyQuestionType.SingleChoice ||
+                  question.type === SurveyQuestionType.MultipleChoice
+                      ? question.choices || []
+                      : undefined),
           }
         : question
 
@@ -220,6 +226,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 <LemonField name="type" label="Question type" className="max-w-60">
                     <LemonSelect
                         disabled={!!editingLanguage}
+                        disabledReason={
+                            editingLanguage ? 'Question type can only be changed in the default language' : undefined
+                        }
                         data-attr={`survey-question-type-${index}`}
                         onSelect={(newType) => {
                             const isCurrentMultipleChoice =
@@ -293,7 +302,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 </LemonField>
                 {survey.questions.length > 1 && (
                     <LemonField name="optional" className="my-2">
-                        <LemonCheckbox label="Optional" checked={!!question.optional} disabled={!!editingLanguage} />
+                        <LemonCheckbox
+                            label="Optional"
+                            checked={!!question.optional}
+                            disabled={!!editingLanguage}
+                            disabledReason={
+                                editingLanguage
+                                    ? 'Question settings can only be changed in the default language'
+                                    : undefined
+                            }
+                        />
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (
@@ -304,7 +322,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     >
                         <LemonInput
                             value={displayQuestion.link || ''}
-                            placeholder={editingLanguage ? question.link || 'https://posthog.com' : 'https://posthog.com'}
+                            placeholder={
+                                editingLanguage ? question.link || 'https://posthog.com' : 'https://posthog.com'
+                            }
                         />
                     </LemonField>
                 )}
@@ -314,6 +334,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             <LemonField name="display" label="Display type" className="w-1/2">
                                 <LemonSelect
                                     disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Display type can only be changed in the default language'
+                                            : undefined
+                                    }
                                     options={[
                                         { label: 'Number', value: 'number' },
                                         { label: 'Emoji', value: 'emoji' },
@@ -338,6 +363,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
                                     disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Rating scale can only be changed in the default language'
+                                            : undefined
+                                    }
                                     options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
                                     onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
@@ -351,13 +381,21 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         </div>
                         {!isThumbQuestion(question) && (
                             <div className="flex flex-row gap-4">
-                                <LemonField name={getFieldName('lowerBoundLabel')} label="Lower bound label" className="w-1/2">
+                                <LemonField
+                                    name={getFieldName('lowerBoundLabel')}
+                                    label="Lower bound label"
+                                    className="w-1/2"
+                                >
                                     <LemonInput
                                         value={displayQuestion.lowerBoundLabel || ''}
                                         placeholder={editingLanguage ? question.lowerBoundLabel : undefined}
                                     />
                                 </LemonField>
-                                <LemonField name={getFieldName('upperBoundLabel')} label="Upper bound label" className="w-1/2">
+                                <LemonField
+                                    name={getFieldName('upperBoundLabel')}
+                                    label="Upper bound label"
+                                    className="w-1/2"
+                                >
                                     <LemonInput
                                         value={displayQuestion.upperBoundLabel || ''}
                                         placeholder={editingLanguage ? question.upperBoundLabel : undefined}
@@ -373,6 +411,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         info="If checked, we'll calculate and display NPS on the survey results page."
                                         checked={isNpsQuestion !== false}
                                         disabled={!!editingLanguage}
+                                        disabledReason={
+                                            editingLanguage
+                                                ? 'Question settings can only be changed in the default language'
+                                                : undefined
+                                        }
                                         onChange={toggleIsNpsQuestion}
                                     />
                                 )}
@@ -385,7 +428,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <div className="flex flex-col gap-2">
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <LemonField name="choices" label="Choices">
+                                <LemonField name={getFieldName('choices')} label="Choices">
                                     {({ value, onChange }) => (
                                         <div className="flex flex-col gap-2">
                                             {(value || []).map((choice: string, index: number) => {
@@ -485,6 +528,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                     checked={!!shuffleOptions}
                                                                     label="Shuffle options"
                                                                     disabled={!!editingLanguage}
+                                                                    disabledReason={
+                                                                        editingLanguage
+                                                                            ? 'Shuffle options can only be changed in the default language'
+                                                                            : undefined
+                                                                    }
                                                                     onChange={(checked) =>
                                                                         toggleShuffleOptions(checked)
                                                                     }
@@ -543,6 +591,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         label="Automatically submit on selection"
                                         checked={!!skipSubmitButtonValue}
                                         onChange={onSkipSubmitButtonChange}
+                                        disabled={!!editingLanguage}
+                                        disabledReason={
+                                            editingLanguage
+                                                ? 'Submit settings can only be changed in the default language'
+                                                : undefined
+                                        }
                                     />
                                 )}
                             </LemonField>
