@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0983_drop_column_configuration_unique_constraint"),
+        ("posthog", "0985_drop_column_configuration_unique_constraint"),
     ]
 
     operations = [

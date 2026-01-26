@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0984_add_column_configuration_fields"),
+        ("posthog", "0986_add_column_configuration_fields"),
     ]
 
     operations = [
