@@ -1,10 +1,13 @@
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { getReactNativeSteps as getReactNativeStepsPA } from '../product-analytics/react-native'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../steps'
 
-export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     // Get installation steps from product-analytics
-    const installationSteps = getReactNativeStepsPA(CodeBlock, Markdown, dedent)
+    const installationSteps = getReactNativeStepsPA(ctx)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -92,17 +95,4 @@ export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any):
     return [...installationSteps, ...flagSteps]
 }
 
-export const ReactNativeInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getReactNativeSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const ReactNativeInstallation = createInstallation(getReactNativeSteps)
