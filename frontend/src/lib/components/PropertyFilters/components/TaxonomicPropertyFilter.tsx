@@ -2,7 +2,8 @@ import './TaxonomicPropertyFilter.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
+import { useId } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
@@ -40,7 +41,6 @@ import {
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
-let uniqueMemoizedIndex = 0
 export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
@@ -78,7 +78,8 @@ export function TaxonomicPropertyFilter({
     operatorAllowlist,
     endpointFilters,
 }: PropertyFilterInternalProps): JSX.Element {
-    const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
+    const generatedKey = useId()
+    const pageKey = pageKeyInput || `filter-${generatedKey}`
     const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
     const taxonomicOnChange: (
         group: TaxonomicFilterGroup,

@@ -1,5 +1,6 @@
 import { Placement } from '@floating-ui/react'
-import { Ref, forwardRef, useEffect, useMemo, useState } from 'react'
+// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
+import { Ref, forwardRef, useEffect, useId, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -17,8 +18,6 @@ import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLo
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-
-let uniqueMemoizedIndex = 0
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideAction'> {
@@ -91,7 +90,8 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
 ): JSX.Element {
-    const taxonomicFilterLogicKey = useMemo(() => `taxonomic-popover-${uniqueMemoizedIndex++}`, [])
+    const generatedKey = useId()
+    const taxonomicFilterLogicKey = `taxonomic-popover-${generatedKey}`
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
