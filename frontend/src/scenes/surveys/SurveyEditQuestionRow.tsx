@@ -197,6 +197,35 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     const shouldShowNpsCheckbox =
         question.type === SurveyQuestionType.Rating && question.scale === SURVEY_RATING_SCALE.NPS_10_POINT
 
+    const hasTranslations = question.translations && Object.keys(question.translations).length > 0
+
+    // Helper to synchronize choices in all translations when default choices change
+    const syncChoicesInTranslations = (newChoices: string[]): void => {
+        if (!hasTranslations || !question.translations) {
+            return
+        }
+
+        const updatedTranslations = { ...question.translations }
+        Object.keys(updatedTranslations).forEach((lang) => {
+            const trans = updatedTranslations[lang]
+            if (trans.choices) {
+                const oldChoices = trans.choices
+                const newTransChoices = [...newChoices].map((_, idx) => oldChoices[idx] || '')
+                updatedTranslations[lang] = {
+                    ...trans,
+                    choices: newTransChoices,
+                }
+            }
+        })
+
+        // Update question with synced translations
+        setSurveyValue('questions', [
+            ...survey.questions.slice(0, index),
+            { ...question, translations: updatedTranslations },
+            ...survey.questions.slice(index + 1),
+        ])
+    }
+
     const confirmQuestionTypeChange = (
         index: number,
         question: MultipleSurveyQuestion,
@@ -208,7 +237,44 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         LemonDialog.open({
             title: 'Changing question type',
             description: (
-                <p className="py-2">The choices you have configured will be removed. Would you like to proceed?</p>
+                <p className="py-2">
+                    {hasTranslations ? (
+                        <>
+                            This question has translations. Changing the question type will remove the choices you have
+                            configured and incompatible translation fields.
+                        </>
+                    ) : (
+                        'The choices you have configured will be removed.'
+                    )}{' '}
+                    Would you like to proceed?
+                </p>
+            ),
+            primaryButton: {
+                children: 'Continue',
+                status: 'danger',
+                onClick: () => {
+                    setDefaultForQuestionType(index, question, newType)
+                    resetBranchingForQuestion(index)
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    const confirmQuestionTypeChangeWithTranslations = (
+        index: number,
+        question: SurveyQuestion,
+        newType: SurveyQuestionType
+    ): void => {
+        LemonDialog.open({
+            title: 'Changing question type',
+            description: (
+                <p className="py-2">
+                    This question has translations. Changing the question type will remove incompatible translation
+                    fields. Would you like to proceed?
+                </p>
             ),
             primaryButton: {
                 children: 'Continue',
@@ -250,6 +316,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             }
                             if (isCurrentMultipleChoice && !isNewMultipleChoice) {
                                 confirmQuestionTypeChange(index, question, newType)
+                                return
+                            }
+                            // Check if question has translations
+                            if (hasTranslations) {
+                                confirmQuestionTypeChangeWithTranslations(index, question, newType)
                                 return
                             }
                             setDefaultForQuestionType(index, question, newType)
@@ -433,75 +504,59 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
                                 <LemonField name={getFieldName('choices')} label="Choices">
-                                    {({ value, onChange }) => (
-                                        <div className="flex flex-col gap-2">
-                                            {(value || []).map((choice: string, index: number) => {
-                                                const isOpenChoice = hasOpenChoice && index === value?.length - 1
-                                                const originalChoices = (question.choices || []) as string[]
-                                                return (
-                                                    <div className="flex flex-row gap-2 relative" key={index}>
-                                                        <LemonInput
-                                                            value={choice}
-                                                            fullWidth
-                                                            onChange={(val) => {
-                                                                const newChoices = [...value]
-                                                                newChoices[index] = val
-                                                                onChange(newChoices)
-                                                            }}
-                                                            placeholder={
-                                                                editingLanguage ? originalChoices[index] : undefined
-                                                            }
-                                                            suffix={
-                                                                isOpenChoice && (
-                                                                    <LemonTag type="highlight">open-ended</LemonTag>
-                                                                )
-                                                            }
-                                                        />
-                                                        <LemonButton
-                                                            icon={<IconTrash />}
-                                                            size="xsmall"
-                                                            noPadding
-                                                            onClick={() => {
-                                                                const newChoices = [...value]
-                                                                newChoices.splice(index, 1)
-                                                                onChange(newChoices)
-                                                                if (isOpenChoice) {
-                                                                    toggleHasOpenChoice(false)
+                                    {({ value, onChange }) => {
+                                        // Wrap onChange to sync translations
+                                        const handleChoicesChange = (newChoices: string[]): void => {
+                                            onChange(newChoices)
+                                            if (!editingLanguage) {
+                                                syncChoicesInTranslations(newChoices)
+                                            }
+                                        }
+
+                                        return (
+                                            <div className="flex flex-col gap-2">
+                                                {(value || []).map((choice: string, index: number) => {
+                                                    const isOpenChoice = hasOpenChoice && index === value?.length - 1
+                                                    const originalChoices = (question.choices || []) as string[]
+                                                    return (
+                                                        <div className="flex flex-row gap-2 relative" key={index}>
+                                                            <LemonInput
+                                                                value={choice}
+                                                                fullWidth
+                                                                onChange={(val) => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices[index] = val
+                                                                    handleChoicesChange(newChoices)
+                                                                }}
+                                                                placeholder={
+                                                                    editingLanguage ? originalChoices[index] : undefined
                                                                 }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                )
-                                            })}
-                                            <div className="w-fit flex flex-row flex-wrap gap-2">
-                                                {((value || []).length < MAX_NUMBER_OF_OPTIONS ||
-                                                    survey.type != SurveyType.Popover) && (
-                                                    <>
-                                                        <LemonButton
-                                                            icon={<IconPlusSmall />}
-                                                            type="secondary"
-                                                            fullWidth={false}
-                                                            disabledReason={
-                                                                editingLanguage
-                                                                    ? 'Cannot modify choices while translating'
-                                                                    : undefined
-                                                            }
-                                                            onClick={() => {
-                                                                if (!value) {
-                                                                    onChange([''])
-                                                                } else if (hasOpenChoice) {
-                                                                    const newChoices = value.slice(0, -1)
-                                                                    newChoices.push('')
-                                                                    newChoices.push(value[value.length - 1])
-                                                                    onChange(newChoices)
-                                                                } else {
-                                                                    onChange([...value, ''])
+                                                                suffix={
+                                                                    isOpenChoice && (
+                                                                        <LemonTag type="highlight">open-ended</LemonTag>
+                                                                    )
                                                                 }
-                                                            }}
-                                                        >
-                                                            Add choice
-                                                        </LemonButton>
-                                                        {!hasOpenChoice && (
+                                                            />
+                                                            <LemonButton
+                                                                icon={<IconTrash />}
+                                                                size="xsmall"
+                                                                noPadding
+                                                                onClick={() => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices.splice(index, 1)
+                                                                    handleChoicesChange(newChoices)
+                                                                    if (isOpenChoice) {
+                                                                        toggleHasOpenChoice(false)
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    )
+                                                })}
+                                                <div className="w-fit flex flex-row flex-wrap gap-2">
+                                                    {((value || []).length < MAX_NUMBER_OF_OPTIONS ||
+                                                        survey.type != SurveyType.Popover) && (
+                                                        <>
                                                             <LemonButton
                                                                 icon={<IconPlusSmall />}
                                                                 type="secondary"
@@ -513,41 +568,67 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 }
                                                                 onClick={() => {
                                                                     if (!value) {
-                                                                        onChange(['Other'])
+                                                                        handleChoicesChange([''])
+                                                                    } else if (hasOpenChoice) {
+                                                                        const newChoices = value.slice(0, -1)
+                                                                        newChoices.push('')
+                                                                        newChoices.push(value[value.length - 1])
+                                                                        handleChoicesChange(newChoices)
                                                                     } else {
-                                                                        onChange([...value, 'Other'])
+                                                                        handleChoicesChange([...value, ''])
                                                                     }
-                                                                    toggleHasOpenChoice(true)
                                                                 }}
                                                             >
-                                                                Add open-ended choice
+                                                                Add choice
                                                             </LemonButton>
-                                                        )}
-                                                        <LemonField name="shuffleOptions" className="mt-2">
-                                                            {({
-                                                                value: shuffleOptions,
-                                                                onChange: toggleShuffleOptions,
-                                                            }) => (
-                                                                <LemonCheckbox
-                                                                    checked={!!shuffleOptions}
-                                                                    label="Shuffle options"
-                                                                    disabled={!!editingLanguage}
+                                                            {!hasOpenChoice && (
+                                                                <LemonButton
+                                                                    icon={<IconPlusSmall />}
+                                                                    type="secondary"
+                                                                    fullWidth={false}
                                                                     disabledReason={
                                                                         editingLanguage
-                                                                            ? 'Shuffle options can only be changed in the default language'
+                                                                            ? 'Cannot modify choices while translating'
                                                                             : undefined
                                                                     }
-                                                                    onChange={(checked) =>
-                                                                        toggleShuffleOptions(checked)
-                                                                    }
-                                                                />
+                                                                    onClick={() => {
+                                                                        if (!value) {
+                                                                            handleChoicesChange(['Other'])
+                                                                        } else {
+                                                                            handleChoicesChange([...value, 'Other'])
+                                                                        }
+                                                                        toggleHasOpenChoice(true)
+                                                                    }}
+                                                                >
+                                                                    Add open-ended choice
+                                                                </LemonButton>
                                                             )}
-                                                        </LemonField>
-                                                    </>
-                                                )}
+                                                            <LemonField name="shuffleOptions" className="mt-2">
+                                                                {({
+                                                                    value: shuffleOptions,
+                                                                    onChange: toggleShuffleOptions,
+                                                                }) => (
+                                                                    <LemonCheckbox
+                                                                        checked={!!shuffleOptions}
+                                                                        label="Shuffle options"
+                                                                        disabled={!!editingLanguage}
+                                                                        disabledReason={
+                                                                            editingLanguage
+                                                                                ? 'Shuffle options can only be changed in the default language'
+                                                                                : undefined
+                                                                        }
+                                                                        onChange={(checked) =>
+                                                                            toggleShuffleOptions(checked)
+                                                                        }
+                                                                    />
+                                                                )}
+                                                            </LemonField>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        )
+                                    }}
                                 </LemonField>
                             )}
                         </LemonField>
