@@ -50,14 +50,6 @@ ONBOARDING_USAGE_KEY_PREFIX = "onboarding_usage:"
 ONBOARDING_USAGE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 
-def get_onboarding_usage_count(user_id: int) -> int:
-    """Get the number of onboarding messages used by a user."""
-    redis_client = get_redis_client()
-    key = f"{ONBOARDING_USAGE_KEY_PREFIX}{user_id}"
-    count = redis_client.get(key)
-    return int(count) if count else 0
-
-
 def increment_onboarding_usage(user_id: int) -> int:
     """Increment onboarding usage count for a user. Returns new count."""
     redis_client = get_redis_client()
@@ -66,11 +58,6 @@ def increment_onboarding_usage(user_id: int) -> int:
     if new_count == 1:
         redis_client.expire(key, ONBOARDING_USAGE_TTL_SECONDS)
     return new_count
-
-
-def is_onboarding_usage_exceeded(user_id: int) -> bool:
-    """Check if user has exceeded their free onboarding message limit."""
-    return get_onboarding_usage_count(user_id) >= ONBOARDING_FREE_MESSAGE_LIMIT
 
 
 logger = structlog.get_logger(__name__)
@@ -277,10 +264,11 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         # Onboarding mode: free up to ONBOARDING_FREE_MESSAGE_LIMIT messages per user
         # After limit, return a friendly message to proceed with product selection
+        # Use atomic increment-then-check to avoid race conditions
         if agent_mode == AgentMode.ONBOARDING and has_message:
-            if is_onboarding_usage_exceeded(user.pk):
+            new_count = increment_onboarding_usage(user.pk)
+            if new_count > ONBOARDING_FREE_MESSAGE_LIMIT:
                 return self._onboarding_limit_response()
-            increment_onboarding_usage(user.pk)
 
         # Onboarding mode is always free (capped above), skip billing for impersonated sessions
         is_onboarding_free = agent_mode == AgentMode.ONBOARDING
