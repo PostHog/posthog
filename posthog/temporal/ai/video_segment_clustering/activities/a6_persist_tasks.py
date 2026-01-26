@@ -95,7 +95,6 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
                 async for task_reference in TaskReference.objects.filter(task_id=match.task_id).only(
                     "session_id", "start_time", "end_time", "distinct_id"
                 )
-                if task_reference.session_id in matched_segment_ids
             ]
             existing_refs: set[str] = set()
             for ref in relevant_task_references:
@@ -110,9 +109,11 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
 
             if new_segments:
                 # Get all distinct_ids from existing refs + new segments for accurate user count
-                existing_distinct_ids: list[str] = [ref.distinct_id for ref in relevant_task_references]
-                all_distinct_ids = existing_distinct_ids + [seg.distinct_id for seg in new_segments]
-                relevant_user_count = await sync_to_async(count_distinct_persons)(team, all_distinct_ids)
+                existing_distinct_ids = {ref.distinct_id for ref in relevant_task_references}
+                new_distinct_ids = {seg.distinct_id for seg in new_segments}
+                relevant_user_count = await sync_to_async(count_distinct_persons)(
+                    team, list(existing_distinct_ids | new_distinct_ids)
+                )
 
                 task.relevant_user_count = relevant_user_count
                 task.occurrence_count += len(new_segments)
