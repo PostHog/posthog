@@ -132,12 +132,14 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     const { selectedItemMeta, dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
-    // Use effect here to make definition view stateful. TaxonomicFilterLogic won't mount within definitionPopoverLogic
+    // Pre-populate field mappings from the insight filter.
+    // Only apply to data warehouse - for events/properties, selectedItemMeta.id is the
+    // event name which would incorrectly overwrite the event definition's UUID.
     useEffect(() => {
-        if (selectedItemMeta && definition.name == selectedItemMeta.id) {
+        if (isDataWarehouse && selectedItemMeta && definition.name === selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
-    }, [definition]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [definition, isDataWarehouse]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const hasSentAsLabel = useMemo(() => {
         const _definition = definition as PropertyDefinition

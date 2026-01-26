@@ -1,5 +1,4 @@
 import { actions, connect, kea, path, reducers } from 'kea'
-import React from 'react'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -7,20 +6,21 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
 
-export type SceneLayoutContainerRef = React.RefObject<HTMLElement> | null
-
 export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     path(['layout', 'scene-layout', 'sceneLayoutLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], panelLayoutLogic, ['mainContentRect']],
     })),
     actions({
+        // Legacy actions for portal-based scene panel (when flag is off)
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
         setScenePanelIsPresent: (active: boolean) => ({ active }),
+        // Common actions
         setScenePanelOpen: (open: boolean) => ({ open }),
         setSceneLayoutConfig: (config: SceneConfig) => ({ config }),
     }),
     reducers({
+        // Legacy reducers for portal-based scene panel (when flag is off)
         scenePanelElement: [
             null as HTMLElement | null,
             {
@@ -33,6 +33,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
                 setScenePanelIsPresent: (_, { active }) => active,
             },
         ],
+        // Common reducers
         scenePanelOpenManual: [
             false,
             {

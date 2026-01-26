@@ -34,12 +34,7 @@ from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import (
-    PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
-    SURVEY_TARGETING_FLAG_PREFIX,
-    AvailableFeature,
-    FlagRequestType,
-)
+from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -176,13 +171,6 @@ class EvaluationTagsChecker:
         if not hasattr(request, "user") or request.user.is_anonymous:
             return False
 
-        # Check TAGGING license
-        try:
-            if not request.user.organization.is_feature_available(AvailableFeature.TAGGING):
-                return False
-        except Exception:
-            return False
-
         # Check FLAG_EVALUATION_TAGS feature flag
         try:
             return posthoganalytics.feature_enabled(
@@ -222,7 +210,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not hasattr(self, "initial_data"):
             return attrs
 
-        # If user doesn't have access to TAGGING feature or FLAG_EVALUATION_TAGS is disabled, skip validation
+        # If FLAG_EVALUATION_TAGS is disabled, skip validation
         # Evaluation tags are preserved in DB but hidden from user (like regular tags)
         if not self._is_evaluation_tags_feature_enabled():
             return attrs
@@ -266,7 +254,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
         """Update evaluation tags for a feature flag using efficient diff logic.
 
-        If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled,
+        If FLAG_EVALUATION_TAGS is disabled,
         preserve existing evaluation tags in database (don't update them).
 
         Instead of deleting all tags and recreating them (which causes unnecessary
@@ -276,7 +264,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not obj:
             return
 
-        # If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
+        # If FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
         # This preserves existing evaluation tags in the database (like TaggedItemSerializerMixin does)
         if not self._is_evaluation_tags_feature_enabled():
             return

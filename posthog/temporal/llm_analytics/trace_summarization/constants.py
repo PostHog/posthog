@@ -12,12 +12,12 @@ DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to av
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_PROVIDER = SummarizationProvider.OPENAI
-DEFAULT_MODEL = OpenAIModel.GPT_4_1_MINI
+DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 
 # Max text representation length by provider (in characters)
 # Gemini models have ~1M token context. At typical 2.5:1 char/token ratio,
 # 1.5M chars = ~600K tokens, leaving room for system prompt and output.
-# OpenAI GPT-4.1-mini has 1M token context with better token efficiency,
+# OpenAI GPT-4.1-nano has 1M token context with better token efficiency,
 # so 2M chars = ~800K tokens is safe.
 MAX_LENGTH_BY_PROVIDER: dict[SummarizationProvider, int] = {
     SummarizationProvider.GEMINI: 1_500_000,

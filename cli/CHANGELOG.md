@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.26
+
+- feat: use env variables provided by github actions when available
+
 # 0.5.24
 
 - chore: add endpoints use case to cli auth flow
