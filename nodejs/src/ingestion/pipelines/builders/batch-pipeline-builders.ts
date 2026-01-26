@@ -35,7 +35,7 @@ export class FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
 /**
  * Builder for configuring how items within a group are processed.
  */
-export class GroupProcessingBuilder<TInput, TOutput, CInput, COutput, TKey> {
+export class GroupProcessingBuilder<TInput, TOutput, CInput = Record<string, never>, COutput = CInput, TKey = string> {
     constructor(
         private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
         private groupingFn: GroupingFunction<TOutput, TKey>
