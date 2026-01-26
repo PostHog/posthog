@@ -324,7 +324,7 @@ def assert_is_daily_schedule(schedule: ScheduleDescription, expected_hour: int =
     # ensure it's running every day of the week
     assert calendars[0].day_of_week == (ScheduleRange(start=0, end=6),)
     assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
-    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)
+    assert schedule.schedule.spec.jitter == dt.timedelta(minutes=30)
 
 
 def assert_is_hourly_schedule(schedule: ScheduleDescription):

@@ -293,11 +293,15 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
 
         So, the values set here are quite arbitrary and are adjusted based on
         how other systems react to batch exports load.
+
+        Note that for daily and weekly exports, we allow the user to configure
+        the start hour of the export, therefore we don't want to make the jitter
+        too large.
         """
         if self.interval == "hour":
             return timedelta(minutes=15)
         elif self.interval == "day":
-            return timedelta(hours=1)
+            return timedelta(minutes=30)
         elif self.interval == "week":
             return timedelta(hours=1)
         elif self.interval.startswith("every"):
