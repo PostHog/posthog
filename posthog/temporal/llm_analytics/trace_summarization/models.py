@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
-    DEFAULT_MAX_TRACES_PER_WINDOW,
+    DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
@@ -40,7 +40,7 @@ class BatchSummarizationInputs:
 
     team_id: int
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
-    max_items: int = DEFAULT_MAX_TRACES_PER_WINDOW  # Hard limit on items to process
+    max_items: int = DEFAULT_MAX_ITEMS_PER_WINDOW  # Hard limit on items to process
     batch_size: int = DEFAULT_BATCH_SIZE  # Number of items per batch
     mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES  # Time window to query (defaults to 60 min)

@@ -104,7 +104,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
 
         # Spawn child workflows for each team with concurrency limit
         total_clusters = 0
-        total_traces = 0
+        total_items = 0
         failed_teams: list[int] = []
         successful_teams: list[int] = []
 
@@ -139,13 +139,13 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                 try:
                     workflow_result: ClusteringResult = await handle
                     total_clusters += workflow_result.metrics.num_clusters
-                    total_traces += workflow_result.metrics.total_traces_analyzed
+                    total_items += workflow_result.metrics.total_items_analyzed
                     successful_teams.append(team_id)
 
                     logger.info(
                         "Completed clustering for team",
                         team_id=team_id,
-                        traces=workflow_result.metrics.total_traces_analyzed,
+                        items=workflow_result.metrics.total_items_analyzed,
                         clusters=workflow_result.metrics.num_clusters,
                     )
 
@@ -158,7 +158,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             teams_processed=len(team_ids),
             teams_succeeded=len(successful_teams),
             teams_failed=len(failed_teams),
-            total_traces=total_traces,
+            total_items=total_items,
             total_clusters=total_clusters,
         )
 
@@ -167,6 +167,6 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
             "failed_team_ids": failed_teams,
-            "total_traces": total_traces,
+            "total_items": total_items,
             "total_clusters": total_clusters,
         }

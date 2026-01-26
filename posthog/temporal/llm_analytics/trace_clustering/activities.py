@@ -115,18 +115,33 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     )
 
     # Build ClusterItem list with explicit trace_id and generation_id
+    # For generation-level, skip items without trace_id in summary to avoid invalid data
     items: list[ClusterItem] = []
+    filtered_embeddings: list[list[float]] = []
+    skipped_missing_trace_id = 0
+
     for item_id in item_ids:
         summary = summaries.get(item_id, {})
         if inputs.analysis_level == "generation":
             # For generation-level: item_id is generation_id, trace_id comes from summary
-            trace_id = summary.get("trace_id", item_id)  # Fallback to item_id if no summary
+            trace_id = summary.get("trace_id")
+            if not trace_id:
+                skipped_missing_trace_id += 1
+                continue
             items.append(ClusterItem(trace_id=trace_id, generation_id=item_id))
         else:
             # For trace-level: item_id is trace_id, no generation_id
             items.append(ClusterItem(trace_id=item_id, generation_id=None))
+        filtered_embeddings.append(embeddings_map[item_id])
 
-    embeddings_array = np.array(list(embeddings_map.values()))
+    if skipped_missing_trace_id > 0:
+        logger.warning(
+            "Skipped generations missing trace_id",
+            skipped_count=skipped_missing_trace_id,
+            team_id=inputs.team_id,
+        )
+
+    embeddings_array = np.array(filtered_embeddings)
 
     # Step 0: Optionally L2 normalize embeddings
     if inputs.embedding_normalization == "l2":
@@ -313,7 +328,7 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         window_start=inputs.window_start,
         window_end=inputs.window_end,
         metrics=ClusteringMetrics(
-            total_traces_analyzed=len(inputs.items),
+            total_items_analyzed=len(inputs.items),
             num_clusters=len(inputs.centroids),
         ),
         clusters=clusters,

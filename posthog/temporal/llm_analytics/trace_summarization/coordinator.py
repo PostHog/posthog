@@ -22,7 +22,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
-    DEFAULT_MAX_TRACES_PER_WINDOW,
+    DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
@@ -46,7 +46,7 @@ class BatchTraceSummarizationCoordinatorInputs:
     """Inputs for the coordinator workflow."""
 
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
-    max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW
+    max_items: int = DEFAULT_MAX_ITEMS_PER_WINDOW
     batch_size: int = DEFAULT_BATCH_SIZE
     mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES
@@ -82,7 +82,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         """Parse workflow inputs from string list."""
         return BatchTraceSummarizationCoordinatorInputs(
             analysis_level=inputs[0] if len(inputs) > 0 and inputs[0] in ("trace", "generation") else "trace",
-            max_traces=int(inputs[1]) if len(inputs) > 1 else DEFAULT_MAX_TRACES_PER_WINDOW,
+            max_items=int(inputs[1]) if len(inputs) > 1 else DEFAULT_MAX_ITEMS_PER_WINDOW,
             batch_size=int(inputs[2]) if len(inputs) > 2 else DEFAULT_BATCH_SIZE,
             mode=SummarizationMode(inputs[3]) if len(inputs) > 3 else DEFAULT_MODE,
             window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
@@ -96,7 +96,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         logger.info(
             "Starting batch trace summarization coordinator",
             analysis_level=inputs.analysis_level,
-            max_traces=inputs.max_traces,
+            max_items=inputs.max_items,
             window_minutes=inputs.window_minutes,
         )
 
@@ -127,7 +127,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     BatchSummarizationInputs(
                         team_id=team_id,
                         analysis_level=inputs.analysis_level,
-                        max_items=inputs.max_traces,
+                        max_items=inputs.max_items,
                         batch_size=inputs.batch_size,
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,

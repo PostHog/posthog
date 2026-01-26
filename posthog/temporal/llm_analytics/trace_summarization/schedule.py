@@ -12,7 +12,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_GENERATIONS_PER_WINDOW,
-    DEFAULT_MAX_TRACES_PER_WINDOW,
+    DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_WINDOW_MINUTES,
     GENERATION_COORDINATOR_SCHEDULE_ID,
@@ -31,7 +31,7 @@ async def create_batch_trace_summarization_schedule(client: Client):
         action=ScheduleActionStartWorkflow(
             COORDINATOR_WORKFLOW_NAME,
             BatchTraceSummarizationCoordinatorInputs(
-                max_traces=DEFAULT_MAX_TRACES_PER_WINDOW,
+                max_items=DEFAULT_MAX_ITEMS_PER_WINDOW,
                 batch_size=DEFAULT_BATCH_SIZE,
                 mode=DEFAULT_MODE,
                 window_minutes=DEFAULT_WINDOW_MINUTES,
@@ -65,7 +65,7 @@ async def create_batch_generation_summarization_schedule(client: Client):
             COORDINATOR_WORKFLOW_NAME,
             BatchTraceSummarizationCoordinatorInputs(
                 analysis_level="generation",
-                max_traces=DEFAULT_MAX_GENERATIONS_PER_WINDOW,
+                max_items=DEFAULT_MAX_GENERATIONS_PER_WINDOW,
                 batch_size=DEFAULT_BATCH_SIZE,
                 mode=DEFAULT_MODE,
                 window_minutes=DEFAULT_WINDOW_MINUTES,

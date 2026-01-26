@@ -109,7 +109,7 @@ Key constants in `constants.py`:
 
 | Constant                             | Default        | Description                 |
 | ------------------------------------ | -------------- | --------------------------- |
-| `DEFAULT_MAX_TRACES_PER_WINDOW`      | 100            | Max traces per window       |
+| `DEFAULT_MAX_ITEMS_PER_WINDOW`       | 10             | Max items per window        |
 | `DEFAULT_BATCH_SIZE`                 | 3              | Concurrent trace processing |
 | `DEFAULT_MODE`                       | "detailed"     | Summary detail level        |
 | `DEFAULT_MODEL`                      | "gpt-4.1-nano" | LLM model for summarization |

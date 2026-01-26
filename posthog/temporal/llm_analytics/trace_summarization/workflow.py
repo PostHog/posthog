@@ -22,7 +22,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
-    DEFAULT_MAX_TRACES_PER_WINDOW,
+    DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
@@ -68,7 +68,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         return BatchSummarizationInputs(
             team_id=int(inputs[0]),
             analysis_level=inputs[1] if len(inputs) > 1 and inputs[1] in ("trace", "generation") else "trace",
-            max_items=int(inputs[2]) if len(inputs) > 2 else DEFAULT_MAX_TRACES_PER_WINDOW,
+            max_items=int(inputs[2]) if len(inputs) > 2 else DEFAULT_MAX_ITEMS_PER_WINDOW,
             batch_size=int(inputs[3]) if len(inputs) > 3 else DEFAULT_BATCH_SIZE,
             mode=SummarizationMode(inputs[4]) if len(inputs) > 4 else DEFAULT_MODE,
             window_minutes=int(inputs[5]) if len(inputs) > 5 else DEFAULT_WINDOW_MINUTES,
@@ -168,6 +168,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             batch_size=inputs.batch_size,
             mode=inputs.mode,
             window_minutes=inputs.window_minutes,
+            provider=inputs.provider,
             model=inputs.model,
             window_start=window_start,
             window_end=window_end,

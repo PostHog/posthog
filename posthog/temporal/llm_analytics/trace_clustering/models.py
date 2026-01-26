@@ -121,7 +121,7 @@ class ClusterData:
 class ClusteringMetrics:
     """Metrics from the clustering algorithm."""
 
-    total_traces_analyzed: int = 0
+    total_items_analyzed: int = 0
     num_clusters: int = 0
     duration_seconds: float = 0.0
 
