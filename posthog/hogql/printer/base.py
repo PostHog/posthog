@@ -1,4 +1,3 @@
-import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
@@ -31,7 +30,6 @@ from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
-from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
 
@@ -513,25 +511,6 @@ class HogQLPrinter(Visitor[str]):
             if not is_allowed_parametric_function(first_arg.value):
                 raise QueryError(f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported.")
 
-        # Handle format strings in function names before checking function type
-        if func_meta.using_placeholder_arguments:
-            # Check if using positional arguments (e.g. {0}, {1})
-            if func_meta.using_positional_arguments:
-                # For positional arguments, pass the args as a dictionary
-                arg_arr = [self.visit(arg) for arg in node.args]
-                try:
-                    return func_meta.clickhouse_name.format(*arg_arr)
-                except (KeyError, IndexError) as e:
-                    raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
-            else:
-                # Original sequential placeholder behavior
-                placeholder_count = func_meta.clickhouse_name.count("{}")
-                if len(node.args) != placeholder_count:
-                    raise QueryError(
-                        f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
-                    )
-                return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
-
     def _validate_aggregation(self, node: ast.Call, func_meta: HogQLFunctionMeta):
         validate_function_args(
             node.args,
@@ -939,77 +918,3 @@ class HogQLPrinter(Visitor[str]):
         if self.context.modifiers.convertToProjectTimezone is False:
             return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
-
-    def _get_week_start_day(self) -> WeekStartDay:
-        return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
-
-    def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
-        if isinstance(node_type, ast.PropertyType):
-            return True
-        elif isinstance(node_type, ast.ConstantType):
-            return node_type.nullable
-        elif isinstance(node_type, ast.CallType):
-            return node_type.return_type.nullable
-        elif isinstance(node_type, ast.FieldType):
-            return node_type.is_nullable(self.context)
-        return None
-
-    def _is_nullable(self, node: ast.Expr) -> bool:
-        if isinstance(node, ast.Constant):
-            return node.value is None
-        elif node.type and (nullable := self._is_type_nullable(node.type)) is not None:
-            return nullable
-        elif isinstance(node, ast.Alias):
-            return self._is_nullable(node.expr)
-        elif (
-            isinstance(node.type, ast.FieldAliasType)
-            and (field_type := resolve_field_type(node))
-            and (nullable := self._is_type_nullable(field_type)) is not None
-        ):
-            return nullable
-        return True
-
-    def _print_settings(self, settings):
-        pairs = []
-        for key, value in settings:
-            if value is None:
-                continue
-            if not re.match(r"^[a-zA-Z0-9_]+$", key):
-                raise QueryError(f"Setting {key} is not supported")
-            if isinstance(value, bool):
-                pairs.append(f"{key}={1 if value else 0}")
-            elif isinstance(value, int) or isinstance(value, float):
-                pairs.append(f"{key}={value}")
-            elif isinstance(value, list):
-                if not all(isinstance(item, str) and item for item in value):
-                    raise QueryError(f"List setting {key} can only contain non-empty strings")
-                formatted_items = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
-                pairs.append(f"{key}={self._print_escaped_string(formatted_items)}")
-            elif isinstance(value, str):
-                pairs.append(f"{key}={self._print_escaped_string(value)}")
-            else:
-                raise QueryError(f"Setting {key} has unsupported type {type(value).__name__}")
-        if len(pairs) > 0:
-            return f"SETTINGS {', '.join(pairs)}"
-        return None
-
-    def _create_default_window_frame(self, node: ast.WindowFunction):
-        # For lag/lead functions, we need to order by the first argument by default
-        order_by: list[ast.OrderExpr] | None = None
-        if node.over_expr and node.over_expr.order_by:
-            order_by = [cast(ast.OrderExpr, clone_expr(expr)) for expr in node.over_expr.order_by]
-        elif node.exprs is not None and len(node.exprs) > 0:
-            order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
-
-        # Preserve existing PARTITION BY if provided via an existing OVER () clause
-        partition_by: list[ast.Expr] | None = None
-        if node.over_expr and node.over_expr.partition_by:
-            partition_by = [cast(ast.Expr, clone_expr(expr)) for expr in node.over_expr.partition_by]
-
-        return ast.WindowExpr(
-            partition_by=partition_by,
-            order_by=order_by,
-            frame_method="ROWS",
-            frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
-            frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
-        )
