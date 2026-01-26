@@ -132,7 +132,6 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                             </div>
                         ) : (
                             <TaxonomicPopover
-                                type="primary"
                                 groupType={TaxonomicFilterGroupType.CustomEvents}
                                 onChange={(selectedEventName: string) => {
                                     if (selectedEventName) {
