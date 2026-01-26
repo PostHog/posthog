@@ -2,7 +2,7 @@ import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
-import { aiCostLookupCounter } from '../metrics'
+import { aiCostLookupCounter, aiCostModalityExtractionCounter } from '../metrics'
 import {
     CostModelResult,
     CostModelSource,
@@ -81,6 +81,8 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
         return event
     }
 
+    let extractedTokens = false
+
     // Helper function to extract tokens from either array or object format
     const extractTokensFromDetails = (tokenDetails: unknown): void => {
         if (!tokenDetails) {
@@ -100,9 +102,11 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
 
                         if (modalityLower === 'image' && tokenCount > 0) {
                             event.properties['$ai_image_output_tokens'] = tokenCount
+                            extractedTokens = true
                         }
                         if (modalityLower === 'text') {
                             event.properties['$ai_text_output_tokens'] = tokenCount
+                            extractedTokens = true
                         }
                     }
                 }
@@ -115,10 +119,12 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
 
             if (typeof details['imageTokens'] === 'number' && details['imageTokens'] > 0) {
                 event.properties['$ai_image_output_tokens'] = details['imageTokens']
+                extractedTokens = true
             }
 
             if (typeof details['textTokens'] === 'number') {
                 event.properties['$ai_text_output_tokens'] = details['textTokens']
+                extractedTokens = true
             }
         }
     }
@@ -206,6 +212,13 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
 
     // Remove raw usage from properties after extraction
     delete event.properties['$ai_usage']
+
+    // Track extraction outcomes for monitoring
+    if (extractedTokens) {
+        aiCostModalityExtractionCounter.labels({ status: 'extracted' }).inc()
+    } else {
+        aiCostModalityExtractionCounter.labels({ status: 'no_details' }).inc()
+    }
 
     return event
 }
