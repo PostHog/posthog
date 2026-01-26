@@ -654,22 +654,23 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return value
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
-        if value is None:
+        if value is None or not self.instance:
             return value
 
-        # Strip retention_last_updated from user input - it's auto-generated only
-        if "retention_last_updated" in value:
-            value = value.copy()
-            value.pop("retention_last_updated")
-
         # Only validate retention changes if we have an existing instance
-        if self.instance and self.instance.logs_settings:
-            old_retention = self.instance.logs_settings.get("retention_days")
+        logs_settings = (
+            self.instance.passthrough_team.logs_settings
+            if hasattr(self.instance, "passthrough_team")
+            else self.instance.logs_settings
+        )
+        if self.instance and logs_settings:
+            old_retention = logs_settings.get("retention_days")
             new_retention = value.get("retention_days")
-            old_last_updated = self.instance.logs_settings.get("retention_last_updated")
+            old_last_updated = logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed
-            if old_retention is not None and new_retention is not None and old_retention != new_retention:
+            if new_retention is not None and old_retention != new_retention:
+                value["retention_last_updated"] = timezone.now().isoformat()
                 # Check if retention_last_updated exists and is within 24 hours
                 if old_last_updated:
                     last_updated = parse_datetime(old_last_updated)
