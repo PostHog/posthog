@@ -2,11 +2,22 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import {
+    IconBrackets,
+    IconCalculator,
+    IconCalendar,
+    IconCheck,
+    IconClock,
+    IconCode,
+    IconCode2,
+    IconDatabase,
+    IconPlusSmall,
+} from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { IconTextSize } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -18,6 +29,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -53,6 +65,77 @@ export const QueryDatabase = (): JSX.Element => {
     const { setQueryInput } = useActions(multitabEditorLogic)
     const { selectedQueryColumns } = useValues(multitabEditorLogic)
     const builtTabLogic = useMountedLogic(multitabEditorLogic)
+    const formatTraversalChain = (chain?: (string | number)[]): string | null => {
+        if (!chain || chain.length === 0) {
+            return null
+        }
+
+        return chain.map((segment) => String(segment)).join('.')
+    }
+    const getFieldTypeIconClassName = (fieldType: DatabaseSerializedFieldType): string => {
+        switch (fieldType) {
+            case 'string':
+                return 'text-sky-500'
+            case 'integer':
+            case 'float':
+            case 'decimal':
+                return 'text-emerald-500'
+            case 'boolean':
+                return 'text-purple-500'
+            case 'datetime':
+                return 'text-amber-500'
+            case 'date':
+                return 'text-orange-500'
+            case 'array':
+            case 'json':
+                return 'text-teal-500'
+            case 'expression':
+            case 'field_traverser':
+                return 'text-slate-500'
+            case 'view':
+            case 'materialized_view':
+            case 'lazy_table':
+            case 'virtual_table':
+                return 'text-blue-500'
+            default:
+                return 'text-tertiary'
+        }
+    }
+
+    const getFieldTypeIcon = (fieldType?: DatabaseSerializedFieldType): JSX.Element | null => {
+        if (!fieldType) {
+            return null
+        }
+
+        switch (fieldType) {
+            case 'string':
+                return <IconTextSize className={getFieldTypeIconClassName(fieldType)} />
+            case 'integer':
+            case 'float':
+            case 'decimal':
+                return <IconCalculator className={getFieldTypeIconClassName(fieldType)} />
+            case 'boolean':
+                return <IconCheck className={getFieldTypeIconClassName(fieldType)} />
+            case 'datetime':
+                return <IconClock className={getFieldTypeIconClassName(fieldType)} />
+            case 'date':
+                return <IconCalendar className={getFieldTypeIconClassName(fieldType)} />
+            case 'array':
+            case 'json':
+                return <IconBrackets className={getFieldTypeIconClassName(fieldType)} />
+            case 'expression':
+                return <IconCode className={getFieldTypeIconClassName(fieldType)} />
+            case 'field_traverser':
+                return <IconCode2 className={getFieldTypeIconClassName(fieldType)} />
+            case 'view':
+            case 'materialized_view':
+            case 'lazy_table':
+            case 'virtual_table':
+                return <IconDatabase className={getFieldTypeIconClassName(fieldType)} />
+            default:
+                return <IconCode2 className={getFieldTypeIconClassName(fieldType)} />
+        }
+    }
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -102,34 +185,49 @@ export const QueryDatabase = (): JSX.Element => {
                 // Check if item has search matches for highlighting
                 const matches = item.record?.searchMatches
                 const hasMatches = matches && matches.length > 0
+                const isColumn = item.record?.type === 'column'
+                const columnType = isColumn ? item.record?.field?.type : null
+                const columnKey = isColumn && item.record ? `${item.record.table}.${item.record.columnName}` : null
+
                 return (
                     <span className="truncate">
-                        {hasMatches && searchTerm ? (
-                            <SearchHighlightMultiple string={item.name} substring={searchTerm} className="text-xs" />
-                        ) : (
-                            <div className="flex flex-row gap-1 justify-between">
-                                <span
-                                    className={cn(
-                                        [
-                                            'managed-views',
-                                            'views',
-                                            'sources',
-                                            'drafts',
-                                            'unsaved-folder',
-                                            'endpoints',
-                                        ].includes(item.record?.type) && 'font-semibold',
-                                        item.record?.type === 'column' && 'font-mono text-xs',
-                                        item.record?.type === 'column' &&
-                                            selectedQueryColumns[`${item.record.table}.${item.record.columnName}`] &&
-                                            'underline underline-offset-2',
-                                        'truncate'
-                                    )}
-                                >
-                                    {item.name}
-                                </span>
-                                {renderTableCount(item.record?.row_count)}
+                        <div className="flex flex-row gap-1 justify-between">
+                            <div className="shrink-0 flex min-w-0 items-center gap-2">
+                                {hasMatches && searchTerm ? (
+                                    <SearchHighlightMultiple
+                                        string={item.name}
+                                        substring={searchTerm}
+                                        className={cn(isColumn && 'font-mono text-xs')}
+                                    />
+                                ) : (
+                                    <span
+                                        className={cn(
+                                            [
+                                                'managed-views',
+                                                'views',
+                                                'sources',
+                                                'drafts',
+                                                'unsaved-folder',
+                                                'endpoints',
+                                            ].includes(item.record?.type) && 'font-semibold',
+                                            isColumn && 'font-mono text-xs',
+                                            columnKey &&
+                                                selectedQueryColumns[columnKey] &&
+                                                'underline underline-offset-2',
+                                            'truncate shrink-0'
+                                        )}
+                                    >
+                                        {item.name}
+                                    </span>
+                                )}
+                                {isColumn && columnType ? (
+                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                        {columnType}
+                                    </span>
+                                ) : null}
                             </div>
-                        )}
+                            {renderTableCount(item.record?.row_count)}
+                        </div>
                     </span>
                 )
             }}
@@ -466,13 +564,26 @@ export const QueryDatabase = (): JSX.Element => {
                 // Show tooltip with full name for items that could be truncated
                 const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
                 if (tooltipTypes.includes(item.record?.type)) {
+                    if (item.record?.type === 'column' && item.record?.field?.type === 'field_traverser') {
+                        const traversalChain = formatTraversalChain(item.record.field.chain)
+                        if (traversalChain) {
+                            return `${item.name} → ${traversalChain}`
+                        }
+                    }
+                    return item.name
+                }
+                if (item.record?.type === 'field-traverser') {
+                    const traversalChain = formatTraversalChain(item.record?.field?.chain)
+                    if (traversalChain) {
+                        return `${item.name} → ${traversalChain}`
+                    }
                     return item.name
                 }
                 return undefined
             }}
             renderItemIcon={(item) => {
                 if (item.record?.type === 'column') {
-                    return <></>
+                    return getFieldTypeIcon(item.record.field?.type)
                 }
                 return (
                     <TreeNodeDisplayIcon

@@ -46,6 +46,7 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
+    mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -485,3 +486,17 @@ class IntegrationViewSet(
         email = EmailIntegration(self.get_object())
         verification_result = email.verify()
         return Response(verification_result)
+
+    @extend_schema(responses={200: IntegrationSerializer})
+    @action(methods=["PATCH"], detail=True, url_path="email")
+    def email_update(self, request, **kwargs) -> Response:
+        instance = self.get_object()
+        config = request.data.get("config", {})
+
+        serializer = NativeEmailIntegrationSerializer(data=config)
+        serializer.is_valid(raise_exception=True)
+
+        email = EmailIntegration(instance)
+        email.update_native_integration(serializer.validated_data, instance.team_id)
+
+        return Response(IntegrationSerializer(email.integration).data)

@@ -196,7 +196,6 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
-    TAGGING = 'tagging',
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     PRODUCT_ANALYTICS_RETENTION = 'product_analytics_retention',
     PRODUCT_ANALYTICS_STICKINESS = 'product_analytics_stickiness',
@@ -887,6 +886,13 @@ export enum ActivityTab {
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
+    Complete = 'complete',
+}
+
+export enum ExperimentProgressStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Paused = 'paused',
     Complete = 'complete',
 }
 
@@ -2555,6 +2561,7 @@ export enum ChartDisplayType {
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
     CalendarHeatmap = 'CalendarHeatmap',
+    TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',

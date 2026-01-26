@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use dashmap::DashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
@@ -12,7 +12,8 @@ use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
     ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
-    CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
+    CLEANUP_OPERATIONS_COUNTER, REBALANCING_COUNT, STORE_CREATION_DURATION_MS,
+    STORE_CREATION_EVENTS,
 };
 use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
@@ -115,10 +116,10 @@ pub struct StoreManager {
     /// Flag to prevent concurrent cleanup operations
     cleanup_running: AtomicBool,
 
-    /// Flag indicating whether a Kafka rebalance is in progress
-    /// When true, orphan cleanup should be skipped to avoid deleting directories
-    /// that are about to be assigned
-    rebalancing: AtomicBool,
+    /// Counter tracking the number of overlapping rebalances in progress
+    /// When > 0, orphan cleanup should be skipped to avoid deleting directories
+    /// that are being populated with imported checkpoints
+    rebalancing_count: AtomicUsize,
 }
 
 impl StoreManager {
@@ -131,27 +132,86 @@ impl StoreManager {
             store_config,
             metrics,
             cleanup_running: AtomicBool::new(false),
-            rebalancing: AtomicBool::new(false),
+            rebalancing_count: AtomicUsize::new(0),
         }
     }
 
-    /// Set the rebalancing flag to indicate a Kafka rebalance is in progress
-    ///
-    /// When true, operations like orphan directory cleanup will be skipped
-    /// to avoid deleting directories that are about to be assigned.
-    pub fn set_rebalancing(&self, rebalancing: bool) {
-        self.rebalancing.store(rebalancing, Ordering::SeqCst);
+    /// Signal that a rebalance has started. Increments the counter.
+    /// While counter > 0, operations like orphan cleanup are blocked.
+    pub fn start_rebalancing(&self) {
+        let prev = self.rebalancing_count.fetch_add(1, Ordering::SeqCst);
+        let new_count = prev + 1;
+        metrics::gauge!(REBALANCING_COUNT).set(new_count as f64);
+        info!(
+            previous_count = prev,
+            new_count = new_count,
+            "Rebalance started, incremented rebalancing counter"
+        );
     }
 
-    /// Check if a Kafka rebalance is currently in progress
+    /// Signal that a rebalance's async work has completed. Decrements the counter.
+    pub fn finish_rebalancing(&self) {
+        let prev = self.rebalancing_count.fetch_sub(1, Ordering::SeqCst);
+        let new_count = prev.saturating_sub(1);
+        metrics::gauge!(REBALANCING_COUNT).set(new_count as f64);
+        if prev == 0 {
+            warn!("finish_rebalancing called when counter was already 0");
+        } else if new_count == 0 {
+            info!("All rebalances completed, counter returned to 0");
+        } else {
+            info!(
+                previous_count = prev,
+                new_count = new_count,
+                "Rebalance finished, decremented rebalancing counter (other rebalances still in progress)"
+            );
+        }
+    }
+
+    /// Check if any rebalance async work is currently in progress
     pub fn is_rebalancing(&self) -> bool {
-        self.rebalancing.load(Ordering::SeqCst)
+        self.rebalancing_count.load(Ordering::SeqCst) > 0
+    }
+
+    /// Get a guard that will decrement the counter when dropped.
+    /// Call this AFTER start_rebalancing() to ensure cleanup on panic/cancellation.
+    pub fn rebalancing_guard(self: &Arc<Self>) -> RebalancingGuard {
+        RebalancingGuard {
+            store_manager: Arc::clone(self),
+        }
     }
 
     /// Get an existing store for a partition, if it exists
     pub fn get(&self, topic: &str, partition: i32) -> Option<DeduplicationStore> {
         let partition_key = Partition::new(topic.to_string(), partition);
         self.stores.get(&partition_key).map(|entry| entry.clone())
+    }
+
+    /// Get an existing store for a partition during message processing.
+    ///
+    /// Returns an error if the store doesn't exist. This is the correct behavior
+    /// during normal consumption because:
+    /// - Stores are created during rebalance (via `get_or_create_for_rebalance`)
+    /// - Partitions are paused until stores are ready
+    /// - If no store exists, the partition was likely revoked
+    ///
+    /// Use this method in the batch processor instead of `get_or_create` to avoid
+    /// accidentally creating stores for revoked partitions.
+    pub fn get_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
+        let partition_key = Partition::new(topic.to_string(), partition);
+
+        self.stores.get(&partition_key).map(|entry| entry.clone()).ok_or_else(|| {
+            warn!(
+                topic = topic,
+                partition = partition,
+                "No store registered for partition - message will be dropped (partition likely revoked)"
+            );
+            metrics::counter!(crate::metrics_const::MESSAGES_DROPPED_NO_STORE).increment(1);
+            anyhow::anyhow!(
+                "No store registered for partition {}:{} - partition was likely revoked",
+                topic,
+                partition
+            )
+        })
     }
 
     /// Get or create a deduplication store for a specific partition
@@ -1118,6 +1178,18 @@ impl CleanupTaskHandle {
     }
 }
 
+/// RAII guard that decrements the rebalancing counter when dropped.
+/// This ensures the counter is decremented even if the async work panics or is cancelled.
+pub struct RebalancingGuard {
+    store_manager: Arc<StoreManager>,
+}
+
+impl Drop for RebalancingGuard {
+    fn drop(&mut self) {
+        self.store_manager.finish_rebalancing();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::store::{TimestampKey, TimestampMetadata};
@@ -1648,8 +1720,8 @@ mod tests {
         std::fs::write(timestamp_subdir.join("dummy.txt"), b"test data").unwrap();
         assert!(timestamp_subdir.exists());
 
-        // Set rebalancing flag
-        manager.set_rebalancing(true);
+        // Start rebalancing
+        manager.start_rebalancing();
         assert!(manager.is_rebalancing());
 
         // During rebalance, cleanup should skip and not remove the orphan
@@ -1662,8 +1734,8 @@ mod tests {
             "Orphan should NOT be removed during rebalance"
         );
 
-        // Clear rebalancing flag
-        manager.set_rebalancing(false);
+        // Finish rebalancing
+        manager.finish_rebalancing();
         assert!(!manager.is_rebalancing());
 
         // Now cleanup should remove the orphan again
@@ -1704,16 +1776,16 @@ mod tests {
             store.put_timestamp_record(&key, &metadata).unwrap();
         }
 
-        // Set rebalancing flag
-        manager.set_rebalancing(true);
+        // Start rebalancing
+        manager.start_rebalancing();
         assert!(manager.is_rebalancing());
 
         // During rebalance, capacity cleanup should skip
         let freed = manager.cleanup_old_entries_if_needed().unwrap();
         assert_eq!(freed, 0, "Should skip cleanup during rebalance");
 
-        // Clear rebalancing flag
-        manager.set_rebalancing(false);
+        // Finish rebalancing
+        manager.finish_rebalancing();
         assert!(!manager.is_rebalancing());
 
         // Now cleanup should run (may or may not free bytes depending on actual size)
@@ -1825,6 +1897,90 @@ mod tests {
         assert!(
             !timestamp_subdir.exists(),
             "Orphan timestamp directory should be removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_returns_error_when_not_exists() {
+        // Test that get_store() returns an error when no store exists
+        // This is the expected behavior during message processing for revoked partitions
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // get_store() should return error when store doesn't exist
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_err(),
+            "get_store() should return error when store doesn't exist"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No store registered"),
+            "Error message should indicate no store registered"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_returns_store_when_exists() {
+        // Test that get_store() returns the store when it exists
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Pre-create store (as would happen during rebalance)
+        manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
+        // get_store() should now return the store
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_ok(),
+            "get_store() should return Ok when store exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_after_unregister_returns_error() {
+        // Test that get_store() returns error after store is unregistered
+        // This simulates the revocation scenario
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Create store
+        manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
+        // get_store() should work
+        assert!(manager.get_store("test-topic", 0).is_ok());
+
+        // Unregister store (as would happen during revocation)
+        manager.unregister_store("test-topic", 0);
+
+        // get_store() should now return error
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_err(),
+            "get_store() should return error after store is unregistered"
         );
     }
 }

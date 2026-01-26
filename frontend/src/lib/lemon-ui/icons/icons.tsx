@@ -9,6 +9,7 @@ import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 interface IconWithBadgeProps {
     content: LemonBadgeProps['content']
     status?: LemonBadgeProps['status']
+    size?: LemonBadgeProps['size']
     className?: string
 }
 
@@ -63,11 +64,12 @@ export function IconWithBadge({
     children,
     status = 'primary',
     className,
+    size = 'small',
 }: PropsWithChildren<IconWithBadgeProps>): JSX.Element {
     return (
         <span className={clsx('relative inline-flex', className)}>
             {children}
-            <LemonBadge visible={!!content} content={content} size="small" position="top-right" status={status} />
+            <LemonBadge visible={!!content} content={content} size={size} position="top-right" status={status} />
         </span>
     )
 }
@@ -1170,6 +1172,24 @@ export function IconSkipBackward(props: LemonIconProps): JSX.Element {
                 d="M21.8636 13.6486C22.7745 8.20179 18.9753 3.03539 13.3613 2.08842C10.1083 1.5397 6.96075 2.53504 4.71122 4.52864L3.64727 3.39843C3.52963 3.27464 3.31814 3.33531 3.29323 3.49844L2.61914 7.61871C2.59751 7.7469 2.70624 7.86158 2.83872 7.85097L7.12768 7.57298C7.16635 7.57046 7.20339 7.55738 7.23454 7.53524C7.26569 7.5131 7.28969 7.48281 7.30378 7.44784C7.31787 7.41288 7.32148 7.37466 7.31418 7.33758C7.30689 7.3005 7.289 7.26607 7.26256 7.23825L6.10772 6.01158C6.35345 5.79443 6.6153 5.59014 6.89033 5.40074C7.75239 4.80488 8.72707 4.3786 9.7602 4.14561C10.831 3.90282 11.9307 3.87537 13.0286 4.06056C14.1265 4.24575 15.1564 4.63245 16.0883 5.21303C16.9896 5.77326 17.7628 6.48932 18.3877 7.34012C19.0126 8.19091 19.4575 9.13303 19.7082 10.1413C19.9684 11.1866 20.0076 12.2555 19.828 13.3205C19.6483 14.3854 19.2606 15.3823 18.6724 16.282C18.1048 17.1522 17.3755 17.8963 16.5061 18.495C15.6366 19.0938 14.6714 19.5166 13.6362 19.7502C12.5654 19.993 11.4657 20.0204 10.3678 19.8352C9.26987 19.65 8.23995 19.2633 7.30808 18.6827C6.40854 18.1237 5.62762 17.4013 5.00872 16.5557C4.8493 16.3386 4.70383 16.1163 4.56724 15.8879C4.54048 15.8423 4.49636 15.8085 4.44446 15.7941C4.39256 15.7796 4.3371 15.7856 4.29013 15.8108L2.84288 16.5656C2.74229 16.6196 2.70583 16.7427 2.76244 16.841C4.25318 19.3768 6.85284 21.2731 10.0347 21.8098C15.6538 22.7576 20.9514 19.1029 21.8636 13.6486Z"
                 fill="currentColor"
             />
+        </LemonIconBase>
+    )
+}
+
+export function IconSkipStart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="4" y="6" width="2" height="12" rx="0.5" fill="currentColor" />
+            <path d="M9 12L17 6.5V17.5L9 12Z" fill="currentColor" />
+        </LemonIconBase>
+    )
+}
+
+export function IconSkipEnd(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="18" y="6" width="2" height="12" rx="0.5" fill="currentColor" />
+            <path d="M15 12L7 6.5V17.5L15 12Z" fill="currentColor" />
         </LemonIconBase>
     )
 }

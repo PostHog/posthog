@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1980,7 +1980,8 @@
                 "upsert_dashboard",
                 "manage_memories",
                 "create_notebook",
-                "list_data"
+                "list_data",
+                "finalize_plan"
             ],
             "type": "string"
         },
@@ -2152,6 +2153,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "TwoDimensionalHeatmap",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -2241,7 +2246,8 @@
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
-                        "CalendarHeatmap"
+                        "CalendarHeatmap",
+                        "TwoDimensionalHeatmap"
                     ],
                     "type": "string"
                 },
@@ -7969,7 +7975,8 @@
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
-                "CalendarHeatmap"
+                "CalendarHeatmap",
+                "TwoDimensionalHeatmap"
             ],
             "type": "string"
         },
@@ -7981,6 +7988,9 @@
                         "$ref": "#/definitions/GoalLine"
                     },
                     "type": "array"
+                },
+                "heatmap": {
+                    "$ref": "#/definitions/HeatmapSettings"
                 },
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
@@ -15313,7 +15323,8 @@
                 "RedditAds",
                 "TikTokAds",
                 "BingAds",
-                "Shopify"
+                "Shopify",
+                "SnapchatAds"
             ],
             "type": "string"
         },
@@ -16860,6 +16871,53 @@
         },
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
+        },
+        "HeatmapGradientStop": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
+        },
+        "HeatmapSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "gradient": {
+                    "items": {
+                        "$ref": "#/definitions/HeatmapGradientStop"
+                    },
+                    "type": "array"
+                },
+                "gradientPreset": {
+                    "type": "string"
+                },
+                "gradientScaleMode": {
+                    "enum": ["absolute", "relative"],
+                    "type": "string"
+                },
+                "valueColumn": {
+                    "type": "string"
+                },
+                "xAxisColumn": {
+                    "type": "string"
+                },
+                "xAxisLabel": {
+                    "type": "string"
+                },
+                "yAxisColumn": {
+                    "type": "string"
+                },
+                "yAxisLabel": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "HedgehogColorOptions": {
             "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
