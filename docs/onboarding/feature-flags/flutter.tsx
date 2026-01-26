@@ -1,10 +1,13 @@
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { getFlutterSteps as getFlutterStepsPA } from '../product-analytics/flutter'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../steps'
 
-export const getFlutterSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     // Get installation steps from product-analytics
-    const installationSteps = getFlutterStepsPA(CodeBlock, Markdown, dedent)
+    const installationSteps = getFlutterStepsPA(ctx)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -82,17 +85,4 @@ export const getFlutterSteps = (CodeBlock: any, Markdown: any, dedent: any): Ste
     return [...installationSteps, ...flagSteps]
 }
 
-export const FlutterInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getFlutterSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const FlutterInstallation = createInstallation(getFlutterSteps)

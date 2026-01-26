@@ -26,7 +26,6 @@ import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
-    settingSectionId: 'environment-surveys',
 }
 
 interface TemplateCardProps {

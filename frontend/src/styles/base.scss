@@ -1057,10 +1057,12 @@
 }
 
 @layer base {
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
+    // allowing @import to be inside layer
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
     @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
 
-    /* stylelint-disable-next-line order/order */ // allowing @import to be first
+    // allowing @import to be first
+    /* stylelint-disable-next-line order/order */
     *,
     ::after,
     ::before,
@@ -1788,16 +1790,24 @@
         /* themeable variables */
         position: relative;
         display: inline-block;
-        color: transparent; /* hide glyphs under the cover */
+        color: transparent;
+
+        /* hide glyphs under the cover */
         cursor: pointer;
-        background: var(--color-bg-primary); /* the “black bar” */
+        background: var(--color-bg-primary);
+
+        /* the “black bar” */
         border-radius: var(--radius);
     }
 
     .hogqlx-redacted:hover,
     .hogqlx-redacted:focus-visible {
-        color: inherit; /* show the text */
-        background: transparent; /* remove the bar */
+        color: inherit;
+
+        /* show the text */
+        background: transparent;
+
+        /* remove the bar */
     }
 
     .hogqlx-redacted:focus-visible {
@@ -1933,5 +1943,29 @@
             opacity: 1;
             transform: translateY(0);
         }
+    }
+}
+
+// Setup highlight animation - used by quick start to draw attention to UI elements
+.setup-highlight-pulse {
+    position: relative !important;
+    z-index: 100 !important;
+    border-radius: var(--radius);
+    animation: setup-highlight-pulse 1s ease-in-out 3 !important;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes setup-highlight-pulse {
+    0%,
+    100% {
+        outline: 3px solid transparent;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 0 transparent;
+    }
+
+    50% {
+        outline: 3px solid var(--color-accent);
+        outline-offset: 2px;
+        box-shadow: 0 0 24px 8px var(--color-accent);
     }
 }

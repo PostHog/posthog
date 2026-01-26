@@ -446,6 +446,7 @@ export enum AgentMode {
     ErrorTracking = 'error_tracking',
     Plan = 'plan',
     Execution = 'execution',
+    Survey = 'survey',
     Onboarding = 'onboarding',
 }
 

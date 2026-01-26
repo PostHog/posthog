@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -494,6 +495,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 }
             }
         },
+
+        loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
+            if (hasSentAiEvent) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+            }
+        },
     })),
 
     selectors({
@@ -949,5 +956,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()
         actions.loadLLMDashboards()
+        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
     }),
 ])

@@ -10,7 +10,7 @@ import type { ResourceManifest, SkillsManifest } from './manifest-types'
  * URL to the PostHog skills resources ZIP (latest release)
  * Contains manifest.json + individual skill ZIPs
  */
-const SKILLS_RESOURCES_URL = 'https://github.com/PostHog/examples/releases/latest/download/skills-mcp-resources.zip'
+export const SKILLS_RESOURCES_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
 // Cache for skills resources ZIP contents
 let cachedSkillsResources: Unzipped | null = null

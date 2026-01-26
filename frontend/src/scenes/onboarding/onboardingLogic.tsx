@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { QUICK_START_PARAM } from 'lib/components/ProductSetup/globalSetupLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -11,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb, OnboardingProduct, OnboardingStepKey, SidePanelTab } from '~/types'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -54,24 +55,35 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type OnboardingStepType = OnboardingStepElement
 
 export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
+    let baseUrl: string
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return urls.insightNew()
+            baseUrl = urls.insightNew()
+            break
         case ProductKey.WEB_ANALYTICS:
-            return urls.webAnalytics()
+            baseUrl = urls.webAnalytics()
+            break
         case ProductKey.SESSION_REPLAY:
-            return urls.replay()
+            baseUrl = urls.replay()
+            break
         case ProductKey.FEATURE_FLAGS:
-            return urls.featureFlag('new')
+            baseUrl = urls.featureFlag('new')
+            break
         case ProductKey.SURVEYS:
-            return urls.surveyTemplates()
+            baseUrl = urls.surveyTemplates()
+            break
         case ProductKey.ERROR_TRACKING:
-            return urls.errorTracking()
+            baseUrl = urls.errorTracking()
+            break
         case ProductKey.LLM_ANALYTICS:
-            return urls.llmAnalyticsDashboard()
+            baseUrl = urls.llmAnalyticsDashboard()
+            break
         default:
-            return urls.default()
+            baseUrl = urls.default()
     }
+
+    // Append quickstart param to open the quick start popover after onboarding
+    return `${baseUrl}?${QUICK_START_PARAM}=true`
 }
 
 export const onboardingLogic = kea<onboardingLogicType>([
@@ -256,14 +268,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
         ],
-        isFirstProductOnboarding: [
-            (s) => [s.currentTeam],
-            (currentTeam) => {
-                return !Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
-                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
-                )
-            },
-        ],
         billingProduct: [
             (s) => [s.product, s.productKey, s.billing],
             (_product, productKey, billing) => {
@@ -329,14 +333,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         [productKey]: true,
                     },
                 })
-            }
-
-            if (values.isFirstProductOnboarding && !values.modalMode) {
-                // Because the side panel opening has its own actionToUrl,
-                // we delay opening it to avoid a race condition with the updateCurrentTeamSuccess redirect
-                setTimeout(() => {
-                    actions.openSidePanel(SidePanelTab.Activation)
-                }, 100)
             }
         },
         skipOnboarding: () => {

@@ -6,9 +6,10 @@ import { beforeUnload, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaBatchExportTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaBatchExportTable, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     BatchExportConfiguration,
     BatchExportConfigurationTest,
@@ -722,6 +723,11 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                     }
                     const res = await api.batchExports.create(data)
                     actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
+                    void addProductIntent({
+                        product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                        intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
+                    })
 
                     router.actions.replace(urls.batchExport(res.id))
                     lemonToast.success('Batch export created successfully')
