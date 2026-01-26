@@ -2705,7 +2705,7 @@ class NodeKind(StrEnum):
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
-    TRACES_NEIGHBORS_QUERY = "TracesNeighborsQuery"
+    TRACE_NEIGHBORS_QUERY = "TraceNeighborsQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
@@ -3751,16 +3751,23 @@ class TimelineEntry(BaseModel):
     sessionId: str | None = Field(default=None, description="Session ID. None means out-of-session events")
 
 
-class TracesNeighborsQueryResponse(BaseModel):
+class TraceNeighborsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    nextTimestamp: str | None = Field(default=None, description="Timestamp of the next trace")
-    nextTraceId: str | None = Field(default=None, description="ID of the next trace (chronologically newer)")
-    prevTimestamp: str | None = Field(default=None, description="Timestamp of the previous trace")
-    prevTraceId: str | None = Field(default=None, description="ID of the previous trace (chronologically older)")
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
     timings: list[QueryTiming] | None = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
     )
 
 
@@ -5601,12 +5608,19 @@ class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    nextTimestamp: str | None = Field(default=None, description="Timestamp of the next trace")
-    nextTraceId: str | None = Field(default=None, description="ID of the next trace (chronologically newer)")
-    prevTimestamp: str | None = Field(default=None, description="Timestamp of the previous trace")
-    prevTraceId: str | None = Field(default=None, description="ID of the previous trace (chronologically older)")
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
     timings: list[QueryTiming] | None = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
     )
 
 
@@ -8811,6 +8825,41 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     )
 
 
+class CachedTraceNeighborsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    is_cached: bool
+    last_refresh: AwareDatetime
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    next_allowed_client_refresh: AwareDatetime
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
 class CachedTraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8849,32 +8898,6 @@ class CachedTraceQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
-    )
-
-
-class CachedTracesNeighborsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    is_cached: bool
-    last_refresh: AwareDatetime
-    nextTimestamp: str | None = Field(default=None, description="Timestamp of the next trace")
-    nextTraceId: str | None = Field(default=None, description="ID of the next trace (chronologically newer)")
-    next_allowed_client_refresh: AwareDatetime
-    prevTimestamp: str | None = Field(default=None, description="Timestamp of the previous trace")
-    prevTraceId: str | None = Field(default=None, description="ID of the previous trace (chronologically older)")
-    query_metadata: dict[str, Any] | None = None
-    query_status: QueryStatus | None = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
@@ -13985,6 +14008,45 @@ class TileFilters(BaseModel):
     ) = None
 
 
+class TraceNeighborsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    filterSupportTraces: bool | None = None
+    filterTestAccounts: bool | None = None
+    kind: Literal["TraceNeighborsQuery"] = "TraceNeighborsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
+    response: TraceNeighborsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    timestamp: str = Field(..., description="Timestamp of the current trace to find neighbors for")
+    traceId: str = Field(..., description="ID of the current trace to find neighbors for")
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TraceQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14018,45 +14080,6 @@ class TraceQuery(BaseModel):
     response: TraceQueryResponse | None = None
     tags: QueryLogTags | None = None
     traceId: str
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class TracesNeighborsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: DateRange | None = None
-    filterSupportTraces: bool | None = None
-    filterTestAccounts: bool | None = None
-    kind: Literal["TracesNeighborsQuery"] = "TracesNeighborsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: (
-        list[
-            EventPropertyFilter
-            | PersonPropertyFilter
-            | ElementPropertyFilter
-            | EventMetadataPropertyFilter
-            | SessionPropertyFilter
-            | CohortPropertyFilter
-            | RecordingPropertyFilter
-            | LogEntryPropertyFilter
-            | GroupPropertyFilter
-            | FeaturePropertyFilter
-            | FlagPropertyFilter
-            | HogQLPropertyFilter
-            | EmptyPropertyFilter
-            | DataWarehousePropertyFilter
-            | DataWarehousePersonPropertyFilter
-            | ErrorTrackingIssueFilter
-            | LogPropertyFilter
-            | RevenueAnalyticsPropertyFilter
-        ]
-        | None
-    ) = Field(default=None, description="Properties configurable in the interface")
-    response: TracesNeighborsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    timestamp: str = Field(..., description="Timestamp of the current trace to find neighbors for")
-    traceId: str = Field(..., description="ID of the current trace to find neighbors for")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -18478,7 +18501,7 @@ class HogQLAutocomplete(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18554,7 +18577,7 @@ class HogQLMetadata(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18670,7 +18693,7 @@ class MaxInsightContext(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18775,7 +18798,7 @@ class QueryRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18879,7 +18902,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18953,7 +18976,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -19032,7 +19055,7 @@ class QueryUpgradeRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -19111,7 +19134,7 @@ class QueryUpgradeResponse(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -19316,7 +19339,7 @@ class VisualizationArtifactContent(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
-        | TracesNeighborsQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery

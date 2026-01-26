@@ -86,34 +86,32 @@ import {
 } from './utils'
 
 function TraceNavigation(): JSX.Element {
-    const { viewMode, nextTraceId, nextTimestamp, prevTraceId, prevTimestamp, neighborsLoading } =
+    const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
         useValues(llmAnalyticsTraceLogic)
 
-    // In PostHog, lists are descending (newest first), so:
-    // - "Next" (n) = next row in list = older trace = prevTraceId (time-wise)
-    // - "Previous" (p) = previous row in list = newer trace = nextTraceId (time-wise)
-    const goToNext = (): void => {
-        if (prevTraceId) {
+    // Navigate to newer (more recent) or older traces
+    const goToNewer = (): void => {
+        if (newerTraceId) {
             router.actions.push(
-                urls.llmAnalyticsTrace(prevTraceId, { timestamp: prevTimestamp ?? undefined, tab: viewMode })
+                urls.llmAnalyticsTrace(newerTraceId, { timestamp: newerTimestamp ?? undefined, tab: viewMode })
             )
         }
     }
 
-    const goToPrevious = (): void => {
-        if (nextTraceId) {
+    const goToOlder = (): void => {
+        if (olderTraceId) {
             router.actions.push(
-                urls.llmAnalyticsTrace(nextTraceId, { timestamp: nextTimestamp ?? undefined, tab: viewMode })
+                urls.llmAnalyticsTrace(olderTraceId, { timestamp: olderTimestamp ?? undefined, tab: viewMode })
             )
         }
     }
 
     useKeyboardHotkeys(
         {
-            n: { action: goToNext, disabled: !prevTraceId || neighborsLoading },
-            p: { action: goToPrevious, disabled: !nextTraceId || neighborsLoading },
+            n: { action: goToNewer, disabled: !newerTraceId || neighborsLoading },
+            p: { action: goToOlder, disabled: !olderTraceId || neighborsLoading },
         },
-        [prevTraceId, nextTraceId, prevTimestamp, nextTimestamp, neighborsLoading, viewMode]
+        [olderTraceId, newerTraceId, olderTimestamp, newerTimestamp, neighborsLoading, viewMode]
     )
 
     return (
@@ -122,18 +120,18 @@ function TraceNavigation(): JSX.Element {
                 icon={<IconChevronLeft />}
                 size="xsmall"
                 type="secondary"
-                disabled={!nextTraceId || neighborsLoading}
-                onClick={goToPrevious}
-                tooltip="Previous trace"
+                disabled={!newerTraceId || neighborsLoading}
+                onClick={goToNewer}
+                tooltip="Newer trace"
                 sideIcon={<KeyboardShortcut p />}
             />
             <LemonButton
                 icon={<IconChevronRight />}
                 size="xsmall"
                 type="secondary"
-                disabled={!prevTraceId || neighborsLoading}
-                onClick={goToNext}
-                tooltip="Next trace"
+                disabled={!olderTraceId || neighborsLoading}
+                onClick={goToOlder}
+                tooltip="Older trace"
                 sideIcon={<KeyboardShortcut n />}
             />
         </div>

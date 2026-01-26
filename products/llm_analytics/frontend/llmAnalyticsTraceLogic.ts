@@ -18,9 +18,9 @@ import {
     AnyResponseType,
     DataTableNode,
     NodeKind,
+    TraceNeighborsQuery,
+    TraceNeighborsQueryResponse,
     TraceQuery,
-    TracesNeighborsQuery,
-    TracesNeighborsQueryResponse,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
 
@@ -248,7 +248,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             },
         ],
         neighbors: [
-            null as TracesNeighborsQueryResponse | null,
+            null as TraceNeighborsQueryResponse | null,
             {
                 loadNeighbors: async ({ traceId, timestamp }, breakpoint) => {
                     if (!traceId || !timestamp) {
@@ -264,8 +264,8 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                         !values.dateFilter.dateFrom.startsWith('-') &&
                         !values.dateFilter.dateFrom.startsWith('d')
 
-                    const query: TracesNeighborsQuery = {
-                        kind: NodeKind.TracesNeighborsQuery,
+                    const query: TraceNeighborsQuery = {
+                        kind: NodeKind.TraceNeighborsQuery,
                         traceId,
                         timestamp,
                         dateRange: hasExplicitDateRange
@@ -283,7 +283,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
 
                     breakpoint()
 
-                    return response as TracesNeighborsQueryResponse
+                    return response as TraceNeighborsQueryResponse
                 },
             },
         ],
@@ -348,10 +348,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     return eventTypeExpandedMap[eventType] ?? true
                 },
         ],
-        nextTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.nextTraceId ?? null],
-        nextTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.nextTimestamp ?? null],
-        prevTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.prevTraceId ?? null],
-        prevTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.prevTimestamp ?? null],
+        newerTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.newerTraceId ?? null],
+        newerTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.newerTimestamp ?? null],
+        olderTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTraceId ?? null],
+        olderTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTimestamp ?? null],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.traceId, s.featureFlags],
             (traceId, featureFlags): SidePanelSceneContext => {

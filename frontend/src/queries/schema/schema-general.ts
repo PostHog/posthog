@@ -165,7 +165,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
-    TracesNeighborsQuery = 'TracesNeighborsQuery',
+    TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
@@ -226,7 +226,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
-    | TracesNeighborsQuery
+    | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
     | EndpointsUsageOverviewQuery
@@ -319,7 +319,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
-    | TracesNeighborsQuery
+    | TraceNeighborsQuery
     | VectorSearchQuery
 
     // Customer analytics
@@ -4016,21 +4016,21 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
-export interface TracesNeighborsQueryResponse {
-    /** ID of the next trace (chronologically newer) */
-    nextTraceId?: string
-    /** Timestamp of the next trace */
-    nextTimestamp?: string
-    /** ID of the previous trace (chronologically older) */
-    prevTraceId?: string
-    /** Timestamp of the previous trace */
-    prevTimestamp?: string
+export interface TraceNeighborsQueryResponse {
+    /** ID of the newer trace (chronologically after current) */
+    newerTraceId?: string
+    /** Timestamp of the newer trace */
+    newerTimestamp?: string
+    /** ID of the older trace (chronologically before current) */
+    olderTraceId?: string
+    /** Timestamp of the older trace */
+    olderTimestamp?: string
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
 }
 
-export interface TracesNeighborsQuery extends DataNode<TracesNeighborsQueryResponse> {
-    kind: NodeKind.TracesNeighborsQuery
+export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
+    kind: NodeKind.TraceNeighborsQuery
     /** ID of the current trace to find neighbors for */
     traceId: string
     /** Timestamp of the current trace to find neighbors for */
@@ -4044,7 +4044,7 @@ export interface TracesNeighborsQuery extends DataNode<TracesNeighborsQueryRespo
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
-export type CachedTracesNeighborsQueryResponse = CachedQueryResponse<TracesNeighborsQueryResponse>
+export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
