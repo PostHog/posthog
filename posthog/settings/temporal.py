@@ -1,7 +1,7 @@
 import os
 
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "127.0.0.1")
@@ -10,13 +10,7 @@ TEMPORAL_CLIENT_ROOT_CA: str | None = os.getenv("TEMPORAL_CLIENT_ROOT_CA", None)
 TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
 TEMPORAL_CLIENT_KEY: str | None = os.getenv("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS: str = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
-TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", "0").lower() in [
-    "1",
-    "true",
-    "t",
-    "y",
-    "yes",
-]
+TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", False, type_cast=str_to_bool)
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
 )
@@ -26,6 +20,12 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
+
+TEMPORAL_HEALTH_PORT: int = get_from_env("TEMPORAL_HEALTH_PORT", 8011, type_cast=int)
+TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float = get_from_env("TEMPORAL_HEALTH_MAX_IDLE_SECONDS", 300.0, type_cast=float)
+TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
+    "TEMPORAL_COMBINED_METRICS_SERVER_ENABLED", True, type_cast=str_to_bool
+)
 
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 

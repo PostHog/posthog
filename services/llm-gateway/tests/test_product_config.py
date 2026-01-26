@@ -63,8 +63,9 @@ class TestCheckProductAccess:
         [
             "claude-3-5-haiku-20241022",
             "gpt-4o-mini",
-            "claude-3-opus",
             "gpt-4o",
+            "claude-3-opus",
+            "o1",
         ],
     )
     def test_array_allows_all_models_with_valid_app_id(self, model: str):

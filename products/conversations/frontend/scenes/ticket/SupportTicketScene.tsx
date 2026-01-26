@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -11,8 +14,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { UserBasicType } from '~/types'
 
+import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
@@ -35,7 +38,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         ticketLoading,
         status,
         priority,
-        assignedTo,
+        assignee,
         chatMessages,
         messagesLoading,
         messageSending,
@@ -46,9 +49,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         previousTickets,
         previousTicketsLoading,
         exceptionsQuery,
+        chatPanelWidth,
     } = useValues(logic)
-    const { setStatus, setPriority, setAssignedTo, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
+    const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
     const { push } = useActions(router)
+
+    const chatPanelRef = useRef<HTMLDivElement>(null)
+
+    const resizerLogicProps: ResizerLogicProps = {
+        containerRef: chatPanelRef,
+        logicKey: 'support-ticket-resizer',
+        persistent: true,
+        placement: 'right',
+    }
+
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     if (ticketLoading) {
         return (
@@ -90,20 +105,29 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 }}
             />
 
-            <div className="grid gap-4 lg:grid-cols-2 items-start">
-                {/* Main conversation area */}
-                <ChatView
-                    messages={chatMessages}
-                    messagesLoading={messagesLoading}
-                    messageSending={messageSending}
-                    hasMoreMessages={hasMoreMessages}
-                    olderMessagesLoading={olderMessagesLoading}
-                    onSendMessage={sendMessage}
-                    onLoadOlderMessages={loadOlderMessages}
-                />
+            <div className="flex flex-col lg:flex-row items-start">
+                <div
+                    style={{ width: chatPanelWidth(desiredSize) }}
+                    className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
+                    ref={chatPanelRef}
+                >
+                    {/* Main conversation area */}
+                    <ChatView
+                        messages={chatMessages}
+                        messagesLoading={messagesLoading}
+                        messageSending={messageSending}
+                        hasMoreMessages={hasMoreMessages}
+                        olderMessagesLoading={olderMessagesLoading}
+                        onSendMessage={sendMessage}
+                        onLoadOlderMessages={loadOlderMessages}
+                    />
+                    <div className="hidden lg:block">
+                        <Resizer {...resizerLogicProps} />
+                    </div>
+                </div>
 
                 {/* Sidebar with all metadata */}
-                <div className="space-y-4">
+                <div className="space-y-4 flex-1 min-w-[300px] pl-2">
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
                         {ticket?.distinct_id && (
@@ -185,16 +209,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Assignee</span>
-                                <MemberSelect
-                                    value={
-                                        !assignedTo || assignedTo === 'All users' || typeof assignedTo === 'string'
-                                            ? null
-                                            : assignedTo
-                                    }
-                                    onChange={(user: UserBasicType | null) =>
-                                        setAssignedTo(user?.id?.toString() || ('All users' as string))
-                                    }
-                                />
+                                <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                    {(resolvedAssignee, isOpen) => (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            active={isOpen}
+                                            sideIcon={<IconChevronDown />}
+                                        >
+                                            <span className="flex items-center gap-1">
+                                                <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                                <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
+                                            </span>
+                                        </LemonButton>
+                                    )}
+                                </AssigneeSelect>
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">

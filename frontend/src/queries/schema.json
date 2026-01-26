@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -761,12 +761,37 @@
                 {
                     "const": "rejecting",
                     "type": "string"
+                },
+                {
+                    "const": "custom",
+                    "type": "string"
                 }
             ]
         },
         "ApprovalDecisionStatus": {
             "enum": ["pending", "approved", "rejected", "auto_rejected"],
             "type": "string"
+        },
+        "ApprovalResumePayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "enum": ["approve", "reject"],
+                    "type": "string"
+                },
+                "feedback": {
+                    "type": "string"
+                },
+                "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "proposal_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["action", "proposal_id"],
+            "type": "object"
         },
         "ArtifactContent": {
             "anyOf": [
@@ -1955,7 +1980,8 @@
                 "upsert_dashboard",
                 "manage_memories",
                 "create_notebook",
-                "list_data"
+                "list_data",
+                "finalize_plan"
             ],
             "type": "string"
         },
@@ -2127,6 +2153,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "TwoDimensionalHeatmap",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -2216,7 +2246,8 @@
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
-                        "CalendarHeatmap"
+                        "CalendarHeatmap",
+                        "TwoDimensionalHeatmap"
                     ],
                     "type": "string"
                 },
@@ -7944,7 +7975,8 @@
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
-                "CalendarHeatmap"
+                "CalendarHeatmap",
+                "TwoDimensionalHeatmap"
             ],
             "type": "string"
         },
@@ -7956,6 +7988,9 @@
                         "$ref": "#/definitions/GoalLine"
                     },
                     "type": "array"
+                },
+                "heatmap": {
+                    "$ref": "#/definitions/HeatmapSettings"
                 },
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
@@ -15288,7 +15323,8 @@
                 "RedditAds",
                 "TikTokAds",
                 "BingAds",
-                "Shopify"
+                "Shopify",
+                "SnapchatAds"
             ],
             "type": "string"
         },
@@ -15694,6 +15730,20 @@
                 }
             },
             "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
+        "FormResumePayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "const": "form",
+                    "type": "string"
+                },
+                "form_answers": {
+                    "$ref": "#/definitions/MultiQuestionFormAnswers"
+                }
+            },
+            "required": ["action", "form_answers"],
             "type": "object"
         },
         "FunnelConversionWindowTimeUnit": {
@@ -16821,6 +16871,53 @@
         },
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
+        },
+        "HeatmapGradientStop": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
+        },
+        "HeatmapSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "gradient": {
+                    "items": {
+                        "$ref": "#/definitions/HeatmapGradientStop"
+                    },
+                    "type": "array"
+                },
+                "gradientPreset": {
+                    "type": "string"
+                },
+                "gradientScaleMode": {
+                    "enum": ["absolute", "relative"],
+                    "type": "string"
+                },
+                "valueColumn": {
+                    "type": "string"
+                },
+                "xAxisColumn": {
+                    "type": "string"
+                },
+                "xAxisLabel": {
+                    "type": "string"
+                },
+                "yAxisColumn": {
+                    "type": "string"
+                },
+                "yAxisLabel": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "HedgehogColorOptions": {
             "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
@@ -18344,7 +18441,8 @@
                 "bing-ads",
                 "vercel",
                 "azure-blob",
-                "firebase"
+                "firebase",
+                "jira"
             ],
             "type": "string"
         },
@@ -21226,6 +21324,12 @@
             "required": ["questions"],
             "type": "object"
         },
+        "MultiQuestionFormAnswers": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "MultiQuestionFormQuestion": {
             "additionalProperties": false,
             "properties": {
@@ -21247,16 +21351,24 @@
                 "question": {
                     "description": "The question text to display",
                     "type": "string"
+                },
+                "title": {
+                    "description": "One word title for the question e.g. \"Use case\", \"Team size\", \"Experience\"",
+                    "type": "string"
                 }
             },
-            "required": ["id", "question", "options"],
+            "required": ["id", "title", "question", "options"],
             "type": "object"
         },
         "MultiQuestionFormQuestionOption": {
             "additionalProperties": false,
             "properties": {
+                "description": {
+                    "description": "A longer description of the option, in one short sentence",
+                    "type": "string"
+                },
                 "value": {
-                    "description": "The value to use when this option is selected",
+                    "description": "A short value to use when this option is selected, in a few words",
                     "type": "string"
                 }
             },
@@ -27696,6 +27808,16 @@
             },
             "required": ["assignmentBy"],
             "type": "object"
+        },
+        "ResumePayload": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ApprovalResumePayload"
+                },
+                {
+                    "$ref": "#/definitions/FormResumePayload"
+                }
+            ]
         },
         "RetentionDashboardDisplayType": {
             "enum": ["table_only", "graph_only", "all"],
