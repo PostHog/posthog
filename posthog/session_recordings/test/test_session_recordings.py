@@ -1795,7 +1795,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user1", session_id, base_time)
 
         # Clear any existing cache
-        cache_key = f"summarize_recording_existence_team_{self.team.pk}_id_{session_id}"
+        cache_key = f"session_recording_existence_team_{self.team.pk}_id_{session_id}"
         cache.delete(cache_key)
 
         # First request - should query ClickHouse and cache result
@@ -1818,7 +1818,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = "non_existent_session_nocache"
 
         # Clear any existing cache
-        cache_key = f"summarize_recording_existence_team_{self.team.pk}_id_{session_id}"
+        cache_key = f"session_recording_existence_team_{self.team.pk}_id_{session_id}"
         cache.delete(cache_key)
 
         response = self.client.post(
