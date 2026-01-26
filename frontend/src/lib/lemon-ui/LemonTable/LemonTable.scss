@@ -349,6 +349,12 @@ body:not(.storybook-test-runner) {
             box-shadow: -16px 0 16px 16px transparent;
             transition: box-shadow 200ms ease;
         }
+
+        .LemonTable__cell-content-wrapper {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
     }
 
     .ScrollableShadows--left {
