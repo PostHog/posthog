@@ -575,9 +575,11 @@ class TestClayWebhookResourceCreateBatches:
             api_key="test-key",
         )
 
-        batches = resource.create_batches([])
+        result = resource.create_batches([])
 
-        assert batches == []
+        assert result.batches == []
+        assert result.truncated_count == 0
+        assert result.skipped_count == 0
 
     def test_create_batches_respects_record_count_limit(self):
         resource = ClayWebhookResource(
@@ -588,13 +590,15 @@ class TestClayWebhookResourceCreateBatches:
         )
         data = [{"domain": f"{i}.com"} for i in range(10)]
 
-        batches = resource.create_batches(data)
+        result = resource.create_batches(data)
 
-        assert len(batches) == 4  # 3 + 3 + 3 + 1
-        assert len(batches[0]) == 3
-        assert len(batches[1]) == 3
-        assert len(batches[2]) == 3
-        assert len(batches[3]) == 1
+        assert len(result.batches) == 4  # 3 + 3 + 3 + 1
+        assert len(result.batches[0]) == 3
+        assert len(result.batches[1]) == 3
+        assert len(result.batches[2]) == 3
+        assert len(result.batches[3]) == 1
+        assert result.truncated_count == 0
+        assert result.skipped_count == 0
 
     def test_create_batches_respects_byte_limit(self):
         resource = ClayWebhookResource(
@@ -605,10 +609,10 @@ class TestClayWebhookResourceCreateBatches:
         )
         data = [{"domain": f"{i}.com"} for i in range(10)]
 
-        batches = resource.create_batches(data)
+        result = resource.create_batches(data)
 
         # Verify each batch is under the byte limit
-        for batch in batches:
+        for batch in result.batches:
             batch_size = len(json.dumps(batch, default=str).encode("utf-8"))
             assert batch_size <= 100
 
@@ -627,15 +631,17 @@ class TestClayWebhookResourceCreateBatches:
         original_size = len(json.dumps([oversized_record]).encode("utf-8"))
         assert original_size > 500  # Verify it's actually oversized
 
-        batches = resource.create_batches([oversized_record])
+        result = resource.create_batches([oversized_record])
 
-        assert len(batches) == 1
-        assert len(batches[0]) == 1
+        assert len(result.batches) == 1
+        assert len(result.batches[0]) == 1
         # The record should have truncated emails
-        assert len(batches[0][0]["emails"]) < 100
+        assert len(result.batches[0][0]["emails"]) < 100
         # Verify it fits in the limit
-        batch_size = len(json.dumps(batches[0]).encode("utf-8"))
+        batch_size = len(json.dumps(result.batches[0]).encode("utf-8"))
         assert batch_size <= 500
+        assert result.truncated_count == 1
+        assert result.skipped_count == 0
 
     def test_create_batches_skips_untruncatable_oversized_records(self):
         resource = ClayWebhookResource(
@@ -647,9 +653,11 @@ class TestClayWebhookResourceCreateBatches:
         # Record that can't be truncated to fit (no truncatable array fields)
         oversized_record = {"domain": "example.com", "data": "x" * 100}
 
-        batches = resource.create_batches([oversized_record])
+        result = resource.create_batches([oversized_record])
 
-        assert batches == []  # Record was skipped
+        assert result.batches == []  # Record was skipped
+        assert result.truncated_count == 1  # Truncation was attempted
+        assert result.skipped_count == 1  # But ultimately skipped
 
     def test_create_batches_mixed_sizes(self):
         resource = ClayWebhookResource(
@@ -661,12 +669,14 @@ class TestClayWebhookResourceCreateBatches:
         small_record = {"d": "a.com"}
         oversized_record = {"domain": "example.com", "data": "x" * 200}
 
-        batches = resource.create_batches([small_record, oversized_record, small_record])
+        result = resource.create_batches([small_record, oversized_record, small_record])
 
         # Only small records should be included
-        assert len(batches) == 1
-        assert len(batches[0]) == 2
-        assert all(r["d"] == "a.com" for r in batches[0])
+        assert len(result.batches) == 1
+        assert len(result.batches[0]) == 2
+        assert all(r["d"] == "a.com" for r in result.batches[0])
+        assert result.truncated_count == 1
+        assert result.skipped_count == 1
 
     @parameterized.expand(
         [
@@ -693,7 +703,7 @@ class TestClayWebhookResourceCreateBatches:
         )
         data = [{"domain": f"{i}.com"} for i in range(num_records)]
 
-        batches = resource.create_batches(data)
+        result = resource.create_batches(data)
 
-        assert len(batches) == expected_batch_count
-        assert [len(b) for b in batches] == expected_batch_sizes
+        assert len(result.batches) == expected_batch_count
+        assert [len(b) for b in result.batches] == expected_batch_sizes

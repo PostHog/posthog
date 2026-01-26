@@ -190,16 +190,14 @@ def job_switchers_to_clay(
 
     # Convert to payload and create batches
     payload = dataframe_to_clay_payload(changed_df)
-    batches = clay_webhook.create_batches(payload, logger=context.log)
+    batch_result = clay_webhook.create_batches(payload, logger=context.log)
 
     # Send batches sequentially
-    total_sent = 0
-    for i, batch in enumerate(batches):
+    for i, batch in enumerate(batch_result.batches):
         clay_webhook.send(batch)
-        total_sent += len(batch)
-        context.log.info("Sent batch %d/%d with %d records", i + 1, len(batches), len(batch))
+        context.log.info("Sent batch %d/%d with %d records", i + 1, len(batch_result.batches), len(batch))
 
-    context.log.info("Sent %d batches to Clay webhook", len(batches))
+    context.log.info("Sent %d batches to Clay webhook", len(batch_result.batches))
 
     # Store domain hashes in asset metadata for next run
     context.add_output_metadata(
@@ -207,7 +205,9 @@ def job_switchers_to_clay(
             "domain_hashes": MetadataValue.json(current_hashes),
             "domains_synced": MetadataValue.int(len(changed_df)),
             "total_domains": MetadataValue.int(len(df)),
-            "batches_sent": MetadataValue.int(len(batches)),
+            "batches_sent": MetadataValue.int(len(batch_result.batches)),
+            "records_truncated": MetadataValue.int(batch_result.truncated_count),
+            "records_skipped": MetadataValue.int(batch_result.skipped_count),
         }
     )
 

@@ -1,6 +1,8 @@
 import json
 import asyncio
 from collections.abc import Callable, Generator
+from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlparse
 
 import dagster
@@ -153,6 +155,15 @@ def _is_retryable_http_error(exception: BaseException) -> bool:
     return isinstance(exception, requests.exceptions.ConnectionError)
 
 
+@dataclass
+class ClayBatchResult:
+    """Result from create_batches containing batches and stats for monitoring."""
+
+    batches: list[list[dict]]
+    truncated_count: int
+    skipped_count: int
+
+
 class ClayWebhookResource(dagster.ConfigurableResource):
     """Clay webhook client for sending enriched contact data."""
 
@@ -193,7 +204,7 @@ class ClayWebhookResource(dagster.ConfigurableResource):
             if not arr:
                 continue
 
-            # Binary search for the maximum array length that fits
+            # Progressively halve array length until it fits
             while len(arr) > 0 and record_size > self.max_batch_bytes:
                 # Halve the array length each iteration
                 new_len = max(1, len(arr) // 2)
@@ -242,14 +253,17 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         """Get the serialized size of a batch in bytes."""
         return len(json.dumps(batch, default=str).encode("utf-8"))
 
-    def create_batches(self, data: list[dict], logger=None) -> list[list[dict]]:
+    def create_batches(self, data: list[dict], logger: Any | None = None) -> ClayBatchResult:
         """Split data into batches respecting both record count and byte limits.
 
-        Returns a list of batches, each containing records that fit within
-        max_records_per_batch and max_batch_bytes constraints.
+        Returns a ClayBatchResult containing:
+        - batches: list of batches, each containing records that fit within
+          max_records_per_batch and max_batch_bytes constraints
+        - truncated_count: number of records that were truncated to fit
+        - skipped_count: number of records that were skipped entirely
         """
         if not data:
-            return []
+            return ClayBatchResult(batches=[], truncated_count=0, skipped_count=0)
 
         batches: list[list[dict]] = []
         current_batch: list[dict] = []
@@ -265,19 +279,19 @@ class ClayWebhookResource(dagster.ConfigurableResource):
                 truncated_count += 1
                 if logger:
                     logger.info(
-                        "truncated_record",
-                        domain=record.get("domain", "unknown"),
-                        original_size=original_size,
-                        new_size=record_size,
+                        "Truncated record for domain %s: %d -> %d bytes",
+                        record.get("domain", "unknown"),
+                        original_size,
+                        record_size,
                     )
                 if record_size > self.max_batch_bytes:
                     skipped_count += 1
                     if logger:
                         logger.warning(
-                            "skipped_oversized_record",
-                            domain=record.get("domain", "unknown"),
-                            record_size=record_size,
-                            max_bytes=self.max_batch_bytes,
+                            "Skipped oversized record for domain %s: %d bytes exceeds max %d bytes",
+                            record.get("domain", "unknown"),
+                            record_size,
+                            self.max_batch_bytes,
                         )
                     continue
 
@@ -295,17 +309,17 @@ class ClayWebhookResource(dagster.ConfigurableResource):
 
         if logger:
             if truncated_count > 0:
-                logger.info("truncated_records_summary", count=truncated_count)
+                logger.info("Truncated %d records to fit batch size limits", truncated_count)
             if skipped_count > 0:
-                logger.warning("skipped_records_summary", count=skipped_count)
+                logger.warning("Skipped %d records that exceeded max batch size", skipped_count)
 
-        return batches
+        return ClayBatchResult(batches=batches, truncated_count=truncated_count, skipped_count=skipped_count)
 
     def send_batched(
         self,
         data: list[dict],
-        logger=None,
-        on_batch_sent: "Callable[[list[dict]], None] | None" = None,
+        logger: Any | None = None,
+        on_batch_sent: Callable[[list[dict]], None] | None = None,
     ) -> list[requests.Response]:
         """Send data to Clay webhook in size-aware batches to stay under payload limits.
 
@@ -318,14 +332,14 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         if not data:
             return []
 
-        batches = self.create_batches(data, logger)
+        result = self.create_batches(data, logger)
         responses: list[requests.Response] = []
 
         with requests.Session() as session:
-            for i, batch in enumerate(batches):
+            for i, batch in enumerate(result.batches):
                 responses.append(self._send_with_retry(session, batch))
                 if logger:
-                    logger.info("sent_batch", batch_number=i + 1, record_count=len(batch))
+                    logger.info("Sent batch %d with %d records", i + 1, len(batch))
                 if on_batch_sent:
                     on_batch_sent(batch)
 
