@@ -715,7 +715,12 @@ export const searchLogic = kea<searchLogicType>([
 
                         // Every chunk must match either "new"/"create" or be found in the item name/type/id
                         return searchChunks.every((chunk) => {
-                            if (chunk.includes('new') || chunk.includes('create')) {
+                            if (
+                                chunk === 'new' ||
+                                chunk === 'create' ||
+                                chunk.startsWith('new') ||
+                                chunk.startsWith('create')
+                            ) {
                                 return true
                             }
                             if (nameLower.includes(chunk)) {
