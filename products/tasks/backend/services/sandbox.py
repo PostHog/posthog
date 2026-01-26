@@ -9,6 +9,7 @@ This module exports:
 - ExecutionResult: Result of command execution
 """
 
+from collections.abc import Callable
 from enum import Enum
 from types import TracebackType
 from typing import Protocol
@@ -63,7 +64,14 @@ class SandboxProtocol(Protocol):
 
     def get_status(self) -> SandboxStatus: ...
 
-    def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+    def execute(
+        self,
+        command: str,
+        timeout_seconds: int | None = None,
+        *,
+        stdout_callback: Callable[[str], None] | None = None,
+        stderr_callback: Callable[[str], None] | None = None,
+    ) -> ExecutionResult: ...
 
     def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult: ...
 

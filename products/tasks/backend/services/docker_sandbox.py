@@ -3,8 +3,10 @@ import uuid
 import shutil
 import logging
 import tempfile
+import threading
 import subprocess
-from typing import Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -265,6 +267,9 @@ class DockerSandbox:
         self,
         command: str,
         timeout_seconds: Optional[int] = None,
+        *,
+        stdout_callback: Optional[Callable[[str], None]] = None,
+        stderr_callback: Optional[Callable[[str], None]] = None,
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
@@ -278,15 +283,69 @@ class DockerSandbox:
 
         try:
             logger.debug(f"Executing in sandbox {self.id}: {command[:100]}...")
-            result = DockerSandbox._run(
-                ["docker", "exec", self._container_id, "bash", "-c", command],
-                timeout=timeout_seconds,
+            args = ["docker", "exec", self._container_id, "bash", "-c", command]
+            if stdout_callback is None and stderr_callback is None:
+                result = DockerSandbox._run(args, timeout=timeout_seconds)
+                return ExecutionResult(
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    exit_code=result.returncode,
+                    error=None,
+                )
+
+            process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
             )
 
+            stdout_lines: list[str] = []
+            stderr_lines: list[str] = []
+
+            def _stream_output(
+                stream: Optional[Any],
+                collector: list[str],
+                callback: Optional[Callable[[str], None]],
+            ) -> None:
+                if stream is None:
+                    return
+                for line in iter(stream.readline, ""):
+                    collector.append(line)
+                    if callback:
+                        callback(line)
+                stream.close()
+
+            stdout_thread = threading.Thread(
+                target=_stream_output,
+                args=(process.stdout, stdout_lines, stdout_callback),
+                daemon=True,
+            )
+            stderr_thread = threading.Thread(
+                target=_stream_output,
+                args=(process.stderr, stderr_lines, stderr_callback),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stderr_thread.start()
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired as e:
+                process.kill()
+                raise SandboxTimeoutError(
+                    f"Execution timed out after {timeout_seconds} seconds",
+                    {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+                    cause=e,
+                )
+            finally:
+                stdout_thread.join(timeout=1)
+                stderr_thread.join(timeout=1)
+
             return ExecutionResult(
-                stdout=result.stdout,
-                stderr=result.stderr,
-                exit_code=result.returncode,
+                stdout="".join(stdout_lines),
+                stderr="".join(stderr_lines),
+                exit_code=process.returncode,
                 error=None,
             )
 

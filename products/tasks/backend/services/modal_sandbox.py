@@ -1,8 +1,10 @@
 import os
 import uuid
 import logging
+import threading
+from collections.abc import Callable
 from functools import lru_cache
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -207,6 +209,9 @@ class ModalSandbox:
         self,
         command: str,
         timeout_seconds: int | None = None,
+        *,
+        stdout_callback: Callable[[str], None] | None = None,
+        stderr_callback: Callable[[str], None] | None = None,
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
@@ -221,10 +226,54 @@ class ModalSandbox:
         try:
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
-            process.wait()
+            stdout_chunks: list[str] = []
+            stderr_chunks: list[str] = []
 
-            stdout = process.stdout.read()
-            stderr = process.stderr.read()
+            def _stream_output(
+                stream: Any,
+                collector: list[str],
+                callback: Callable[[str], None] | None,
+            ) -> None:
+                if stream is None:
+                    return
+                readline = getattr(stream, "readline", None)
+                if callable(readline):
+                    while True:
+                        chunk = readline()
+                        if not chunk:
+                            break
+                        text = chunk.decode("utf-8", errors="replace") if isinstance(chunk, bytes) else chunk
+                        collector.append(text)
+                        if callback:
+                            callback(text)
+                    return
+                data = stream.read()
+                if not data:
+                    return
+                text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
+                collector.append(text)
+                if callback:
+                    callback(text)
+
+            stdout_thread = threading.Thread(
+                target=_stream_output,
+                args=(process.stdout, stdout_chunks, stdout_callback),
+                daemon=True,
+            )
+            stderr_thread = threading.Thread(
+                target=_stream_output,
+                args=(process.stderr, stderr_chunks, stderr_callback),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stderr_thread.start()
+
+            process.wait()
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+
+            stdout = "".join(stdout_chunks)
+            stderr = "".join(stderr_chunks)
 
             result = ExecutionResult(
                 stdout=stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout,  # type: ignore[unreachable]

@@ -740,6 +740,9 @@ class KernelRuntimeService:
             "    print(json.dumps(payload))\n"
             "    raise NotebookHogQLBridgeRequest(cache_key, query)\n"
             "\n"
+            "def execute_hogql(query: str) -> Any:\n"
+            "    return hogql_execute(query)\n"
+            "\n"
             "def notebook_dataframe_page(value: Any, *, offset: int = 0, limit: int = 10) -> dict[str, Any] | None:\n"
             "    try:\n"
             "        import pandas as pd\n"
@@ -1064,7 +1067,29 @@ class KernelRuntimeService:
         sandbox_class = self._get_sandbox_class(handle.backend)
         sandbox = sandbox_class.get_by_id(handle.sandbox_id)
         started_at = timezone.now()
-        result = sandbox.execute(command, timeout_seconds=timeout_seconds)
+        payload_out: dict[str, Any] | None = None
+        stdout_buffer = ""
+
+        def handle_stdout(line: str) -> None:
+            nonlocal payload_out
+            nonlocal stdout_buffer
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                return
+            if payload.get("type") == "stream" and payload.get("name") == "stdout":
+                text = payload.get("text", "")
+                if isinstance(text, str) and output_callback:
+                    stdout_buffer = self._emit_stdout_lines(output_callback, stdout_buffer, text)
+                return
+            if "status" in payload:
+                payload_out = payload
+
+        result = sandbox.execute(
+            command,
+            timeout_seconds=timeout_seconds,
+            stdout_callback=handle_stdout if output_callback else None,
+        )
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel execution failed: {result.stdout} {result.stderr}")
 
@@ -1072,21 +1097,20 @@ class KernelRuntimeService:
         if not output:
             raise RuntimeError("Kernel execution returned no output.")
 
-        payload_out: dict[str, Any] | None = None
-        stdout_buffer = ""
-        for line in output.splitlines():
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if payload.get("type") == "stream" and payload.get("name") == "stdout":
-                text = payload.get("text", "")
-                if not isinstance(text, str) or not output_callback:
+        if payload_out is None:
+            for line in output.splitlines():
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
                     continue
-                stdout_buffer = self._emit_stdout_lines(output_callback, stdout_buffer, text)
-                continue
-            if "status" in payload:
-                payload_out = payload
+                if payload.get("type") == "stream" and payload.get("name") == "stdout":
+                    text = payload.get("text", "")
+                    if not isinstance(text, str) or not output_callback:
+                        continue
+                    stdout_buffer = self._emit_stdout_lines(output_callback, stdout_buffer, text)
+                    continue
+                if "status" in payload:
+                    payload_out = payload
         if output_callback and stdout_buffer:
             output_callback(stdout_buffer)
         if payload_out is None:
