@@ -274,6 +274,19 @@ dashboard_tiles: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_issues: PostgresTable = PostgresTable(
+    name="error_tracking_issues",
+    postgres_table_name="posthog_errortrackingissue",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "status": StringDatabaseField(name="status"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
@@ -283,6 +296,7 @@ class SystemTables(TableNode):
         "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
+        "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
