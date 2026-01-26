@@ -79,6 +79,7 @@ export const IframeExample: Story = {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
             waitForSelector: '#heatmap-iframe',
+            waitForLoadersToDisappear: true,
             skipIframeWait: true,
         },
     },
@@ -90,8 +91,12 @@ export const IframeExample: Story = {
                     res(
                         ctx.status(200),
                         ctx.json({
-                            results: [],
-                            count: 0,
+                            results: [
+                                { x: 400, y: 150, count: 25 },
+                                { x: 420, y: 350, count: 12 },
+                                { x: 200, y: 500, count: 8 },
+                            ],
+                            count: 3,
                             next: null,
                             previous: null,
                         })
