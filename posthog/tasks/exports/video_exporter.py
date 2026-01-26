@@ -26,6 +26,7 @@ from posthog.exceptions_capture import capture_exception
 logger = structlog.get_logger(__name__)
 
 HEIGHT_OFFSET = 85
+PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,28 @@ class RecordingResult:
     segment_start_timestamps: dict[int, float]
 
 
+@dataclass(frozen=True)
+class RecordReplayToFileOptions:
+    image_path: str
+    url_to_render: str
+    wait_for_css_selector: str
+    # Recording duration in seconds.
+    recording_duration: int
+    screenshot_width: Optional[int] = None
+    screenshot_height: Optional[int] = None
+    playback_speed: int = 1
+
+    def __post_init__(self) -> None:
+        if self.recording_duration <= 0:
+            raise ValueError("recording_duration must be positive")
+        if self.screenshot_width is not None and self.screenshot_width <= 0:
+            raise ValueError("screenshot_width must be positive")
+        if self.screenshot_height is not None and self.screenshot_height <= 0:
+            raise ValueError("screenshot_height must be positive")
+        if not (1 <= self.playback_speed <= 360):
+            raise ValueError(f"playback_speed must be between 1 and 360, got {self.playback_speed}")
+
+
 class _ReplayVideoRecorder(abc.ABC):
     """Base class for recording a replay to a file."""
 
@@ -48,20 +71,12 @@ class _ReplayVideoRecorder(abc.ABC):
     def __init__(
         self,
         output_path: str,
-        url_to_render: str,
-        wait_for_css_selector: str,
-        recording_duration: int,
-        playback_speed: int,
-        screenshot_width: Optional[int] = None,
-        screenshot_height: Optional[int] = None,
+        record_dir: str,
+        opts: RecordReplayToFileOptions,
     ):
         self.output_path = output_path
-        self.url_to_render = url_to_render
-        self.wait_for_css_selector = wait_for_css_selector
-        self.recording_duration = recording_duration
-        self.playback_speed = playback_speed
-        self.screenshot_width = screenshot_width
-        self.screenshot_height = screenshot_height
+        self.record_dir = record_dir
+        self.opts = opts
 
     @abc.abstractmethod
     def record(self) -> RecordingResult:
@@ -85,23 +100,23 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
             raise FileNotFoundError(f"Puppeteer recorder script not found: {script_path}")
         # Build input
         options = {
-            "url_to_render": self.url_to_render,
+            "url_to_render": self.opts.url_to_render,
             "output_path": self.output_path,
-            "wait_for_css_selector": self.wait_for_css_selector,
-            "recording_duration": self.recording_duration,
-            "playback_speed": self.playback_speed,
+            "wait_for_css_selector": self.opts.wait_for_css_selector,
+            "recording_duration": self.opts.recording_duration,
+            "playback_speed": self.opts.playback_speed,
             "headless": os.getenv("EXPORTER_HEADLESS", "1") != "0",
         }
-        if self.screenshot_width is not None:
-            options["screenshot_width"] = self.screenshot_width
-        if self.screenshot_height is not None:
-            options["screenshot_height"] = self.screenshot_height
+        if self.opts.screenshot_width is not None:
+            options["screenshot_width"] = self.opts.screenshot_width
+        if self.opts.screenshot_height is not None:
+            options["screenshot_height"] = self.opts.screenshot_height
         options_json = json.dumps(options)
         # TODO: Remove after testing
         with open("node_script_options.json", "w") as f:
             json.dump(options, f)
         # Calculate how long we wait for the recording to complete: buffer + recording time (adjusted by playback speed)
-        max_wait_s = self.RECORDING_BUFFER_SECONDS + (self.recording_duration // max(self.playback_speed, 1))
+        max_wait_s = self.RECORDING_BUFFER_SECONDS + (self.opts.recording_duration // max(self.opts.playback_speed, 1))
         logger.info(
             "video_exporter.puppeteer_recorder_starting",
             script_path=script_path,
@@ -165,29 +180,266 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
             raise RuntimeError(f"Puppeteer recorder timed out after {max_wait_s}s when recording the session") from e
 
 
-PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
+class PlaywrightRecorder(_ReplayVideoRecorder):
+    """Record a replay to a file using Playwright."""
+
+    def record(self) -> RecordingResult:
+        """Record a replay to a file using Playwright."""
+        logger.info("video_exporter.using_playwright_recorder")
+        with sync_playwright() as p:
+            headless = os.getenv("EXPORTER_HEADLESS", "1") != "0"  # TIP: for debugging, set to False
+            browser = p.chromium.launch(
+                headless=headless,
+                devtools=not headless,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--use-gl=swiftshader",
+                    "--disable-software-rasterizer",
+                    "--force-device-scale-factor=2",
+                ],
+            )
+            # Check if dimensions were provided or need to be detected
+            if self.opts.screenshot_width is not None and self.opts.screenshot_height is not None:
+                # Use provided dimensions
+                width = self.opts.screenshot_width
+                height = self.opts.screenshot_height
+                logger.info("video_exporter.using_provided_dimensions", width=width, height=height)
+            else:
+                # Phase 1: Detect actual recording resolution
+                default_width = 1400  # Default fallback
+                default_height = 600  # Default fallback
+                width, height = detect_recording_resolution(
+                    browser=browser,
+                    url_to_render=self.opts.url_to_render,
+                    wait_for_css_selector=self.opts.wait_for_css_selector,
+                    default_width=default_width,
+                    default_height=default_height,
+                )
+                logger.info("video_exporter.using_detected_dimensions", width=width, height=height)
+            # Scale dimensions if needed to fit within max width while maintaining aspect ratio
+            width, height = _scale_dimensions_if_needed(width, height)
+            # Phase 2: Create recording context with exact resolution
+            context = browser.new_context(
+                viewport={"width": width, "height": height},
+                record_video_dir=self.record_dir,
+                record_video_size={"width": width, "height": height},
+            )
+            page = context.new_page()
+            record_started = time.monotonic()
+            logger.info("video_exporter.recording_context_created", width=width, height=height)
+            # Speed up playback for long MP4 recordings to reduce recording time
+            ext = os.path.splitext(self.opts.image_path)[1].lower()
+            # if playback speed is the default value for webm or mp4 then we speed it up, otherwise we respect user choice
+            playback_speed = (
+                PLAYBACK_SPEED_MULTIPLIER
+                if (ext in [".mp4", ".webm"] and self.opts.recording_duration > 5 and self.opts.playback_speed == 1)
+                else self.opts.playback_speed
+            )
+            # Navigate with correct dimensions
+            _wait_for_page_ready(
+                page, ensure_playback_speed(self.opts.url_to_render, playback_speed), self.opts.wait_for_css_selector
+            )
+            measured_width: Optional[int] = None
+            try:
+                dimensions = page.evaluate(
+                    """
+                    () => {
+                        const replayer = document.querySelector('.replayer-wrapper');
+                        if (replayer) {
+                            const rect = replayer.getBoundingClientRect();
+                            return {
+                                height: Math.max(rect.height, document.body.scrollHeight),
+                                width: replayer.offsetWidth || 0
+                            };
+                        }
+                        // Fallback for tables if no replayer
+                        const table = document.querySelector('table');
+                        return {
+                            height: document.body.scrollHeight,
+                            width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0
+                        };
+                    }
+                """
+                )
+                final_height = dimensions["height"]
+                width_candidate = dimensions["width"] or width
+                measured_width = max(width, min(1800, int(width_candidate)))
+                page.set_viewport_size({"width": measured_width, "height": int(final_height) + HEIGHT_OFFSET})
+            except Exception as e:
+                logger.warning("video_exporter.viewport_resize_failed", error=str(e))
+            ready_at = time.monotonic()
+            page.wait_for_timeout(500)
+
+            # Wait for playback to reach the end while tracking segment changes
+            # This allows us to record accurate video timestamps for each segment
+            max_wait_ms = int((self.opts.recording_duration / playback_speed) * 1000)
+            segment_start_timestamps = wait_for_recording_with_segments(
+                page=page,
+                max_wait_ms=max_wait_ms,
+                playback_started=ready_at,
+            )
+            # Collect inactivity periods and merge with segment timestamps
+            # Pass playback_speed to adjust timestamps for the final slowed-down video
+            inactivity_periods = detect_inactivity_periods(
+                page=page,
+                playback_speed=playback_speed,
+                segment_start_timestamps=segment_start_timestamps,
+            )
+            # Stop the recording, either after detecting end or reaching safety timeout
+            page.close()
+            video = page.video
+            if video is None:
+                raise RuntimeError("Playwright did not produce a video. Ensure record_video_dir is set.")
+            tmp_webm = os.path.join(self.record_dir, f"{uuid.uuid4()}.webm")
+            if hasattr(video, "save_as"):
+                video.save_as(tmp_webm)
+            else:
+                src = video.path()
+                if not src:
+                    raise RuntimeError("Playwright did not provide a video path.")
+                shutil.move(src, tmp_webm)
+            pre_roll = max(0.0, ready_at - record_started)
+            # Clean up Playwright resources
+            try:
+                context.close()
+                browser.close()
+            except Exception:
+                pass
+            # Return the result
+            return RecordingResult(
+                video_path=tmp_webm,
+                pre_roll=pre_roll,
+                playback_speed=playback_speed,
+                measured_width=measured_width,
+                inactivity_periods=inactivity_periods,
+                segment_start_timestamps=segment_start_timestamps,
+            )
 
 
-@dataclass(frozen=True)
-class RecordReplayToFileOptions:
-    image_path: str
-    url_to_render: str
-    wait_for_css_selector: str
-    # Recording duration in seconds.
-    recording_duration: int
-    screenshot_width: Optional[int] = None
-    screenshot_height: Optional[int] = None
-    playback_speed: int = 1
+class ReplayVideoRenderer:
+    @staticmethod
+    def _convert_to_mp4(
+        tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, playback_speed: int
+    ) -> None:
+        """Convert WebM to MP4 using ffmpeg."""
+        # Slow down video if it was recorded at high speed
+        video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            f"{pre_roll:.2f}",
+            "-i",
+            tmp_webm,
+            "-t",
+            f"{float(recording_duration):.2f}",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+        ]
+        if video_filter:
+            cmd.extend(["-vf", video_filter])
+        cmd.append(image_path)
 
-    def __post_init__(self) -> None:
-        if self.recording_duration <= 0:
-            raise ValueError("recording_duration must be positive")
-        if self.screenshot_width is not None and self.screenshot_width <= 0:
-            raise ValueError("screenshot_width must be positive")
-        if self.screenshot_height is not None and self.screenshot_height <= 0:
-            raise ValueError("screenshot_height must be positive")
-        if not (1 <= self.playback_speed <= 360):
-            raise ValueError(f"playback_speed must be between 1 and 360, got {self.playback_speed}")
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            error_msg = f"ffmpeg failed with exit code {e.returncode}"
+            if e.stderr:
+                error_msg += f": {e.stderr.strip()}"
+            raise RuntimeError(error_msg) from e
+
+    @staticmethod
+    def _process_webm(
+        tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, playback_speed: int
+    ) -> None:
+        """Process WebM with speed correction using ffmpeg."""
+        video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            f"{pre_roll:.2f}",
+            "-i",
+            tmp_webm,
+            "-t",
+            f"{float(recording_duration):.2f}",
+            "-c:v",
+            "libvpx-vp9",
+            "-crf",
+            "30",
+            "-b:v",
+            "0",
+            "-f",
+            "webm",
+        ]
+        if video_filter:
+            cmd.extend(["-vf", video_filter])
+        cmd.append(image_path)
+
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            error_msg = f"ffmpeg failed with exit code {e.returncode}"
+            if e.stderr:
+                error_msg += f": {e.stderr.strip()}"
+            raise RuntimeError(error_msg) from e
+
+    @staticmethod
+    def _convert_to_gif(
+        tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, measured_width: Optional[int]
+    ) -> None:
+        """Convert WebM to GIF using ffmpeg."""
+        vf_parts = ["fps=12"]
+        if measured_width is not None:
+            vf_parts.append(f"scale={measured_width}:-2:flags=lanczos")
+        vf = ",".join(vf_parts)
+
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-ss",
+                    f"{pre_roll:.2f}",
+                    "-t",
+                    f"{float(recording_duration):.2f}",
+                    "-i",
+                    tmp_webm,
+                    "-vf",
+                    f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+                    "-loop",
+                    "0",
+                    "-f",
+                    "gif",
+                    image_path,
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            error_msg = f"ffmpeg failed with exit code {e.returncode}"
+            if e.stderr:
+                error_msg += f": {e.stderr.strip()}"
+            raise RuntimeError(error_msg) from e
 
 
 def _wait_for_page_ready(page: Page, url_to_render: str, wait_for_css_selector: str) -> None:
@@ -206,129 +458,6 @@ def _wait_for_page_ready(page: Page, url_to_render: str, wait_for_css_selector: 
         page.wait_for_selector(".Spinner", state="detached", timeout=20000)
     except PlaywrightTimeoutError:
         pass
-
-
-def _convert_to_mp4(
-    tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, playback_speed: int
-) -> None:
-    """Convert WebM to MP4 using ffmpeg."""
-    # Slow down video if it was recorded at high speed
-    video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
-    cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-ss",
-        f"{pre_roll:.2f}",
-        "-i",
-        tmp_webm,
-        "-t",
-        f"{float(recording_duration):.2f}",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "23",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        "-f",
-        "mp4",
-    ]
-    if video_filter:
-        cmd.extend(["-vf", video_filter])
-    cmd.append(image_path)
-
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        error_msg = f"ffmpeg failed with exit code {e.returncode}"
-        if e.stderr:
-            error_msg += f": {e.stderr.strip()}"
-        raise RuntimeError(error_msg) from e
-
-
-def _process_webm(
-    tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, playback_speed: int
-) -> None:
-    """Process WebM with speed correction using ffmpeg."""
-    video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
-    cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-ss",
-        f"{pre_roll:.2f}",
-        "-i",
-        tmp_webm,
-        "-t",
-        f"{float(recording_duration):.2f}",
-        "-c:v",
-        "libvpx-vp9",
-        "-crf",
-        "30",
-        "-b:v",
-        "0",
-        "-f",
-        "webm",
-    ]
-    if video_filter:
-        cmd.extend(["-vf", video_filter])
-    cmd.append(image_path)
-
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        error_msg = f"ffmpeg failed with exit code {e.returncode}"
-        if e.stderr:
-            error_msg += f": {e.stderr.strip()}"
-        raise RuntimeError(error_msg) from e
-
-
-def _convert_to_gif(
-    tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, measured_width: Optional[int]
-) -> None:
-    """Convert WebM to GIF using ffmpeg."""
-    vf_parts = ["fps=12"]
-    if measured_width is not None:
-        vf_parts.append(f"scale={measured_width}:-2:flags=lanczos")
-    vf = ",".join(vf_parts)
-
-    try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-ss",
-                f"{pre_roll:.2f}",
-                "-t",
-                f"{float(recording_duration):.2f}",
-                "-i",
-                tmp_webm,
-                "-vf",
-                f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
-                "-loop",
-                "0",
-                "-f",
-                "gif",
-                image_path,
-            ],
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        error_msg = f"ffmpeg failed with exit code {e.returncode}"
-        if e.stderr:
-            error_msg += f": {e.stderr.strip()}"
-        raise RuntimeError(error_msg) from e
 
 
 def _scale_dimensions_if_needed(width: int, height: int, max_size: int = 1400) -> tuple[int, int]:
@@ -554,196 +683,62 @@ def record_replay_to_file(
     ext = os.path.splitext(opts.image_path)[1].lower()
     if ext in [".mp4", ".gif"] and not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg is required for MP4 and GIF exports but was not found in PATH")
-
+    # TODO: Remove after testing
     with open("options.json", "w") as f:
         json.dump(asdict(opts), f)
-
     temp_dir_ctx: Optional[tempfile.TemporaryDirectory] = None
     try:
+        # Create temporary paths
         temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-", ignore_cleanup_errors=True)
         record_dir = temp_dir_ctx.name
         tmp_webm = os.path.join(record_dir, f"{uuid.uuid4()}.webm")
         logger.warning(f"Output path: {tmp_webm}")
-
         # Choose recording backend: Node.js (Puppeteer) or Python (Playwright)
         use_nodejs = os.getenv("USE_NODEJS_RECORDER") == "1"
-
         if use_nodejs:
             # ============ Node.js + Puppeteer recording ============
             logger.info("video_exporter.using_nodejs_recorder")
             result = PuppeteerRecorder(
                 output_path=tmp_webm,
-                url_to_render=opts.url_to_render,
-                wait_for_css_selector=opts.wait_for_css_selector,
-                recording_duration=opts.recording_duration,
-                playback_speed=opts.playback_speed,
-                screenshot_width=opts.screenshot_width,
-                screenshot_height=opts.screenshot_height,
+                record_dir=record_dir,
+                opts=opts,
             ).record()
-
-            pre_roll = result.pre_roll
-            playback_speed = result.playback_speed
-            measured_width = result.measured_width
-            inactivity_periods = result.inactivity_periods
-            segment_start_timestamps = result.segment_start_timestamps
-
         else:
             # ============ Python + Playwright recording ============
             logger.info("video_exporter.using_playwright_recorder")
-            with sync_playwright() as p:
-                headless = os.getenv("EXPORTER_HEADLESS", "1") != "0"  # TIP: for debugging, set to False
-                browser = p.chromium.launch(
-                    headless=headless,
-                    devtools=not headless,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--use-gl=swiftshader",
-                        "--disable-software-rasterizer",
-                        "--force-device-scale-factor=2",
-                    ],
-                )
-
-                # Check if dimensions were provided or need to be detected
-                if opts.screenshot_width is not None and opts.screenshot_height is not None:
-                    # Use provided dimensions
-                    width = opts.screenshot_width
-                    height = opts.screenshot_height
-                    logger.info("video_exporter.using_provided_dimensions", width=width, height=height)
-                else:
-                    # Phase 1: Detect actual recording resolution
-                    default_width = 1400  # Default fallback
-                    default_height = 600  # Default fallback
-
-                    width, height = detect_recording_resolution(
-                        browser=browser,
-                        url_to_render=opts.url_to_render,
-                        wait_for_css_selector=opts.wait_for_css_selector,
-                        default_width=default_width,
-                        default_height=default_height,
-                    )
-                    logger.info("video_exporter.using_detected_dimensions", width=width, height=height)
-
-                # Scale dimensions if needed to fit within max width while maintaining aspect ratio
-                width, height = _scale_dimensions_if_needed(width, height)
-
-                # Phase 2: Create recording context with exact resolution
-                context = browser.new_context(
-                    viewport={"width": width, "height": height},
-                    record_video_dir=record_dir,
-                    record_video_size={"width": width, "height": height},
-                )
-                page = context.new_page()
-                record_started = time.monotonic()
-                logger.info("video_exporter.recording_context_created", width=width, height=height)
-
-                # Speed up playback for long MP4 recordings to reduce recording time
-                ext = os.path.splitext(opts.image_path)[1].lower()
-                # if playback speed is the default value for webm or mp4 then we speed it up, otherwise we respect user choice
-                playback_speed = (
-                    PLAYBACK_SPEED_MULTIPLIER
-                    if (ext in [".mp4", ".webm"] and opts.recording_duration > 5 and opts.playback_speed == 1)
-                    else opts.playback_speed
-                )
-
-                # Navigate with correct dimensions
-                _wait_for_page_ready(
-                    page, ensure_playback_speed(opts.url_to_render, playback_speed), opts.wait_for_css_selector
-                )
-                measured_width: Optional[int] = None
-                try:
-                    dimensions = page.evaluate(
-                        """
-                        () => {
-                            const replayer = document.querySelector('.replayer-wrapper');
-                            if (replayer) {
-                                const rect = replayer.getBoundingClientRect();
-                                return {
-                                    height: Math.max(rect.height, document.body.scrollHeight),
-                                    width: replayer.offsetWidth || 0
-                                };
-                            }
-                            // Fallback for tables if no replayer
-                            const table = document.querySelector('table');
-                            return {
-                                height: document.body.scrollHeight,
-                                width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0
-                            };
-                        }
-                    """
-                    )
-                    final_height = dimensions["height"]
-                    width_candidate = dimensions["width"] or width
-                    measured_width = max(width, min(1800, int(width_candidate)))
-                    page.set_viewport_size({"width": measured_width, "height": int(final_height) + HEIGHT_OFFSET})
-                except Exception as e:
-                    logger.warning("video_exporter.viewport_resize_failed", error=str(e))
-                ready_at = time.monotonic()
-                page.wait_for_timeout(500)
-
-                # Wait for playback to reach the end while tracking segment changes
-                # This allows us to record accurate video timestamps for each segment
-                max_wait_ms = int((opts.recording_duration / playback_speed) * 1000)
-                segment_start_timestamps = wait_for_recording_with_segments(
-                    page=page,
-                    max_wait_ms=max_wait_ms,
-                    playback_started=ready_at,
-                )
-
-                # Collect inactivity periods and merge with segment timestamps
-                # Pass playback_speed to adjust timestamps for the final slowed-down video
-                inactivity_periods = detect_inactivity_periods(
-                    page=page,
-                    playback_speed=playback_speed,
-                    segment_start_timestamps=segment_start_timestamps,
-                )
-
-                # Stop the recording, either after detecting end or reaching safety timeout
-                page.close()
-                video = page.video
-                if video is None:
-                    raise RuntimeError("Playwright did not produce a video. Ensure record_video_dir is set.")
-
-                tmp_webm = os.path.join(record_dir, f"{uuid.uuid4()}.webm")
-                if hasattr(video, "save_as"):
-                    video.save_as(tmp_webm)
-                else:
-                    src = video.path()
-                    if not src:
-                        raise RuntimeError("Playwright did not provide a video path.")
-                    shutil.move(src, tmp_webm)
-
-                pre_roll = max(0.0, ready_at - record_started)
-
-                # Clean up Playwright resources
-                try:
-                    context.close()
-                    browser.close()
-                except Exception:
-                    pass
+            result = PlaywrightRecorder(
+                output_path=tmp_webm,
+                record_dir=record_dir,
+                opts=opts,
+            ).record()
 
         # ============ Common post-processing (ffmpeg) ============
         logger.info(
             "video_exporter.recording_complete",
-            pre_roll=pre_roll,
-            playback_speed=playback_speed,
+            pre_roll=result.pre_roll,
+            playback_speed=result.playback_speed,
             recording_duration=opts.recording_duration,
-            segment_count=len(segment_start_timestamps) if segment_start_timestamps else 0,
+            segment_count=len(result.segment_start_timestamps) if result.segment_start_timestamps else 0,
         )
-
+        video_renderer = ReplayVideoRenderer()
         if ext == ".mp4":
-            _convert_to_mp4(tmp_webm, opts.image_path, pre_roll, opts.recording_duration, playback_speed)
+            video_renderer._convert_to_mp4(
+                tmp_webm, opts.image_path, result.pre_roll, opts.recording_duration, result.playback_speed
+            )
         elif ext == ".gif":
-            _convert_to_gif(tmp_webm, opts.image_path, pre_roll, opts.recording_duration, measured_width)
+            video_renderer._convert_to_gif(
+                tmp_webm, opts.image_path, result.pre_roll, opts.recording_duration, result.measured_width
+            )
         elif ext == ".webm":
-            if playback_speed > 1:
-                _process_webm(tmp_webm, opts.image_path, pre_roll, opts.recording_duration, playback_speed)
+            if result.playback_speed > 1:
+                video_renderer._process_webm(
+                    tmp_webm, opts.image_path, result.pre_roll, opts.recording_duration, result.playback_speed
+                )
             else:
                 shutil.move(tmp_webm, opts.image_path)
         else:
             shutil.move(tmp_webm, opts.image_path)
-
-        return inactivity_periods
+        return result.inactivity_periods
     except Exception as e:
         with posthoganalytics.new_context():
             posthoganalytics.tag("url_to_render", opts.url_to_render)
