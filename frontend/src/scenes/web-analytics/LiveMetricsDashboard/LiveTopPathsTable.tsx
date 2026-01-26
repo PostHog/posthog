@@ -58,9 +58,10 @@ const AnimatedPathRow = ({ item, offset, positionDelta, deltaVersion }: Animated
 interface LiveTopPathsTableProps {
     paths: PathItem[]
     isLoading: boolean
+    className?: string
 }
 
-export const LiveTopPathsTable = ({ paths, isLoading }: LiveTopPathsTableProps): JSX.Element => {
+export const LiveTopPathsTable = ({ paths, isLoading, className }: LiveTopPathsTableProps): JSX.Element => {
     const prevPositionsRef = useRef<Map<string, number>>(new Map())
     const deltaVersionRef = useRef(0)
 
@@ -81,7 +82,7 @@ export const LiveTopPathsTable = ({ paths, isLoading }: LiveTopPathsTableProps):
     }, [paths])
 
     return (
-        <div className="bg-bg-light rounded-lg border p-4">
+        <div className={clsx('bg-bg-light rounded-lg border p-4', className)}>
             <h3 className="text-sm font-semibold mb-4">Top pages (last 30 minutes)</h3>
             {isLoading ? (
                 <div className="space-y-2">

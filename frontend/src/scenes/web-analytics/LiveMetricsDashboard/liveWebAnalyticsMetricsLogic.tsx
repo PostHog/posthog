@@ -2,7 +2,6 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
@@ -19,7 +18,15 @@ import {
 import { BaseMathType, LiveEvent } from '~/types'
 
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
-import { ChartDataPoint, DeviceBreakdownItem, PathItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import {
+    ChartDataPoint,
+    CountryBreakdownItem,
+    DeviceBreakdownItem,
+    LiveGeoEvent,
+    PathItem,
+    SlidingWindowBucket,
+} from './LiveWebAnalyticsMetricsTypes'
+import { createStreamConnection } from './createStreamConnection'
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
@@ -27,8 +34,6 @@ const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const BUCKET_WINDOW_MINUTES = 30
 const BATCH_FLUSH_INTERVAL_MS = 300
 const BATCH_SIZE_THRESHOLD = 10
-const INITIAL_RETRY_DELAY_MS = 1000
-const MAX_RETRY_DELAY_MS = 30000
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
 const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 
@@ -39,10 +44,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
+        addGeoEvents: (events: LiveGeoEvent[]) => ({ events }),
         setInitialData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
         setIsLoading: (loading: boolean) => ({ loading }),
         loadInitialData: true,
         updateConnection: true,
+        updateGeoConnection: true,
         tickCurrentMinute: true,
         pauseStream: true,
         resumeStream: true,
@@ -86,6 +93,16 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                     return window
                 },
+                addGeoEvents: (window, { events }) => {
+                    const nowTs = Date.now() / 1000
+                    for (const event of events) {
+                        if (event.country_code) {
+                            const distinctId = event.distinct_id!
+                            window.addGeoDataPoint(nowTs, event.country_code, distinctId)
+                        }
+                    }
+                    return window
+                },
             },
         ],
         // This is used to force a re-render every time we add an event or a minute passes
@@ -94,6 +111,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             {
                 setInitialData: (v) => v + 1,
                 addEvents: (v) => v + 1,
+                addGeoEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
             },
         ],
@@ -132,6 +150,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => slidingWindow.getDeviceBreakdown(),
         ],
+        countryBreakdown: [
+            (s) => [s.slidingWindow, s.windowVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): CountryBreakdownItem[] => slidingWindow.getCountryBreakdown(),
+        ],
         topPaths: [
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): PathItem[] => slidingWindow.getTopPaths(10),
@@ -151,11 +173,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     }),
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
-            cache.eventSourceController?.abort()
-            if (cache.retryTimeout) {
-                clearTimeout(cache.retryTimeout)
-                cache.retryTimeout = null
-            }
+            cache.eventsConnection?.abort()
+            cache.geoConnection?.abort()
         },
         resumeStream: () => {
             if (cache.hasInitialized) {
@@ -179,13 +198,18 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.newerThan = handoff
 
                 actions.updateConnection()
-                const [usersPageviewsResponse, deviceResponse, pathsResponse] = await loadQueryData(dateFrom, handoff)
+                actions.updateGeoConnection()
+                const [usersPageviewsResponse, deviceResponse, pathsResponse, geoResponse] = await loadQueryData(
+                    dateFrom,
+                    handoff
+                )
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
                 addUserDataToBuckets(usersPageviewsResponse, bucketMap)
                 addDeviceDataToBuckets(deviceResponse, bucketMap)
                 addPathDataToBuckets(pathsResponse, bucketMap)
+                addGeoDataToBuckets(geoResponse, bucketMap)
 
                 actions.setInitialData([...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })))
             } catch (error) {
@@ -196,14 +220,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.hasInitialized = true
             }
         },
-        updateConnection: async () => {
-            cache.eventSourceController?.abort()
-            if (cache.retryTimeout) {
-                clearTimeout(cache.retryTimeout)
-                cache.retryTimeout = null
-            }
+        updateConnection: () => {
+            cache.eventsConnection?.abort()
 
-            if (!values.currentTeam) {
+            const token = values.currentTeam?.live_events_token
+            if (!token) {
                 return
             }
 
@@ -213,41 +234,25 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-
-            // Filter for only the columns we need
             url.searchParams.append('columns', '$pathname,$device_type,$device_id,$ip,$raw_user_agent')
 
             cache.batch = [] as LiveEvent[]
             cache.lastBatchTime = performance.now()
-            cache.eventSourceController = new AbortController()
 
-            const scheduleRetry = (): void => {
-                const currentDelay = cache.retryDelay ?? INITIAL_RETRY_DELAY_MS
-                cache.retryTimeout = setTimeout(() => {
-                    actions.updateConnection()
-                }, currentDelay)
-
-                cache.retryDelay = Math.min(currentDelay * 2, MAX_RETRY_DELAY_MS)
-            }
-
-            await api.stream(url.toString(), {
-                headers: {
-                    Authorization: `Bearer ${values.currentTeam.live_events_token}`,
-                },
-                signal: cache.eventSourceController.signal,
-                onMessage: (event) => {
+            cache.eventsConnection = createStreamConnection({
+                url,
+                token,
+                onMessage: (data) => {
                     lemonToast.dismiss(ERROR_TOAST_ID)
                     cache.hasShownLiveStreamErrorToast = false
-                    cache.retryDelay = INITIAL_RETRY_DELAY_MS
 
                     try {
-                        const eventData = JSON.parse(event.data) as LiveEvent
+                        const eventData = JSON.parse(data) as LiveEvent
                         cache.batch.push(eventData)
                     } catch (ex) {
                         console.error(ex)
                     }
 
-                    // Flush events when we have enough or enough time has passed
                     const timeSinceLastBatch = performance.now() - cache.lastBatchTime
                     if (cache.batch.length >= BATCH_SIZE_THRESHOLD || timeSinceLastBatch > BATCH_FLUSH_INTERVAL_MS) {
                         actions.addEvents(cache.batch, cache.newerThan)
@@ -264,7 +269,38 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         })
                         cache.hasShownLiveStreamErrorToast = true
                     }
-                    scheduleRetry()
+                },
+            })
+        },
+        updateGeoConnection: () => {
+            cache.geoConnection?.abort()
+
+            const token = values.currentTeam?.live_events_token
+            if (!token) {
+                return
+            }
+
+            const host = liveEventsHostOrigin()
+            if (!host) {
+                return
+            }
+
+            const url = new URL(`${host}/events`)
+            url.searchParams.append('geo', 'true')
+
+            cache.geoConnection = createStreamConnection({
+                url,
+                token,
+                onMessage: (data) => {
+                    try {
+                        const geoData = JSON.parse(data) as LiveGeoEvent
+                        actions.addGeoEvents([geoData])
+                    } catch (ex) {
+                        console.error('Failed to parse geo event:', ex)
+                    }
+                },
+                onError: (error) => {
+                    console.error('Geo stream error:', error)
                 },
             })
         },
@@ -286,12 +322,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             scheduleNextTick()
         },
         beforeUnmount: () => {
-            cache.eventSourceController?.abort()
+            cache.eventsConnection?.abort()
+            cache.geoConnection?.abort()
             if (cache.minuteTickTimeout) {
                 clearTimeout(cache.minuteTickTimeout)
-            }
-            if (cache.retryTimeout) {
-                clearTimeout(cache.retryTimeout)
             }
         },
     })),
@@ -300,7 +334,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 const loadQueryData = async (
     dateFrom: Date,
     dateTo: Date
-): Promise<[HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse]> => {
+): Promise<[HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse, HogQLQueryResponse]> => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
@@ -363,7 +397,44 @@ const loadQueryData = async (
         },
     }
 
-    return await Promise.all([performQuery(usersPageviewsQuery), performQuery(deviceQuery), performQuery(pathsQuery)])
+    const geoQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(country_code),
+                        groupArray(distinct_ids)
+                    ) AS ids_by_country
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        properties.$geoip_country_code AS country_code,
+                        arrayDistinct(groupArray(distinct_id)) AS distinct_ids
+                    FROM events
+                    WHERE
+                        timestamp >= toDateTime({dateFrom})
+                        AND timestamp <= toDateTime({dateTo})
+                        AND properties.$geoip_country_code IS NOT NULL
+                        AND properties.$geoip_country_code != ''
+                    GROUP BY
+                        minute_bucket,
+                        country_code
+                )
+                GROUP BY minute_bucket
+                ORDER BY minute_bucket ASC`,
+        values: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+        },
+    }
+
+    return await Promise.all([
+        performQuery(usersPageviewsQuery),
+        performQuery(deviceQuery),
+        performQuery(pathsQuery),
+        performQuery(geoQuery),
+    ])
 }
 
 const addUserDataToBuckets = (
@@ -424,6 +495,23 @@ const addPathDataToBuckets = (
     }
 }
 
+const addGeoDataToBuckets = (geoResponse: HogQLQueryResponse, bucketMap: Map<number, SlidingWindowBucket>): void => {
+    const results = geoResponse.results as [string, Record<string, string[]>][]
+
+    for (const [timestampStr, idsByCountry] of results) {
+        const timestamp = Date.parse(timestampStr)
+        const bucket = getOrCreateBucket(bucketMap, timestamp)
+
+        for (const [countryCode, distinctIds] of Object.entries(idsByCountry)) {
+            const countryUsers = bucket.countries.get(countryCode) ?? new Set<string>()
+            for (const distinctId of distinctIds) {
+                countryUsers.add(distinctId)
+            }
+            bucket.countries.set(countryCode, countryUsers)
+        }
+    }
+}
+
 const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: number): SlidingWindowBucket => {
     if (!map.has(timestamp)) {
         map.set(timestamp, createEmptyBucket())
@@ -438,5 +526,6 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         devices: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
+        countries: new Map<string, Set<string>>(),
     }
 }

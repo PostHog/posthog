@@ -21,4 +21,16 @@ export interface SlidingWindowBucket {
     devices: Map<string, Set<string>>
     paths: Map<string, number>
     uniqueUsers: Set<string>
+    countries: Map<string, Set<string>>
+}
+
+export interface CountryBreakdownItem {
+    country: string
+    count: number
+    percentage: number
+}
+
+export interface LiveGeoEvent {
+    country_code: string
+    distinct_id?: string
 }
