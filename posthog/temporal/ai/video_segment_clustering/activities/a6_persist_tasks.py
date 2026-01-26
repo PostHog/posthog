@@ -90,11 +90,16 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
 
         if cluster_segments:
             # Check which segments already have TaskReferences for this task (idempotency)
+            relevant_task_references = [
+                task_reference
+                async for task_reference in TaskReference.objects.filter(task_id=match.task_id).only(
+                    "session_id", "start_time", "end_time", "distinct_id"
+                )
+                if task_reference.session_id in matched_segment_ids
+            ]
             existing_refs: set[str] = set()
-            async for ref in TaskReference.objects.filter(task_id=match.task_id).values_list(
-                "session_id", "start_time", "end_time"
-            ):
-                existing_refs.add(f"{ref[0]}:{ref[1]}:{ref[2]}")
+            for ref in relevant_task_references:
+                existing_refs.add(f"{ref.session_id}:{ref.start_time}:{ref.end_time}")
 
             # Filter to only NEW segments (not already linked to this task)
             new_segments = [
@@ -105,12 +110,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
 
             if new_segments:
                 # Get all distinct_ids from existing refs + new segments for accurate user count
-                existing_distinct_ids: list[str] = [
-                    ref
-                    async for ref in TaskReference.objects.filter(task_id=match.task_id).values_list(
-                        "distinct_id", flat=True
-                    )
-                ]
+                existing_distinct_ids: list[str] = [ref.distinct_id for ref in relevant_task_references]
                 all_distinct_ids = existing_distinct_ids + [seg.distinct_id for seg in new_segments]
                 relevant_user_count = await sync_to_async(count_distinct_persons)(team, all_distinct_ids)
 
@@ -163,7 +163,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
         session_start_time = datetime.fromisoformat(segment.session_start_time.replace("Z", "+00:00"))
         segment_start_time = session_start_time + timedelta(seconds=_parse_timestamp_to_seconds(segment.start_time))
         segment_end_time = session_start_time + timedelta(seconds=_parse_timestamp_to_seconds(segment.end_time))
-        _, created = await TaskReference.objects.aupdate_or_create(
+        _, created = await TaskReference.objects.aget_or_create(
             task=task,
             session_id=segment.session_id,
             start_time=segment_start_time,
@@ -171,7 +171,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
             defaults={
                 "team": team,
                 "distinct_id": segment.distinct_id,
-                "content": segment.content[:1000],
+                "content": segment.content,
                 "distance_to_centroid": None,
             },
         )

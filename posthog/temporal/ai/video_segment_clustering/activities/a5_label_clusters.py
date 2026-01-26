@@ -86,12 +86,14 @@ async def label_clusters_activity(inputs: LabelClustersActivityInputs) -> Labeli
     """
     team = await Team.objects.aget(id=inputs.team_id)
     segment_lookup = {s.document_id: s for s in inputs.segments}
+    genai_client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
     result = await asyncio.gather(
         *[
             generate_label_for_cluster(
                 team=team,
                 cluster_id=cluster.cluster_id,
                 cluster_segments=[segment_lookup[sid] for sid in cluster.segment_ids if sid in segment_lookup],
+                genai_client=genai_client,
             )
             for cluster in inputs.clusters
         ]
@@ -100,7 +102,7 @@ async def label_clusters_activity(inputs: LabelClustersActivityInputs) -> Labeli
 
 
 async def generate_label_for_cluster(
-    *, team: Team, cluster_id: int, cluster_segments: list[VideoSegmentMetadata]
+    *, team: Team, cluster_id: int, cluster_segments: list[VideoSegmentMetadata], genai_client
 ) -> tuple[int, ClusterLabel]:
     if not cluster_segments:
         # This should not happen, but you never know...
@@ -122,7 +124,7 @@ async def generate_label_for_cluster(
     )
 
     try:
-        label = await _call_llm_to_label_cluster(context=context)
+        label = await _call_llm_to_label_cluster(context=context, genai_client=genai_client)
         return cluster_id, label
     except Exception:
         logger.exception(
@@ -164,6 +166,7 @@ async def _calculate_metrics_from_segments(team: Team, segments: list[VideoSegme
 
 async def _call_llm_to_label_cluster(
     context: ClusterContext,
+    genai_client,
     model: str = constants.LABELING_LLM_MODEL,
 ) -> ClusterLabel:
     """Generate a label for a cluster using LLM, including actionability check."""
@@ -176,9 +179,7 @@ async def _call_llm_to_label_cluster(
 
     # Build prompt with full context
     segment_texts = [f"{i}. {content}" for i, content in enumerate(context.segment_contents, 1)]
-
-    client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
-    response = await client.models.generate_content(
+    response = await genai_client.models.generate_content(
         model=model,
         contents=[
             types.Part(text=LABELING_SYSTEM_PROMPT),

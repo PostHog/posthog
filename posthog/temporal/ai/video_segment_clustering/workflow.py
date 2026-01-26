@@ -213,7 +213,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         segment_to_cluster=clustering_result.segment_to_cluster,
                     )
                 ],
-                start_to_close_timeout=timedelta(seconds=120),
+                start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     initial_interval=timedelta(seconds=1),

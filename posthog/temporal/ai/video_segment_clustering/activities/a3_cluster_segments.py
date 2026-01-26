@@ -170,12 +170,25 @@ def _perform_iterative_kmeans_clustering(
     pca_reduction_min_samples: int = constants.NOISE_DISCARDING_SEGMENT_THRESHOLD,
 ) -> ClusteringResult:
     if len(segments) == 0:
+        logger.debug("Iterative K-means clustering: no segments provided, returning empty result")
         return ClusteringResult(
             clusters=[],
             noise_segment_ids=[],
             labels=[],
             segment_to_cluster={},
         )
+
+    n_segments = len(segments)
+    logger.debug(
+        "Starting iterative K-means clustering",
+        n_segments=n_segments,
+        distance_threshold=distance_threshold,
+        max_iterations=max_iterations,
+        min_cluster_size=min_cluster_size,
+        k_multiplier=k_multiplier,
+        pca_dimensions=pca_dimensions,
+        pca_reduction_min_samples=pca_reduction_min_samples,
+    )
 
     all_embeddings = np.array([s.embedding for s in segments])
     all_document_ids = [s.document_id for s in segments]
@@ -186,8 +199,12 @@ def _perform_iterative_kmeans_clustering(
 
     # At larger scale, reduce dimensions for K-means efficiency with PCA (this makes sense at above 3*pca_dimensions segments)
     if len(segments) > pca_reduction_min_samples:
+        logger.debug(
+            "Applying PCA dimensionality reduction", original_dim=all_embeddings.shape[1], target_dim=pca_dimensions
+        )
         reduced_embeddings = _reduce_dimensions(all_embeddings, pca_dimensions)
     else:
+        logger.debug("Skipping PCA reduction", n_segments=n_segments, threshold=pca_reduction_min_samples)
         reduced_embeddings = all_embeddings
 
     # Mapping from document_id to index
@@ -213,12 +230,32 @@ def _perform_iterative_kmeans_clustering(
         # Estimate K, capping at count of remaining segments
         k = min(_estimate_k(n_remaining, k_multiplier), n_remaining)
 
-        # TODO: Consider using MiniBatchKMeans when n_remaining > 5000 for perf at scale
-        kmeans = KMeans(n_clusters=k, random_state=42)  # Static random seed for reproducibility
-        labels = kmeans.fit_predict(remaining_reduced)
+        logger.debug(
+            "K-means iteration start",
+            iteration=iteration,
+            n_remaining=n_remaining,
+            k=k,
+            n_finalized_clusters=len(final_clusters),
+        )
+
+        try:
+            # TODO: Consider using MiniBatchKMeans when n_remaining > 5000 for perf at scale
+            kmeans = KMeans(n_clusters=k, random_state=42)  # Static random seed for reproducibility
+            labels = kmeans.fit_predict(remaining_reduced)
+        except Exception as e:
+            logger.exception(
+                "K-means fitting failed",
+                iteration=iteration,
+                n_remaining=n_remaining,
+                k=k,
+                error=str(e),
+            )
+            break
 
         # Evaluate each cluster
         new_remaining: set[str] = set()
+        tight_clusters_count = 0
+        loose_clusters_count = 0
         for cluster_label in range(k):
             # Cluster label = cluster index, each segment being mapped to a cluster. Example of `labels` content:
             # For 8 samples clustered into k=3, `labels` is `np.array([0, 2, 1, 0, 2, 2, 1, 0])`
@@ -250,19 +287,51 @@ def _perform_iterative_kmeans_clustering(
                 )
                 # Remove from remaining
                 remaining_doc_ids -= set(cluster_doc_ids)
+                tight_clusters_count += 1
             else:
                 # Loose cluster - segments stay in pool for next iteration
                 # TODO: Suggestion from Claude - instead of discarding the whole cluster, extract the "tight core"
                 # (segments within a certain threshold) as a finalized cluster, and only return outliers to the pool.
                 # Can avoid wasting computation on clusters that have a good core with few outliers.
                 new_remaining.update(cluster_doc_ids)
+                loose_clusters_count += 1
+
+        logger.debug(
+            "K-means iteration complete",
+            iteration=iteration,
+            tight_clusters=tight_clusters_count,
+            loose_clusters=loose_clusters_count,
+            segments_finalized=n_remaining - len(new_remaining),
+            segments_remaining=len(new_remaining),
+        )
 
         # Early exit if no progress (all clusters were loose)
         if len(new_remaining) == n_remaining:
+            logger.debug(
+                "Clustering stopped: no progress made in iteration",
+                iteration=iteration,
+                n_remaining=n_remaining,
+            )
             break
 
         # Update remaining for next iteration
         remaining_doc_ids = new_remaining
+
+    # Check exit conditions
+    if iteration >= max_iterations:
+        logger.debug(
+            "Clustering stopped: reached max iterations",
+            iteration=iteration,
+            max_iterations=max_iterations,
+            n_remaining=len(remaining_doc_ids),
+        )
+    elif len(remaining_doc_ids) < min_cluster_size:
+        logger.debug(
+            "Clustering stopped: remaining segments below minimum cluster size",
+            iteration=iteration,
+            n_remaining=len(remaining_doc_ids),
+            min_cluster_size=min_cluster_size,
+        )
 
     # Build segment_to_cluster mapping
     segment_to_cluster: dict[str, int] = {}
@@ -277,6 +346,16 @@ def _perform_iterative_kmeans_clustering(
             labels_list.append(segment_to_cluster[doc_id])
         else:
             labels_list.append(-1)  # Noise
+
+    n_noise = len(remaining_doc_ids)
+    logger.debug(
+        "Iterative K-means clustering complete",
+        total_iterations=iteration,
+        n_final_clusters=len(final_clusters),
+        n_noise_segments=n_noise,
+        n_clustered_segments=n_segments - n_noise,
+        clustering_rate=(n_segments - n_noise) / n_segments if n_segments > 0 else 0.0,
+    )
 
     return ClusteringResult(
         clusters=final_clusters,
@@ -320,7 +399,7 @@ def _create_single_segment_clusters(
     for i, doc_id in enumerate(noise_segment_ids):
         segment = segment_lookup.get(doc_id)
         if not segment:
-            logger.error(f"Segment not found for document_id: {doc_id}", document_ids=all_segments)
+            logger.error(f"Segment not found for document_id: {doc_id}")
             continue
         new_clusters.append(
             Cluster(
