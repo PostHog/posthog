@@ -109,7 +109,7 @@ export function SurveyTranslations(): JSX.Element {
             <div className="space-y-2">
                 {addedLanguages.length > 0 && (
                     <div
-                        className={`flex items-center justify-between px-2 py-1 border rounded cursor-pointer ${editingLanguage === null ? 'border-warning bg-warning-highlight' : 'border-border'}`}
+                        className={`flex items-center justify-between px-2 py-1.5 border rounded cursor-pointer ${editingLanguage === null ? 'border-warning bg-warning-highlight' : 'border-border'}`}
                         onClick={() => setEditingLanguage(null)}
                     >
                         <span>Default (Original)</span>
