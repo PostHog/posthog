@@ -7,6 +7,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
 
+MAX_SEGMENTS_RETURNED = 50_000
+
 
 def count_distinct_persons(team: Team, distinct_ids: list[str]) -> int:
     """Count unique persons from a list of distinct_ids, using ClickHouse as the source of truth.
@@ -49,13 +51,15 @@ def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
                     AND document_type = {document_type}
                     AND rendering = {rendering}
                     AND length(embedding) > 0
-                ORDER BY timestamp ASC"""
+                ORDER BY timestamp ASC
+                LIMIT {max_segments_returned}"""
             ),
             placeholders={
                 "lookback_hours": ast.Constant(value=lookback_hours),
                 "product": ast.Constant(value=Product.SESSION_SUMMARY),
                 "document_type": ast.Constant(value="video-segment"),
                 "rendering": ast.Constant(value="video-analysis"),
+                "max_segments_returned": ast.Constant(value=MAX_SEGMENTS_RETURNED),
             },
             team=team,
         )
@@ -80,13 +84,15 @@ def fetch_video_segment_embedding_rows(team: Team, document_ids: list[str]):
                 WHERE document_id IN {doc_ids}
                     AND product = {product}
                     AND document_type = {document_type}
-                    AND rendering = {rendering}"""
+                    AND rendering = {rendering}
+                LIMIT {max_segments_returned}"""
             ),
             placeholders={
                 "doc_ids": ast.Constant(value=document_ids),
                 "product": ast.Constant(value=Product.SESSION_SUMMARY),
                 "document_type": ast.Constant(value="video-segment"),
                 "rendering": ast.Constant(value="video-analysis"),
+                "max_segments_returned": ast.Constant(value=MAX_SEGMENTS_RETURNED),
             },
             team=team,
         )

@@ -64,8 +64,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         lookback_hours=inputs.lookback_hours,
                     )
                 ],
-                start_to_close_timeout=timedelta(minutes=30),
-                heartbeat_timeout=timedelta(minutes=30),
+                start_to_close_timeout=timedelta(hours=2),
                 retry_policy=RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(seconds=5),

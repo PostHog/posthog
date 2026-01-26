@@ -37,6 +37,9 @@ async def embed_and_store_segments_activity(
         session_id=inputs.session_id,
         team=team,  # TODO: get_metadata actually only uses team_id – we should refactor it to avoid pointless Team lookup
     )
+    if not session_metadata:
+        logger.error(f"Session metadata not found for session {inputs.session_id}", session_id=inputs.session_id)
+        return
     try:
         for segment in segments:
             # Use the description directly as the content to embed
@@ -52,12 +55,11 @@ async def embed_and_store_segments_activity(
                 "distinct_id": inputs.user_distinct_id_to_log,
                 "start_time": segment.start_time,
                 "end_time": segment.end_time,
+                "session_start_time": session_metadata["start_time"].isoformat(),
+                "session_end_time": session_metadata["end_time"].isoformat(),
+                "session_duration": session_metadata["duration"],
+                "session_active_seconds": session_metadata["active_seconds"],
             }
-            if session_metadata:
-                metadata["session_start_time"] = session_metadata["start_time"].isoformat()
-                metadata["session_end_time"] = session_metadata["end_time"].isoformat()
-                metadata["session_duration"] = session_metadata["duration"]
-                metadata["session_active_seconds"] = session_metadata["active_seconds"]
 
             emit_embedding_request(
                 team_id=inputs.team_id,
