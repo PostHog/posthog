@@ -103,6 +103,21 @@ See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, exampl
 
 ## Security
 
+### SQL Security
+
+- **Never** use f-strings with user-controlled values in SQL queries - this creates SQL injection vulnerabilities
+- Use parameterized queries for all VALUES: `cursor.execute("SELECT * FROM t WHERE id = %s", [id])`
+- Table/column names from Django ORM metadata (`model._meta.db_table`) are trusted sources
+- For ClickHouse identifiers, use `escape_clickhouse_identifier()` from `posthog/hogql/escape_sql.py`
+- When raw SQL is necessary with dynamic table/column names:
+
+  ```python
+  # Build query string separately from execution, document why identifiers are safe
+  table = model._meta.db_table  # Trusted: from Django ORM metadata
+  query = f"SELECT COUNT(*) FROM {table} WHERE team_id = %s"
+  cursor.execute(query, [team_id])  # Values always parameterized
+  ```
+
 ### HogQL Security
 
 HogQL queries use `parse_expr()`, `parse_select()`, and `parse_order_expr()`. Two patterns exist:

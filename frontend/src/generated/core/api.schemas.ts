@@ -117,7 +117,7 @@ export const EffectivePrivilegeLevelEnumApi = {
 } as const
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface DashboardBasicApi {
     readonly id: number
@@ -178,7 +178,7 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null |
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface DashboardApi {
     readonly id: number
@@ -264,7 +264,7 @@ export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } |
 export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface PatchedDashboardApi {
     readonly id?: number
@@ -2890,7 +2890,7 @@ export interface PatchedDashboardTemplateApi {
 }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface EnterpriseEventDefinitionApi {
     readonly id: string
@@ -2933,7 +2933,7 @@ export interface PaginatedEnterpriseEventDefinitionListApi {
 }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface PatchedEnterpriseEventDefinitionApi {
     readonly id?: string
@@ -2985,7 +2985,7 @@ export const PropertyType549EnumApi = {
 } as const
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface EnterprisePropertyDefinitionApi {
     readonly id: string
@@ -3017,7 +3017,7 @@ export interface PaginatedEnterprisePropertyDefinitionListApi {
 }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface PatchedEnterprisePropertyDefinitionApi {
     readonly id?: string
