@@ -46,8 +46,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
-DEFERED_ATTRS = ["requested_password_reset_at"]
-# Note: requested_2fa_reset_at is also rarely needed but not deferred to avoid migration issues
+DEFERED_ATTRS = ["requested_password_reset_at", "requested_2fa_reset_at"]
 
 ROLE_CHOICES = (
     ("engineering", "Engineering"),

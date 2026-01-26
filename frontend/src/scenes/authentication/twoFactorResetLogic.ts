@@ -37,7 +37,7 @@ export const twoFactorResetLogic = kea<twoFactorResetLogicType>([
                 validateResetToken: async ({ uuid, token }: { uuid: string; token: string }) => {
                     try {
                         const response = await api.get<ValidatedTokenResponse>(`api/reset_2fa/${uuid}/?token=${token}`)
-                        return { success: true, token: response.token }
+                        return response
                     } catch (e: any) {
                         const requiresLogin = e.data?.requires_login === true
                         if (requiresLogin) {

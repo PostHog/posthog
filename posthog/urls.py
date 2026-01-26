@@ -26,6 +26,7 @@ from posthog.api import (
     sharing,
     signup,
     site_app,
+    two_factor_reset,
     unsubscribe,
     uploaded_media,
     user,
@@ -201,7 +202,7 @@ urlpatterns = [
     ),
     path(
         "api/reset_2fa/<str:user_uuid>/",
-        authentication.TwoFactorResetViewSet.as_view({"get": "retrieve", "post": "create"}),
+        two_factor_reset.TwoFactorResetViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
     opt_slash_path(
         "api/public_hog_function_templates",
