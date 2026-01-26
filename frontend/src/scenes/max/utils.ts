@@ -18,6 +18,7 @@ import {
     HumanMessage,
     MultiVisualizationMessage,
     NotebookArtifactContent,
+    NoticeMessage,
     RootAssistantMessage,
     SubagentUpdateEvent,
     VisualizationArtifactContent,
@@ -88,6 +89,10 @@ export function isSubagentUpdateEvent(
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
+}
+
+export function isNoticeMessage(message: RootAssistantMessage | undefined | null): message is NoticeMessage {
+    return message?.type === AssistantMessageType.Notice
 }
 
 export function isMultiQuestionFormMessage(

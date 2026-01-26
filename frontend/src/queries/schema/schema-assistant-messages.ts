@@ -58,6 +58,7 @@ export enum AssistantMessageType {
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
+    Notice = 'ai/notice',
 }
 
 /** Source of artifact - determines which model to fetch from */
@@ -228,6 +229,11 @@ export interface FailureMessage extends BaseAssistantMessage {
     content?: string
 }
 
+export interface NoticeMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Notice
+    content: string
+}
+
 export interface NotebookUpdateMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Notebook
     notebook_id: string
@@ -331,6 +337,7 @@ export type RootAssistantMessage =
     | AssistantMessage
     | HumanMessage
     | FailureMessage
+    | NoticeMessage
     | NotebookUpdateMessage
     | PlanningMessage
     | TaskExecutionMessage

@@ -14,6 +14,7 @@ from posthog.schema import (
     AgentMode,
     AssistantEventType,
     AssistantMessage,
+    AssistantMessageType,
     MaxBillingContext,
     MaxBillingContextBillingPeriod,
     MaxBillingContextBillingPeriodInterval,
@@ -21,6 +22,7 @@ from posthog.schema import (
     MaxBillingContextSubscriptionLevel,
     MaxBillingContextTrial,
     MaxProductInfo,
+    NoticeMessage,
 )
 
 from posthog.models.team.team import Team
@@ -719,3 +721,166 @@ class TestConversation(APIBaseTest):
 
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 mock_is_team_limited.assert_called_once()
+
+    @patch("langgraph.graph.state.CompiledStateGraph.aupdate_state", new_callable=AsyncMock)
+    @patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock)
+    def test_clone_shared_conversation(self, mock_aget_state, mock_aupdate_state):
+        """Test that user can clone another user's conversation."""
+        conversation = Conversation.objects.create(
+            user=self.other_user,
+            team=self.team,
+            title="Shared conversation",
+            type=Conversation.Type.ASSISTANT,
+        )
+
+        mock_aget_state.return_value.values = {
+            "messages": [
+                AssistantMessage(content="Hello!", id="msg-1"),
+                AssistantMessage(content="How can I help?", id="msg-2"),
+            ]
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/clone/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+
+        # Check the new conversation was created
+        self.assertEqual(response_data["title"], "Copy of: Shared conversation")
+        new_conversation = Conversation.objects.get(id=response_data["id"])
+        self.assertEqual(new_conversation.user, self.user)
+        self.assertEqual(new_conversation.team, self.team)
+        self.assertEqual(new_conversation.type, Conversation.Type.ASSISTANT)
+
+        # Check that aupdate_state was called twice - once for copying, once for adding notice
+        self.assertEqual(mock_aupdate_state.call_count, 2)
+
+    def test_cannot_clone_own_conversation(self):
+        """Test that user cannot clone their own conversation."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="My conversation",
+            type=Conversation.Type.ASSISTANT,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/clone/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot clone your own conversation", response.json()["error"])
+
+    def test_clone_other_teams_conversation_fails(self):
+        """Test that user cannot clone conversation from another team."""
+        conversation = Conversation.objects.create(
+            user=self.other_user,
+            team=self.other_team,
+            title="Other team conversation",
+            type=Conversation.Type.ASSISTANT,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/clone/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("langgraph.graph.state.CompiledStateGraph.aupdate_state", new_callable=AsyncMock)
+    @patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock)
+    def test_clone_filters_notice_messages(self, mock_aget_state, mock_aupdate_state):
+        """Test that existing notice messages are filtered out when cloning."""
+        conversation = Conversation.objects.create(
+            user=self.other_user,
+            team=self.team,
+            title="Shared conversation",
+            type=Conversation.Type.ASSISTANT,
+        )
+
+        # Include a notice message in the original state
+        mock_aget_state.return_value.values = {
+            "messages": [
+                AssistantMessage(content="Hello!", id="msg-1"),
+                NoticeMessage(content="Old notice", id="notice-1"),
+                AssistantMessage(content="How can I help?", id="msg-2"),
+            ]
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/clone/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Check that the first aupdate_state call (copying messages) filtered out the notice message
+        copy_call = mock_aupdate_state.call_args_list[0]
+        copied_messages = copy_call[0][1].messages
+        # Should only have 2 messages (not the notice)
+        self.assertEqual(len(copied_messages), 2)
+        # Verify none of them are notice messages
+        for msg in copied_messages:
+            self.assertNotEqual(msg.type, AssistantMessageType.AI_NOTICE)
+
+    @patch("langgraph.graph.state.CompiledStateGraph.aupdate_state", new_callable=AsyncMock)
+    @patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock)
+    def test_clone_does_not_add_duplicate_notice_message(self, mock_aget_state, mock_aupdate_state):
+        """Test that cloning a conversation that already has a notice message doesn't add another one."""
+        conversation = Conversation.objects.create(
+            user=self.other_user,
+            team=self.team,
+            title="Shared conversation",
+            type=Conversation.Type.ASSISTANT,
+        )
+
+        # Simulate a conversation that was already cloned (has a notice message)
+        mock_aget_state.return_value.values = {
+            "messages": [
+                AssistantMessage(content="Hello!", id="msg-1"),
+                AssistantMessage(content="How can I help?", id="msg-2"),
+                NoticeMessage(content="Messages beyond this point are only visible to you", id="notice-1"),
+            ]
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/clone/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # aupdate_state should only be called ONCE (for copying messages to new conversation)
+        # NOT twice (should not add another notice to the original)
+        self.assertEqual(mock_aupdate_state.call_count, 1)
+
+        # Verify the single call was for copying messages to the new conversation (not adding a notice)
+        copy_call = mock_aupdate_state.call_args_list[0]
+        copied_messages = copy_call[0][1].messages
+        # Should have 2 messages (notice filtered out from copied messages)
+        self.assertEqual(len(copied_messages), 2)
+        for msg in copied_messages:
+            self.assertNotEqual(msg.type, AssistantMessageType.AI_NOTICE)
+
+    @patch("langgraph.graph.state.CompiledStateGraph.aupdate_state", new_callable=AsyncMock)
+    @patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock)
+    def test_clone_handles_empty_messages(self, mock_aget_state, mock_aupdate_state):
+        """Test that cloning a conversation with no messages doesn't cause an IndexError."""
+        conversation = Conversation.objects.create(
+            user=self.other_user,
+            team=self.team,
+            title="Empty conversation",
+            type=Conversation.Type.ASSISTANT,
+        )
+
+        # Simulate a conversation with empty messages
+        mock_aget_state.return_value.values = {"messages": []}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/clone/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # aupdate_state should only be called ONCE (for copying empty messages to new conversation)
+        # NOT twice (should not add notice since there are no messages)
+        self.assertEqual(mock_aupdate_state.call_count, 1)

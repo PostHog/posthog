@@ -2,6 +2,7 @@ import {
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
+    NoticeMessage,
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
 
@@ -10,6 +11,7 @@ import {
     checkSuggestionRequiresUserInput,
     formatSuggestion,
     isMultiQuestionFormMessage,
+    isNoticeMessage,
     stripSuggestionPlaceholders,
     threadEndsWithMultiQuestionForm,
 } from './utils'
@@ -290,6 +292,33 @@ describe('max/utils', () => {
                 },
             ] as unknown as RootAssistantMessage[]
             expect(threadEndsWithMultiQuestionForm(messages)).toBe(false)
+        })
+    })
+
+    describe('isNoticeMessage()', () => {
+        it('returns true for NoticeMessage type', () => {
+            const message: NoticeMessage = {
+                type: AssistantMessageType.Notice,
+                content: 'Messages beyond this point are only visible to you',
+                id: 'notice-1',
+            }
+            expect(isNoticeMessage(message)).toBe(true)
+        })
+
+        it('returns false for AssistantMessage type', () => {
+            const message: AssistantMessage = {
+                type: AssistantMessageType.Assistant,
+                content: 'Hello there',
+            }
+            expect(isNoticeMessage(message)).toBe(false)
+        })
+
+        it('returns false for null', () => {
+            expect(isNoticeMessage(null)).toBe(false)
+        })
+
+        it('returns false for undefined', () => {
+            expect(isNoticeMessage(undefined)).toBe(false)
         })
     })
 })

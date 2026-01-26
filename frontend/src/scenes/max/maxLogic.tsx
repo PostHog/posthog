@@ -119,6 +119,7 @@ export const maxLogic = kea<maxLogicType>([
         incrActiveStreamingThreads: true,
         decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
+        clearPollingConversation: true,
     }),
 
     reducers({
@@ -186,6 +187,21 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun }],
+
+        // Track the conversation ID currently being polled/fetched
+        pollingConversationId: [
+            null as string | null,
+            {
+                pollConversation: (_, { conversationId }) => conversationId,
+                // Clear when conversation is loaded
+                prependOrReplaceConversation: () => null,
+                // Clear when starting a new conversation or navigating away
+                startNewConversation: () => null,
+                setConversationId: () => null,
+                // Clear when poll fails (e.g., 404)
+                clearPollingConversation: () => null,
+            },
+        ],
     }),
 
     selectors({
@@ -225,9 +241,21 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         conversationLoading: [
-            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
-            (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
-                return !conversationHistory.length && conversationHistoryLoading && !!conversationId && !conversation
+            (s) => [
+                s.conversationHistory,
+                s.conversationHistoryLoading,
+                s.conversationId,
+                s.conversation,
+                s.pollingConversationId,
+            ],
+            (conversationHistory, conversationHistoryLoading, conversationId, conversation, pollingConversationId) => {
+                // Loading when:
+                // 1. Initial history load in progress and no conversation found yet
+                // 2. OR actively polling for the current conversation (e.g., shared conversation being fetched)
+                const initialLoad =
+                    !conversationHistory.length && conversationHistoryLoading && !!conversationId && !conversation
+                const pollingCurrentConversation = !!conversationId && conversationId === pollingConversationId
+                return initialLoad || pollingCurrentConversation
             },
         ],
 
@@ -370,13 +398,15 @@ export const maxLogic = kea<maxLogicType>([
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
                 if (err.status === 404) {
-                    // If conversation is not found, do nothing. In the normal case a NotFound will be shown.
+                    // If conversation is not found, clear polling state so NotFound will be shown.
                     // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
                     // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
                     // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
+                    actions.clearPollingConversation()
                     return
                 }
 
+                actions.clearPollingConversation()
                 lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
             }
 
