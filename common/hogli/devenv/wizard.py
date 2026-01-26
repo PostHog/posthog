@@ -69,7 +69,13 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
 
     # Show what would be started
     if config.preset:
-        resolved = resolver.resolve_preset(config.preset, enable_autostart=config.enable_autostart)
+        resolved = resolver.resolve_preset(
+            config.preset,
+            include_units=config.include_units,
+            exclude_units=config.exclude_units,
+            skip_autostart=config.skip_autostart,
+            enable_autostart=config.enable_autostart,
+        )
     else:
         resolved = resolver.resolve(
             config.intents,
