@@ -1,11 +1,13 @@
 import './SceneLayout.css'
 
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import React, { PropsWithChildren, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcutMenu } from 'lib/components/AppShortcuts/AppShortcutMenu'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -19,14 +21,38 @@ type SceneLayoutProps = {
 }
 
 /**
- * @deprecated Use `scenePanelTabs` in sceneConfig instead. This portal-based approach
- * will be removed once all scenes are migrated to the declarative pattern.
- * See scenes.ts Scene.Surveys for an example of the new pattern.
+ * ScenePanel renders content in the scene's side panel.
+ * When UX_REMOVE_SIDEPANEL flag is off: Uses portal to render into scenePanelElement
+ * When UX_REMOVE_SIDEPANEL flag is on: Renders children directly (handled by scenePanelTabs)
  */
 export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
-    // Legacy portal-based implementation - kept for backward compatibility
-    // TODO: Migrate all usages to scenePanelTabs in sceneConfig
-    return <>{children}</>
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const { scenePanelElement } = useValues(sceneLayoutLogic)
+    const { setScenePanelIsPresent } = useActions(sceneLayoutLogic)
+
+    // Legacy: Register panel presence when flag is off
+    useEffect(() => {
+        if (!isRemovingSidePanelFlag) {
+            setScenePanelIsPresent(true)
+            return () => {
+                setScenePanelIsPresent(false)
+            }
+        }
+    }, [isRemovingSidePanelFlag, setScenePanelIsPresent])
+
+    // When flag is on, render children directly (they're handled by inline rendering in scenes)
+    if (isRemovingSidePanelFlag) {
+        return <>{children}</>
+    }
+
+    // Legacy portal-based rendering when flag is off
+    return (
+        <>
+            {children &&
+                scenePanelElement &&
+                createPortal(<div className="flex flex-col gap-2">{children}</div>, scenePanelElement)}
+        </>
+    )
 }
 
 export function ScenePanelDivider({ className }: { className?: string }): JSX.Element {

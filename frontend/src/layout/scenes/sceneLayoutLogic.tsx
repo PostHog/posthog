@@ -12,10 +12,28 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         values: [featureFlagLogic, ['featureFlags'], panelLayoutLogic, ['mainContentRect']],
     })),
     actions({
+        // Legacy actions for portal-based scene panel (when flag is off)
+        registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
+        setScenePanelIsPresent: (active: boolean) => ({ active }),
+        // Common actions
         setScenePanelOpen: (open: boolean) => ({ open }),
         setSceneLayoutConfig: (config: SceneConfig) => ({ config }),
     }),
     reducers({
+        // Legacy reducers for portal-based scene panel (when flag is off)
+        scenePanelElement: [
+            null as HTMLElement | null,
+            {
+                registerScenePanelElement: (_, { element }) => element,
+            },
+        ],
+        scenePanelIsPresent: [
+            false,
+            {
+                setScenePanelIsPresent: (_, { active }) => active,
+            },
+        ],
+        // Common reducers
         scenePanelOpenManual: [
             false,
             {

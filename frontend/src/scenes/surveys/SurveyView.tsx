@@ -3,16 +3,21 @@ import './SurveyView.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGraph } from '@posthog/icons'
+import { IconArchive, IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
@@ -22,10 +27,17 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
@@ -35,6 +47,7 @@ import {
     ActivityScope,
     PropertyFilterType,
     PropertyOperator,
+    Survey,
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
@@ -44,10 +57,17 @@ import {
 import { SurveyHeadline } from './SurveyHeadline'
 import { SurveysDisabledBanner } from './SurveySettings'
 
+const RESOURCE_TYPE = 'survey'
+
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey } = useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
+    const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { guidedEditorEnabled } = useValues(surveysLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
+    const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
 
@@ -74,6 +94,68 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                 <LemonSkeleton />
             ) : (
                 <SceneContent>
+                    {/* Legacy ScenePanel - shown when UX_REMOVE_SIDEPANEL flag is off */}
+                    {!isRemovingSidePanelFlag && (
+                        <ScenePanel>
+                            <ScenePanelInfoSection>
+                                <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                            </ScenePanelInfoSection>
+                            <ScenePanelDivider />
+                            <ScenePanelActionsSection>
+                                <SceneDuplicate
+                                    dataAttrKey={RESOURCE_TYPE}
+                                    onClick={() => {
+                                        // SurveyView is only rendered for existing surveys, so we can safely cast
+                                        const existingSurvey = survey as Survey
+                                        if (hasMultipleProjects) {
+                                            setSurveyToDuplicate(existingSurvey)
+                                        } else {
+                                            duplicateSurvey(existingSurvey)
+                                        }
+                                    }}
+                                />
+                            </ScenePanelActionsSection>
+                            <ScenePanelDivider />
+                            {!survey.archived && (
+                                <ScenePanelActionsSection>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Survey}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={survey.user_access_level}
+                                    >
+                                        <ButtonPrimitive
+                                            menuItem
+                                            data-attr={`${RESOURCE_TYPE}-archive`}
+                                            onClick={() => openArchiveSurveyDialog(survey, archiveSurvey)}
+                                        >
+                                            <IconArchive />
+                                            Archive
+                                        </ButtonPrimitive>
+                                    </AccessControlAction>
+                                </ScenePanelActionsSection>
+                            )}
+                            {canDeleteSurvey(survey) && (
+                                <ScenePanelActionsSection>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Survey}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={survey.user_access_level}
+                                    >
+                                        <ButtonPrimitive
+                                            menuItem
+                                            variant="danger"
+                                            data-attr={`${RESOURCE_TYPE}-delete`}
+                                            onClick={() => openDeleteSurveyDialog(survey, () => deleteSurvey(id))}
+                                        >
+                                            <IconTrash />
+                                            Delete permanently
+                                        </ButtonPrimitive>
+                                    </AccessControlAction>
+                                </ScenePanelActionsSection>
+                            )}
+                        </ScenePanel>
+                    )}
+
                     <SurveysDisabledBanner />
                     <SceneTitleSection
                         name={survey.name}
