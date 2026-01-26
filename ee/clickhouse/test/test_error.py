@@ -137,6 +137,16 @@ from posthog.errors import ch_error_type, wrap_query_error
             184,
             "CHQueryErrorIllegalAggregation",
         ),
+        (
+            ServerException(
+                "Code: 48. DB::Exception: The RANGE OFFSET frame for 'DB::ColumnDecimal<DB::DateTime64>' ORDER BY column is not implemented. (NOT_IMPLEMENTED)",
+                code=48,
+            ),
+            "CHQueryErrorNotImplemented",
+            "The RANGE OFFSET frame for 'DB::ColumnDecimal<DB::DateTime64>' ORDER BY column is not implemented. (NOT_IMPLEMENTED)",
+            48,
+            "CHQueryErrorNotImplemented",
+        ),
     ],
 )
 def test_wrap_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
