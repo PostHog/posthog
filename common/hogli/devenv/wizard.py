@@ -55,9 +55,6 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     else:
         config = _setup_from_intents(intent_map)
 
-    if config is None:
-        return None
-
     # Ask about overrides
     config = _configure_overrides(config, registry)
 

@@ -135,17 +135,17 @@ def dev_generate(
 
         # Build effective config with temporary overrides
         if saved_config.preset:
-            preset_obj = resolver.intent_map.presets.get(saved_config.preset)
-            if not preset_obj:
+            saved_preset = resolver.intent_map.presets.get(saved_config.preset)
+            if not saved_preset:
                 click.echo(f"Warning: Unknown preset '{saved_config.preset}' in config", err=True)
                 intents = ["product_analytics"]
                 include_caps = None
-            elif preset_obj.all_intents:
+            elif saved_preset.all_intents:
                 intents = list(resolver.intent_map.intents.keys())
-                include_caps = list(preset_obj.include_capabilities) or None
+                include_caps = list(saved_preset.include_capabilities) or None
             else:
-                intents = preset_obj.intents.copy()
-                include_caps = list(preset_obj.include_capabilities) or None
+                intents = saved_preset.intents.copy()
+                include_caps = list(saved_preset.include_capabilities) or None
         else:
             intents = saved_config.intents.copy()
             include_caps = None
