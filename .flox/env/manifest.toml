@@ -166,9 +166,8 @@ if [[ -t 0 ]]; then
 \033[3mYou're all set! Here's what you can do:\033[0m
 
 \033[32m🚀 Start the development environment:\033[0m
-\033[32mhogli start\033[0m                    \033[3m# Full stack (default, required for first time running the stack)\033[0m
-\033[32mhogli start --minimal\033[0m          \033[3m# Minimal stack (faster startup, lesser memory usage, not all features are included)\033[0m
-\033[32mhogli start --custom <config>\033[0m  \033[3m# Use custom mprocs config\033[0m
+\033[32mhogli start\033[0m                    \033[3m# Start with your configured environment\033[0m
+\033[32mhogli dev:setup\033[0m                \033[3m# Interactive wizard to configure which services to run\033[0m
 
 \033[3m📋 Useful processes available in mprocs (press R to start manually):\033[0m
 \033[34m• generate-demo-data\033[0m         \033[3m# Create a user with demo data\033[0m
@@ -178,8 +177,8 @@ if [[ -t 0 ]]; then
 \033[2;90m─────────────────────────────────────────────────────────────\033[0m
 
 \033[3m💡 Pro tips:\033[0m
-• Use \033[32mhogli start --minimal\033[0m for faster development at the cost of not enabling all of our services
-• Check \033[34mbin/mprocs-*.yaml\033[0m for available process configurations
+• Use \033[32mhogli dev:setup\033[0m to customize which products/services run based on what you're working on
+• Run \033[32mhogli dev:presets\033[0m to see available presets (minimal, full)
 • Most processes include hot-reloading on file changes (except migrations)
 • You can run follow-up migrations with \033[32mhogli migrations:run\033[0m
 • Press 'q' in mprocs to quit, 'r' to restart a process
