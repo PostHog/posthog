@@ -268,6 +268,7 @@ async function main() {
         browser = await puppeteer.launch({
             headless: headless ? 'new' : false,
             devtools: !headless,
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: [
                 '--no-sandbox',
                 '--disable-dev-shm-usage',
