@@ -53,7 +53,8 @@ class ErrorTrackingSDKPolicyConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        if not queryset:
+        if queryset.count() == 0:
+            logger.info("No SDK policy config found, creating one")
             with transaction.atomic():
                 config = SdkPolicyConfig.objects.create(team=self.team)
                 SdkPolicyConfigAssignment.objects.bulk_create(
