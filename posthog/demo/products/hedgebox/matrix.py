@@ -207,28 +207,6 @@ class HedgeboxMatrix(Matrix):
                 }
             ],
         )
-        real_users_cohort = Cohort.objects.create(
-            team=team,
-            name="Real persons",
-            description="People who don't belong to the Hedgebox team.",
-            created_by=user,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@hedgebox.net$",
-                            "operator": "not_regex",
-                        }
-                    ]
-                }
-            ],
-        )
-        team.test_account_filters = [
-            {"key": "id", "type": "cohort", "value": real_users_cohort.pk},
-            *team.test_account_filters,
-        ]
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
