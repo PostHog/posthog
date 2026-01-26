@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from typing import Any, List, Literal, cast  # noqa: UP035
 from urllib.parse import urlparse
@@ -28,6 +29,7 @@ from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.heatmap_saved import SavedHeatmap
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -432,6 +434,17 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
 
         if not path.startswith("/uploaded_media/"):
             raise serializers.ValidationError("image_url must be from the uploaded_media API")
+
+        # Extract UUID and verify team ownership
+        match = re.match(r"^/uploaded_media/([0-9a-f-]+)/?$", path, re.IGNORECASE)
+        if not match:
+            raise serializers.ValidationError("Invalid uploaded_media URL format")
+
+        media_uuid = match.group(1)
+        team = self.context["team"]
+        if not UploadedMedia.objects.filter(id=media_uuid, team=team).exists():
+            raise serializers.ValidationError("Uploaded media not found or does not belong to your team")
+
         return value
 
     def validate(self, attrs: dict) -> dict:
@@ -519,7 +532,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        serializer = SavedHeatmapRequestSerializer(data=request.data)
+        serializer = SavedHeatmapRequestSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
 
         name = serializer.validated_data.get("name")
@@ -567,7 +580,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
-        serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
+        serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
 

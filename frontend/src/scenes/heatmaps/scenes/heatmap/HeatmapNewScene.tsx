@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconTrash, IconUpload } from '@posthog/icons'
@@ -34,7 +34,13 @@ export function HeatmapNewScene(): JSX.Element {
     const { searchParams } = useValues(router)
 
     // Pre-fill form from URL params (e.g., when redirected from toolbar screenshot capture)
+    const initializedFromUrlRef = useRef(false)
     useEffect(() => {
+        if (initializedFromUrlRef.current) {
+            return
+        }
+        initializedFromUrlRef.current = true
+
         const urlType = searchParams.type as string | undefined
         const urlImageUrl = searchParams.image_url as string | undefined
         const urlUrl = searchParams.url as string | undefined
@@ -52,7 +58,7 @@ export function HeatmapNewScene(): JSX.Element {
         if (urlDataUrl) {
             setDataUrl(urlDataUrl)
         }
-    }, []) // Only run on mount
+    }, [searchParams, setType, setImageUrl, setDisplayUrl, setDataUrl])
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
         setName(name)

@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from rest_framework.test import APIClient
 
-from posthog.models import HeatmapSnapshot, SavedHeatmap, Team
+from posthog.models import HeatmapSnapshot, Organization, SavedHeatmap, Team
+from posthog.models.uploaded_media import UploadedMedia
 
 
 class TestHeatmapsAPI(APIBaseTest):
@@ -81,26 +82,28 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(r.status_code, 404)
 
     def test_create_upload_type_with_image_url(self):
+        media = UploadedMedia.objects.create(team=self.team, created_by=self.user)
         resp = self.client.post(
             f"/api/environments/{self.team.id}/saved/",
             {
                 "type": "upload",
-                "image_url": "/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+                "image_url": f"/uploaded_media/{media.id}",
                 "data_url": "https://example.com/page/*",
             },
         )
         self.assertEqual(resp.status_code, 201)
         saved = SavedHeatmap.objects.get(id=resp.data["id"])
         self.assertEqual(saved.type, SavedHeatmap.Type.UPLOAD)
-        self.assertEqual(saved.image_url, "/uploaded_media/550e8400-e29b-41d4-a716-446655440000")
+        self.assertEqual(saved.image_url, f"/uploaded_media/{media.id}")
         self.assertEqual(saved.status, SavedHeatmap.Status.COMPLETED)
 
     def test_upload_type_status_is_completed_immediately(self):
+        media = UploadedMedia.objects.create(team=self.team, created_by=self.user)
         resp = self.client.post(
             f"/api/environments/{self.team.id}/saved/",
             {
                 "type": "upload",
-                "image_url": "/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+                "image_url": f"/uploaded_media/{media.id}",
                 "data_url": "https://example.com/*",
             },
         )
@@ -108,11 +111,12 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(resp.data["status"], "completed")
 
     def test_upload_type_url_is_optional(self):
+        media = UploadedMedia.objects.create(team=self.team, created_by=self.user)
         resp = self.client.post(
             f"/api/environments/{self.team.id}/saved/",
             {
                 "type": "upload",
-                "image_url": "/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+                "image_url": f"/uploaded_media/{media.id}",
                 "data_url": "https://example.com/*",
             },
         )
@@ -184,15 +188,31 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertIn("image_url", str(resp.data))
 
     def test_upload_type_accepts_absolute_url_from_uploaded_media(self):
-        # Absolute URLs from uploaded_media API should be accepted
+        media = UploadedMedia.objects.create(team=self.team, created_by=self.user)
         resp = self.client.post(
             f"/api/environments/{self.team.id}/saved/",
             {
                 "type": "upload",
-                "image_url": "https://us.posthog.com/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+                "image_url": f"https://us.posthog.com/uploaded_media/{media.id}",
                 "data_url": "https://example.com/*",
             },
         )
         self.assertEqual(resp.status_code, 201)
         saved = SavedHeatmap.objects.get(id=resp.data["id"])
-        self.assertEqual(saved.image_url, "https://us.posthog.com/uploaded_media/550e8400-e29b-41d4-a716-446655440000")
+        self.assertEqual(saved.image_url, f"https://us.posthog.com/uploaded_media/{media.id}")
+
+    def test_upload_type_rejects_cross_team_media(self):
+        # Media from another team should be rejected
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_media = UploadedMedia.objects.create(team=other_team, created_by=self.user)
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "upload",
+                "image_url": f"/uploaded_media/{other_media.id}",
+                "data_url": "https://example.com/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("not found or does not belong", str(resp.data))
