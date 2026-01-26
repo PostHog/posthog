@@ -313,9 +313,6 @@ class ClickHousePrinter(HogQLPrinter):
 
         return None
 
-    def _get_table_name(self, table: ast.TableType) -> str:
-        return table.table.to_printed_hogql()
-
     def _get_all_materialized_property_sources(
         self, field_type: ast.FieldType, property_name: str
     ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
@@ -1430,7 +1427,7 @@ class ClickHousePrinter(HogQLPrinter):
         identifier, exprs, cloned_node = super()._transform_window_function(node)
 
         # For compatibility with ClickHouse syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
-        if identifier in ("lag", "lead") and self.dialect != "postgres":
+        if identifier in ("lag", "lead"):
             identifier = f"{identifier}InFrame"
             # Wrap the first expression (value) and third expression (default) in toNullable()
             # The second expression (offset) must remain a non-nullable integer
@@ -1465,21 +1462,24 @@ class ClickHousePrinter(HogQLPrinter):
     def _validate_parametric_arguments(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str | None:
         super()._validate_parametric_arguments(node, func_meta)
 
+        if not func_meta.using_placeholder_arguments:
+            return None
+
         # Handle format strings in function names before checking function type
-        if func_meta.using_placeholder_arguments:
-            # Check if using positional arguments (e.g. {0}, {1})
-            if func_meta.using_positional_arguments:
-                # For positional arguments, pass the args as a dictionary
-                arg_arr = [self.visit(arg) for arg in node.args]
-                try:
-                    return func_meta.clickhouse_name.format(*arg_arr)
-                except (KeyError, IndexError) as e:
-                    raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
-            else:
-                # Original sequential placeholder behavior
-                placeholder_count = func_meta.clickhouse_name.count("{}")
-                if len(node.args) != placeholder_count:
-                    raise QueryError(
-                        f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
-                    )
-                return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+
+        # Check if using positional arguments (e.g. {0}, {1})
+        if func_meta.using_positional_arguments:
+            # For positional arguments, pass the args as a dictionary
+            arg_arr = [self.visit(arg) for arg in node.args]
+            try:
+                return func_meta.clickhouse_name.format(*arg_arr)
+            except (KeyError, IndexError) as e:
+                raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+
+        # Original sequential placeholder behavior
+        placeholder_count = func_meta.clickhouse_name.count("{}")
+        if len(node.args) != placeholder_count:
+            raise QueryError(
+                f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+            )
+        return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])

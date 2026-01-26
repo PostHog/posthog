@@ -511,6 +511,8 @@ class HogQLPrinter(Visitor[str]):
             if not is_allowed_parametric_function(first_arg.value):
                 raise QueryError(f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported.")
 
+        return None
+
     def _validate_aggregation(self, node: ast.Call, func_meta: HogQLFunctionMeta):
         validate_function_args(
             node.args,
