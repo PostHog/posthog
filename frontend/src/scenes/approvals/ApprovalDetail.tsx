@@ -1,6 +1,6 @@
 import useSize from '@react-hook/size'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 
 import { LemonTag, lemonToast } from '@posthog/lemon-ui'
 
@@ -39,16 +39,9 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
     const { approveChangeRequest, rejectChangeRequest, cancelChangeRequest, setProposedChangesTab } = useActions(
         approvalLogic({ id })
     )
-    const { loadAllMembers } = useActions(membersLogic)
-    const { loadRoles } = useActions(rolesLogic)
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [width] = useSize(containerRef)
-
-    useEffect(() => {
-        loadAllMembers()
-        loadRoles()
-    }, [loadAllMembers, loadRoles])
 
     if (changeRequestMissing) {
         return <NotFound object="change request" />
