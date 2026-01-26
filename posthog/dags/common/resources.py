@@ -1,6 +1,6 @@
 import json
 import asyncio
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -314,33 +314,3 @@ class ClayWebhookResource(dagster.ConfigurableResource):
                 logger.warning("Skipped %d records that exceeded max batch size", skipped_count)
 
         return ClayBatchResult(batches=batches, truncated_count=truncated_count, skipped_count=skipped_count)
-
-    def send_batched(
-        self,
-        data: list[dict],
-        logger: Any | None = None,
-        on_batch_sent: Callable[[list[dict]], None] | None = None,
-    ) -> list[requests.Response]:
-        """Send data to Clay webhook in size-aware batches to stay under payload limits.
-
-        Args:
-            data: List of records to send
-            logger: Optional logger for debug output
-            on_batch_sent: Optional callback invoked after each batch is successfully sent,
-                          receives the list of records that were sent in that batch
-        """
-        if not data:
-            return []
-
-        result = self.create_batches(data, logger)
-        responses: list[requests.Response] = []
-
-        with requests.Session() as session:
-            for i, batch in enumerate(result.batches):
-                responses.append(self._send_with_retry(session, batch))
-                if logger:
-                    logger.info("Sent batch %d with %d records", i + 1, len(batch))
-                if on_batch_sent:
-                    on_batch_sent(batch)
-
-        return responses
