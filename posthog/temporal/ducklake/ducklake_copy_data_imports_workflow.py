@@ -233,7 +233,7 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
                 bucket=cross_account_dest.bucket_name,
             )
             configure_cross_account_connection(conn, destinations=[cross_account_dest])
-            ensure_ducklake_bucket_exists(config=config)
+            ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
