@@ -46,6 +46,7 @@ type ResponseGeoEvent struct {
 	Lat         float64 `json:"lat"`
 	Lng         float64 `json:"lng"`
 	CountryCode string  `json:"country_code"`
+	DistinctId  string  `json:"distinct_id"`
 	Count       uint    `json:"count"`
 }
 
@@ -65,6 +66,7 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 		Lat:         event.Lat,
 		Lng:         event.Lng,
 		CountryCode: event.CountryCode,
+		DistinctId:  event.DistinctId,
 		Count:       1,
 	}
 }
