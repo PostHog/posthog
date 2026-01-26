@@ -108,8 +108,8 @@ function TraceNavigation(): JSX.Element {
 
     useKeyboardHotkeys(
         {
-            n: { action: goToNewer, disabled: !newerTraceId || neighborsLoading },
-            p: { action: goToOlder, disabled: !olderTraceId || neighborsLoading },
+            p: { action: goToNewer, disabled: !newerTraceId || neighborsLoading },
+            n: { action: goToOlder, disabled: !olderTraceId || neighborsLoading },
         },
         [olderTraceId, newerTraceId, olderTimestamp, newerTimestamp, neighborsLoading, viewMode]
     )
