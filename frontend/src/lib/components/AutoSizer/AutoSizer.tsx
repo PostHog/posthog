@@ -1,4 +1,3 @@
-import { useRef } from 'react'
 import {
     AutoSizer as BaseAutoSizer,
     type AutoSizerProps as BaseAutoSizerProps,
@@ -19,26 +18,17 @@ type AutoSizerProps = Omit<BaseAutoSizerProps, 'box'> & {
  *    incorrect initial measurements.
  *
  * 2. Supports disableWidth/disableHeight props (not available in the base package)
- *    to prevent unnecessary re-renders when only one dimension matters.
+ *    to prevent unnecessary re-renders when only one dimension matters. When disabled,
+ *    that dimension is passed as undefined (matching react-virtualized behavior).
  */
 export function AutoSizer({ disableWidth, disableHeight, ...props }: AutoSizerProps): JSX.Element {
-    const frozenWidth = useRef<number | undefined>(undefined)
-    const frozenHeight = useRef<number | undefined>(undefined)
-
     const wrapRenderProp = (
         renderProp: (size: SizeProps) => React.ReactNode
     ): ((size: SizeProps) => React.ReactNode) => {
         return ({ width, height }: SizeProps) => {
-            if (disableWidth && width !== undefined && frozenWidth.current === undefined) {
-                frozenWidth.current = width
-            }
-            if (disableHeight && height !== undefined && frozenHeight.current === undefined) {
-                frozenHeight.current = height
-            }
-
             return renderProp({
-                width: disableWidth ? frozenWidth.current : width,
-                height: disableHeight ? frozenHeight.current : height,
+                width: disableWidth ? undefined : width,
+                height: disableHeight ? undefined : height,
             })
         }
     }
