@@ -106,11 +106,11 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "passkey_added": "51",
     "passkey_removed": "52",
     "new_conversation_ticket": "53",
-    "approval_requested": "54",
-    "approval_approved": "55",
-    "approval_rejected": "56",
-    "approval_expired": "57",
-    "approval_applied": "58",
+    "approval_requested": "60",
+    "approval_approved": "57",
+    "approval_rejected": "58",
+    "approval_expired": "59",
+    "approval_applied": "61",
 }
 
 
