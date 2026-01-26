@@ -21,9 +21,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
-from posthog.models.user import User
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -933,6 +930,10 @@ def _delete_team_data(team_ids: list[int], user_id: int) -> None:
     """
     Shared logic for deleting team data (Postgres, batch exports, ClickHouse).
     """
+    from posthog.models.async_deletion import AsyncDeletion, DeletionType
+    from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+    from posthog.models.user import User
+
     logger.info("Deleting bulky postgres data", team_ids=team_ids)
     delete_bulky_postgres_data(team_ids=team_ids)
 
