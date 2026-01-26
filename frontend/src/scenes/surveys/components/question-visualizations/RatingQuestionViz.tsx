@@ -150,7 +150,8 @@ function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.
 }
 
 function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: number; questionId: string }): JSX.Element {
-    const { dateRange, interval, compareFilter, defaultInterval, survey } = useValues(surveyLogic)
+    const { dateRange, interval, compareFilter, defaultInterval, survey, archivedResponsesPropertyFilter } =
+        useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     return (
@@ -225,6 +226,7 @@ function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: numbe
                                                     operator: PropertyOperator.Exact,
                                                     value: survey.id,
                                                 },
+                                                ...archivedResponsesPropertyFilter,
                                             ],
                                             trendsFilter: {
                                                 formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
@@ -262,7 +264,8 @@ function RatingScoreOverTime({
     questionId: string
     scale: 3 | 5 | 7
 }): JSX.Element {
-    const { dateRange, interval, compareFilter, defaultInterval, survey } = useValues(surveyLogic)
+    const { dateRange, interval, compareFilter, defaultInterval, survey, archivedResponsesPropertyFilter } =
+        useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     // Array to hold the event series - one series for each possible rating value
@@ -362,6 +365,7 @@ function RatingScoreOverTime({
                                                     operator: PropertyOperator.Exact,
                                                     value: survey.id,
                                                 },
+                                                ...archivedResponsesPropertyFilter,
                                             ],
                                             trendsFilter: {
                                                 formula: formula,
