@@ -90,6 +90,10 @@ TEMPORAL_TASK_TIMEOUT_MINUTES = PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+# LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
+LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "")
+LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
