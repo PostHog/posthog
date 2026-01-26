@@ -47,8 +47,8 @@ function RunHistoryDisplay({
         return <span className="text-muted">-</span>
     }
 
-    // Show up to 5 most recent runs
-    const displayRuns = runHistory.slice(0, 5)
+    // Show up to 5 most recent runs, reversed so the most recent is on the right
+    const displayRuns = runHistory.slice(0, 5).reverse()
 
     return (
         <div className="flex gap-1">
