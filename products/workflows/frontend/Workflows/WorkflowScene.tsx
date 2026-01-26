@@ -24,12 +24,16 @@ import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './work
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
     logic: workflowSceneLogic,
-    paramsToProps: ({ params: { id, tab }, searchParams }) => ({
-        id: id || 'new',
-        tab: tab || 'workflow',
-        templateId: searchParams.templateId as string | undefined,
-        editTemplateId: searchParams.editTemplateId as string | undefined,
-    }),
+    paramsToProps: ({ params: { id, tab }, searchParams }) => {
+        const templateId = searchParams?.templateId as string | undefined
+        const editTemplateId = searchParams?.editTemplateId as string | undefined
+        return {
+            id: id || 'new',
+            tab: tab || 'workflow',
+            templateId,
+            editTemplateId,
+        }
+    },
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
@@ -39,8 +43,6 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: props.id })
     const { futureJobs } = useValues(batchJobsLogic)
 
-    // Construct complete logic props with all needed fields
-    // templateId and editTemplateId come from props (via paramsToProps) which are tab-specific
     const logicProps = {
         id: props.id,
         templateId: props.templateId,
@@ -98,7 +100,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     return (
         <SceneContent className="h-full flex flex-col grow">
-            <WorkflowSceneHeader {...props} />
+            <WorkflowSceneHeader {...logicProps} />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (
                 <Workflow {...logicProps} />

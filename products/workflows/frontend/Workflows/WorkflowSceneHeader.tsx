@@ -11,10 +11,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
-import { workflowLogic } from './workflowLogic'
-import { WorkflowSceneLogicProps } from './workflowSceneLogic'
+import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
-export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
+export const WorkflowSceneHeader = (props: WorkflowLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
     const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, archiveWorkflow } =
@@ -54,7 +53,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
             <SaveAsTemplateModal {...props} editTemplateId={editTemplateId} />
             <SceneTitleSection
                 name={workflow?.name}
-                description={workflow?.description}
+                description={workflow?.description ?? ''}
                 resourceType={{ type: 'workflows' }}
                 canEdit
                 onNameChange={(name) => setWorkflowValue('name', name)}

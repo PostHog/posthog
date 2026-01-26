@@ -26,6 +26,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
     listeners(({ actions }) => ({
         createWorkflowFromTemplate: ({ template }) => {
             actions.hideNewWorkflowModal()
+            // Read in WorkflowSceneHeader and WorkflowScene
             router.actions.push(urls.workflowNew(), { templateId: template.id })
         },
         createEmptyWorkflow: () => {

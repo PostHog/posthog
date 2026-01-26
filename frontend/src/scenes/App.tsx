@@ -95,12 +95,11 @@ function AppScene(): JSX.Element | null {
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {
         const { component: SceneComponent } = activeExportedScene
+        const componentProps = activeExportedScene.paramsToProps
+            ? activeSceneLogicPropsWithTabId
+            : activeSceneComponentParamsWithTabId
         sceneElement = (
-            <SceneComponent
-                key={`tab-${activeSceneLogicPropsWithTabId.tabId}`}
-                user={user}
-                {...activeSceneComponentParamsWithTabId}
-            />
+            <SceneComponent key={`tab-${activeSceneLogicPropsWithTabId.tabId}`} user={user} {...componentProps} />
         )
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />

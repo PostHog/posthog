@@ -119,9 +119,6 @@ export const workflowLogic = kea<workflowLogicType>([
         if (props.id && props.id !== 'new') {
             return props.id
         }
-        // For new workflows, use tabId to ensure each tab gets its own logic instance
-        // This prevents state from being cached between different "new" workflows
-        // Similar to how insights use `new-${tabId}` pattern
         const templateKey = props.templateId
             ? `-template-${props.templateId}`
             : props.editTemplateId
@@ -564,12 +561,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props }) => {
-        // For new workflows, explicitly reset the form to clear any stale state
-        // This is especially important when switching between tabs with different keys
-        if (!props.id || props.id === 'new') {
-            actions.resetWorkflow(NEW_WORKFLOW)
-        }
+    afterMount(({ actions }) => {
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
     }),
