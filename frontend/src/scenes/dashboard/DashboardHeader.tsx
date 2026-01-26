@@ -172,7 +172,7 @@ export function DashboardHeader(): JSX.Element | null {
                     <SubscriptionsModal
                         isOpen={showSubscriptions}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
-                        dashboardId={dashboard.id}
+                        dashboard={dashboard}
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal

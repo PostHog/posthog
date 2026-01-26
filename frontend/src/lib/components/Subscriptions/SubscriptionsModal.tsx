@@ -22,7 +22,7 @@ export interface SubscriptionsModalProps extends SubscriptionBaseProps {
 }
 
 export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
-    const { closeModal, dashboardId, insightShortId, subscriptionId, isOpen, inline } = props
+    const { closeModal, dashboard, insightShortId, subscriptionId, isOpen, inline } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
 
@@ -41,7 +41,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                 {!subscriptionId ? (
                     <ManageSubscriptions
                         insightShortId={insightShortId}
-                        dashboardId={dashboardId}
+                        dashboard={dashboard}
                         onCancel={closeModal}
                         onSelect={(id) => push(urlForSubscription(id, props))}
                     />
@@ -49,7 +49,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                     <EditSubscription
                         id={subscriptionId}
                         insightShortId={insightShortId}
-                        dashboardId={dashboardId}
+                        dashboard={dashboard}
                         onCancel={() => push(urlForSubscriptions(props))}
                         onDelete={() => push(urlForSubscriptions(props))}
                     />

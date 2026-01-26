@@ -21,6 +21,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { InsightSelector } from '../InsightSelector'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
@@ -44,23 +45,24 @@ interface EditSubscriptionProps extends SubscriptionBaseProps {
 export function EditSubscription({
     id,
     insightShortId,
-    dashboardId,
+    dashboard,
     onCancel,
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
     const logicProps = {
         id,
         insightShortId,
-        dashboardId,
+        dashboardId: dashboard?.id,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
         insightShortId,
-        dashboardId,
+        dashboardId: dashboard?.id,
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { resetSubscription } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations } = useValues(integrationsLogic)
@@ -69,8 +71,16 @@ export function EditSubscription({
 
     const emailDisabled = !preflight?.email_service_available
 
+    // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
+    // For editing, wait until subscription data has loaded from API (target_type exists)
+    // We check target_type instead of dashboard_export_insights because old subscriptions
+    // may have no insights selected yet
+    const isEditing = id !== 'new'
+    const subscriptionLoaded = !!subscription?.target_type
+    const selectionReady = !isEditing || subscriptionLoaded
+
     const _onDelete = (): void => {
-        if (id !== 'new') {
+        if (isEditing) {
             deleteSubscription(id)
             onDelete()
         }
@@ -96,7 +106,7 @@ export function EditSubscription({
                 </div>
             </LemonModal.Header>
 
-            <LemonModal.Content className="deprecated-space-y-2">
+            <LemonModal.Content className="deprecated-space-y-2 max-h-[60vh] overflow-y-auto">
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="deprecated-space-y-4">
@@ -153,6 +163,28 @@ export function EditSubscription({
                         <LemonField name="title" label="Name">
                             <LemonInput placeholder="e.g. Weekly team report" />
                         </LemonField>
+
+                        {dashboard?.tiles && selectionReady && (
+                            <LemonField name="dashboard_export_insights" label="Insights to include">
+                                {({ value, onChange }) => (
+                                    <InsightSelector
+                                        tiles={dashboard.tiles}
+                                        selectedInsightIds={value ?? []}
+                                        onChange={onChange}
+                                        // After auto-selecting default insights, reset the form's "changed"
+                                        // state so that auto-selection alone doesn't trigger the
+                                        // "unsaved changes" warning when leaving. We merge the selected IDs
+                                        // into the subscription to preserve the auto-selected values.
+                                        onDefaultsApplied={(selectedIds) =>
+                                            resetSubscription({
+                                                ...subscription,
+                                                dashboard_export_insights: selectedIds,
+                                            })
+                                        }
+                                    />
+                                )}
+                            </LemonField>
+                        )}
 
                         <LemonField name="target_type" label="Destination">
                             <LemonSelect options={targetTypeOptions} />

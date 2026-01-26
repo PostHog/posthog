@@ -12,9 +12,6 @@ interface InsightSelectorProps {
     tiles: DashboardTile[]
     selectedInsightIds: number[]
     onChange: (ids: number[]) => void
-    // Called after auto-selecting default insights for new subscriptions.
-    // Receives the selected IDs so the parent can reset the form's "changed"
-    // state with the correct values, preventing "unsaved changes" warnings after loading sane defaults.
     onDefaultsApplied?: (selectedIds: number[]) => void
 }
 
@@ -33,10 +30,6 @@ export function InsightSelector({
         if (insightTiles.length > 0 && selectedInsightIds.length === 0 && !userHasInteracted) {
             const defaultSelection = insightTiles.slice(0, MAX_INSIGHTS).map((tile) => tile.insight!.id)
             onChange(defaultSelection)
-            // Notify parent that defaults were applied, passing the selected IDs so it
-            // can reset the form's "changed" state with the correct values. Without this,
-            // the auto-selection would mark the form as changed and trigger "unsaved
-            // changes" warnings when leaving.
             onDefaultsApplied?.(defaultSelection)
         }
     }, [insightTiles.length, selectedInsightIds.length, userHasInteracted, insightTiles, onChange, onDefaultsApplied])

@@ -4652,6 +4652,7 @@ export interface SubscriptionType {
     id: number
     insight?: number
     dashboard?: number
+    dashboard_export_insights?: number[]
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
