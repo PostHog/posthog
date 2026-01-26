@@ -25,7 +25,6 @@ const defaultQuery = {
     },
     full: true,
     propertiesViaUrl: true,
-    showPersistentColumnConfigurator: true,
     contextKey: 'people-list',
 } as DataTableNode
 
