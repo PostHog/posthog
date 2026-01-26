@@ -2606,6 +2606,11 @@ export const NotebookArtifactWithLoadingAndErrors: StoryFn = () => {
 
     return <Template />
 }
+NotebookArtifactWithLoadingAndErrors.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 // Changelog Stories
 

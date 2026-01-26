@@ -55,7 +55,6 @@ import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
@@ -723,7 +722,6 @@ export function SavedInsights(): JSX.Element {
     const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
 
-    const { hasTagging } = useValues(organizationLogic)
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
 
@@ -784,18 +782,14 @@ export function SavedInsights(): JSX.Element {
             },
             sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof QueryBasedInsightModel,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  },
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof QueryBasedInsightModel,
+            key: 'tags',
+            render: function renderTags(tags: string[]) {
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        },
         ...(tab === SavedInsightsTabs.Yours
             ? []
             : [

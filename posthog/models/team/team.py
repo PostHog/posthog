@@ -722,6 +722,7 @@ class Team(UUIDTClassicModel):
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
+        # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
         return sync_execute(
             f"""
             SELECT
