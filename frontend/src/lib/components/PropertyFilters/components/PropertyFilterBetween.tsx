@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
+import { useId } from 'react'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
@@ -14,11 +15,11 @@ export interface PropertyFilterBetweenProps {
     size?: 'xsmall' | 'small' | 'medium'
 }
 
-let uniqueMemoizedIndex = 0
 const usePropertyFilterBetweenLogic = (
     props: PropertyFilterBetweenProps
 ): ReturnType<typeof propertyFilterBetweenLogic.build> => {
-    const logicKey = useMemo(() => props.logicKey || `prop-filter-between-${uniqueMemoizedIndex++}`, [props.logicKey])
+    const generatedKey = useId()
+    const logicKey = props.logicKey || `prop-filter-between-${generatedKey}`
     return propertyFilterBetweenLogic({ ...props, key: logicKey })
 }
 
