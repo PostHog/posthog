@@ -529,6 +529,88 @@ def test_ducklake_copy_data_imports_workflow_parse_inputs():
     assert inputs.schema_ids[0] == schema_id
 
 
+def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypatch):
+    """Test that copy activity raises ApplicationError when no DuckLakeCatalog is configured."""
+    from temporalio.exceptions import ApplicationError
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    # Return None to simulate no DuckLakeCatalog configured
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=None),
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        copy_data_imports_to_ducklake_activity(inputs)
+
+    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert exc_info.value.non_retryable is True
+
+
+def test_verify_data_imports_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
+    """Test that verify activity raises ApplicationError when no DuckLakeCatalog is configured."""
+    from temporalio.exceptions import ApplicationError
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    # Return None to simulate no DuckLakeCatalog configured
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=None),
+    )
+
+    query = DuckLakeCopyVerificationQuery(
+        name="row_count_check",
+        sql="SELECT 1",
+        description="A verification query",
+        parameters=(),
+        expected_value=0.0,
+        tolerance=0.0,
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+        verification_queries=[query],
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=42, job_id="job-456", model=metadata)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        verify_data_imports_ducklake_copy_activity(inputs)
+
+    assert "No DuckLakeCatalog configured for team 42" in str(exc_info.value)
+    assert exc_info.value.non_retryable is True
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disabled(monkeypatch, ateam):
