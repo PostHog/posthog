@@ -109,6 +109,10 @@ class RunSnapshot(models.Model):
 
     identifier = models.CharField(max_length=512)
 
+    # Hash values (stored for linking artifacts after upload)
+    current_hash = models.CharField(max_length=128, blank=True)
+    baseline_hash = models.CharField(max_length=128, blank=True)
+
     # Current artifact (from this CI run)
     current_artifact = models.ForeignKey(
         Artifact, on_delete=models.SET_NULL, null=True, blank=True, related_name="current_snapshots"

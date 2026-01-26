@@ -126,7 +126,7 @@ def get_upload_url(project_id: UUID, content_hash: str) -> UploadUrl | None:
 
 
 def register_artifact(input: RegisterArtifactInput) -> Artifact:
-    artifact, _ = logic.get_or_create_artifact(
+    artifact, created = logic.get_or_create_artifact(
         project_id=input.project_id,
         content_hash=input.content_hash,
         storage_path=input.storage_path,
@@ -134,6 +134,9 @@ def register_artifact(input: RegisterArtifactInput) -> Artifact:
         height=input.height,
         size_bytes=input.size_bytes,
     )
+    # Link artifact to any pending snapshots that reference this hash
+    if created:
+        logic.link_artifact_to_snapshots(input.project_id, input.content_hash)
     return _to_artifact(artifact, input.project_id)
 
 

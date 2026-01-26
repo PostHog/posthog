@@ -197,6 +197,8 @@ def create_run(
         RunSnapshot.objects.create(
             run=run,
             identifier=identifier,
+            current_hash=current_hash,
+            baseline_hash=baseline_hash or "",
             current_artifact=current_artifact,
             baseline_artifact=baseline_artifact,
             result=result,
@@ -296,22 +298,28 @@ def update_snapshot_diff(
     return snapshot
 
 
-def link_artifact_to_snapshots(project_id: UUID, content_hash: str) -> None:
+def link_artifact_to_snapshots(project_id: UUID, content_hash: str) -> int:
     """
     After an artifact is uploaded, link it to any pending snapshots.
+
+    Returns number of snapshots updated.
     """
     artifact = get_artifact(project_id, content_hash)
     if not artifact:
-        return
+        return 0
 
-    # Link as current artifact where missing
-    RunSnapshot.objects.filter(
+    # Link as current artifact where hash matches but artifact not linked
+    current_updated = RunSnapshot.objects.filter(
         run__project_id=project_id,
+        current_hash=content_hash,
         current_artifact__isnull=True,
-    ).extra(
-        where=["identifier IN (SELECT identifier FROM visual_review_runsnapshot WHERE current_artifact_id IS NULL)"]
-    )
+    ).update(current_artifact=artifact)
 
-    # Actually, simpler approach: we stored hash info at creation time
-    # The linking happens during run creation or artifact registration
-    pass
+    # Link as baseline artifact where hash matches but artifact not linked
+    baseline_updated = RunSnapshot.objects.filter(
+        run__project_id=project_id,
+        baseline_hash=content_hash,
+        baseline_artifact__isnull=True,
+    ).update(baseline_artifact=artifact)
+
+    return current_updated + baseline_updated
