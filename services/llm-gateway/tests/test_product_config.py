@@ -1,12 +1,16 @@
 import pytest
+from fastapi import HTTPException
 
 from llm_gateway.products.config import (
+    ALLOWED_PRODUCTS,
     ARRAY_EU_APP_ID,
     ARRAY_US_APP_ID,
+    PRODUCTS,
     WIZARD_EU_APP_ID,
     WIZARD_US_APP_ID,
     check_product_access,
     get_product_config,
+    validate_product,
 )
 
 
@@ -39,6 +43,10 @@ class TestCheckProductAccess:
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, True, None),
             ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, True, None),
+            # django allows API keys with any model
+            ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            ("django", "personal_api_key", None, "claude-3-opus", True, None),
+            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -72,3 +80,18 @@ class TestCheckProductAccess:
         allowed, error = check_product_access("array", "oauth_access_token", ARRAY_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+
+class TestValidateProduct:
+    def test_allowed_products_derived_from_products_dict(self):
+        assert ALLOWED_PRODUCTS == frozenset(PRODUCTS.keys())
+
+    @pytest.mark.parametrize("product", list(PRODUCTS.keys()))
+    def test_valid_product_returns_product(self, product: str):
+        assert validate_product(product) == product
+
+    def test_invalid_product_raises_http_exception(self):
+        with pytest.raises(HTTPException) as exc_info:
+            validate_product("invalid_product")
+        assert exc_info.value.status_code == 400
+        assert "Invalid product" in exc_info.value.detail
