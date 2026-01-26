@@ -241,7 +241,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="references", required_scopes=["task:read"])
     def references(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
-        references = TaskReference.objects.filter(task=task).order_by("-created_at")
+        references = TaskReference.objects.filter(task=task).order_by("-start_time")
         total_count = references.count()
         serializer = TaskReferenceSerializer(references, many=True)
         return Response(

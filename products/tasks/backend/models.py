@@ -553,29 +553,26 @@ class SandboxEnvironment(UUIDModel):
         return []
 
 
-class TaskReference(models.Model):
-    """Links a reference (video segment, error, etc.) to a Task.
+class TaskReference(UUIDModel):
+    """Links a reference (video segment, in the future also errors etc.) to a Task.
 
     Each record represents one occurrence that contributed to or matches a Task's cluster.
     Used for tracking cases and calculating priority.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="references")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     # Reference identification
     session_id = models.CharField(max_length=255)
     start_time = models.DateTimeField(null=False, blank=False)
     end_time = models.DateTimeField(null=True, blank=True)
-
-    # User tracking for relevant_user_count
-    distinct_id = models.CharField(max_length=255)
-
-    # Reference content
+    distinct_id = models.CharField(
+        max_length=255, help_text="The distinct_id of the user who experienced the reference"
+    )
     content = models.TextField(
         blank=True,
-        help_text="The reference description text",
+        help_text="The reference description text (i.e. what happened)",
     )
 
     # Clustering metadata
@@ -585,20 +582,13 @@ class TaskReference(models.Model):
         help_text="Cosine distance from this reference to the task's cluster centroid",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-
     class Meta:
         db_table = "posthog_task_reference"
-        indexes = [
-            models.Index(fields=["task_id", "session_id"]),
-            models.Index(fields=["team_id", "session_id"]),
-            models.Index(fields=["distinct_id"]),
-        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["task_id", "session_id", "start_time", "end_time"],
                 name="unique_task_reference",
-            )
+            ),
         ]
 
     def __str__(self):
