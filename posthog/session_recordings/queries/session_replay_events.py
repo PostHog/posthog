@@ -33,7 +33,7 @@ def seconds_until_midnight():
 
 class SessionReplayEvents:
     def exists(self, session_id: str, team: Team) -> bool:
-        cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
+        cache_key = f"session_recording_existence_team_{team.pk}_id_{session_id}"
         cached_response = cache.get(cache_key)
         if isinstance(cached_response, bool):
             return cached_response
@@ -62,7 +62,7 @@ class SessionReplayEvents:
 
         # Check cache first
         for sid in session_ids:
-            cache_key = f"summarize_recording_existence_team_{team.pk}_id_{sid}"
+            cache_key = f"session_recording_existence_team_{team.pk}_id_{sid}"
             cached_value = cache.get(cache_key)
             if cached_value is True:
                 results[sid] = True
@@ -81,7 +81,7 @@ class SessionReplayEvents:
             exists = sid in existing_session_ids
             results[sid] = exists
             if exists:
-                cache_key = f"summarize_recording_existence_team_{team.pk}_id_{sid}"
+                cache_key = f"session_recording_existence_team_{team.pk}_id_{sid}"
                 cache.set(cache_key, True, timeout=seconds_until_midnight())
 
         return results
