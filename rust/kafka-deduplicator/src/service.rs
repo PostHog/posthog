@@ -311,7 +311,8 @@ impl KafkaDeduplicatorService {
         };
 
         // Create offset tracker for tracking processed offsets
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        // Pass store_manager so offset_tracker can delegate rebalancing state
+        let offset_tracker = Arc::new(OffsetTracker::new(self.store_manager.clone()));
 
         let router = Arc::new(PartitionRouter::new(
             processor,

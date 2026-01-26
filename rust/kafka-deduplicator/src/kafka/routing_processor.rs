@@ -118,8 +118,20 @@ mod tests {
     use super::*;
     use crate::kafka::partition_router::shutdown_workers;
     use crate::kafka::partition_router::PartitionRouterConfig;
+    use crate::store::DeduplicationStoreConfig;
+    use crate::store_manager::StoreManager;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tempfile::TempDir;
     use tokio::time::{sleep, Duration};
+
+    fn create_test_store_manager() -> (Arc<StoreManager>, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        (Arc::new(StoreManager::new(config)), temp_dir)
+    }
 
     struct CountingProcessor {
         count: AtomicUsize,
@@ -148,7 +160,8 @@ mod tests {
     #[tokio::test]
     async fn test_routing_processor_groups_by_partition() {
         let processor = Arc::new(CountingProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = Arc::new(PartitionRouter::new(
             processor.clone(),
@@ -188,7 +201,8 @@ mod tests {
     #[tokio::test]
     async fn test_routing_processor_handles_missing_worker() {
         let processor = Arc::new(CountingProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = Arc::new(PartitionRouter::new(
             processor.clone(),

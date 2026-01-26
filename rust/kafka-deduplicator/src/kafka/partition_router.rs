@@ -272,8 +272,20 @@ pub async fn shutdown_workers<T: Send + 'static>(workers: Vec<PartitionWorker<T>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::DeduplicationStoreConfig;
+    use crate::store_manager::StoreManager;
     use axum::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tempfile::TempDir;
+
+    fn create_test_store_manager() -> (Arc<StoreManager>, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        (Arc::new(StoreManager::new(config)), temp_dir)
+    }
 
     struct TestProcessor {
         processed_count: AtomicUsize,
@@ -299,7 +311,8 @@ mod tests {
     #[tokio::test]
     async fn test_router_add_partition() {
         let processor = Arc::new(TestProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
 
@@ -318,7 +331,8 @@ mod tests {
     #[tokio::test]
     async fn test_router_route_requires_worker() {
         let processor = Arc::new(TestProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
 
@@ -342,7 +356,8 @@ mod tests {
     #[tokio::test]
     async fn test_router_multiple_partitions() {
         let processor = Arc::new(TestProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
 
@@ -360,7 +375,8 @@ mod tests {
     #[tokio::test]
     async fn test_router_remove_partition() {
         let processor = Arc::new(TestProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
 
@@ -381,7 +397,8 @@ mod tests {
     #[tokio::test]
     async fn test_router_reuses_after_readd() {
         let processor = Arc::new(TestProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
 
@@ -406,7 +423,8 @@ mod tests {
         // Simulates rapid revoke → assign where cleanup hasn't run yet
         // The router should reuse the existing worker instead of creating a new one
         let processor = Arc::new(TestProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
 
@@ -433,7 +451,8 @@ mod tests {
     async fn test_router_add_partition_idempotent() {
         // Calling add_partition multiple times should not create multiple workers
         let processor = Arc::new(TestProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
 

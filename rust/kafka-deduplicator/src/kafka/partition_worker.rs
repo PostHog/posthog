@@ -241,9 +241,21 @@ impl<T: Send + 'static> PartitionWorker<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::DeduplicationStoreConfig;
+    use crate::store_manager::StoreManager;
     use axum::async_trait;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tempfile::TempDir;
     use tokio::time::{sleep, Duration};
+
+    fn create_test_store_manager() -> (Arc<StoreManager>, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        (Arc::new(StoreManager::new(config)), temp_dir)
+    }
 
     struct TestProcessor {
         processed_count: AtomicUsize,
@@ -339,7 +351,8 @@ mod tests {
     async fn test_partition_worker_basic() {
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TestProcessor::new(0));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 5,
         };
@@ -366,7 +379,8 @@ mod tests {
     async fn test_partition_worker_backpressure() {
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TestProcessor::new(100)); // 100ms delay
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 2, // Small buffer
         };
@@ -396,7 +410,8 @@ mod tests {
         // Verify that the worker continues processing after processor errors
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(FailingProcessor::new(3)); // Fail first 3 batches
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 10,
         };
@@ -447,7 +462,8 @@ mod tests {
         // Verify that all queued messages are processed before shutdown completes
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TrackingProcessor::new(20)); // 20ms delay per batch
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 10,
         };
@@ -494,7 +510,8 @@ mod tests {
         // Verify that the worker task exits when all senders are dropped
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TrackingProcessor::new(0));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let (store_manager, _temp_dir) = create_test_store_manager();
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 5,
         };

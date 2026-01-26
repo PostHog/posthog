@@ -557,24 +557,17 @@ where
 
     async fn on_pre_rebalance(&self) -> Result<()> {
         info!("Pre-rebalance: Preparing for partition changes");
-
-        // Set rebalancing flag to prevent offset commits during rebalance
-        self.offset_tracker.set_rebalancing(true);
-
         // Note: store_manager.start_rebalancing() is called in setup_assigned_partitions()
-        // (sync callback) to ensure no gap before async work is queued
-
+        // (sync callback) to ensure no gap before async work is queued.
+        // The store_manager's rebalancing counter is the single source of truth.
         Ok(())
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
         info!("Post-rebalance: Partition changes complete");
-
-        // Clear rebalancing flag to allow offset commits again
-        self.offset_tracker.set_rebalancing(false);
-
         // Note: store_manager rebalancing counter is decremented via RebalancingGuard
-        // at the end of async_setup_assigned_partitions (ensures panic safety)
+        // at the end of async_setup_assigned_partitions (ensures panic safety).
+        // The store_manager's rebalancing counter is the single source of truth.
 
         // Log current stats
         let store_count = self.store_manager.stores().len();
@@ -615,7 +608,7 @@ mod tests {
             max_capacity: 1000,
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
         // Test handler without router
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
@@ -647,7 +640,7 @@ mod tests {
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -709,7 +702,7 @@ mod tests {
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -809,7 +802,7 @@ mod tests {
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -906,7 +899,7 @@ mod tests {
             max_capacity: 1000,
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
             ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
@@ -962,7 +955,7 @@ mod tests {
             max_capacity: 1000,
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
             ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
@@ -1016,7 +1009,7 @@ mod tests {
             max_capacity: 1000,
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
             ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
@@ -1079,7 +1072,7 @@ mod tests {
             max_capacity: 1000,
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
             ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
@@ -1168,7 +1161,7 @@ mod tests {
             max_capacity: 1000,
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
             ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
@@ -1212,7 +1205,7 @@ mod tests {
             max_capacity: 1000,
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
             ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);

@@ -14,8 +14,11 @@ use kafka_deduplicator::kafka::{
     test_utils::TestRebalanceHandler,
     types::Partition,
 };
+use kafka_deduplicator::store::DeduplicationStoreConfig;
+use kafka_deduplicator::store_manager::StoreManager;
 
 use common_types::CapturedEvent;
+use tempfile::TempDir;
 
 use anyhow::Result;
 use rdkafka::{
@@ -45,6 +48,7 @@ fn create_batch_kafka_consumer(
     BatchConsumer<CapturedEvent>,
     UnboundedReceiver<Batch<CapturedEvent>>,
     oneshot::Sender<()>,
+    TempDir, // Keep temp dir alive for the duration of the test
 )> {
     let mut config = ClientConfig::new();
     config
@@ -78,8 +82,16 @@ fn create_batch_kafka_consumer(
         }
     }
 
+    // Create store manager for offset tracker
+    let temp_dir = TempDir::new()?;
+    let store_config = DeduplicationStoreConfig {
+        path: temp_dir.path().to_path_buf(),
+        max_capacity: 1000,
+    };
+    let store_manager = Arc::new(StoreManager::new(store_config));
+
     let processor = Arc::new(TestProcessor { sender: chan_tx });
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
 
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
@@ -93,7 +105,7 @@ fn create_batch_kafka_consumer(
         Duration::from_secs(1),
     )?;
 
-    Ok((consumer, chan_rx, shutdown_tx))
+    Ok((consumer, chan_rx, shutdown_tx, temp_dir))
 }
 
 /// Helper to send test messages
@@ -174,7 +186,7 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     send_test_messages(&test_topic, test_messages).await?;
 
-    let (consumer, mut batch_rx, shutdown_tx) =
+    let (consumer, mut batch_rx, shutdown_tx, _temp_dir) =
         create_batch_kafka_consumer(&test_topic, &group_id, batch_size, batch_timeout)?;
 
     // Start consumption in background task
@@ -367,12 +379,12 @@ impl RebalanceHandler for RoutingRebalanceHandler {
     }
 
     async fn on_pre_rebalance(&self) -> Result<()> {
-        self.offset_tracker.set_rebalancing(true);
+        // Note: rebalancing state is now tracked by store_manager
         self.inner.on_pre_rebalance().await
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
-        self.offset_tracker.set_rebalancing(false);
+        // Note: rebalancing state is now tracked by store_manager
         self.inner.on_post_rebalance().await
     }
 }
@@ -441,8 +453,16 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
     // Create the processor that counts messages
     let processor = Arc::new(CountingProcessor::new());
 
+    // Create store manager for offset tracker
+    let temp_dir = TempDir::new()?;
+    let store_config = DeduplicationStoreConfig {
+        path: temp_dir.path().to_path_buf(),
+        max_capacity: 1000,
+    };
+    let store_manager = Arc::new(StoreManager::new(store_config));
+
     // Create offset tracker
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
 
     // Create router with partition workers
     let router = Arc::new(PartitionRouter::new(

@@ -356,7 +356,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         max_capacity: 1_000_000,
     };
     let store_manager = Arc::new(StoreManager::new(consumer_store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
     let processor = Arc::new(CountingProcessor::new());
 
     // Create checkpoint importer
@@ -496,7 +496,7 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
         max_capacity: 1_000_000,
     };
     let store_manager = Arc::new(StoreManager::new(store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
     // Create the ProcessorRebalanceHandler
     let handler: ProcessorRebalanceHandler<CapturedEvent, CountingProcessor> =
@@ -579,7 +579,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
         max_capacity: 1_000_000,
     };
     let store_manager = Arc::new(StoreManager::new(store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
 
     let handler: ProcessorRebalanceHandler<CapturedEvent, CountingProcessor> =
         ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
