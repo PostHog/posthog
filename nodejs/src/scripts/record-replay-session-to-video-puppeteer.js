@@ -1,12 +1,5 @@
-#!/usr/bin/env node
 /**
  * Node.js video recording script using Puppeteer + puppeteer-screen-recorder
- *
- * This script replicates the Playwright recording logic from video_exporter.py
- * and outputs JSON to stdout for the Python code to consume.
- *
- * Usage: node record-replay.js '<JSON_OPTIONS>'
- *
  * Input JSON:
  * {
  *   "url_to_render": "https://...",
@@ -35,22 +28,24 @@ const puppeteer = require('puppeteer')
 const { PuppeteerScreenRecorder } = require('puppeteer-screen-recorder')
 const path = require('path')
 
+// Constats, replicated from Playwright flow
 const HEIGHT_OFFSET = 85
 const PLAYBACK_SPEED_MULTIPLIER = 4
 const MAX_DIMENSION = 1400
 const DEFAULT_WIDTH = 1400
 const DEFAULT_HEIGHT = 600
+const RECORDING_BUFFER_SECONDS = 120
 
 // Log to stderr so it doesn't interfere with JSON output
 function log(...args) {
     console.error('[record-replay]', ...args)
 }
 
+// Scale dimensions if needed to fit within max width while maintaining aspect ratio
 function scaleDimensionsIfNeeded(width, height, maxSize = MAX_DIMENSION) {
     if (width <= maxSize && height <= maxSize) {
         return { width, height }
     }
-
     let scaleFactor
     if (width > height) {
         scaleFactor = maxSize / width
@@ -67,25 +62,25 @@ function scaleDimensionsIfNeeded(width, height, maxSize = MAX_DIMENSION) {
     }
 }
 
+// Speed up playback of the video if provided by the parameters
 function ensurePlaybackSpeed(urlToRender, playbackSpeed) {
     const url = new URL(urlToRender)
     url.searchParams.set('playerSpeed', String(playbackSpeed))
     return url.toString()
 }
 
+// Wait for the UI and snapshots to load to be ready for the recording
 async function waitForPageReady(page, urlToRender, waitForCssSelector) {
     try {
         await page.goto(urlToRender, { waitUntil: 'load', timeout: 30000 })
     } catch (e) {
         log('Navigation timeout (continuing):', e.message)
     }
-
     try {
         await page.waitForSelector(waitForCssSelector, { visible: true, timeout: 20000 })
     } catch (e) {
         log('Selector wait timeout (continuing):', e.message)
     }
-
     try {
         await page.waitForSelector('.Spinner', { hidden: true, timeout: 20000 })
     } catch (e) {
@@ -93,15 +88,14 @@ async function waitForPageReady(page, urlToRender, waitForCssSelector) {
     }
 }
 
+// Detect the recording resolution from the UI
 async function detectRecordingResolution(browser, urlToRender, waitForCssSelector, defaultWidth, defaultHeight) {
     log('Starting resolution detection...')
-
     const page = await browser.newPage()
+    // TODO: Check the logic here
     await page.setViewport({ width: defaultWidth, height: defaultHeight })
-
     try {
         await waitForPageReady(page, urlToRender, waitForCssSelector)
-
         const resolution = await page.evaluate(() => {
             return new Promise((resolve) => {
                 const checkResolution = () => {
@@ -121,7 +115,6 @@ async function detectRecordingResolution(browser, urlToRender, waitForCssSelecto
                 setTimeout(() => resolve(null), 15000)
             })
         })
-
         if (resolution) {
             log('Resolution detected:', resolution)
             return resolution
@@ -131,24 +124,21 @@ async function detectRecordingResolution(browser, urlToRender, waitForCssSelecto
     } finally {
         await page.close()
     }
-
     log('Using default resolution')
     return { width: defaultWidth, height: defaultHeight }
 }
 
+// Wait for recording to complete while tracking segments to get real-world video timestamps
 async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
     const segmentStartTimestamps = {}
     let lastCounter = 0
-
     log('Waiting for recording with segment tracking, max wait:', maxWaitMs, 'ms')
-
     while (true) {
         const elapsedMs = Date.now() - playbackStarted
         if (elapsedMs >= maxWaitMs) {
             log('Recording wait timeout reached')
             break
         }
-
         try {
             const remainingMs = maxWaitMs - elapsedMs
             const result = await page.evaluate((lastCounterVal) => {
@@ -164,17 +154,14 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
                 }
                 return null
             }, lastCounter)
-
             if (result === null) {
                 await new Promise((r) => setTimeout(r, Math.min(1000, remainingMs)))
                 continue
             }
-
             if (result.ended) {
                 log('Recording ended signal received')
                 break
             }
-
             const segmentStartTs = result.segment_start_ts
             const newCounter = result.counter || 0
             if (segmentStartTs !== undefined && newCounter > lastCounter) {
@@ -188,11 +175,11 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
             await new Promise((r) => setTimeout(r, 100))
         }
     }
-
     log('Segment tracking complete, segments tracked:', Object.keys(segmentStartTimestamps).length)
     return segmentStartTimestamps
 }
 
+// Detect inactivity periods when recording session videos
 async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestamps) {
     try {
         log('Detecting inactivity periods...')
@@ -207,7 +194,6 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
                 active: Boolean(p.active),
             }))
         })
-
         // Merge segment timestamps into periods
         if (segmentStartTimestamps && Object.keys(segmentStartTimestamps).length > 0) {
             for (const period of inactivityPeriodsRaw) {
@@ -218,7 +204,6 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
                 }
             }
         }
-
         log('Inactivity periods detected:', inactivityPeriodsRaw.length)
         return inactivityPeriodsRaw
     } catch (e) {
@@ -227,22 +212,22 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
     }
 }
 
+// Main recording function
 async function main() {
     const args = process.argv.slice(2)
     if (args.length < 1) {
         console.error("Usage: node record-replay.js '<JSON_OPTIONS>'")
         process.exit(1)
     }
-
     let options
     try {
+        // Using built-in JSON to avoid external dependencies when running in Temporal worker
         // eslint-disable-next-line no-restricted-syntax
         options = JSON.parse(args[0])
     } catch (e) {
         console.error('Failed to parse JSON options:', e.message)
         process.exit(1)
     }
-
     const {
         url_to_render: urlToRender,
         output_path: outputPath,
@@ -253,16 +238,13 @@ async function main() {
         playback_speed: requestedPlaybackSpeed = 1,
         headless = true,
     } = options
-
     if (!urlToRender || !outputPath || !waitForCssSelector || !recordingDuration) {
         console.error('Missing required options: url_to_render, output_path, wait_for_css_selector, recording_duration')
         process.exit(1)
     }
-
     const ext = path.extname(outputPath).toLowerCase()
     let browser
     let recorder
-
     try {
         log('Launching browser, headless:', headless)
         browser = await puppeteer.launch({
@@ -277,7 +259,6 @@ async function main() {
                 '--force-device-scale-factor=2',
             ],
         })
-
         // Detect or use provided dimensions
         let width, height
         if (providedWidth && providedHeight) {
@@ -296,26 +277,21 @@ async function main() {
             height = detected.height
             log('Using detected dimensions:', width, 'x', height)
         }
-
         // Scale if needed
         const scaled = scaleDimensionsIfNeeded(width, height)
         width = scaled.width
         height = scaled.height
         log('Final dimensions after scaling:', width, 'x', height)
-
         // Determine playback speed
         let playbackSpeed = requestedPlaybackSpeed
         if (['.mp4', '.webm'].includes(ext) && recordingDuration > 5 && requestedPlaybackSpeed === 1) {
             playbackSpeed = PLAYBACK_SPEED_MULTIPLIER
         }
         log('Playback speed:', playbackSpeed)
-
         // Create page for recording
         const page = await browser.newPage()
         await page.setViewport({ width, height })
-
         const recordStarted = Date.now()
-
         // Configure screen recorder
         const recorderConfig = {
             followNewTab: false,
@@ -334,17 +310,13 @@ async function main() {
             },
             aspectRatio: '16:9',
         }
-
         recorder = new PuppeteerScreenRecorder(page, recorderConfig)
-
         // Start recording
         log('Starting recording to:', outputPath)
         await recorder.start(outputPath)
-
         // Navigate and wait for page ready
         const urlWithSpeed = ensurePlaybackSpeed(urlToRender, playbackSpeed)
         await waitForPageReady(page, urlWithSpeed, waitForCssSelector)
-
         // Adjust viewport based on content
         let measuredWidth = null
         try {
@@ -363,7 +335,6 @@ async function main() {
                     width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0,
                 }
             })
-
             const finalHeight = dimensions.height
             const widthCandidate = dimensions.width || width
             measuredWidth = Math.max(width, Math.min(1800, Math.floor(widthCandidate)))
@@ -375,27 +346,20 @@ async function main() {
         } catch (e) {
             log('Viewport resize failed:', e.message)
         }
-
         const readyAt = Date.now()
         await new Promise((r) => setTimeout(r, 500))
-
-        // Wait for recording to complete while tracking segments
-        const maxWaitMs = Math.floor((recordingDuration / playbackSpeed) * 1000)
+        // Wait for recording to complete while tracking segments, with buffer for rendering
+        const maxWaitMs = Math.floor((recordingDuration / playbackSpeed) * 1000) + RECORDING_BUFFER_SECONDS * 1000
         const segmentStartTimestamps = await waitForRecordingWithSegments(page, maxWaitMs, readyAt)
-
         // Collect inactivity periods
         const inactivityPeriods = await detectInactivityPeriods(page, playbackSpeed, segmentStartTimestamps)
-
         // Stop recording
         log('Stopping recording...')
         await recorder.stop()
-
         // Calculate pre_roll
         const preRoll = Math.max(0, (readyAt - recordStarted) / 1000)
-
         await page.close()
         await browser.close()
-
         // Output result as JSON to stdout
         const result = {
             success: true,
@@ -406,13 +370,11 @@ async function main() {
             inactivity_periods: inactivityPeriods,
             segment_start_timestamps: segmentStartTimestamps,
         }
-
         console.log(JSON.stringify(result))
         process.exit(0)
     } catch (error) {
         log('Error:', error.message)
         log('Stack:', error.stack)
-
         if (recorder) {
             try {
                 await recorder.stop()
@@ -420,7 +382,6 @@ async function main() {
                 // Ignore cleanup errors
             }
         }
-
         if (browser) {
             try {
                 await browser.close()
@@ -428,7 +389,6 @@ async function main() {
                 // Ignore cleanup errors
             }
         }
-
         // Output error as JSON
         const result = {
             success: false,
