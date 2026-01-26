@@ -1836,32 +1836,151 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey) =>
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
-        choicesMismatchedLanguages: [
+        translationValidationErrors: [
             (s) => [s.survey],
-            (survey): string[] => {
-                const mismatchedLanguages = new Set<string>()
+            (survey): Array<{ language: string; questionIndex: number; field: string; error: string }> => {
+                const errors: Array<{ language: string; questionIndex: number; field: string; error: string }> = []
 
-                survey.questions.forEach((question) => {
-                    const originalChoices = question.choices || []
-                    if (
-                        question.translations &&
-                        (question.type === SurveyQuestionType.SingleChoice ||
-                            question.type === SurveyQuestionType.MultipleChoice)
-                    ) {
-                        Object.entries(question.translations).forEach(([lang, trans]) => {
-                            if (trans.choices && trans.choices.length !== originalChoices.length) {
-                                mismatchedLanguages.add(lang)
+                // Get all languages
+                const languages = new Set<string>()
+                if (survey.translations) {
+                    Object.keys(survey.translations).forEach((lang) => languages.add(lang))
+                }
+                survey.questions.forEach((q) => {
+                    if (q.translations) {
+                        Object.keys(q.translations).forEach((lang) => languages.add(lang))
+                    }
+                })
+
+                // Validate survey-level translations
+                languages.forEach((lang) => {
+                    const trans = survey.translations?.[lang]
+                    if (trans) {
+                        const fields = [
+                            'name',
+                            'description',
+                            'thankYouMessageHeader',
+                            'thankYouMessageDescription',
+                            'thankYouMessageCloseButtonText',
+                        ]
+                        fields.forEach((field) => {
+                            const value = trans[field]
+                            if (value === '[Translation needed]') {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: -1,
+                                    field,
+                                    error: 'Contains placeholder "[Translation needed]"',
+                                })
+                            }
+                            if (typeof value === 'string' && value.trim() === '') {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: -1,
+                                    field,
+                                    error: 'Cannot be empty',
+                                })
                             }
                         })
                     }
                 })
 
-                return Array.from(mismatchedLanguages)
+                // Validate question-level translations
+                survey.questions.forEach((question, qIndex) => {
+                    if (!question.translations) {
+                        return
+                    }
+
+                    Object.entries(question.translations).forEach(([lang, trans]) => {
+                        // Check text fields
+                        const textFields = [
+                            'question',
+                            'description',
+                            'buttonText',
+                            'lowerBoundLabel',
+                            'upperBoundLabel',
+                        ]
+                        textFields.forEach((field) => {
+                            const value = trans[field]
+                            if (value === '[Translation needed]') {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: qIndex,
+                                    field,
+                                    error: 'Contains placeholder "[Translation needed]"',
+                                })
+                            }
+                            if (typeof value === 'string' && value.trim() === '') {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: qIndex,
+                                    field,
+                                    error: 'Cannot be empty',
+                                })
+                            }
+                        })
+
+                        // Check link field
+                        if (trans.link) {
+                            if (trans.link === '[Translation needed]') {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: qIndex,
+                                    field: 'link',
+                                    error: 'Contains placeholder "[Translation needed]"',
+                                })
+                            } else if (!trans.link.match(/^(https:|mailto:)/)) {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: qIndex,
+                                    field: 'link',
+                                    error: 'Must start with https:// or mailto:',
+                                })
+                            }
+                        }
+
+                        // Check choices array
+                        if (trans.choices && Array.isArray(trans.choices)) {
+                            trans.choices.forEach((choice, choiceIndex) => {
+                                if (choice === '[Translation needed]') {
+                                    errors.push({
+                                        language: lang,
+                                        questionIndex: qIndex,
+                                        field: `choices[${choiceIndex}]`,
+                                        error: 'Contains placeholder "[Translation needed]"',
+                                    })
+                                }
+                                if (typeof choice === 'string' && choice.trim() === '') {
+                                    errors.push({
+                                        language: lang,
+                                        questionIndex: qIndex,
+                                        field: `choices[${choiceIndex}]`,
+                                        error: 'Cannot be empty',
+                                    })
+                                }
+                            })
+                        }
+                    })
+                })
+
+                // Also validate default question links
+                survey.questions.forEach((question, qIndex) => {
+                    if (question.link && !question.link.match(/^(https:|mailto:)/)) {
+                        errors.push({
+                            language: 'default',
+                            questionIndex: qIndex,
+                            field: 'link',
+                            error: 'Must start with https:// or mailto:',
+                        })
+                    }
+                })
+
+                return errors
             },
         ],
-        hasChoicesMismatch: [
-            (s) => [s.choicesMismatchedLanguages],
-            (mismatchedLanguages): boolean => mismatchedLanguages.length > 0,
+        hasTranslationValidationErrors: [
+            (s) => [s.translationValidationErrors],
+            (errors): boolean => errors.length > 0,
         ],
         surveyAsInsightURL: [
             (s) => [s.survey],
