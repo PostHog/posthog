@@ -1,4 +1,5 @@
 import time
+from typing import cast
 
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
@@ -122,13 +123,23 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
 
     def _get_half_authed_user(self, request: Request) -> tuple[User | None, str | None]:
         """
-        Get the user from the half-authed session state.
+        Get the user from either a half-authed session state or a fully authenticated session.
         Returns (user, error_message) tuple.
+
+        Supports two scenarios:
+        1. Half-authed: User passed credential auth but not 2FA (normal reset flow)
+        2. Fully authed: User already completed 2FA (e.g., admin resetting their own 2FA)
 
         Note: We use a longer timeout (1 hour) for the 2FA reset flow since
         the reset token itself has a 1-hour expiration. The normal 2FA login
         timeout (10 minutes) is too short for this use case.
         """
+        # Check if user is fully authenticated first
+        if request.user.is_authenticated:
+            # Cast is safe: PostHog only uses User model for authentication
+            return cast(User, request.user), None
+
+        # Fall back to half-authed session state
         user_id = request.session.get("user_authenticated_but_no_2fa")
         auth_time = request.session.get("user_authenticated_time")
 
