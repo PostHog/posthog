@@ -4,7 +4,7 @@ import {
     type SizeProps,
 } from 'react-virtualized-auto-sizer'
 
-type AutoSizerProps = Omit<BaseAutoSizerProps, 'box'> & {
+type AutoSizerProps = BaseAutoSizerProps & {
     disableWidth?: boolean
     disableHeight?: boolean
 }
@@ -33,10 +33,10 @@ export function AutoSizer({ disableWidth, disableHeight, ...props }: AutoSizerPr
         }
     }
 
-    const modifiedProps = { ...props }
+    const modifiedProps: BaseAutoSizerProps = { ...props, box: props.box || 'device-pixel-content-box' }
     if ('renderProp' in modifiedProps && modifiedProps.renderProp) {
         modifiedProps.renderProp = wrapRenderProp(modifiedProps.renderProp)
     }
 
-    return <BaseAutoSizer box="device-pixel-content-box" {...modifiedProps} />
+    return <BaseAutoSizer {...modifiedProps} />
 }
