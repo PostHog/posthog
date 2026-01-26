@@ -73,10 +73,10 @@ class DeltaTableHelper:
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
-        delta_table_schema = delta_table.schema().to_pyarrow()
+        delta_table_schema = delta_table.schema().to_arrow()
 
         new_fields = [
-            deltalake.Field.from_pyarrow(field)
+            deltalake.Field.from_arrow(field)
             for field in ensure_delta_compatible_arrow_schema(schema)
             if field.name not in delta_table_schema.names
         ]
@@ -228,7 +228,6 @@ class DeltaTableHelper:
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode=mode,
                     schema_mode=schema_mode,
-                    engine="rust",
                 )
             except deltalake.exceptions.SchemaMismatchError as e:
                 self._logger.debug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
@@ -240,7 +239,6 @@ class DeltaTableHelper:
                     partition_by=None,
                     mode=mode,
                     schema_mode="overwrite",
-                    engine="rust",
                 )
         elif write_type == "append":
             if delta_table is None:
@@ -260,7 +258,6 @@ class DeltaTableHelper:
                 partition_by=PARTITION_KEY if use_partitioning else None,
                 mode="append",
                 schema_mode="merge",
-                engine="rust",
             )
 
         delta_table = self.get_delta_table()
