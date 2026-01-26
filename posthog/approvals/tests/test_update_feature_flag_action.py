@@ -11,6 +11,21 @@ from posthog.approvals.policies import PolicyEngine
 from posthog.models import FeatureFlag
 
 
+def _build_filters_for_path(path_spec: tuple, rollout_percentage: int) -> dict[str, Any]:
+    """Build a filters dict with the rollout_percentage at the specified path."""
+    array_path, field_name = path_spec[:-1], path_spec[-1]
+    item = {"properties": [], field_name: rollout_percentage}
+
+    # Build nested structure from inside out
+    current: Any = [item]
+    for key in reversed(array_path):
+        current = {key: current}
+
+    # Ensure groups key exists
+    filters: dict[str, Any] = {"groups": [], **current}
+    return filters
+
+
 class TestUpdateFeatureFlagActionDetect(APIBaseTest):
     def _create_flag(self, filters: dict[str, Any] | None = None) -> FeatureFlag:
         default_filters = {
@@ -35,48 +50,13 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         view.team = self.team
         return view
 
-    def test_detect_returns_true_for_rollout_percentage_change_in_groups(self):
-        flag = self._create_flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
-        request = self._mock_request("PATCH", {"filters": {"groups": [{"properties": [], "rollout_percentage": 80}]}})
-        view = self._mock_view(flag)
+    @parameterized.expand(UpdateFeatureFlagAction.ROLLOUT_PERCENTAGE_PATHS)
+    def test_detect_returns_true_for_rollout_percentage_change(self, *path_spec):
+        old_filters = _build_filters_for_path(path_spec, rollout_percentage=50)
+        new_filters = _build_filters_for_path(path_spec, rollout_percentage=80)
 
-        result = UpdateFeatureFlagAction.detect(request, view)
-
-        assert result is True
-
-    def test_detect_returns_true_for_rollout_percentage_change_in_super_groups(self):
-        flag = self._create_flag({"groups": [], "super_groups": [{"properties": [], "rollout_percentage": 100}]})
-        request = self._mock_request(
-            "PATCH", {"filters": {"groups": [], "super_groups": [{"properties": [], "rollout_percentage": 50}]}}
-        )
-        view = self._mock_view(flag)
-
-        result = UpdateFeatureFlagAction.detect(request, view)
-
-        assert result is True
-
-    def test_detect_returns_true_for_rollout_percentage_change_in_holdout_groups(self):
-        flag = self._create_flag({"groups": [], "holdout_groups": [{"properties": [], "rollout_percentage": 70}]})
-        request = self._mock_request(
-            "PATCH", {"filters": {"groups": [], "holdout_groups": [{"properties": [], "rollout_percentage": 30}]}}
-        )
-        view = self._mock_view(flag)
-
-        result = UpdateFeatureFlagAction.detect(request, view)
-
-        assert result is True
-
-    def test_detect_returns_true_for_rollout_percentage_change_in_multivariate_variants(self):
-        flag = self._create_flag(
-            {
-                "groups": [],
-                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
-            }
-        )
-        request = self._mock_request(
-            "PATCH",
-            {"filters": {"groups": [], "multivariate": {"variants": [{"key": "control", "rollout_percentage": 70}]}}},
-        )
+        flag = self._create_flag(old_filters)
+        request = self._mock_request("PATCH", {"filters": new_filters})
         view = self._mock_view(flag)
 
         result = UpdateFeatureFlagAction.detect(request, view)
@@ -339,7 +319,7 @@ class TestMultiPolicyConflictDetection(APIBaseTest):
         assert response.status_code in [200, 409]
 
     @patch("posthog.approvals.decorators._is_approvals_enabled", return_value=True)
-    def test_multiple_matching_policies_returns_http_400(self, mock_enabled):
+    def test_matching_policy_returns_http_400(self, mock_enabled):
         flag = self._create_flag()
         self._create_policy(
             "feature_flag.update", {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50}

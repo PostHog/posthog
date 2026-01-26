@@ -209,37 +209,32 @@ class UpdateFeatureFlagAction(BaseAction):
         """
         Extract all rollout_percentage values from the filter structure.
 
-        Locations checked:
-        - filters.groups[].rollout_percentage
-        - filters.super_groups[].rollout_percentage
-        - filters.holdout_groups[].rollout_percentage
-        - filters.multivariate.variants[].rollout_percentage
+        Locations checked are defined in ROLLOUT_PERCENTAGE_PATHS.
+        Each path is a tuple of (keys_to_array..., field_name).
 
         Returns list of dicts with 'path' and 'value' for each found value.
         """
         results: list[dict[str, Any]] = []
 
-        for group_key in ["groups", "super_groups", "holdout_groups"]:
-            groups = filters.get(group_key, [])
-            if groups:
-                for idx, group in enumerate(groups):
-                    if "rollout_percentage" in group:
-                        results.append(
-                            {
-                                "path": f"{group_key}[{idx}].rollout_percentage",
-                                "value": group["rollout_percentage"],
-                            }
-                        )
+        for path_spec in cls.ROLLOUT_PERCENTAGE_PATHS:
+            array_path, field_name = path_spec[:-1], path_spec[-1]
 
-        multivariate = filters.get("multivariate", {})
-        if multivariate:
-            variants = multivariate.get("variants", [])
-            for idx, variant in enumerate(variants):
-                if "rollout_percentage" in variant:
+            current: Any = filters
+            for key in array_path:
+                current = current.get(key) if isinstance(current, dict) else None
+                if current is None:
+                    break
+
+            if not isinstance(current, list):
+                continue
+
+            path_str = ".".join(array_path)
+            for idx, item in enumerate(current):
+                if isinstance(item, dict) and field_name in item:
                     results.append(
                         {
-                            "path": f"multivariate.variants[{idx}].rollout_percentage",
-                            "value": variant["rollout_percentage"],
+                            "path": f"{path_str}[{idx}].{field_name}",
+                            "value": item[field_name],
                         }
                     )
 
