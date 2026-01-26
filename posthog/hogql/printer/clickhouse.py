@@ -1,8 +1,12 @@
+import re
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Literal, Union, cast
 from uuid import UUID
 
-from posthog.schema import PropertyGroupsMode
+from django.conf import settings as django_settings
+
+from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
@@ -12,12 +16,27 @@ from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, Database
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
+from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions.core import HogQLFunctionMeta
+from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import clone_expr
 
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
 from posthog.clickhouse.property_groups import property_groups
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.property import PropertyName, TableColumn
+from posthog.models.surveys.util import (
+    filter_survey_sent_events_by_unique_submission,
+    get_survey_response_clickhouse_query,
+)
+from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
 
@@ -32,6 +51,12 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
         right=ast.Constant(value=context.team_id),
         type=ast.BooleanType(),
     )
+
+
+def get_channel_definition_dict():
+    """Get the channel definition dictionary name with the correct database.
+    Evaluated at call time to work with test databases in Python 3.12."""
+    return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
 # In non-nullable materialized columns, these values are treated as NULL
@@ -58,6 +83,30 @@ class ClickHousePrinter(HogQLPrinter):
         pretty: bool = False,
     ):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+
+    def _print_settings(self, settings):
+        pairs = []
+        for key, value in settings:
+            if value is None:
+                continue
+            if not re.match(r"^[a-zA-Z0-9_]+$", key):
+                raise QueryError(f"Setting {key} is not supported")
+            if isinstance(value, bool):
+                pairs.append(f"{key}={1 if value else 0}")
+            elif isinstance(value, int) or isinstance(value, float):
+                pairs.append(f"{key}={value}")
+            elif isinstance(value, list):
+                if not all(isinstance(item, str) and item for item in value):
+                    raise QueryError(f"List setting {key} can only contain non-empty strings")
+                formatted_items = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
+                pairs.append(f"{key}={self._print_escaped_string(formatted_items)}")
+            elif isinstance(value, str):
+                pairs.append(f"{key}={self._print_escaped_string(value)}")
+            else:
+                raise QueryError(f"Setting {key} has unsupported type {type(value).__name__}")
+        if len(pairs) > 0:
+            return f"SETTINGS {', '.join(pairs)}"
+        return None
 
     def visit(self, node: AST | None):
         if node is None:
@@ -129,6 +178,32 @@ class ClickHousePrinter(HogQLPrinter):
         elif len(exprs) == 1:
             return exprs[0]
         return f"or({', '.join(exprs)})"
+
+    def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
+        if isinstance(node_type, ast.PropertyType):
+            return True
+        elif isinstance(node_type, ast.ConstantType):
+            return node_type.nullable
+        elif isinstance(node_type, ast.CallType):
+            return node_type.return_type.nullable
+        elif isinstance(node_type, ast.FieldType):
+            return node_type.is_nullable(self.context)
+        return None
+
+    def _is_nullable(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.Constant):
+            return node.value is None
+        elif node.type and (nullable := self._is_type_nullable(node.type)) is not None:
+            return nullable
+        elif isinstance(node, ast.Alias):
+            return self._is_nullable(node.expr)
+        elif (
+            isinstance(node.type, ast.FieldAliasType)
+            and (field_type := resolve_field_type(node))
+            and (nullable := self._is_type_nullable(field_type)) is not None
+        ):
+            return nullable
+        return True
 
     def visit_between_expr(self, node: ast.BetweenExpr):
         op = super().visit_between_expr(node)
@@ -211,6 +286,123 @@ class ClickHousePrinter(HogQLPrinter):
 
         return None
 
+    def _get_materialized_column(
+        self, table_name: str, property_name: PropertyName, field_name: TableColumn
+    ) -> MaterializedColumn | None:
+        return get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
+        )
+
+    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
+        """
+        Get the dmat column name for a property if available.
+
+        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
+        otherwise None.
+        """
+        if self.context.property_swapper is None:
+            return None
+
+        # Only event properties have dmat columns
+        if table_name != "events" or field_name != "properties":
+            return None
+
+        prop_info = self.context.property_swapper.event_properties.get(property_name)
+        if prop_info:
+            return prop_info.get("dmat")
+
+        return None
+
+    def _get_all_materialized_property_sources(
+        self, field_type: ast.FieldType, property_name: str
+    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
+        """
+        Find all materialized property sources for the provided field type and property name, ordered from what is
+        likely to be the most efficient access path to the least efficient.
+        """
+        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
+        if self.context.modifiers.materializationMode == "disabled":
+            return
+
+        field = field_type.resolve_database_field(self.context)
+
+        # check for a materialised column
+        table = field_type.table_type
+        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
+            table = table.table_type
+
+        if isinstance(table, ast.TableType):
+            table_name = self._get_table_name(table)
+
+            if field is None:
+                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
+            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+
+            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
+            if materialized_column is not None:
+                yield PrintableMaterializedColumn(
+                    self.visit(field_type.table_type),
+                    self._print_identifier(materialized_column.name),
+                    is_nullable=materialized_column.is_nullable,
+                    has_minmax_index=materialized_column.has_minmax_index,
+                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
+                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
+                )
+
+            # Check for dmat (dynamic materialized) columns
+            if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
+                yield PrintableMaterializedColumn(
+                    self.visit(field_type.table_type),
+                    self._print_identifier(dmat_column),
+                    is_nullable=True,
+                    has_minmax_index=False,
+                    has_ngram_lower_index=False,
+                    has_bloom_filter_index=False,
+                )
+
+            if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
+                PropertyGroupsMode.ENABLED,
+                PropertyGroupsMode.OPTIMIZED,
+            ):
+                # For now, we're assuming that properties are in either no groups or one group, so just using the
+                # first group returned is fine. If we start putting properties in multiple groups, this should be
+                # revisited to find the optimal set (i.e. smallest set) of groups to read from.
+                for property_group_column in property_groups.get_property_group_columns(
+                    table_name, field_name, property_name
+                ):
+                    yield PrintableMaterializedPropertyGroupItem(
+                        self.visit(field_type.table_type),
+                        self._print_identifier(property_group_column),
+                        self.context.add_value(property_name),
+                    )
+        elif self.context.within_non_hogql_query and (
+            isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
+        ):
+            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
+            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
+            else:
+                materialized_column = self._get_materialized_column("person", property_name, "properties")
+            if materialized_column is not None:
+                yield PrintableMaterializedColumn(
+                    None,
+                    self._print_identifier(materialized_column.name),
+                    is_nullable=materialized_column.is_nullable,
+                    has_minmax_index=materialized_column.has_minmax_index,
+                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
+                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
+                )
+
+    def _get_materialized_property_source_for_property_type(
+        self, type: ast.PropertyType
+    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
+        """
+        Find the most efficient materialized property source for the provided property type.
+        """
+        for source in self._get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
+            return source
+        return None
+
     def _get_optimized_property_group_call(self, node: ast.Call) -> str | None:
         """
         Returns a printed expression corresponding to the provided call, if the function is being applied to a property
@@ -255,6 +447,37 @@ class ClickHousePrinter(HogQLPrinter):
                     return property_source.has_expr
 
         return None  # nothing to optimize
+
+    def _print_property_type(self, type: ast.PropertyType):
+        if materialized_property_source := self._get_materialized_property_source_for_property_type(type):
+            # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
+            if (
+                len(type.chain) == 1
+                and type.chain[0] in ("$ai_trace_id", "$ai_session_id", "$ai_is_error")
+                and isinstance(materialized_property_source, PrintableMaterializedColumn)
+            ):
+                materialized_property_sql = str(materialized_property_source)
+            elif (
+                isinstance(materialized_property_source, PrintableMaterializedColumn)
+                and not materialized_property_source.is_nullable
+            ):
+                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
+                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
+                    materialized_property_sql = f"nullIf({materialized_property_source}, '')"
+                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
+                    materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
+            else:
+                materialized_property_sql = str(materialized_property_source)
+
+            if len(type.chain) == 1:
+                return materialized_property_sql
+            else:
+                return self._unsafe_json_extract_trim_quotes(
+                    materialized_property_sql,
+                    self._json_property_args(type.chain[1:]),
+                )
+
+        return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
 
     def _get_optimized_materialized_column_equals_operation(self, node: ast.CompareOperation) -> str | None:
         """
@@ -962,3 +1185,301 @@ class ClickHousePrinter(HogQLPrinter):
 
     def _get_table_name(self, table: ast.TableType) -> str:
         return table.table.to_printed_clickhouse(self.context)
+
+    def _get_week_start_day(self) -> WeekStartDay:
+        return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
+
+    def _print_hogql_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str:
+        args_count = len(node.args) - func_meta.passthrough_suffix_args_count
+        node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
+
+        if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
+            args: list[str] = []
+            for idx, arg in enumerate(node_args):
+                if idx == 0:
+                    if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
+                        args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
+                    else:
+                        args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
+                else:
+                    args.append(self.visit(arg))
+        elif node.name == "concat":
+            args = []
+            for arg in node_args:
+                if isinstance(arg, ast.Constant):
+                    if arg.value is None:
+                        args.append("''")
+                    elif isinstance(arg.value, str):
+                        args.append(self.visit(arg))
+                    else:
+                        args.append(f"toString({self.visit(arg)})")
+                elif isinstance(arg, ast.Call) and arg.name == "toString":
+                    if len(arg.args) == 1 and isinstance(arg.args[0], ast.Constant):
+                        if arg.args[0].value is None:
+                            args.append("''")
+                        else:
+                            args.append(self.visit(arg))
+                    else:
+                        args.append(f"ifNull({self.visit(arg)}, '')")
+                else:
+                    args.append(f"ifNull(toString({self.visit(arg)}), '')")
+        else:
+            args = [self.visit(arg) for arg in node_args]
+
+        # Some of these `isinstance` checks are here just to make our type system happy
+        # We have some guarantees in place to ensure that the arguments are string/constants anyway
+        # Here's to hoping Python's type system gets as smart as TS's one day
+        if func_meta.suffix_args:
+            for suffix_arg in func_meta.suffix_args:
+                if len(passthrough_suffix_args) > 0:
+                    if not all(isinstance(arg, ast.Constant) for arg in passthrough_suffix_args):
+                        raise QueryError(
+                            f"Suffix argument '{suffix_arg.value}' expects ast.Constant arguments, but got {', '.join([type(arg).__name__ for arg in passthrough_suffix_args])}"
+                        )
+
+                    suffix_arg_args_values = [
+                        arg.value for arg in passthrough_suffix_args if isinstance(arg, ast.Constant)
+                    ]
+
+                    if isinstance(suffix_arg.value, str):
+                        suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                    else:
+                        raise QueryError(
+                            f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
+                        )
+                args.append(self.visit(suffix_arg))
+
+        relevant_clickhouse_name = func_meta.clickhouse_name
+        if func_meta.overloads:
+            first_arg_constant_type = (
+                node.args[0].type.resolve_constant_type(self.context)
+                if len(node.args) > 0 and node.args[0].type is not None
+                else None
+            )
+
+            if first_arg_constant_type is not None:
+                for (
+                    overload_types,
+                    overload_clickhouse_name,
+                ) in func_meta.overloads:
+                    if isinstance(first_arg_constant_type, overload_types):
+                        relevant_clickhouse_name = overload_clickhouse_name
+                        break  # Found an overload matching the first function org
+
+        if func_meta.tz_aware:
+            has_tz_override = len(node.args) == func_meta.max_args
+
+            if not has_tz_override:
+                args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
+            # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
+            # and it allows CH to use index efficiently.
+            if (
+                relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].type, ast.StringType)
+            ):
+                relevant_clickhouse_name = "parseDateTime64BestEffort"
+                pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
+                pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+                if re.match(pattern_with_microseconds_str, node.args[0].value):
+                    relevant_clickhouse_name = "toDateTime64"
+                elif re.match(pattern_mysql_str, node.args[0].value) or re.match(
+                    r"^\d{4}-\d{2}-\d{2}$", node.args[0].value
+                ):
+                    relevant_clickhouse_name = "toDateTime"
+            if (
+                relevant_clickhouse_name == "now64"
+                and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
+            ) or (
+                relevant_clickhouse_name
+                in (
+                    "parseDateTime64BestEffortOrNull",
+                    "parseDateTime64BestEffortUSOrNull",
+                    "parseDateTime64BestEffort",
+                    "toDateTime64",
+                )
+                and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
+            ):
+                # These two CH functions require a precision argument before timezone
+                args = [*args[:-1], "6", *args[-1:]]
+
+        if node.name == "toStartOfWeek" and len(node.args) == 1:
+            # If week mode hasn't been specified, use the project's default.
+            # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
+            args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
+
+        if node.name == "trimLeft" and len(args) == 2:
+            return f"trim(LEADING {args[1]} FROM {args[0]})"
+        elif node.name == "trimRight" and len(args) == 2:
+            return f"trim(TRAILING {args[1]} FROM {args[0]})"
+        elif node.name == "trim" and len(args) == 2:
+            return f"trim(BOTH {args[1]} FROM {args[0]})"
+
+        params = [self.visit(param) for param in node.params] if node.params is not None else None
+        params_part = f"({', '.join(params)})" if params is not None else ""
+        args_part = f"({', '.join(args)})"
+        return f"{relevant_clickhouse_name}{params_part}{args_part}"
+
+    def _print_hogql_posthog_function_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str:
+        args = [self.visit(arg) for arg in node.args]
+
+        if node.name == "embedText":
+            return self.visit_constant(resolve_embed_text(self.context.team, node))
+
+        elif node.name == "lookupDomainType":
+            channel_dict = get_channel_definition_dict()
+            return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+
+        elif node.name == "lookupPaidSourceType":
+            channel_dict = get_channel_definition_dict()
+            return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+
+        elif node.name == "lookupPaidMediumType":
+            channel_dict = get_channel_definition_dict()
+            return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+
+        elif node.name == "lookupOrganicSourceType":
+            channel_dict = get_channel_definition_dict()
+            return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+
+        elif node.name == "lookupOrganicMediumType":
+            channel_dict = get_channel_definition_dict()
+            return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+
+        elif node.name == "convertCurrency":
+            # convertCurrency(from_currency, to_currency, amount, timestamp?)
+            from_currency, to_currency, amount, *_rest = args
+            date = args[3] if len(args) > 3 and args[3] else "today()"
+            db = django_settings.CLICKHOUSE_DATABASE
+            # Build rate lookup expressions
+            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
+            to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
+            # Use if() around divisor to avoid division by zero with enable_analyzer=0
+            # (old analyzer evaluates all branches regardless of condition)
+            safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
+            return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
+
+        elif node.name == "getSurveyResponse":
+            question_index_obj = node.args[0]
+            if not isinstance(question_index_obj, ast.Constant):
+                raise QueryError("getSurveyResponse first argument must be a constant")
+            if (
+                not isinstance(question_index_obj.value, int | str)
+                or not str(question_index_obj.value).lstrip("-").isdigit()
+            ):
+                raise QueryError("getSurveyResponse first argument must be a valid integer")
+            second_arg = node.args[1] if len(node.args) > 1 else None
+            third_arg = node.args[2] if len(node.args) > 2 else None
+            question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
+            is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+            return get_survey_response_clickhouse_query(int(question_index_obj.value), question_id, is_multiple_choice)
+
+        elif node.name == "uniqueSurveySubmissionsFilter":
+            survey_id = node.args[0]
+            if not isinstance(survey_id, ast.Constant):
+                raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
+            return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
+
+        relevant_clickhouse_name = func_meta.clickhouse_name
+        if "{}" in relevant_clickhouse_name:
+            if len(args) != 1:
+                raise QueryError(f"Function '{node.name}' requires exactly one argument")
+            return relevant_clickhouse_name.format(args[0])
+
+        params = [self.visit(param) for param in node.params] if node.params is not None else None
+        params_part = f"({', '.join(params)})" if params is not None else ""
+        args_part = f"({', '.join(args)})"
+        return f"{relevant_clickhouse_name}{params_part}{args_part}"
+
+    def _print_aggregation_call(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str:
+        arg_strings = [self.visit(arg) for arg in node.args]
+        params = [self.visit(param) for param in node.params] if node.params is not None else None
+
+        params_part = f"({', '.join(params)})" if params is not None else ""
+        args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+
+        return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+
+    def _create_default_window_frame(self, node: ast.WindowFunction):
+        # For lag/lead functions, we need to order by the first argument by default
+        order_by: list[ast.OrderExpr] | None = None
+        if node.over_expr and node.over_expr.order_by:
+            order_by = [cast(ast.OrderExpr, clone_expr(expr)) for expr in node.over_expr.order_by]
+        elif node.exprs is not None and len(node.exprs) > 0:
+            order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
+
+        # Preserve existing PARTITION BY if provided via an existing OVER () clause
+        partition_by: list[ast.Expr] | None = None
+        if node.over_expr and node.over_expr.partition_by:
+            partition_by = [cast(ast.Expr, clone_expr(expr)) for expr in node.over_expr.partition_by]
+
+        return ast.WindowExpr(
+            partition_by=partition_by,
+            order_by=order_by,
+            frame_method="ROWS",
+            frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+            frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+        )
+
+    def _transform_window_function(self, node: ast.WindowFunction) -> tuple[str, list[str], ast.WindowFunction]:
+        identifier, exprs, cloned_node = super()._transform_window_function(node)
+
+        # For compatibility with ClickHouse syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
+        if identifier in ("lag", "lead"):
+            identifier = f"{identifier}InFrame"
+            # Wrap the first expression (value) and third expression (default) in toNullable()
+            # The second expression (offset) must remain a non-nullable integer
+            if len(exprs) > 0:
+                exprs[0] = f"toNullable({exprs[0]})"  # value
+            # If there's no window frame specified, add the default one
+            if not cloned_node.over_expr and not cloned_node.over_identifier:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+            # If there's an over_identifier, we need to extract the new window expr just for this function
+            elif cloned_node.over_identifier:
+                # Find the last select query to look up the window definition
+                last_select = self._last_select()
+                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
+                    base_window = last_select.window_exprs[cloned_node.over_identifier]
+                    # Create a new window expr based on the referenced one
+                    cloned_node.over_expr = ast.WindowExpr(
+                        partition_by=base_window.partition_by,
+                        order_by=base_window.order_by,
+                        frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
+                        frame_start=base_window.frame_start
+                        or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                        frame_end=base_window.frame_end
+                        or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+                    )
+                    cloned_node.over_identifier = None
+            # If there's an ORDER BY but no frame, add the default frame
+            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+
+        return identifier, exprs, cloned_node
+
+    def _validate_parametric_arguments(self, node: ast.Call, func_meta: HogQLFunctionMeta) -> str | None:
+        super()._validate_parametric_arguments(node, func_meta)
+
+        if not func_meta.using_placeholder_arguments:
+            return None
+
+        # Handle format strings in function names before checking function type
+
+        # Check if using positional arguments (e.g. {0}, {1})
+        if func_meta.using_positional_arguments:
+            # For positional arguments, pass the args as a dictionary
+            arg_arr = [self.visit(arg) for arg in node.args]
+            try:
+                return func_meta.clickhouse_name.format(*arg_arr)
+            except (KeyError, IndexError) as e:
+                raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+
+        # Original sequential placeholder behavior
+        placeholder_count = func_meta.clickhouse_name.count("{}")
+        if len(node.args) != placeholder_count:
+            raise QueryError(
+                f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+            )
+        return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
