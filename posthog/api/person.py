@@ -655,7 +655,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "delete_person_property.capture_http_error",
                 team_id=self.team_id,
                 person_uuid=str(person.uuid),
-                property_key=request.data["$unset"],
+                property_key=request.data.get("$unset"),
                 status_code=he.response.status_code,
             )
             return response.Response(
@@ -672,7 +672,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "delete_person_property.capture_error",
                 team_id=self.team_id,
                 person_uuid=str(person.uuid),
-                property_key=request.data["$unset"],
+                property_key=request.data.get("$unset"),
             )
             return response.Response(
                 {
