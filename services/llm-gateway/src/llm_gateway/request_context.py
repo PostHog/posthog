@@ -66,9 +66,11 @@ def set_time_to_first_token(ttft: float) -> None:
     time_to_first_token_var.set(ttft)
 
 
-async def record_cost(cost: float) -> None:
+async def record_cost(cost: float, end_user_id: str | None = None) -> None:
     """Record cost for rate limiting. Call after response completes."""
     runner = throttle_runner_var.get()
     context = throttle_context_var.get()
     if runner and context:
+        if end_user_id:
+            context.end_user_id = end_user_id
         await runner.record_cost(context, cost)
