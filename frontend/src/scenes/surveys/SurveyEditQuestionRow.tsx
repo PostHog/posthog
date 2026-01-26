@@ -213,7 +213,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             const trans = updatedTranslations[lang]
             if (trans.choices) {
                 const oldChoices = trans.choices
-                const newTransChoices = [...newChoices].map((_, idx) => oldChoices[idx] || '')
+                // Use default text if available, otherwise use placeholder
+                const newTransChoices = [...newChoices].map(
+                    (defaultChoice, idx) => oldChoices[idx] || defaultChoice || '[Translation needed]'
+                )
                 updatedTranslations[lang] = {
                     ...trans,
                     choices: newTransChoices,
