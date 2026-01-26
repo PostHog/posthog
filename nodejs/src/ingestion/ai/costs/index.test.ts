@@ -22,8 +22,8 @@ describe('extractModalityTokens()', () => {
                     promptTokenCount: 100,
                     candidatesTokenCount: 1300,
                     candidatesTokensDetails: [
-                        { modality: 'text', tokenCount: 10 },
-                        { modality: 'image', tokenCount: 1290 },
+                        { modality: 'TEXT', tokenCount: 10 },
+                        { modality: 'IMAGE', tokenCount: 1290 },
                     ],
                 },
             })
@@ -60,8 +60,8 @@ describe('extractModalityTokens()', () => {
                     promptTokenCount: 100,
                     candidatesTokenCount: 1300,
                     outputTokenDetails: [
-                        { modality: 'text', tokenCount: 10 },
-                        { modality: 'image', tokenCount: 1290 },
+                        { modality: 'TEXT', tokenCount: 10 },
+                        { modality: 'IMAGE', tokenCount: 1290 },
                     ],
                 },
             })
@@ -96,8 +96,8 @@ describe('extractModalityTokens()', () => {
             const event = createAIEvent({
                 $ai_usage: {
                     candidatesTokensDetails: [
-                        { modality: 'text', tokenCount: 100 },
-                        { modality: 'image', tokenCount: 0 },
+                        { modality: 'TEXT', tokenCount: 100 },
+                        { modality: 'IMAGE', tokenCount: 0 },
                     ],
                 },
             })
@@ -137,6 +137,38 @@ describe('extractModalityTokens()', () => {
             expect(result.properties['$ai_image_output_tokens']).toBeUndefined()
             expect(result.properties['$ai_text_output_tokens']).toBeUndefined()
             expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('handles case-insensitive modality values (backward compatibility)', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    candidatesTokensDetails: [
+                        { modality: 'text', tokenCount: 10 },
+                        { modality: 'image', tokenCount: 1290 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_image_output_tokens']).toBe(1290)
+            expect(result.properties['$ai_text_output_tokens']).toBe(10)
+        })
+
+        it('handles mixed case modality values', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    candidatesTokensDetails: [
+                        { modality: 'Text', tokenCount: 10 },
+                        { modality: 'Image', tokenCount: 1290 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_image_output_tokens']).toBe(1290)
+            expect(result.properties['$ai_text_output_tokens']).toBe(10)
         })
     })
 
@@ -259,6 +291,74 @@ describe('extractModalityTokens()', () => {
 
             expect(result.properties['$ai_image_output_tokens']).toBeUndefined()
             expect(result.properties['$ai_text_output_tokens']).toBeUndefined()
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('extracts tokens from Vercel AI SDK V3 structure (rawUsage.usage.raw)', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    rawUsage: {
+                        usage: {
+                            inputTokens: { total: 11, noCache: 11, cacheRead: 0 },
+                            outputTokens: { total: 1304, text: 1304, reasoning: 0 },
+                            raw: {
+                                promptTokenCount: 11,
+                                candidatesTokenCount: 1304,
+                                totalTokenCount: 1315,
+                                candidatesTokensDetails: [{ modality: 'IMAGE', tokenCount: 1290 }],
+                            },
+                        },
+                        providerMetadata: {
+                            google: {
+                                usageMetadata: {
+                                    promptTokenCount: 11,
+                                    candidatesTokenCount: 1304,
+                                    totalTokenCount: 1315,
+                                },
+                            },
+                        },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_image_output_tokens']).toBe(1290)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('extracts tokens from Vercel AI SDK with rawResponse (rawUsage.rawResponse.usageMetadata)', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    rawUsage: {
+                        usage: {
+                            inputTokens: { total: 11, noCache: 11, cacheRead: 0 },
+                            outputTokens: { total: 1301, text: 1301, reasoning: 0 },
+                        },
+                        providerMetadata: {
+                            google: {
+                                usageMetadata: {
+                                    promptTokenCount: 11,
+                                    candidatesTokenCount: 1301,
+                                    totalTokenCount: 1312,
+                                },
+                            },
+                        },
+                        rawResponse: {
+                            usageMetadata: {
+                                promptTokenCount: 11,
+                                candidatesTokenCount: 1301,
+                                totalTokenCount: 1312,
+                                candidatesTokensDetails: [{ modality: 'IMAGE', tokenCount: 1290 }],
+                            },
+                        },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_image_output_tokens']).toBe(1290)
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
     })
