@@ -29,6 +29,7 @@ export enum FeatureFlagsTab {
     PROJECTS = 'projects',
     SCHEDULE = 'schedule',
     FEEDBACK = 'feedback',
+    EXPERIMENTS = 'experiments',
 }
 
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
@@ -70,6 +71,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
+        updateFlagActive: (id: number, active: boolean) => ({ id, active }),
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
@@ -189,6 +191,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        updateFlagActive: ({ id, active }) => {
+            actions.updateFeatureFlag({ id, payload: { active } })
+        },
         setFeatureFlagsFilters: async (_, breakpoint) => {
             if (values.activeTab === FeatureFlagsTab.OVERVIEW) {
                 await breakpoint(300)

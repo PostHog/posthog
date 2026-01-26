@@ -412,6 +412,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[]
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1020,6 +1022,22 @@ export interface ChartSettingsDisplay {
     displayType?: 'auto' | 'line' | 'bar'
 }
 
+export interface HeatmapGradientStop {
+    value: number
+    color: string
+}
+
+export interface HeatmapSettings {
+    xAxisColumn?: string
+    yAxisColumn?: string
+    valueColumn?: string
+    xAxisLabel?: string
+    yAxisLabel?: string
+    gradient?: HeatmapGradientStop[]
+    gradientPreset?: string
+    gradientScaleMode?: 'absolute' | 'relative'
+}
+
 export interface YAxisSettings {
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
@@ -1044,6 +1062,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    heatmap?: HeatmapSettings
 }
 
 export interface ConditionalFormattingRule {
@@ -1112,6 +1131,8 @@ interface DataTableNodeViewProps {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
+    /** Show count of total and filtered results */
+    showCount?: boolean
     /** Show the time it takes to run a query */
     showElapsedTime?: boolean
     /** Show a detailed query timing breakdown */
@@ -2051,7 +2072,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
-    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalType
     /** Groups aggregation - not used in Web Analytics but required for type compatibility */
     aggregation_group_type_index?: integer | null
@@ -2947,6 +2968,7 @@ export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
     credible_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
@@ -2954,11 +2976,13 @@ export interface MaxExperimentVariantResultFrequentist {
     key: string
     p_value: number | null
     confidence_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
 export interface MaxExperimentMetricResult {
     name: string
+    goal: 'increase' | 'decrease' | null
     variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
 }
 
@@ -4746,6 +4770,7 @@ export const externalDataSources = [
     'TikTokAds',
     'BingAds',
     'Shopify',
+    'SnapchatAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

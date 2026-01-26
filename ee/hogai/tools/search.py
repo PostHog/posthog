@@ -7,12 +7,14 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
+from ee.hogai.tools.full_text_search.tool import EntitySearchTool
 
 SEARCH_TOOL_PROMPT = """
 Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog.
+
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
 
 # Documentation search
@@ -59,17 +61,16 @@ Important:
 Use this tool to find PostHog entities using full-text search.
 Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
 So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
-If you want to search for all entities, you should use `all`.
-
+If you want to search for all entities, you should use kind="all".
 """.strip()
 
 INVALID_ENTITY_KIND_PROMPT = """
 Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for the tool.
 """.strip()
 
-ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
+ENTITIES = [f"{entity}" for entity in EntityKind]
 
-SearchKind = Literal["insights", "docs", *ENTITIES]  # type: ignore
+SearchKind = Literal["docs", *ENTITIES]  # type: ignore
 
 
 class SearchToolArgs(BaseModel):
@@ -132,13 +133,13 @@ class SearchTool(MaxTool):
             config=self._config,
             context_manager=self._context_manager,
         )
-        response = await entity_search_toolkit.execute(query, FTSKind(kind))
+        response = await entity_search_toolkit.execute(query, EntityKind(kind))
         return response, None
 
     @property
     def _fts_entities(self) -> list[str]:
-        entities = list(FTSKind)
-        return [*entities, FTSKind.ALL]
+        entities = list(EntityKind)
+        return [*entities, EntityKind.ALL]
 
 
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
@@ -201,8 +202,3 @@ class InkeepDocsSearchTool(MaxSubtool):
 
         formatted_docs = "\n\n---\n\n".join(docs)
         return DOCS_SEARCH_RESULTS_TEMPLATE.format(count=len(docs), docs=formatted_docs), None
-
-
-EMPTY_DATABASE_ERROR_MESSAGE = """
-The user doesn't have any insights created yet.
-""".strip()

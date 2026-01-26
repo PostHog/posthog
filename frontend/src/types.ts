@@ -196,7 +196,6 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
-    TAGGING = 'tagging',
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     PRODUCT_ANALYTICS_RETENTION = 'product_analytics_retention',
     PRODUCT_ANALYTICS_STICKINESS = 'product_analytics_stickiness',
@@ -330,6 +329,7 @@ export interface UserType extends UserBaseType {
         all_weekly_digest_disabled: boolean
         error_tracking_issue_assigned: boolean
         discussions_mentioned: boolean
+        data_pipeline_error_threshold?: number
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -358,6 +358,7 @@ export interface UserType extends UserBaseType {
     hedgehog_config?: Partial<HedgehogConfig>
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
+    passkeys_enabled_for_2fa?: boolean
 }
 
 export type HedgehogColorOptions =
@@ -398,6 +399,7 @@ export interface NotificationSettings {
     all_weekly_digest_disabled: boolean
     error_tracking_issue_assigned: boolean
     discussions_mentioned: boolean
+    data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
 }
 
@@ -601,6 +603,7 @@ export interface ConversationsSettings {
     widget_color?: string
     widget_public_token?: string | null
     widget_domains?: string[] | null
+    notification_recipients?: number[] | null
 }
 
 export interface LogsSettings {
@@ -684,13 +687,14 @@ export interface TeamType extends TeamBasicType {
     flags_persistence_default: boolean
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
-    default_evaluation_environments_enabled: boolean
-    require_evaluation_environment_tags: boolean
+    default_evaluation_contexts_enabled: boolean
+    require_evaluation_contexts: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
+    default_experiment_confidence_level?: number | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
@@ -882,6 +886,13 @@ export enum ActivityTab {
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
+    Complete = 'complete',
+}
+
+export enum ExperimentProgressStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Paused = 'paused',
     Complete = 'complete',
 }
 
@@ -1511,6 +1522,8 @@ export interface CohortType {
     created_at?: string
     deleted?: boolean
     id: number | 'new'
+    version?: number | null
+    pending_version?: number | null
     is_calculating?: boolean
     errors_calculating?: number
     last_calculation?: string
@@ -1566,11 +1579,6 @@ export enum GroupsTabType {
     PROFILE = 'profile',
     NOTES = 'notes',
     OVERVIEW = 'overview',
-}
-
-export enum LayoutView {
-    Card = 'card',
-    List = 'list',
 }
 
 export interface EventsTableAction {
@@ -2214,10 +2222,11 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface EndpointVersion {
+export interface EndpointVersionType {
     id: string
     version: number
     query: HogQLQuery | InsightQueryNode
+    is_active: boolean
     created_at: string
     created_by: UserBasicType | null
     change_summary: string
@@ -2229,7 +2238,6 @@ export interface EndpointType extends WithAccessControl {
     description: string
     derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
-    parameters: Record<string, any>
     is_active: boolean
     endpoint_path: string
     created_at: string
@@ -2548,6 +2556,7 @@ export enum ChartDisplayType {
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
     CalendarHeatmap = 'CalendarHeatmap',
+    TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -3256,14 +3265,16 @@ export interface ChoiceQuestionResponseData {
     isPredefined: boolean
     // For unique responses (value === 1), include person data for display
     distinctId?: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
 export interface OpenQuestionResponseData {
     distinctId: string
     response: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
@@ -3505,6 +3516,7 @@ export interface Survey extends WithAccessControl {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    enable_iframe_embedding?: boolean | null
     _create_in_folder?: string | null
     headline_summary?: string | null
     headline_response_count?: number | null
@@ -3742,8 +3754,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     updated_at: string | null
     version: number | null
     last_modified_by: UserBasicType | null
-    is_simple_flag: boolean
-    rollout_percentage: number | null
     experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
@@ -3767,8 +3777,6 @@ export interface OrganizationFeatureFlag {
     team_id: number | null
     created_by: UserBasicType | null
     created_at: string | null
-    is_simple_flag: boolean
-    rollout_percentage: number | null
     filters: FeatureFlagFilters
     active: boolean
 }
@@ -4700,6 +4708,7 @@ export const INTEGRATION_KINDS = [
     'vercel',
     'azure-blob',
     'firebase',
+    'jira',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4736,6 +4745,12 @@ export interface TwilioPhoneNumberType {
 }
 export interface LinearTeamType {
     id: string
+    name: string
+}
+
+export interface JiraProjectType {
+    id: string
+    key: string
     name: string
 }
 
@@ -5052,6 +5067,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
+    PRODUCT_TOUR = 'ProductTour',
 }
 
 export type CommentType = {
@@ -5697,6 +5713,9 @@ export enum AppMetricsTab {
     History = 'history',
 }
 
+/*
+    WARNING: Everything below 'Notebooks' is to be removed in future releases
+*/
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
@@ -5896,7 +5915,12 @@ export type HogFunctionType = {
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 
 // Contexts change the way the UI is rendered allowing different teams to customize the UI for their use case
-export type HogFunctionConfigurationContextId = 'standard' | 'error-tracking' | 'activity-log' | 'insight-alerts'
+export type HogFunctionConfigurationContextId =
+    | 'standard'
+    | 'error-tracking'
+    | 'activity-log'
+    | 'discussion-mention'
+    | 'insight-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -5905,6 +5929,7 @@ export type HogFunctionSubTemplateIdType =
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'
+    | 'discussion-mention'
     | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
@@ -6398,7 +6423,6 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-    AI_CONSENT = 'ai_consent',
     TELL_US_MORE = 'tell_us_more',
 }
 

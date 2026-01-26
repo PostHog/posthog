@@ -68,6 +68,51 @@ export class SessionBatchMetrics {
         help: 'Number of events that were rate limited',
     })
 
+    private static readonly newSessionsDetected = new Counter({
+        name: 'recording_blob_ingestion_v2_new_sessions_detected_total',
+        help: 'Number of new sessions detected (not seen in Redis within TTL)',
+    })
+
+    private static readonly newSessionsRateLimited = new Counter({
+        name: 'recording_blob_ingestion_v2_new_sessions_rate_limited_total',
+        help: 'Number of new sessions that were rate limited',
+    })
+
+    private static readonly sessionTrackerCacheHit = new Counter({
+        name: 'recording_blob_ingestion_v2_session_tracker_cache_hit_total',
+        help: 'Number of session tracker local cache hits (avoided Redis call)',
+    })
+
+    private static readonly sessionTrackerCacheMiss = new Counter({
+        name: 'recording_blob_ingestion_v2_session_tracker_cache_miss_total',
+        help: 'Number of session tracker local cache misses (required Redis call)',
+    })
+
+    private static readonly sessionTrackerRedisErrors = new Counter({
+        name: 'recording_blob_ingestion_v2_session_tracker_redis_errors_total',
+        help: 'Number of Redis errors in session tracker (failed open)',
+    })
+
+    private static readonly sessionsBlocked = new Counter({
+        name: 'recording_blob_ingestion_v2_sessions_blocked_total',
+        help: 'Number of sessions added to blocklist (will drop all future messages)',
+    })
+
+    private static readonly sessionFilterCacheHit = new Counter({
+        name: 'recording_blob_ingestion_v2_session_filter_cache_hit_total',
+        help: 'Number of session filter local cache hits (avoided Redis call)',
+    })
+
+    private static readonly sessionFilterCacheMiss = new Counter({
+        name: 'recording_blob_ingestion_v2_session_filter_cache_miss_total',
+        help: 'Number of session filter local cache misses (required Redis call)',
+    })
+
+    private static readonly sessionFilterRedisErrors = new Counter({
+        name: 'recording_blob_ingestion_v2_session_filter_redis_errors_total',
+        help: 'Number of Redis errors in session filter (failed open)',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -119,5 +164,41 @@ export class SessionBatchMetrics {
 
     public static incrementEventsRateLimited(count: number = 1): void {
         this.eventsRateLimited.inc(count)
+    }
+
+    public static incrementNewSessionsDetected(count: number = 1): void {
+        this.newSessionsDetected.inc(count)
+    }
+
+    public static incrementNewSessionsRateLimited(count: number = 1): void {
+        this.newSessionsRateLimited.inc(count)
+    }
+
+    public static incrementSessionTrackerCacheHit(count: number = 1): void {
+        this.sessionTrackerCacheHit.inc(count)
+    }
+
+    public static incrementSessionTrackerCacheMiss(count: number = 1): void {
+        this.sessionTrackerCacheMiss.inc(count)
+    }
+
+    public static incrementSessionTrackerRedisErrors(count: number = 1): void {
+        this.sessionTrackerRedisErrors.inc(count)
+    }
+
+    public static incrementSessionsBlocked(count: number = 1): void {
+        this.sessionsBlocked.inc(count)
+    }
+
+    public static incrementSessionFilterCacheHit(count: number = 1): void {
+        this.sessionFilterCacheHit.inc(count)
+    }
+
+    public static incrementSessionFilterCacheMiss(count: number = 1): void {
+        this.sessionFilterCacheMiss.inc(count)
+    }
+
+    public static incrementSessionFilterRedisErrors(count: number = 1): void {
+        this.sessionFilterRedisErrors.inc(count)
     }
 }

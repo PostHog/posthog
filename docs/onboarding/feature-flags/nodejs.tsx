@@ -1,21 +1,16 @@
-import { getNodeJSSteps as getNodeJSStepsPA } from '../product-analytics/nodejs'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getNodeJSSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    Tab: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getNodeJSSteps as getNodeJSStepsPA } from '../product-analytics/nodejs'
+import { StepDefinition } from '../steps'
+
+export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, Tab, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const OverrideProperties = snippets?.OverridePropertiesSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getNodeJSStepsPA(CodeBlock, Markdown, dedent)
+    const installationSteps = getNodeJSStepsPA(ctx)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -134,21 +129,7 @@ export const getNodeJSSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const NodeJSInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
-    const steps = getNodeJSSteps(CodeBlock, Markdown, dedent, Tab, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const NodeJSInstallation = createInstallation(getNodeJSSteps)

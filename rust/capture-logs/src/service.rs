@@ -22,12 +22,19 @@ use tracing::{debug, error, instrument};
 // due to a bug in the otel proto rust library we need to patch the json to support (valid) empty Values
 // see https://github.com/open-telemetry/opentelemetry-rust/issues/1253
 // FIXME: remove once upstream has fixed the issue, OR we should fork upstream and fix the issue ourselves
-fn patch_otel_json(v: &mut Value) {
+pub fn patch_otel_json(v: &mut Value) {
     match v {
         Value::Object(map) => {
             // In OTel, AnyValue is usually a field named "value"
             // If we find "value": {}, change it to "value": null
             if let Some(inner) = map.get_mut("value") {
+                if inner.is_object() && inner.as_object().map(|obj| obj.is_empty()).unwrap_or(false)
+                {
+                    *inner = Value::Null;
+                }
+            }
+            // Handle empty body objects - body should be an AnyValue or null
+            if let Some(inner) = map.get_mut("body") {
                 if inner.is_object() && inner.as_object().map(|obj| obj.is_empty()).unwrap_or(false)
                 {
                     *inner = Value::Null;
@@ -90,8 +97,8 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
 
 #[derive(Clone)]
 pub struct Service {
-    sink: KafkaSink,
-    token_dropper: Arc<TokenDropper>,
+    pub(crate) sink: KafkaSink,
+    pub(crate) token_dropper: Arc<TokenDropper>,
 }
 
 #[derive(Deserialize)]
@@ -102,11 +109,11 @@ pub struct QueryParams {
 impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
-        token_dropper: TokenDropper,
+        token_dropper: Arc<TokenDropper>,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
-            token_dropper: token_dropper.into(),
+            token_dropper,
         })
     }
 }
