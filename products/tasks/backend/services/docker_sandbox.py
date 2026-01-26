@@ -61,12 +61,22 @@ class DockerSandbox:
         return result
 
     @staticmethod
-    def _get_local_agent_package() -> str | None:
-        """Check if LOCAL_AGENT_PACKAGE env var is set or default location exists."""
-        local_path = os.environ.get("LOCAL_AGENT_PACKAGE")
-        if local_path and os.path.isdir(local_path):
-            return os.path.abspath(local_path)
-        return None
+    def _get_local_packages() -> tuple[str | None, str | None]:
+        """
+        Check if LOCAL_ARRAY_REPO env var is set and return paths to agent packages.
+        Returns (agent_path, agent_server_path) or (None, None) if not set.
+        """
+        array_repo = os.environ.get("LOCAL_ARRAY_REPO")
+        if not array_repo or not os.path.isdir(array_repo):
+            return None, None
+
+        agent_path = os.path.join(array_repo, "packages/agent")
+        agent_server_path = os.path.join(array_repo, "packages/agent-server")
+
+        agent = os.path.abspath(agent_path) if os.path.isdir(agent_path) else None
+        agent_server = os.path.abspath(agent_server_path) if os.path.isdir(agent_server_path) else None
+
+        return agent, agent_server
 
     @staticmethod
     def _build_image_if_needed(image_name: str, dockerfile_path: str) -> None:
@@ -91,19 +101,34 @@ class DockerSandbox:
         )
 
     @staticmethod
-    def _build_local_image(local_agent_path: str) -> None:
-        """Build the local sandbox image with the local agent package."""
-        logger.info("Building posthog-sandbox-base-local image with local agent package...")
+    def _build_local_image(local_agent_path: str | None, local_agent_server_path: str | None) -> None:
+        """Build the local sandbox image with local agent and/or agent-server packages."""
+        logger.info("Building posthog-sandbox-base-local image with local packages...")
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            shutil.copytree(
-                local_agent_path,
-                os.path.join(tmpdir, "local-agent"),
-                ignore=shutil.ignore_patterns("node_modules"),
-            )
+            local_agent_dir = os.path.join(tmpdir, "local-agent")
+            local_agent_server_dir = os.path.join(tmpdir, "local-agent-server")
+
+            if local_agent_path:
+                shutil.copytree(
+                    local_agent_path,
+                    local_agent_dir,
+                    ignore=shutil.ignore_patterns("node_modules"),
+                )
+            else:
+                os.makedirs(local_agent_dir)
+
+            if local_agent_server_path:
+                shutil.copytree(
+                    local_agent_server_path,
+                    local_agent_server_dir,
+                    ignore=shutil.ignore_patterns("node_modules"),
+                )
+            else:
+                os.makedirs(local_agent_server_dir)
 
             DockerSandbox._run(
                 [
@@ -120,7 +145,7 @@ class DockerSandbox:
 
     @staticmethod
     def _ensure_image_exists(template: SandboxTemplate) -> str:
-        """Build the sandbox image, using local agent if LOCAL_AGENT_PACKAGE is set."""
+        """Build the sandbox image, using local packages if LOCAL_ARRAY_REPO is set."""
         if template == SandboxTemplate.NOTEBOOK_BASE:
             dockerfile_path = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
@@ -128,14 +153,14 @@ class DockerSandbox:
             DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
             return NOTEBOOK_IMAGE_NAME
 
-        local_agent = DockerSandbox._get_local_agent_package()
+        local_agent, local_agent_server = DockerSandbox._get_local_packages()
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
         )
 
-        if local_agent:
+        if local_agent or local_agent_server:
             DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
-            DockerSandbox._build_local_image(local_agent)
+            DockerSandbox._build_local_image(local_agent, local_agent_server)
             return "posthog-sandbox-base-local"
 
         DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
@@ -186,9 +211,6 @@ class DockerSandbox:
             runagent_path = os.path.join(settings.BASE_DIR, "products/tasks/scripts/runAgent.mjs")
             if os.path.exists(runagent_path):
                 volume_args.extend(["-v", f"{runagent_path}:/scripts/runAgent.mjs:ro"])
-            runagentserver_path = os.path.join(settings.BASE_DIR, "products/tasks/scripts/runAgentServer.mjs")
-            if os.path.exists(runagentserver_path):
-                volume_args.extend(["-v", f"{runagentserver_path}:/scripts/runAgentServer.mjs:ro"])
 
             docker_args = [
                 "docker",

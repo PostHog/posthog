@@ -1,8 +1,3 @@
-from .cloud_session.activities import (
-    provision_sandbox as cloud_provision_sandbox,
-    start_agent_server as cloud_start_agent_server,
-)
-from .cloud_session.workflow import CloudSessionWorkflow
 from .create_snapshot.activities import (
     cleanup_sandbox as snapshot_cleanup_sandbox,
     clone_repository as snapshot_clone_repository,
@@ -18,6 +13,7 @@ from .process_task.activities import (
     get_sandbox_for_repository,
     get_task_processing_context,
     post_slack_update,
+    start_agent_server,
     track_workflow_event,
     update_task_run_status,
 )
@@ -26,7 +22,6 @@ from .process_task.workflow import ProcessTaskWorkflow
 WORKFLOWS = [
     ProcessTaskWorkflow,
     CreateSnapshotForRepositoryWorkflow,
-    CloudSessionWorkflow,
 ]
 
 ACTIVITIES = [
@@ -38,6 +33,7 @@ ACTIVITIES = [
     track_workflow_event,
     post_slack_update,
     update_task_run_status,
+    start_agent_server,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,
@@ -45,7 +41,4 @@ ACTIVITIES = [
     snapshot_setup_repository,
     snapshot_create_snapshot,
     snapshot_cleanup_sandbox,
-    # cloud_session activities
-    cloud_provision_sandbox,
-    cloud_start_agent_server,
 ]

@@ -28,7 +28,10 @@ from posthog.storage import object_storage
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
+from .kafka_consumer import consume_agent_events
+from .kafka_producer import AgentLogEntry, create_agent_log_entry, produce_agent_log_entries
 from .models import Task, TaskRun
+from .queries import get_agent_logs, get_agent_logs_as_jsonl, get_max_sequence
 from .serializers import (
     ErrorResponseSerializer,
     FileManifestSerializer,
@@ -42,11 +45,11 @@ from .serializers import (
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
-from .sync.router import MessageRouter
 from .temporal.client import (
-    execute_cloud_session_workflow,
+    execute_cloud_workflow,
     execute_task_processing_workflow,
-    send_cloud_session_heartbeat,
+    is_workflow_running,
+    send_process_task_heartbeat,
 )
 
 logger = logging.getLogger(__name__)
@@ -281,14 +284,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if new_environment == "cloud" and old_environment != "cloud":
             task = task_run.task
             if task.repository:
-                logger.info(f"Environment switched to cloud for run {task_run.id}, starting cloud session workflow")
-                execute_cloud_session_workflow(
-                    run_id=str(task_run.id),
+                logger.info(f"Environment switched to cloud for run {task_run.id}, starting cloud workflow")
+                workflow_id = execute_cloud_workflow(
                     task_id=str(task.id),
+                    run_id=str(task_run.id),
                     team_id=task.team_id,
-                    repository=task.repository,
-                    github_integration_id=task.github_integration_id,
                 )
+                if workflow_id:
+                    state = task_run.state or {}
+                    task_run.state = {**state, "workflow_id": workflow_id}
+                    task_run.save(update_fields=["state", "updated_at"])
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
@@ -315,15 +320,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run = serializer.save(team=self.team, task=task)
 
         if task_run.environment == TaskRun.Environment.CLOUD:
-            from products.tasks.backend.temporal.client import execute_cloud_session_workflow
-
-            execute_cloud_session_workflow(
-                run_id=str(task_run.id),
+            workflow_id = execute_cloud_workflow(
                 task_id=str(task.id),
+                run_id=str(task_run.id),
                 team_id=task.team.id,
-                repository=task.repository,
-                github_integration_id=task.github_integration_id,
             )
+            if workflow_id:
+                task_run.state = {"workflow_id": workflow_id}
+                task_run.save(update_fields=["state", "updated_at"])
 
     @validated_request(
         request_serializer=None,
@@ -367,7 +371,27 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run = cast(TaskRun, self.get_object())
 
         entries = request.validated_data["entries"]
-        task_run.append_log(entries)
+        current_sequence = get_max_sequence(
+            team_id=task_run.team_id,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+        )
+
+        kafka_entries: list[AgentLogEntry] = []
+        for i, entry in enumerate(entries):
+            entry_type = entry.get("type", "unknown")
+            kafka_entries.append(
+                create_agent_log_entry(
+                    team_id=task_run.team_id,
+                    task_id=str(task_run.task_id),
+                    run_id=str(task_run.id),
+                    sequence=current_sequence + i + 1,
+                    entry_type=entry_type,
+                    entry=entry,
+                )
+            )
+
+        produce_agent_log_entries(kafka_entries)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
@@ -503,8 +527,51 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+        log_content = get_agent_logs_as_jsonl(
+            team_id=task_run.team_id,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+        )
         response = HttpResponse(log_content, content_type="application/jsonl")
+        response["Cache-Control"] = "no-cache"
+        return response
+
+    @validated_request(
+        TaskRunArtifactPresignRequestSerializer,
+        responses={
+            200: OpenApiResponse(description="Artifact content"),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Download artifact content",
+        description="Download artifact content directly (proxied through API). Useful for Docker containers that can't access S3 directly.",
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/download", required_scopes=["task:read"])
+    def artifacts_download(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        storage_path = request.validated_data["storage_path"]
+        artifacts = task_run.artifacts or []
+
+        if not any(artifact.get("storage_path") == storage_path for artifact in artifacts):
+            return Response(
+                ErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Use read_bytes for binary files to avoid UTF-8 decoding corruption
+        content = object_storage.read_bytes(storage_path, missing_ok=True)
+        if content is None:
+            return Response(
+                ErrorResponseSerializer({"error": "Artifact content not found"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        content_type = "application/octet-stream"
+        if storage_path.endswith(".tar.gz"):
+            content_type = "application/gzip"
+        elif storage_path.endswith(".json"):
+            content_type = "application/json"
+
+        response = HttpResponse(content, content_type=content_type)
         response["Cache-Control"] = "no-cache"
         return response
 
@@ -528,29 +595,48 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return self._sync_post(request, task_run)
 
     def _sync_get(self, request, task_run: TaskRun) -> StreamingHttpResponse:
-        """Open SSE stream to receive events from the agent."""
+        """Open SSE stream to receive events from the agent via Kafka."""
         run_id = str(task_run.id)
+        task_id = str(task_run.task_id)
         last_event_id = request.headers.get("Last-Event-ID")
-        router = MessageRouter(run_id)
 
         logger.info(f"[SYNC_GET] Opening SSE stream for run {run_id}, Last-Event-ID: {last_event_id}")
+
+        from_sequence = int(last_event_id) if last_event_id and last_event_id.isdigit() else None
 
         async def event_stream() -> AsyncGenerator[bytes, None]:
             event_id = 0
 
-            if last_event_id:
-                logger.info(f"[SYNC_GET] Replaying from Last-Event-ID: {last_event_id}")
+            if from_sequence is not None:
+                logger.info(f"[SYNC_GET] Replaying from ClickHouse, sequence > {from_sequence}")
                 async for event in self._replay_from_log(task_run, last_event_id):
                     event_id += 1
                     logger.debug(f"[SYNC_GET] Replayed event {event_id}: {event.get('method', 'unknown')}")
                     yield self._format_sse_event(event, event_id)
 
-            logger.info(f"[SYNC_GET] Starting live SSE subscription for run {run_id}")
+            logger.info(f"[SYNC_GET] Starting live Kafka subscription for run {run_id}")
             try:
-                async for event in router.subscribe():
+                async for entry in consume_agent_events(
+                    task_id=task_id,
+                    run_id=run_id,
+                    from_sequence=from_sequence,
+                ):
+                    # Handle keepalive (SSE comment to keep connection alive)
+                    if entry.get("_keepalive"):
+                        yield b": keepalive\n\n"
+                        continue
+
                     event_id += 1
-                    logger.info(f"[SYNC_GET] Received event {event_id} from Redis: method={event.get('method', 'unknown')}")
-                    logger.debug(f"[SYNC_GET] Full event: {event}")
+                    if entry.get("type") == "notification" and entry.get("notification"):
+                        event = entry["notification"]
+                    elif entry.get("type") == "agent_event":
+                        event = entry.get("event", {})
+                    else:
+                        event = entry
+
+                    logger.info(
+                        f"[SYNC_GET] Received event {event_id} from Kafka: method={event.get('method', 'unknown')}"
+                    )
                     yield self._format_sse_event(event, event_id)
             except asyncio.CancelledError:
                 logger.info(f"[SYNC_GET] SSE stream cancelled for run {run_id}")
@@ -572,7 +658,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return response
 
     def _sync_post(self, request, task_run: TaskRun) -> Response:
-        """Receive messages from client and forward to agent."""
+        """Receive messages from client and forward to agent via Kafka."""
         run_id = str(task_run.id)
         message = request.data
 
@@ -586,22 +672,55 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        router = MessageRouter(run_id)
+        current_sequence = get_max_sequence(
+            team_id=task_run.team_id,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+        )
+        entry = create_agent_log_entry(
+            team_id=task_run.team_id,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+            sequence=current_sequence + 1,
+            entry_type="client_message",
+            entry={"type": "client_message", "message": message},
+        )
+        produce_agent_log_entries([entry])
+        logger.info(f"[SYNC_POST] Message sent to Kafka for run {run_id}")
 
-        async def publish():
-            logger.info(f"[SYNC_POST] Publishing to agent channel for run {run_id}")
-            await router.publish_to_agent(message)
-            logger.info(f"[SYNC_POST] Message published successfully to agent channel")
-            task_run.append_log([{"type": "client_message", "message": message}])
-            logger.debug(f"[SYNC_POST] Message appended to log")
-
-        asyncio.run(publish())
-
-        # Send heartbeat to keep cloud session alive
-        send_cloud_session_heartbeat(run_id)
+        if task_run.environment == TaskRun.Environment.CLOUD:
+            self._ensure_cloud_workflow_running(task_run)
 
         logger.info(f"[SYNC_POST] Returning 202 Accepted for run {run_id}")
         return Response(status=status.HTTP_202_ACCEPTED)
+
+    def _ensure_cloud_workflow_running(self, task_run: TaskRun) -> bool:
+        """Ensure a cloud workflow is running for this run, starting one if needed."""
+        run_id = str(task_run.id)
+        task_id = str(task_run.task_id)
+        state = task_run.state or {}
+
+        workflow_id = state.get("workflow_id")
+        if workflow_id and is_workflow_running(workflow_id):
+            if send_process_task_heartbeat(run_id, workflow_id):
+                logger.debug(f"[ENSURE_WORKFLOW] Heartbeat sent to existing workflow {workflow_id}")
+                return True
+
+        logger.info(f"[ENSURE_WORKFLOW] No active workflow for run {run_id}, starting new cloud workflow")
+        new_workflow_id = execute_cloud_workflow(
+            task_id=task_id,
+            run_id=run_id,
+            team_id=task_run.team_id,
+        )
+
+        if new_workflow_id:
+            task_run.state = {**state, "workflow_id": new_workflow_id}
+            task_run.save(update_fields=["state", "updated_at"])
+            logger.info(f"[ENSURE_WORKFLOW] Started new cloud workflow {new_workflow_id} for run {run_id}")
+            return True
+
+        logger.warning(f"[ENSURE_WORKFLOW] Failed to start cloud workflow for run {run_id}")
+        return False
 
     @extend_schema(
         tags=["task-runs"],
@@ -615,13 +734,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def heartbeat(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         run_id = str(task_run.id)
+        state = task_run.state or {}
 
-        success = send_cloud_session_heartbeat(run_id)
+        workflow_id = state.get("workflow_id")
+        if workflow_id:
+            success = send_process_task_heartbeat(run_id, workflow_id)
+            if success:
+                return Response({"status": "ok"})
 
-        if success:
-            return Response({"status": "ok"})
-        else:
-            return Response({"status": "no_session"})
+        return Response({"status": "no_session"})
 
     @extend_schema(
         tags=["task-runs"],
@@ -704,26 +825,29 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.validated_data)
 
     async def _replay_from_log(self, task_run: TaskRun, from_event_id: str) -> AsyncGenerator[dict[str, Any], None]:
-        """Replay events from S3 log starting after the given event ID."""
-        log_content = object_storage.read(task_run.log_url, missing_ok=True)
-        if not log_content:
-            return
+        """Replay events from ClickHouse log starting after the given event ID."""
+        from_sequence = int(from_event_id) if from_event_id.isdigit() else 0
 
-        from_id = int(from_event_id) if from_event_id.isdigit() else 0
+        logs = get_agent_logs(
+            team_id=task_run.team_id,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+            after_sequence=from_sequence,
+        )
 
-        for i, line in enumerate(log_content.split("\n")):
-            if i <= from_id or not line.strip():
+        for log in logs:
+            entry = log.get("entry")
+            if not entry:
                 continue
-            try:
-                entry = json.loads(line)
-                # Handle ACP notification format (new format from runAgentServer.mjs)
-                if entry.get("type") == "notification" and entry.get("notification"):
-                    yield entry["notification"]
-                # Handle legacy agent_event format
-                elif entry.get("type") == "agent_event":
-                    yield entry.get("event", {})
-            except json.JSONDecodeError:
-                continue
+            # Handle ACP notification format (from @posthog/agent-server)
+            if entry.get("type") == "notification" and entry.get("notification"):
+                yield entry["notification"]
+            # Handle legacy agent_event format
+            elif entry.get("type") == "agent_event":
+                yield entry.get("event", {})
+            # Handle client messages (for agent reconnection replay)
+            elif entry.get("type") == "client_message":
+                yield entry
 
     def _format_sse_event(self, data: dict[str, Any], event_id: int) -> bytes:
         """Format data as an SSE event."""
