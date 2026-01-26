@@ -89,7 +89,7 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
 
     # Path to Node.js scripts directory (relative to project root)
     # TODO: Find a better way to do this
-    NODEJS_SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "nodejs", "scripts")
+    NODEJS_SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "nodejs", "src", "scripts")
     SCRIPT_NAME = "record-replay-session-to-video-puppeteer.js"
 
     def record(self) -> RecordingResult:
