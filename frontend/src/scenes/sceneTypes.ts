@@ -223,6 +223,18 @@ export interface Params {
     [param: string]: any
 }
 
+/** Configuration for a tab in the scene panel */
+export interface ScenePanelTabConfig {
+    /** Unique identifier for the tab */
+    id: string
+    /** Display label for the tab */
+    label: string
+    /** Icon component for the tab */
+    Icon: React.ComponentType<{ className?: string }>
+    /** Content component to render when tab is active */
+    Content: React.ComponentType
+}
+
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
@@ -267,6 +279,12 @@ export interface SceneConfig {
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
+    /**
+     * Tabs to show in the scene panel.
+     * - Array of ScenePanelTabConfig for custom tabs
+     * - Function receiving scene params, returning tabs for dynamic configuration
+     */
+    scenePanelTabs?: ScenePanelTabConfig[] | ((params: SceneParams) => ScenePanelTabConfig[])
 }
 
 // Map scenes to their access control resource types
