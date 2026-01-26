@@ -23,7 +23,9 @@ class PrometheusCallback(InstrumentedCallback):
 
     callback_name = "prometheus"
 
-    async def _on_success(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
+    async def _on_success(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
+    ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = standard_logging_object.get("metadata", {}) or {}
         usage_object = metadata.get("usage_object", {}) or {}

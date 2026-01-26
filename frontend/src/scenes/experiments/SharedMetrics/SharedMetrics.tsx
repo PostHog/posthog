@@ -155,7 +155,7 @@ export function SharedMetrics(): JSX.Element {
             {count ? (
                 <div>
                     <span className="text-secondary">
-                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'shared metric')}`}
+                        {`${startCount}${endCount > startCount ? '-' + endCount : ''} of ${pluralize(count, 'shared metric')}`}
                     </span>
                 </div>
             ) : null}
