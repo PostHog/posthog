@@ -77,6 +77,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
     const usage = event.properties['$ai_usage']
 
     if (!usage || typeof usage !== 'object') {
+        delete event.properties['$ai_usage']
         return event
     }
 
