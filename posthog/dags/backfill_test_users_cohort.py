@@ -54,20 +54,19 @@ def create_test_users_cohort_for_chunk(
     context: dagster.OpExecutionContext,
     chunk: list[int],
 ) -> int:
-    """Create test users cohort for a chunk of teams."""
+    """Create test users cohort for a chunk of teams.
+
+    Idempotent: skips teams that already have a test users cohort.
+    """
     created_count = 0
     for team_id in chunk:
-        try:
-            team = Team.objects.get(id=team_id)
-            # Check again in case another process created it
-            if not Cohort.objects.filter(team=team, system_type=SystemCohortType.TEST_USERS).exists():
-                create_system_cohorts(team)
-                created_count += 1
-                context.log.info(f"Created test users cohort for team {team_id}")
-        except Team.DoesNotExist:
-            context.log.warning(f"Team {team_id} no longer exists, skipping")
-        except Exception:
-            context.log.exception(f"Failed to create cohort for team {team_id}")
+        team = Team.objects.get(id=team_id)
+        if Cohort.objects.filter(team=team, system_type=SystemCohortType.TEST_USERS).exists():
+            context.log.info(f"Team {team_id} already has test users cohort, skipping")
+            continue
+        create_system_cohorts(team)
+        created_count += 1
+        context.log.info(f"Created test users cohort for team {team_id}")
 
     return created_count
 
