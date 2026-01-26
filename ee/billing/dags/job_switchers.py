@@ -117,15 +117,13 @@ def job_switchers_to_clay(
     clay_webhook: dagster.ResourceParam[ClayWebhookResource],
 ) -> None:
     """
-    Incrementally sync job switchers to Clay webhook using DynamicOut for batching.
+    Incrementally sync job switchers to Clay webhook.
 
     Uses Dagster asset metadata to track domain hashes between runs,
-    preserving Clay's 50k lifetime submission limit.
-
-    Batches are processed sequentially via executor concurrency control
-    to respect Clay's rate limits (10 records/sec sustained).
+    only syncing new or changed domains to preserve Clay's 50k lifetime
+    submission limit. Batches are sent sequentially to respect Clay's
+    rate limits.
     """
-    # Execute the graph logic directly
     context.log.info("Querying JobSwitchers_v3 saved query")
 
     team = Team.objects.get(id=JOB_SWITCHERS_TEAM_ID)
@@ -214,7 +212,6 @@ def job_switchers_to_clay(
     context.log.info("Synced %d domains, stored %d hashes in metadata", len(changed_df), len(current_hashes))
 
 
-# Define the job with concurrency control for rate limiting
 job_switchers_job = dagster.define_asset_job(
     name="job_switchers_to_clay_job",
     selection=["job_switchers_to_clay"],
