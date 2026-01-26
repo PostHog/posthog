@@ -1,17 +1,11 @@
-import { IconCalendar, IconFlag } from '@posthog/icons'
+import { IconFlag } from '@posthog/icons'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
-
-import { SavedInsightsTabs } from '~/types'
 
 export function SavedInsightsFilters({
     filters,
@@ -20,7 +14,7 @@ export function SavedInsightsFilters({
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
-    const { tab, createdBy, insightType, dateFrom, dateTo, search, hideFeatureFlagInsights } = filters
+    const { search, hideFeatureFlagInsights } = filters
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -32,41 +26,6 @@ export function SavedInsightsFilters({
                 autoFocus
             />
             <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                    <span>Type:</span>
-                    <LemonSelect
-                        size="small"
-                        options={INSIGHT_TYPE_OPTIONS}
-                        value={insightType}
-                        onChange={(v?: string): void => setFilters({ insightType: v })}
-                        dropdownMatchSelectWidth={false}
-                        data-attr="insight-type"
-                    />
-                </div>
-                <div className="flex items-center gap-2">
-                    <span>Last modified:</span>
-                    <DateFilter
-                        disabled={false}
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(fromDate, toDate) => setFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar />
-                                <span className="hide-when-small"> {key}</span>
-                            </>
-                        )}
-                    />
-                </div>
-                {tab !== SavedInsightsTabs.Yours ? (
-                    <div className="flex items-center gap-2">
-                        <span>Created by:</span>
-                        <MemberSelect
-                            value={createdBy === 'All users' ? null : createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.id || 'All users' })}
-                        />
-                    </div>
-                ) : null}
                 <FeatureFlagInsightsToggle
                     hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
                     onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
