@@ -2052,19 +2052,20 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_403_FORBIDDEN
 
         def test_logs_settings_retention_24_hour_restriction(self):
-            # Set initial retention
+            # Set initial retention (backend will auto-set retention_last_updated)
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15, "retention_last_updated": "2025-01-01T00:00:00Z"}},
+                    {"logs_settings": {"retention_days": 15}},
                 )
                 assert response.status_code == status.HTTP_200_OK
+                assert response.json()["logs_settings"]["retention_last_updated"] is not None
 
             # Try to update retention within 24 hours - should fail
             with freeze_time("2025-01-01T12:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20, "retention_last_updated": "2025-01-01T12:00:00Z"}},
+                    {"logs_settings": {"retention_days": 20}},
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
                 assert "24 hours" in response.json()["detail"]
@@ -2073,7 +2074,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-02T00:00:01Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20, "retention_last_updated": "2025-01-02T00:00:01Z"}},
+                    {"logs_settings": {"retention_days": 20}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
@@ -2081,16 +2082,17 @@ def team_api_test_factory():
             # First update should always be allowed (no retention_last_updated)
             response = self.client.patch(
                 "/api/environments/@current/",
-                {"logs_settings": {"retention_days": 30, "retention_last_updated": "2025-01-01T00:00:00Z"}},
+                {"logs_settings": {"retention_days": 30}},
             )
             assert response.status_code == status.HTTP_200_OK
+            assert response.json()["logs_settings"]["retention_last_updated"] is not None
 
         def test_logs_settings_non_retention_changes_not_restricted(self):
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15, "retention_last_updated": "2025-01-01T00:00:00Z"}},
+                    {"logs_settings": {"retention_days": 15}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
@@ -2102,7 +2104,6 @@ def team_api_test_factory():
                         "logs_settings": {
                             "retention_days": 15,  # Same retention
                             "json_parse_logs": True,
-                            "retention_last_updated": "2025-01-01T00:00:00Z",
                         }
                     },
                 )

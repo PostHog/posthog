@@ -121,7 +121,6 @@ export function LogsRetentionSettings(): JSX.Element {
             logs_settings: {
                 ...currentTeam?.logs_settings,
                 retention_days: retentionDays,
-                retention_last_updated: dayjs().toISOString(),
             },
         })
         setShowConfirmModal(false)
