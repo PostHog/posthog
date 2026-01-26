@@ -56,13 +56,13 @@ function scaleDimensionsIfNeeded(width, height, maxSize = MAX_DIMENSION) {
         scaleFactor = maxSize / width
         return {
             width: maxSize,
-            height: Math.floor(height * scaleFactor)
+            height: Math.floor(height * scaleFactor),
         }
     } else {
         scaleFactor = maxSize / height
         return {
             width: Math.floor(width * scaleFactor),
-            height: maxSize
+            height: maxSize,
         }
     }
 }
@@ -159,14 +159,14 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
                 if (counter > lastCounterVal) {
                     return {
                         counter: counter,
-                        segment_start_ts: window.__POSTHOG_CURRENT_SEGMENT_START_TS__
+                        segment_start_ts: window.__POSTHOG_CURRENT_SEGMENT_START_TS__,
                     }
                 }
                 return null
             }, lastCounter)
 
             if (result === null) {
-                await new Promise(r => setTimeout(r, Math.min(1000, remainingMs)))
+                await new Promise((r) => setTimeout(r, Math.min(1000, remainingMs)))
                 continue
             }
 
@@ -185,7 +185,7 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
             }
         } catch (e) {
             // Continue waiting despite errors
-            await new Promise(r => setTimeout(r, 100))
+            await new Promise((r) => setTimeout(r, 100))
         }
     }
 
@@ -198,11 +198,13 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
         log('Detecting inactivity periods...')
         const inactivityPeriodsRaw = await page.evaluate(() => {
             const r = window.__POSTHOG_INACTIVITY_PERIODS__
-            if (!r) return []
-            return r.map(p => ({
+            if (!r) {
+                return []
+            }
+            return r.map((p) => ({
                 ts_from_s: Number(p.ts_from_s),
                 ts_to_s: p.ts_to_s !== undefined ? Number(p.ts_to_s) : null,
-                active: Boolean(p.active)
+                active: Boolean(p.active),
             }))
         })
 
@@ -228,12 +230,13 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
 async function main() {
     const args = process.argv.slice(2)
     if (args.length < 1) {
-        console.error('Usage: node record-replay.js \'<JSON_OPTIONS>\'')
+        console.error("Usage: node record-replay.js '<JSON_OPTIONS>'")
         process.exit(1)
     }
 
     let options
     try {
+        // eslint-disable-next-line no-restricted-syntax
         options = JSON.parse(args[0])
     } catch (e) {
         console.error('Failed to parse JSON options:', e.message)
@@ -248,7 +251,7 @@ async function main() {
         screenshot_width: providedWidth,
         screenshot_height: providedHeight,
         playback_speed: requestedPlaybackSpeed = 1,
-        headless = true
+        headless = true,
     } = options
 
     if (!urlToRender || !outputPath || !waitForCssSelector || !recordingDuration) {
@@ -270,8 +273,8 @@ async function main() {
                 '--disable-dev-shm-usage',
                 '--use-gl=swiftshader',
                 '--disable-software-rasterizer',
-                '--force-device-scale-factor=2'
-            ]
+                '--force-device-scale-factor=2',
+            ],
         })
 
         // Detect or use provided dimensions
@@ -319,16 +322,16 @@ async function main() {
             ffmpeg_Path: null, // Use system ffmpeg if needed
             videoFrame: {
                 width,
-                height
+                height,
             },
             videoCrf: 23,
             videoCodec: 'libvpx-vp9',
             videoPreset: 'ultrafast',
             videoBitrate: 1000,
             autopad: {
-                color: 'black'
+                color: 'black',
             },
-            aspectRatio: '16:9'
+            aspectRatio: '16:9',
         }
 
         recorder = new PuppeteerScreenRecorder(page, recorderConfig)
@@ -350,13 +353,13 @@ async function main() {
                     const rect = replayer.getBoundingClientRect()
                     return {
                         height: Math.max(rect.height, document.body.scrollHeight),
-                        width: replayer.offsetWidth || 0
+                        width: replayer.offsetWidth || 0,
                     }
                 }
                 const table = document.querySelector('table')
                 return {
                     height: document.body.scrollHeight,
-                    width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0
+                    width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0,
                 }
             })
 
@@ -365,7 +368,7 @@ async function main() {
             measuredWidth = Math.max(width, Math.min(1800, Math.floor(widthCandidate)))
             await page.setViewport({
                 width: measuredWidth,
-                height: Math.floor(finalHeight) + HEIGHT_OFFSET
+                height: Math.floor(finalHeight) + HEIGHT_OFFSET,
             })
             log('Viewport resized to:', measuredWidth, 'x', Math.floor(finalHeight) + HEIGHT_OFFSET)
         } catch (e) {
@@ -373,7 +376,7 @@ async function main() {
         }
 
         const readyAt = Date.now()
-        await new Promise(r => setTimeout(r, 500))
+        await new Promise((r) => setTimeout(r, 500))
 
         // Wait for recording to complete while tracking segments
         const maxWaitMs = Math.floor((recordingDuration / playbackSpeed) * 1000)
@@ -400,12 +403,11 @@ async function main() {
             playback_speed: playbackSpeed,
             measured_width: measuredWidth,
             inactivity_periods: inactivityPeriods,
-            segment_start_timestamps: segmentStartTimestamps
+            segment_start_timestamps: segmentStartTimestamps,
         }
 
         console.log(JSON.stringify(result))
         process.exit(0)
-
     } catch (error) {
         log('Error:', error.message)
         log('Stack:', error.stack)
@@ -430,11 +432,30 @@ async function main() {
         const result = {
             success: false,
             error: error.message,
-            stack: error.stack
+            stack: error.stack,
         }
         console.log(JSON.stringify(result))
         process.exit(1)
     }
 }
 
-main()
+// Only run main when executed directly (not when imported for testing)
+if (require.main === module) {
+    void main()
+}
+
+// Export functions for testing
+module.exports = {
+    scaleDimensionsIfNeeded,
+    ensurePlaybackSpeed,
+    waitForPageReady,
+    detectRecordingResolution,
+    waitForRecordingWithSegments,
+    detectInactivityPeriods,
+    // Constants
+    HEIGHT_OFFSET,
+    PLAYBACK_SPEED_MULTIPLIER,
+    MAX_DIMENSION,
+    DEFAULT_WIDTH,
+    DEFAULT_HEIGHT,
+}
