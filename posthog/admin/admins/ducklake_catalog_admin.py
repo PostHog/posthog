@@ -41,7 +41,7 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
             "Cross-account S3 access",
             {
                 "fields": ("cross_account_role_arn", "cross_account_external_id"),
-                "description": "Optional settings for writing to customer-owned S3 buckets via IAM role assumption",
+                "description": "Required settings for writing to customer-owned S3 buckets via IAM role assumption",
             },
         ),
         (
