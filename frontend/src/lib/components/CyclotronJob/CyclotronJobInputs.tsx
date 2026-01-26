@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconGear, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { IconGear, IconLock, IconPlus, IconTrash, IconWarning, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -302,48 +302,68 @@ function DictionaryField({
                     Include properties from an entire object
                 </LemonButton>
             ) : null}
-            {entries.map(([key, val], index) => (
-                <div className="flex gap-2 items-center" key={index}>
-                    <Tooltip title={EXTEND_OBJECT_KEY === key ? 'Include properties from an entire object' : undefined}>
-                        <LemonInput
-                            value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
-                            disabled={key === EXTEND_OBJECT_KEY}
-                            className="flex-1 min-w-60"
-                            onChange={(key) => {
+            {entries.map(([key, val], index) => {
+                const isDuplicate =
+                    key.trim() !== '' && key !== EXTEND_OBJECT_KEY && entries.filter(([k]) => k === key).length > 1
+                const hasEmptyValue = key.trim() !== '' && key !== EXTEND_OBJECT_KEY && val.trim() === ''
+
+                return (
+                    <div className="flex gap-2 items-center" key={index}>
+                        <Tooltip
+                            title={EXTEND_OBJECT_KEY === key ? 'Include properties from an entire object' : undefined}
+                        >
+                            <LemonInput
+                                value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
+                                disabled={key === EXTEND_OBJECT_KEY}
+                                className="w-60 shrink-0"
+                                onChange={(key) => {
+                                    const newEntries = [...entries]
+                                    newEntries[index] = [key, newEntries[index][1]]
+                                    setEntries(newEntries)
+                                }}
+                                placeholder="Key"
+                            />
+                        </Tooltip>
+
+                        <CyclotronJobTemplateInput
+                            className="overflow-hidden flex-1 min-w-0"
+                            input={{ ...input, value: val }}
+                            onChange={(val) => {
                                 const newEntries = [...entries]
-                                newEntries[index] = [key, newEntries[index][1]]
+                                newEntries[index] = [newEntries[index][0], val.value ?? '']
+                                if (val.templating) {
+                                    onChange?.({ ...input, templating: val.templating })
+                                }
                                 setEntries(newEntries)
                             }}
-                            placeholder="Key"
+                            templating={templating}
+                            sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                         />
-                    </Tooltip>
 
-                    <CyclotronJobTemplateInput
-                        className="overflow-hidden flex-2"
-                        input={{ ...input, value: val }}
-                        onChange={(val) => {
-                            const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val.value ?? '']
-                            if (val.templating) {
-                                onChange?.({ ...input, templating: val.templating })
-                            }
-                            setEntries(newEntries)
-                        }}
-                        templating={templating}
-                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                    />
+                        {isDuplicate && (
+                            <Tooltip title="Duplicate key – only the last value will be sent. This is usually unintentional, please remove the duplicate key.">
+                                <IconWarning className="text-warning text-lg shrink-0" />
+                            </Tooltip>
+                        )}
 
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        onClick={() => {
-                            const newEntries = [...entries]
-                            newEntries.splice(index, 1)
-                            setEntries(newEntries)
-                        }}
-                    />
-                </div>
-            ))}
+                        {hasEmptyValue && (
+                            <Tooltip title="Empty value – this property won't be sent, which is usually unintentional, please remove the empty value or set it to a valid value.">
+                                <IconWarning className="text-warning text-lg shrink-0" />
+                            </Tooltip>
+                        )}
+
+                        <LemonButton
+                            icon={<IconX />}
+                            size="small"
+                            onClick={() => {
+                                const newEntries = [...entries]
+                                newEntries.splice(index, 1)
+                                setEntries(newEntries)
+                            }}
+                        />
+                    </div>
+                )
+            })}
             <LemonButton
                 icon={<IconPlus />}
                 size="small"
