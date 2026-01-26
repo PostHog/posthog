@@ -33,7 +33,6 @@ import { SurveysTabs, surveysLogic } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
-    settingSectionId: 'environment-surveys',
 }
 
 function NewSurveyButton(): JSX.Element {

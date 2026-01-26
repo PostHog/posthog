@@ -69,17 +69,33 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "model",
         [
-            "claude-3-5-haiku-20241022",
-            "gpt-4o-mini",
+            "claude-opus-4-5",
+            "claude-sonnet-4-5",
+            "claude-haiku-4-5",
+            "gpt-5.2",
+            "gpt-5-mini",
+        ],
+    )
+    def test_array_allows_restricted_models_with_valid_app_id(self, model: str):
+        allowed, error = check_product_access("array", "oauth_access_token", ARRAY_US_APP_ID, model)
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.parametrize(
+        "model",
+        [
             "gpt-4o",
+            "gpt-4o-mini",
+            "claude-3-5-haiku-20241022",
             "claude-3-opus",
             "o1",
         ],
     )
-    def test_array_allows_all_models_with_valid_app_id(self, model: str):
+    def test_array_rejects_non_allowed_models(self, model: str):
         allowed, error = check_product_access("array", "oauth_access_token", ARRAY_US_APP_ID, model)
-        assert allowed is True
-        assert error is None
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
 
 class TestValidateProduct:

@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import transaction
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -10,6 +12,11 @@ from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
 
 from ee.models.rbac.role import Role
+
+
+# Patch on_commit to execute immediately in tests
+def immediate_on_commit(func):
+    func()
 
 
 class BaseConversationsAPITest(APIBaseTest):
@@ -41,6 +48,7 @@ class BaseConversationsAPITest(APIBaseTest):
         self.mock_feature_flag.side_effect = check_flag
 
 
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestTicketAPI(BaseConversationsAPITest):
     def setUp(self):
         super().setUp()
@@ -52,13 +60,13 @@ class TestTicketAPI(BaseConversationsAPITest):
             status=Status.NEW,
         )
 
-    def test_list_tickets(self):
+    def test_list_tickets(self, mock_on_commit):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
-    def test_list_tickets_only_returns_team_tickets(self):
+    def test_list_tickets_only_returns_team_tickets(self, mock_on_commit):
         other_ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.EMAIL,
@@ -72,13 +80,13 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertIn(str(self.ticket.id), ticket_ids)
         self.assertIn(str(other_ticket.id), ticket_ids)
 
-    def test_retrieve_ticket(self):
+    def test_retrieve_ticket(self, mock_on_commit):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))
         self.assertEqual(response.json()["status"], Status.NEW)
 
-    def test_retrieve_ticket_marks_as_read(self):
+    def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
         self.ticket.save()
 
@@ -95,7 +103,7 @@ class TestTicketAPI(BaseConversationsAPITest):
             ("priority", Priority.HIGH, Priority.HIGH),
         ]
     )
-    def test_update_ticket_field(self, field_name, update_value, expected_response_value):
+    def test_update_ticket_field(self, mock_on_commit, field_name, update_value, expected_response_value):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
             {field_name: update_value},
@@ -121,7 +129,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         ]
     )
     def test_filter_tickets(
-        self, filter_param, expected_value, response_field, expected_response_value, other_ticket_attrs
+        self, mock_on_commit, filter_param, expected_value, response_field, expected_response_value, other_ticket_attrs
     ):
         """Test filtering tickets by various fields."""
         if expected_value and expected_value != "user-123":
@@ -150,7 +158,7 @@ class TestTicketAPI(BaseConversationsAPITest):
             self.assertEqual(result[response_field], expected_response_value)
 
     @parameterized.expand([("status", "invalid"), ("priority", "invalid")])
-    def test_invalid_filter_ignored(self, filter_name, invalid_value):
+    def test_invalid_filter_ignored(self, mock_on_commit, filter_name, invalid_value):
         """Test that invalid filter values are ignored and all tickets are returned."""
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?{filter_name}={invalid_value}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -175,7 +183,7 @@ class TestTicketAPI(BaseConversationsAPITest):
             ),
         ]
     )
-    def test_message_annotations(self, test_name, messages, expected_fields):
+    def test_message_annotations(self, mock_on_commit, test_name, messages, expected_fields):
         """Test that denormalized message stats are correctly maintained on tickets."""
         for content, should_delete in messages:
             comment = Comment.objects.create(
@@ -198,7 +206,7 @@ class TestTicketAPI(BaseConversationsAPITest):
             else:
                 self.assertEqual(response.json()[field_name], expected_value)
 
-    def test_list_tickets_no_n_plus_one_queries(self):
+    def test_list_tickets_no_n_plus_one_queries(self, mock_on_commit):
         """Verify ticket list doesn't trigger N+1 queries for assigned users.
         Message stats (message_count, last_message_at, last_message_text) are now
         denormalized on the Ticket model, so no subqueries needed.
@@ -244,7 +252,7 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertIn("last_message_text", ticket_data)
                 self.assertIn("assignee", ticket_data)
 
-    def test_feature_flag_required(self):
+    def test_feature_flag_required(self, mock_on_commit):
         """Verify that product-support feature flag is required for API access."""
         self.set_conversations_feature_flag(False)
 

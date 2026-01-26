@@ -609,6 +609,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
         icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created surveys'
@@ -621,6 +622,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Analyze survey responses to extract themes and actionable insights',
         product: Scene.Surveys,
         icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Analyzed survey responses'
@@ -955,6 +957,12 @@ export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Plan | AgentM
         description: 'Searches and analyzes error tracking issues to help you understand and fix bugs.',
         icon: iconForType('error_tracking'),
         scenes: new Set([Scene.ErrorTracking]),
+    },
+    [AgentMode.Survey]: {
+        name: 'Surveys',
+        description: 'Creates and analyzes surveys to collect user feedback.',
+        icon: iconForType('survey'),
+        scenes: new Set([Scene.Surveys, Scene.Survey]),
     },
 }
 
