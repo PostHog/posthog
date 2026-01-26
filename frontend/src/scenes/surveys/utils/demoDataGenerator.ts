@@ -287,7 +287,9 @@ export function generateDemoSurveyResults(
         // Generate response for each question
         survey.questions.forEach((question) => {
             if (question.type === SurveyQuestionType.Link) {
-                // Link questions don't have responses
+                // Link questions don't have responses, but push null to maintain index alignment
+                // with processResultsForSurveyQuestions which uses question index to access row data
+                row.push(null)
                 return
             }
 

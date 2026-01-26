@@ -21,7 +21,7 @@ import {
     PluginsServerConfig,
     Team,
 } from '../types'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
@@ -198,6 +198,7 @@ export class IngestionConsumer {
 
         this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
+            useBatchUpdates: this.hub.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,

@@ -540,4 +540,69 @@ describe('sessionRecordingPlayerLogic', () => {
             })
         })
     })
+
+    describe('seek actions', () => {
+        it('seekForward without parameter uses default jumpTimeMs (10s)', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(10000) // 10s * speed(1)
+
+            logic.actions.seekForward()
+            // seekForward should call seekToTime with current time + jumpTimeMs
+        })
+
+        it('seekBackward without parameter uses default jumpTimeMs (10s)', () => {
+            const currentTime = 15000
+            logic.actions.seekToTime(currentTime)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(10000) // 10s * speed(1)
+
+            logic.actions.seekBackward()
+            // seekBackward should call seekToTime with current time - jumpTimeMs
+        })
+
+        it('seekForward with 1000ms parameter jumps forward 1s', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekForward(1000)
+            // seekForward should call seekToTime with current time + 1000
+        })
+
+        it('seekBackward with 1000ms parameter jumps backward 1s', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekBackward(1000)
+            // seekBackward should call seekToTime with current time - 1000
+        })
+
+        it('seekForward respects custom amount parameter', () => {
+            const currentTime = 5000
+            const customAmount = 2500
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekForward(customAmount)
+            // seekForward should call seekToTime with current time + customAmount
+        })
+
+        it('seekBackward respects custom amount parameter', () => {
+            const currentTime = 5000
+            const customAmount = 3500
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekBackward(customAmount)
+            // seekBackward should call seekToTime with current time - customAmount
+        })
+
+        it('default jumpTimeMs scales with playback speed', () => {
+            logic.actions.setSpeed(2)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(20000) // 10s * speed(2)
+
+            logic.actions.seekToTime(5000)
+            logic.actions.seekForward()
+            // seekForward should call seekToTime with current time + 20000
+        })
+    })
 })

@@ -87,6 +87,7 @@ export interface PaginatedDataModelingJobListApi {
  * `TikTokAds` - TikTokAds
  * `BingAds` - BingAds
  * `Shopify` - Shopify
+ * `SnapchatAds` - SnapchatAds
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
@@ -125,6 +126,7 @@ export const SourceTypeEnumApi = {
     TikTokAds: 'TikTokAds',
     BingAds: 'BingAds',
     Shopify: 'Shopify',
+    SnapchatAds: 'SnapchatAds',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -132,6 +134,9 @@ export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     include_invoiceless_charges?: boolean
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface ExternalDataSourceSerializersApi {
     readonly id: string
     readonly created_at: string
@@ -153,6 +158,11 @@ export interface ExternalDataSourceSerializersApi {
     readonly schemas: string
     job_inputs?: unknown
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -164,6 +174,9 @@ export interface PaginatedExternalDataSourceSerializersListApi {
     results: ExternalDataSourceSerializersApi[]
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedExternalDataSourceSerializersApi {
     readonly id?: string
     readonly created_at?: string
@@ -185,6 +198,11 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly schemas?: string
     job_inputs?: unknown
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**

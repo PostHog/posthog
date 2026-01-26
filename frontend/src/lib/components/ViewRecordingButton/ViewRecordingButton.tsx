@@ -1,3 +1,4 @@
+import classNames from 'classnames'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 
@@ -14,6 +15,11 @@ import { urls } from 'scenes/urls'
 import { MatchedRecording } from '~/types'
 
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
+
+export enum ViewRecordingButtonVariant {
+    Button = 'button',
+    Link = 'link',
+}
 
 export enum RecordingPlayerType {
     NewTab = 'new_tab',
@@ -42,11 +48,13 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     hasRecording,
+    variant = ViewRecordingButtonVariant.Button,
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
     ViewRecordingProps & {
         checkIfViewed?: boolean
         label?: ReactNode
+        variant?: ViewRecordingButtonVariant
     }): JSX.Element {
     const { onClick, disabledReason, warningReason } = useRecordingButton({
         sessionId,
@@ -86,6 +94,28 @@ export default function ViewRecordingButton({
     ) : (
         <IconPlayCircle />
     )
+
+    if (variant === ViewRecordingButtonVariant.Link) {
+        return (
+            <Link
+                onClick={disabledReason || props.loading ? undefined : onClick}
+                disabledReason={
+                    typeof disabledReason === 'string'
+                        ? disabledReason
+                        : disabledReason
+                          ? 'Recording unavailable'
+                          : null
+                }
+                className={classNames(props.className, props.loading && 'opacity-50', props.fullWidth && 'w-full')}
+                data-attr={props['data-attr']}
+            >
+                {props.loading ? <Spinner className="text-sm" /> : null}
+                {label ?? 'View recording'}
+                {sideIcon}
+                {maybeUnwatchedIndicator}
+            </Link>
+        )
+    }
 
     return (
         <LemonButton disabledReason={disabledReason} onClick={onClick} sideIcon={sideIcon} {...props}>

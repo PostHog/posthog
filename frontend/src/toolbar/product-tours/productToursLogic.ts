@@ -7,6 +7,7 @@ import { findElement, getElementPath } from 'posthog-js/dist/element-inference'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { uuid } from 'lib/utils'
+import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { prepareStepForRender, prepareStepsForRender } from 'scenes/product-tours/editor/generateStepHtml'
 import { urls } from 'scenes/urls'
 
@@ -402,6 +403,7 @@ export const productToursLogic = kea<productToursLogicType>([
                         steps: stepsForApi,
                         step_order_history: stepOrderHistory,
                     },
+                    creation_context: 'toolbar',
                 }
                 const url = isUpdate
                     ? `/api/projects/@current/product_tours/${id}/`
@@ -417,12 +419,12 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
 
                 const savedTour = await response.json()
-                const { apiURL } = values
+                const { uiHost } = values
 
                 lemonToast.success(isUpdate ? 'Tour updated' : 'Tour created', {
                     button: {
                         label: 'Open in PostHog',
-                        action: () => window.open(`${apiURL}${urls.productTour(savedTour.id)}`, '_blank'),
+                        action: () => window.open(`${uiHost}${urls.productTour(savedTour.id)}`, '_blank'),
                     },
                 })
                 actions.loadTours()
@@ -434,7 +436,7 @@ export const productToursLogic = kea<productToursLogicType>([
     })),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['dataAttributes', 'apiURL', 'userIntent', 'productTourId', 'posthog']],
+        values: [toolbarConfigLogic, ['dataAttributes', 'uiHost', 'userIntent', 'productTourId', 'posthog']],
     })),
 
     selectors({
@@ -510,6 +512,11 @@ export const productToursLogic = kea<productToursLogicType>([
     listeners(({ actions, values }) => ({
         addStep: ({ stepType }) => {
             const nextIndex = values.tourForm?.steps?.length ?? 0
+            toolbarPosthogJS.capture(ProductTourEvent.STEP_ADDED, {
+                step_type: stepType,
+                step_index: nextIndex,
+                tour_id: values.tourForm?.id ?? null,
+            })
             if (stepType === 'element') {
                 // Element steps need element selection first
                 actions.setEditorState({ mode: 'selecting', stepIndex: nextIndex })
@@ -645,6 +652,13 @@ export const productToursLogic = kea<productToursLogicType>([
         },
         removeStep: ({ index }) => {
             if (values.tourForm) {
+                const removedStep = values.tourForm.steps?.[index]
+                toolbarPosthogJS.capture(ProductTourEvent.STEP_REMOVED, {
+                    step_type: removedStep?.type ?? null,
+                    step_index: index,
+                    tour_id: values.tourForm.id ?? null,
+                    remaining_steps: (values.tourForm.steps?.length ?? 1) - 1,
+                })
                 const steps = [...(values.tourForm.steps || [])]
                 steps.splice(index, 1)
                 actions.setTourFormValue('steps', steps)
@@ -688,6 +702,10 @@ export const productToursLogic = kea<productToursLogicType>([
             }
 
             // Validation passed - now enter preview mode
+            toolbarPosthogJS.capture(ProductTourEvent.PREVIEW_STARTED, {
+                tour_id: tourForm.id ?? null,
+                step_count: tourForm.steps.length,
+            })
             actions.startPreviewMode()
             toolbarLogic.actions.toggleMinimized(true)
 
@@ -828,6 +846,11 @@ export const productToursLogic = kea<productToursLogicType>([
             }
         },
         generateWithAISuccess: ({ steps: generatedSteps, name }) => {
+            toolbarPosthogJS.capture(ProductTourEvent.AI_GENERATED, {
+                tour_id: values.tourForm?.id ?? null,
+                step_count: generatedSteps.length,
+                has_goal: !!values.aiGoal,
+            })
             if (name) {
                 actions.setTourFormValue('name', name)
             }

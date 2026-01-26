@@ -21,7 +21,7 @@ from products.data_warehouse.backend.data_load.saved_query_service import get_sa
 from products.data_warehouse.backend.models import DataWarehouseModelPath, DataWarehouseTable
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
-from products.endpoints.backend.models import Endpoint
+from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 pytestmark = [pytest.mark.django_db]
 
@@ -49,17 +49,18 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
     def test_enable_materialization_creates_saved_query(self):
         """Test that enabling materialization creates a SavedQuery."""
-        # Create an endpoint
-        endpoint = Endpoint.objects.create(
+        # Create an endpoint with version
+        endpoint = create_endpoint_with_version(
             name="test_materialized_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
         )
+        version = endpoint.versions.first()
 
         # Verify no saved_query exists yet
-        self.assertIsNone(endpoint.saved_query)
+        self.assertIsNone(version.saved_query)
 
         # Update endpoint to enable materialization
         updated_data = {
@@ -75,13 +76,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
         self.assertTrue(response_data["is_materialized"])
 
-        # Verify SavedQuery was created
-        endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
-        saved_query = endpoint.saved_query
+        # Verify SavedQuery was created on version
+        version.refresh_from_db()
+        self.assertIsNotNone(version.saved_query)
+        saved_query = version.saved_query
         assert saved_query is not None
         self.assertEqual(saved_query.name, endpoint.name)
-        self.assertEqual(saved_query.query, endpoint.query)
+        self.assertEqual(saved_query.query, version.query)
         self.assertTrue(saved_query.is_materialized)
         self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)
 
@@ -97,12 +98,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
     def test_update_sync_frequency_updates_saved_query_sync_interval(self):
         """Test that updating sync_frequency updates the SavedQuery's sync_interval."""
         # Create and materialize an endpoint
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_sync_frequency",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
         )
+        version = endpoint.versions.first()
 
         # Enable materialization with 24-hour frequency
         self.client.patch(
@@ -114,8 +116,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        endpoint.refresh_from_db()
-        saved_query = endpoint.saved_query
+        version.refresh_from_db()
+        saved_query = version.saved_query
         assert saved_query is not None
         self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=24))
 
@@ -154,12 +156,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
     def test_disable_materialization_removes_saved_query(self):
         """Test that disabling materialization removes the SavedQuery."""
         # Create and materialize an endpoint
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_disable_materialization",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
         )
+        version = endpoint.versions.first()
 
         self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -170,10 +173,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
-        assert endpoint.saved_query is not None
-        saved_query_id = endpoint.saved_query.id
+        version.refresh_from_db()
+        self.assertIsNotNone(version.saved_query)
+        assert version.saved_query is not None
+        saved_query_id = version.saved_query.id
 
         # Disable materialization
         response = self.client.patch(
@@ -186,9 +189,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
         self.assertFalse(response_data["is_materialized"])
 
-        # Verify saved_query is removed from endpoint
-        endpoint.refresh_from_db()
-        self.assertIsNone(endpoint.saved_query)
+        # Verify saved_query is removed from version
+        version.refresh_from_db()
+        self.assertIsNone(version.saved_query)
 
         # Verify SavedQuery is soft-deleted
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
@@ -196,7 +199,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
     def test_cannot_materialize_query_with_variables(self):
         """Test that queries with variables cannot be materialized."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_variables",
             team=self.team,
             query={
@@ -228,7 +231,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_lifecycle_query",
             team=self.team,
             query={
@@ -239,6 +242,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             },
             created_by=self.user,
         )
+        version = endpoint.versions.first()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -250,9 +254,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
-        saved_query = endpoint.saved_query
+        version.refresh_from_db()
+        self.assertIsNotNone(version.saved_query)
+        saved_query = version.saved_query
         assert saved_query is not None
         assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
@@ -266,7 +270,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_stickiness_query",
             team=self.team,
             query={
@@ -277,6 +281,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             },
             created_by=self.user,
         )
+        version = endpoint.versions.first()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -288,9 +293,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
-        saved_query = endpoint.saved_query
+        version.refresh_from_db()
+        self.assertIsNotNone(version.saved_query)
+        saved_query = version.saved_query
         assert saved_query is not None
         assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
@@ -303,7 +308,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_retention_query",
             team=self.team,
             query=RetentionQuery(
@@ -322,6 +327,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             ).model_dump(),
             created_by=self.user,
         )
+        version = endpoint.versions.first()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -333,9 +339,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
-        saved_query = endpoint.saved_query
+        version.refresh_from_db()
+        self.assertIsNotNone(version.saved_query)
+        saved_query = version.saved_query
         assert saved_query is not None
         assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
@@ -348,7 +354,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_paths_query",
             team=self.team,
             query=PathsQuery(
@@ -359,6 +365,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             ).model_dump(),
             created_by=self.user,
         )
+        version = endpoint.versions.first()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -370,16 +377,16 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        endpoint.refresh_from_db()
-        self.assertIsNotNone(endpoint.saved_query)
-        saved_query = endpoint.saved_query
+        version.refresh_from_db()
+        self.assertIsNotNone(version.saved_query)
+        saved_query = version.saved_query
         assert saved_query is not None
         assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_materialization_status_in_response(self):
         """Test that materialization status is included in endpoint response."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_status",
             team=self.team,
             query=self.sample_hogql_query,
@@ -416,7 +423,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
     def test_materialization_status_endpoint(self):
         """Test the dedicated materialization_status endpoint returns only materialization data."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="test_status_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
@@ -473,13 +480,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "query": "SELECT 2 as value",
         }
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="query_update_endpoint",
             team=self.team,
             query=initial_query,
             created_by=self.user,
             is_active=True,
         )
+        version = endpoint.versions.first()
 
         self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -491,8 +499,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         endpoint.refresh_from_db()
+        version.refresh_from_db()
         self.assertEqual(endpoint.current_version, 1)
-        saved_query = endpoint.saved_query
+        saved_query = version.saved_query
         assert saved_query is not None
         saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
         saved_query.last_run_at = timezone.now() - timedelta(minutes=20)
@@ -532,13 +541,16 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         endpoint.refresh_from_db()
         self.assertEqual(endpoint.current_version, 2, "Version should be incremented after query update")
 
-        new_saved_query = endpoint.saved_query
+        # Get the new version (version 2)
+        new_version = endpoint.get_version()
+        assert new_version is not None
+        new_saved_query = new_version.saved_query
         assert new_saved_query is not None, "Materialization should be re-enabled after query update"
         new_saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
         new_saved_query.last_run_at = timezone.now()
         new_saved_query.table = DataWarehouseTable.objects.create(
             team=self.team,
-            name=f"query_update_endpoint_v2",
+            name="query_update_endpoint_v2",
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern="s3://test-bucket/path-v2",
         )
@@ -587,14 +599,18 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             url_pattern="s3://test-bucket/path",
         )
         saved_query.save()
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="materialized_filters_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
-            saved_query=saved_query,
         )
+        # Link saved_query to version
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.is_materialized = True
+        version.save()
 
         with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
             response = self.client.post(
@@ -637,14 +653,18 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         saved_query.save()
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="stale_data_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
-            saved_query=saved_query,
         )
+        # Link saved_query to version
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.is_materialized = True
+        version.save()
 
         # Mock the execution methods to track which path is taken
         with (
@@ -685,14 +705,18 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         saved_query.save()
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="fresh_data_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
-            saved_query=saved_query,
         )
+        # Link saved_query to version
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.is_materialized = True
+        version.save()
 
         # Mock the execution methods to track which path is taken
         with (
@@ -732,14 +756,18 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         saved_query.save()
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="force_mode_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
-            saved_query=saved_query,
         )
+        # Link saved_query to version
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.is_materialized = True
+        version.save()
 
         with (
             mock.patch.object(
@@ -778,14 +806,18 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         saved_query.save()
 
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="direct_mode_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
-            saved_query=saved_query,
         )
+        # Link saved_query to version
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.is_materialized = True
+        version.save()
 
         with (
             mock.patch.object(
@@ -806,7 +838,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
     def test_direct_mode_rejected_for_non_materialized_endpoint(self):
         """Test that 'direct' mode is rejected for non-materialized endpoints."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="non_materialized_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
@@ -832,10 +864,14 @@ class TestEndpointMaterializationTemporal:
     @pytest_asyncio.fixture
     async def materialized_endpoint(self, ateam, endpoint):
         """Create a materialized endpoint with saved_query."""
+        # Get the version from endpoint (created by the endpoint fixture in conftest.py)
+        version = await sync_to_async(endpoint.get_version)()
+        assert version is not None
+
         saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
             team=ateam,
             name=endpoint.name,
-            query=endpoint.query,
+            query=version.query,
             is_materialized=True,
             sync_frequency_interval=timedelta(hours=12),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
@@ -845,14 +881,21 @@ class TestEndpointMaterializationTemporal:
 
         await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(saved_query)
 
-        endpoint.saved_query = saved_query
-        await sync_to_async(endpoint.save)()
+        # Link saved_query to version instead of endpoint
+        version.saved_query = saved_query
+        version.is_materialized = True
+        await sync_to_async(version.save)()
 
         yield endpoint
 
     async def test_saved_query_temporal_schedule_created(self, materialized_endpoint):
         """Test that a Temporal schedule is created for the SavedQuery."""
-        saved_query = materialized_endpoint.saved_query
+        version = await sync_to_async(materialized_endpoint.get_version)()
+
+        def get_saved_query(v):
+            return v.saved_query
+
+        saved_query = await sync_to_async(get_saved_query)(version)
         assert saved_query is not None
 
         # Get the schedule that should be created
@@ -875,7 +918,12 @@ class TestEndpointMaterializationTemporal:
 
     async def test_sync_frequency_affects_schedule_interval(self, materialized_endpoint):
         """Test that different sync_frequency values create schedules with correct intervals."""
-        saved_query = materialized_endpoint.saved_query
+        version = await sync_to_async(materialized_endpoint.get_version)()
+
+        def get_saved_query(v):
+            return v.saved_query
+
+        saved_query = await sync_to_async(get_saved_query)(version)
 
         # Test 1-hour frequency
         saved_query.sync_frequency_interval = timedelta(hours=1)
