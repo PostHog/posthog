@@ -5,6 +5,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
