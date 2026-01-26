@@ -16,6 +16,7 @@ use kafka_deduplicator::kafka::{
 };
 use kafka_deduplicator::store::DeduplicationStoreConfig;
 use kafka_deduplicator::store_manager::StoreManager;
+use kafka_deduplicator::test_utils::create_test_coordinator;
 
 use common_types::CapturedEvent;
 use tempfile::TempDir;
@@ -88,10 +89,11 @@ fn create_batch_kafka_consumer(
         path: temp_dir.path().to_path_buf(),
         max_capacity: 1000,
     };
-    let store_manager = Arc::new(StoreManager::new(store_config));
+    let coordinator = create_test_coordinator();
+    let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
 
     let processor = Arc::new(TestProcessor { sender: chan_tx });
-    let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
@@ -459,10 +461,11 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
         path: temp_dir.path().to_path_buf(),
         max_capacity: 1000,
     };
-    let store_manager = Arc::new(StoreManager::new(store_config));
+    let coordinator = create_test_coordinator();
+    let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
 
     // Create offset tracker
-    let offset_tracker = Arc::new(OffsetTracker::new(store_manager));
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
     // Create router with partition workers
     let router = Arc::new(PartitionRouter::new(

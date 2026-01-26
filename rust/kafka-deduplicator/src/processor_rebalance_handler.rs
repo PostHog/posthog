@@ -19,6 +19,7 @@ use crate::metrics_const::{
     REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_RESUME_PARTITIONS_FILTERED,
     REBALANCE_RESUME_SKIPPED_ALL_REVOKED,
 };
+use crate::rebalance_coordinator::RebalanceCoordinator;
 use crate::store_manager::StoreManager;
 
 /// Rebalance handler that coordinates store cleanup and partition workers
@@ -28,6 +29,7 @@ where
     P: BatchConsumerProcessor<T> + 'static,
 {
     store_manager: Arc<StoreManager>,
+    rebalance_coordinator: Arc<RebalanceCoordinator>,
     router: Option<Arc<PartitionRouter<T, P>>>,
     offset_tracker: Arc<OffsetTracker>,
     /// Partitions pending cleanup - added on revoke, removed on assign
@@ -47,11 +49,13 @@ where
 {
     pub fn new(
         store_manager: Arc<StoreManager>,
+        rebalance_coordinator: Arc<RebalanceCoordinator>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
+            rebalance_coordinator,
             router: None,
             offset_tracker,
             pending_cleanup: DashSet::new(),
@@ -62,12 +66,14 @@ where
 
     pub fn with_router(
         store_manager: Arc<StoreManager>,
+        rebalance_coordinator: Arc<RebalanceCoordinator>,
         router: Arc<PartitionRouter<T, P>>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
+            rebalance_coordinator,
             router: Some(router),
             offset_tracker,
             pending_cleanup: DashSet::new(),
@@ -338,7 +344,7 @@ where
 
         // Increment rebalancing counter SYNCHRONOUSLY before async work is queued
         // This ensures no gap where orphan cleanup could run
-        self.store_manager.start_rebalancing();
+        self.rebalance_coordinator.start_rebalancing();
     }
 
     fn setup_revoked_partitions(&self, partitions: &TopicPartitionList) {
@@ -387,7 +393,7 @@ where
     ) -> Result<()> {
         // Create guard that will decrement rebalancing counter on drop (even on panic)
         // This ensures cleanup happens even if this function panics or is cancelled
-        let _rebalancing_guard = self.store_manager.rebalancing_guard();
+        let _rebalancing_guard = self.rebalance_coordinator.rebalancing_guard();
 
         // Get a clone of the cancellation token for this rebalance.
         // If a new rebalance starts, this token will be cancelled.
@@ -557,15 +563,15 @@ where
 
     async fn on_pre_rebalance(&self) -> Result<()> {
         info!("Pre-rebalance: Preparing for partition changes");
-        // Note: store_manager.start_rebalancing() is called in setup_assigned_partitions()
+        // Note: rebalance_coordinator.start_rebalancing() is called in setup_assigned_partitions()
         // (sync callback) to ensure no gap before async work is queued.
-        // The store_manager's rebalancing counter is the single source of truth.
+        // The rebalance_coordinator's counter is the single source of truth.
         Ok(())
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
         info!("Post-rebalance: Partition changes complete");
-        // Note: store_manager rebalancing counter is decremented via RebalancingGuard
+        // Note: rebalance_coordinator counter is decremented via RebalancingGuard
         // at the end of async_setup_assigned_partitions (ensures panic safety).
         // The store_manager's rebalancing counter is the single source of truth.
 
@@ -588,6 +594,7 @@ mod tests {
     use crate::kafka::offset_tracker::OffsetTracker;
     use crate::kafka::partition_router::PartitionRouterConfig;
     use crate::store::DeduplicationStoreConfig;
+    use crate::test_utils::create_test_coordinator;
     use rdkafka::Offset;
     use tempfile::TempDir;
 
@@ -607,12 +614,13 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         // Test handler without router
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
+            ProcessorRebalanceHandler::new(store_manager.clone(), coordinator.clone(), offset_tracker.clone(), None);
         assert!(handler.router.is_none());
 
         // Test handler with router
@@ -624,6 +632,7 @@ mod tests {
         ));
         let handler_with_router = ProcessorRebalanceHandler::with_router(
             store_manager,
+            coordinator,
             router.clone(),
             offset_tracker,
             None,
@@ -638,9 +647,10 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -649,6 +659,7 @@ mod tests {
 
         let handler = ProcessorRebalanceHandler::with_router(
             store_manager,
+            coordinator,
             router.clone(),
             offset_tracker,
             None,
@@ -700,9 +711,10 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -711,6 +723,7 @@ mod tests {
 
         let handler = ProcessorRebalanceHandler::with_router(
             store_manager.clone(),
+            coordinator,
             router.clone(),
             offset_tracker,
             None,
@@ -765,7 +778,8 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
 
         // Create a store
         store_manager.get_or_create("test-topic", 0).await.unwrap();
@@ -800,9 +814,10 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -811,6 +826,7 @@ mod tests {
 
         let handler = ProcessorRebalanceHandler::with_router(
             store_manager.clone(),
+            coordinator,
             router.clone(),
             offset_tracker,
             None,
@@ -862,7 +878,8 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
 
         // Create a store (this creates the directory)
         store_manager.get_or_create("test-topic", 0).await.unwrap();
@@ -898,11 +915,12 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
 
         // Get initial token
         let initial_token = {
@@ -954,11 +972,12 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager.clone(), coordinator, offset_tracker, None);
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1008,11 +1027,12 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1071,11 +1091,12 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager.clone(), coordinator, offset_tracker, None);
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1160,11 +1181,12 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1204,11 +1226,12 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new(store_manager.clone()));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager.clone(), coordinator, offset_tracker, None);
 
         // Create command channel
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
