@@ -1,7 +1,12 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from '../steps'
+import { StepDefinition, StepModifier } from '../steps'
 
-export const getAngularSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
+export const getAngularSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    dedent: any,
+    snippets: any,
+): StepDefinition[] => {
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -82,7 +87,7 @@ export const getAngularSteps = (CodeBlock: any, Markdown: any, dedent: any, snip
     ]
 }
 
-export const AngularInstallation = (): JSX.Element => {
+export const AngularInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
     const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
     const steps = getAngularSteps(CodeBlock, Markdown, dedent, snippets)
 
