@@ -80,9 +80,25 @@ export function SurveyTranslations(): JSX.Element {
     }
 
     const removeLanguage = (lang: string): void => {
+        // Remove survey-level translations
         const currentTranslations = { ...survey.translations }
         delete currentTranslations[lang]
         setSurveyValue('translations', currentTranslations)
+
+        // Remove question-level translations
+        const updatedQuestions = survey.questions.map((question) => {
+            if (question.translations && question.translations[lang]) {
+                const questionTranslations = { ...question.translations }
+                delete questionTranslations[lang]
+                return {
+                    ...question,
+                    translations: questionTranslations,
+                }
+            }
+            return question
+        })
+        setSurveyValue('questions', updatedQuestions)
+
         if (editingLanguage === lang) {
             setEditingLanguage(null)
         }
