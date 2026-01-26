@@ -146,8 +146,8 @@ async def generate_and_save_generation_summary_activity(
                 properties.$ai_latency as latency
             FROM events
             WHERE event = '$ai_generation'
-                AND timestamp >= toDateTime({start_dt})
-                AND timestamp < toDateTime({end_dt})
+                AND timestamp >= toDateTime({start_dt}, 'UTC')
+                AND timestamp < toDateTime({end_dt}, 'UTC')
                 AND uuid = {generation_id}
             LIMIT 1
             """

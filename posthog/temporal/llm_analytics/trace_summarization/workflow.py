@@ -157,8 +157,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             window_end = inputs.window_end
         else:
             now = temporalio.workflow.now()
-            window_end = now.isoformat()
-            window_start = (now - timedelta(minutes=inputs.window_minutes)).isoformat()
+            window_end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            window_start = (now - timedelta(minutes=inputs.window_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # Prepare inputs with computed window
         inputs_with_window = BatchSummarizationInputs(

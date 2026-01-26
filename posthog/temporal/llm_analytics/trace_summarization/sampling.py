@@ -68,6 +68,15 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         runner = TracesQueryRunner(team=team, query=query)
         response = runner.calculate()
 
+        logger.debug(
+            "traces_query_runner_result",
+            num_traces=len(response.results),
+            analysis_level=analysis_level,
+            window_start=window_start,
+            window_end=window_end,
+            team_id=team_id,
+        )
+
         if analysis_level == "generation":
             # Step 2: For generation-level, query for last generation per trace
             trace_context = {trace.id: trace.createdAt for trace in response.results}
@@ -89,8 +98,8 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     argMax(uuid, timestamp) as last_generation_id
                 FROM events
                 WHERE event = '$ai_generation'
-                    AND timestamp >= toDateTime({start_ts})
-                    AND timestamp <= toDateTime({end_ts})
+                    AND timestamp >= toDateTime({start_ts}, 'UTC')
+                    AND timestamp <= toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id IN {trace_ids}
                 GROUP BY trace_id
                 """
@@ -105,6 +114,15 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     "end_ts": ast.Constant(value=end_dt_str),
                 },
                 team=team,
+            )
+
+            logger.debug(
+                "generation_query_result",
+                num_generations=len(result.results or []),
+                num_trace_ids_queried=len(trace_context),
+                start_ts=start_dt_str,
+                end_ts=end_dt_str,
+                team_id=team_id,
             )
 
             items: list[SampledItem] = []
