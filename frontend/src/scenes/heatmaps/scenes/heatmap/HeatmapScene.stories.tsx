@@ -144,6 +144,10 @@ export const New: Story = {
     },
 }
 
+// 100x100 gray placeholder PNG as data URL (browser can load directly without MSW)
+const PLACEHOLDER_IMAGE_DATA_URL =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAIAAAD/gAIDAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyJpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMy1jMDExIDY2LjE0NTY2MSwgMjAxMi8wMi8wNi0xNDo1NjoyNyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNiAoV2luZG93cykiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6QjRBMTFGNjRCNjJBMTFFNTg4NzM4OENBQTVCOEY1QkYiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6QjRBMTFGNjVCNjJBMTFFNTg4NzM4OENBQTVCOEY1QkYiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDpCNEExMUY2MkI2MkExMUU1ODg3Mzg4Q0FBNUI4RjVCRiIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDpCNEExMUY2M0I2MkExMUU1ODg3Mzg4Q0FBNUI4RjVCRiIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PqqGNnYAAABRSURBVHja7NAxAQAgEMDAL/q3PjFIAhFw6+mc7jMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAbwIMALGFAQGC5xnRAAAAAElFTkSuQmCC'
+
 const uploadSaved = {
     id: 102,
     short_id: 'hm_upload',
@@ -154,7 +158,7 @@ const uploadSaved = {
     type: 'upload',
     status: 'completed',
     has_content: false,
-    image_url: '/uploaded_media/550e8400-e29b-41d4-a716-446655440000',
+    image_url: PLACEHOLDER_IMAGE_DATA_URL,
     snapshots: [],
     deleted: false,
     created_by: { id: 1, uuid: 'user-1', distinct_id: 'd1', first_name: 'Alice', email: 'alice@ph.com' },
@@ -174,18 +178,6 @@ export const UploadExample: Story = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/saved/hm_upload/': uploadSaved,
-                '/uploaded_media/550e8400-e29b-41d4-a716-446655440000': (_req, res, ctx) =>
-                    res(
-                        ctx.status(200),
-                        ctx.set('Content-Type', 'image/png'),
-                        // 1x1 transparent PNG
-                        ctx.body(
-                            Buffer.from(
-                                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-                                'base64'
-                            )
-                        )
-                    ),
             },
         }),
     ],

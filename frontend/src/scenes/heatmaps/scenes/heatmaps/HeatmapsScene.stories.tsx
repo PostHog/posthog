@@ -55,7 +55,8 @@ const savedList = {
             type: 'upload',
             status: 'completed',
             has_content: false,
-            image_url: '/uploaded_media/550e8400-e29b-41d4-a716-446655440000',
+            image_url:
+                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
             snapshots: [],
             deleted: false,
             created_by: { id: 1, uuid: 'user-1', distinct_id: 'd1', first_name: 'Alice', email: 'alice@ph.com' },
