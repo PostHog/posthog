@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -18,9 +17,8 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { SceneLayout } from '../scenes/SceneLayout'
+import { ScenePanelContainer } from '../scenes/ScenePanelContainer'
 import { SceneTabs } from '../scenes/SceneTabs'
-import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
-import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -39,12 +37,10 @@ export function Navigation({
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
-    const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    const { mainContentRect, isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
     const { activeTabId } = useValues(sceneLogic)
-    const { registerScenePanelElement } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { sidePanelOpen, sidePanelAvailable } = useValues(sidePanelStateLogic)
@@ -132,6 +128,7 @@ export function Navigation({
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
                                     'rounded-tl-none': firstTabIsActive,
+                                    'rounded-tr-none': sceneConfig?.scenePanelTabs?.length,
                                 }
                             )}
                             onScroll={(e) => {
@@ -157,32 +154,7 @@ export function Navigation({
                             </SceneLayout>
                         </main>
 
-                        {scenePanelIsPresent && (
-                            <>
-                                <div
-                                    className={cn(
-                                        'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
-                                        'absolute right-0 top-0 @[1200px]/main-content-container:relative @[1200px]/main-content-container:right-auto @[1200px]/main-content-container:top-auto',
-                                        {
-                                            hidden: !scenePanelOpenManual,
-                                            'z-1': isLayoutPanelVisible,
-                                        }
-                                    )}
-                                >
-                                    <div className="h-[50px] flex items-center justify-end gap-2 -mx-2 px-4 py-2 border-b border-primary shrink-0">
-                                        <SceneTitlePanelButton inPanel />
-                                    </div>
-                                    <ScrollableShadows
-                                        direction="vertical"
-                                        className="grow flex-1"
-                                        innerClassName="px-2 py-2 bg-primary"
-                                        styledScrollbars
-                                    >
-                                        <div ref={registerScenePanelElement} />
-                                    </ScrollableShadows>
-                                </div>
-                            </>
-                        )}
+                        <ScenePanelContainer />
                     </div>
                     <SidePanel className="right-nav" />
                 </ProjectDragAndDropProvider>

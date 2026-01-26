@@ -23,8 +23,11 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
 export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
-    const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
+    const { scenePanelOpenManual, sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+
+    // Check if scene has panel tabs configured
+    const scenePanelIsPresent = Boolean(sceneLayoutConfig?.scenePanelTabs?.length)
 
     // Show "Open" button when panel is closed, show "Close" button when panel is open
     // Both should never render simultaneously to avoid Playwright strict mode violations

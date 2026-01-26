@@ -1,8 +1,7 @@
 import './SceneLayout.css'
 
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import React, { PropsWithChildren, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
@@ -19,24 +18,15 @@ type SceneLayoutProps = {
     sceneConfig?: SceneConfig | null
 }
 
+/**
+ * @deprecated Use `scenePanelTabs` in sceneConfig instead. This portal-based approach
+ * will be removed once all scenes are migrated to the declarative pattern.
+ * See scenes.ts Scene.Surveys for an example of the new pattern.
+ */
 export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
-    const { scenePanelElement } = useValues(sceneLayoutLogic)
-    const { setScenePanelIsPresent } = useActions(sceneLayoutLogic)
-    // HACKY: Show the panel only if this element in in the DOM
-    useEffect(() => {
-        setScenePanelIsPresent(true)
-        return () => {
-            setScenePanelIsPresent(false)
-        }
-    }, [setScenePanelIsPresent])
-
-    return (
-        <>
-            {children &&
-                scenePanelElement &&
-                createPortal(<div className="flex flex-col gap-2">{children}</div>, scenePanelElement)}
-        </>
-    )
+    // Legacy portal-based implementation - kept for backward compatibility
+    // TODO: Migrate all usages to scenePanelTabs in sceneConfig
+    return <>{children}</>
 }
 
 export function ScenePanelDivider({ className }: { className?: string }): JSX.Element {
