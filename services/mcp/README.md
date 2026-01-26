@@ -203,7 +203,7 @@ And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in th
 
 To develop with warm loading for MCP resources (workflows, prompts, examples):
 
-1. Start the [examples](https://github.com/postHog/examples) dev server: `cd ../examples && npm run dev`
+1. Start the [context-mill](https://github.com/PostHog/context-mill) dev server: `cd ../context-mill && npm run dev`
 2. Start the MCP server with local resources: `pnpm run dev:local-resources`
 
 Changes in the examples repo will be reflected on the next request.

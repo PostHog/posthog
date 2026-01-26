@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { loadManifest } from '@/resources/manifest-loader'
 
-const EXAMPLES_MARKDOWN_URL = 'https://github.com/PostHog/examples/releases/latest/download/examples-mcp-resources.zip'
+const EXAMPLES_MARKDOWN_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/examples-mcp-resources.zip'
 
 describe('Manifest Integration', () => {
     it('should fetch, unzip, and validate the manifest from GitHub releases', async () => {
