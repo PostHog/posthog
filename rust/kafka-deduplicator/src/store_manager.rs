@@ -186,6 +186,34 @@ impl StoreManager {
         self.stores.get(&partition_key).map(|entry| entry.clone())
     }
 
+    /// Get an existing store for a partition during message processing.
+    ///
+    /// Returns an error if the store doesn't exist. This is the correct behavior
+    /// during normal consumption because:
+    /// - Stores are created during rebalance (via `get_or_create_for_rebalance`)
+    /// - Partitions are paused until stores are ready
+    /// - If no store exists, the partition was likely revoked
+    ///
+    /// Use this method in the batch processor instead of `get_or_create` to avoid
+    /// accidentally creating stores for revoked partitions.
+    pub fn get_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
+        let partition_key = Partition::new(topic.to_string(), partition);
+
+        self.stores.get(&partition_key).map(|entry| entry.clone()).ok_or_else(|| {
+            warn!(
+                topic = topic,
+                partition = partition,
+                "No store registered for partition - message will be dropped (partition likely revoked)"
+            );
+            metrics::counter!(crate::metrics_const::MESSAGES_DROPPED_NO_STORE).increment(1);
+            anyhow::anyhow!(
+                "No store registered for partition {}:{} - partition was likely revoked",
+                topic,
+                partition
+            )
+        })
+    }
+
     /// Get or create a deduplication store for a specific partition
     ///
     /// This method handles concurrent access safely:
@@ -1869,6 +1897,90 @@ mod tests {
         assert!(
             !timestamp_subdir.exists(),
             "Orphan timestamp directory should be removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_returns_error_when_not_exists() {
+        // Test that get_store() returns an error when no store exists
+        // This is the expected behavior during message processing for revoked partitions
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // get_store() should return error when store doesn't exist
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_err(),
+            "get_store() should return error when store doesn't exist"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No store registered"),
+            "Error message should indicate no store registered"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_returns_store_when_exists() {
+        // Test that get_store() returns the store when it exists
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Pre-create store (as would happen during rebalance)
+        manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
+        // get_store() should now return the store
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_ok(),
+            "get_store() should return Ok when store exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_after_unregister_returns_error() {
+        // Test that get_store() returns error after store is unregistered
+        // This simulates the revocation scenario
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Create store
+        manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
+        // get_store() should work
+        assert!(manager.get_store("test-topic", 0).is_ok());
+
+        // Unregister store (as would happen during revocation)
+        manager.unregister_store("test-topic", 0);
+
+        // get_store() should now return error
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_err(),
+            "get_store() should return error after store is unregistered"
         );
     }
 }

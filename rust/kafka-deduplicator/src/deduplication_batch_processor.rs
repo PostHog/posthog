@@ -365,8 +365,9 @@ impl BatchDeduplicationProcessor {
         partition: i32,
         events: Vec<&RawEvent>,
     ) -> Result<Vec<DeduplicationResult>> {
-        // Get the store for this partition
-        let store = self.store_manager.get_or_create(topic, partition).await?;
+        // Get the store for this partition - must already exist (created during rebalance)
+        // If store doesn't exist, partition was likely revoked and messages should be dropped
+        let store = self.store_manager.get_store(topic, partition)?;
 
         // Create metrics helper for this partition
         let metrics = MetricsHelper::with_partition(topic, partition)
@@ -829,6 +830,13 @@ mod tests {
     async fn test_batch_deduplication_all_new_events() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -876,6 +884,13 @@ mod tests {
     async fn test_batch_deduplication_with_timestamp_duplicates() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -921,6 +936,13 @@ mod tests {
     async fn test_batch_deduplication_mixed_batch() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -968,6 +990,13 @@ mod tests {
     async fn test_batch_deduplication_events_without_uuid() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1009,6 +1038,13 @@ mod tests {
     async fn test_batch_deduplication_large_batch() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1069,6 +1105,13 @@ mod tests {
     async fn test_batch_deduplication_only_uuid_different() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1122,6 +1165,13 @@ mod tests {
     async fn test_batch_deduplication_within_same_batch() {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1148,5 +1198,50 @@ mod tests {
         assert!(matches!(results[0], DeduplicationResult::New));
         // Second should be duplicate
         assert!(results[1].is_duplicate());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_deduplicate_batch_returns_error_when_store_missing() {
+        // Test that deduplicate_batch returns an error when the store doesn't exist.
+        // This simulates the scenario where a partition was revoked and messages
+        // arrive for it before the consumer stops delivering them.
+        let (config, _temp_dir) = create_test_config();
+        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+
+        // NOTE: We intentionally do NOT pre-create a store here
+
+        let processor = BatchDeduplicationProcessor {
+            config,
+            producer: None,
+            duplicate_producer: None,
+            store_manager,
+            offset_tracker: None,
+        };
+
+        // Create a batch of events
+        let events = [create_test_raw_event(
+            Some(Uuid::new_v4()),
+            "event1",
+            "user1",
+            "2024-01-01T00:00:00Z",
+        )];
+
+        let event_refs: Vec<&RawEvent> = events.iter().collect();
+
+        // deduplicate_batch should return an error because no store exists
+        let result = processor
+            .deduplicate_batch("test-topic", 0, event_refs)
+            .await;
+
+        assert!(
+            result.is_err(),
+            "deduplicate_batch should return error when store doesn't exist"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("No store registered"),
+            "Error should indicate no store registered, got: {}",
+            err_msg
+        );
     }
 }
