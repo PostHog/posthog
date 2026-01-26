@@ -42,7 +42,6 @@ export const manifest: ProductManifest = {
                 ProductKey.PIPELINE_DESTINATIONS,
                 ProductKey.PIPELINE_TRANSFORMATIONS,
                 ProductKey.PIPELINE_BATCH_EXPORTS,
-                ProductKey.WORKFLOWS,
                 ProductKey.SITE_APPS,
             ],
             category: 'Tools',
