@@ -348,8 +348,8 @@ SELECT
     if(JSONHas(log_comment, 'query', 'source'),
         JSONExtractString(log_comment, 'query', 'source', 'kind'),
         JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'query'),
+    multiIf(not is_initial_query, ''
+        JSONHas(log_comment, 'query', 'source'), JSONExtractString(log_comment, 'query', 'source', 'query'),
         JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
