@@ -10,7 +10,6 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { cn } from 'lib/utils/css-classes'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -79,7 +78,6 @@ function NewSurveyButton(): JSX.Element {
             }}
             position="bottom-right"
             active={!!user?.uuid && userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)}
-            className={cn('mr-3')}
         >
             <AccessControlAction
                 resourceType={AccessControlResourceType.Survey}

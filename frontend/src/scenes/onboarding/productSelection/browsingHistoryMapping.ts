@@ -20,9 +20,6 @@ const PROD_INTEREST_TO_PRODUCT: Record<WebsiteBrowsingHistoryProdInterest, Produ
     endpoints: null,
 }
 
-// Derive the set of onboardable ProductKeys from the mapping
-const ONBOARDABLE_PRODUCTS = new Set(Object.values(PROD_INTEREST_TO_PRODUCT).filter((v): v is ProductKey => v !== null))
-
 // Human-readable labels for display
 const PROD_INTEREST_LABELS: Record<WebsiteBrowsingHistoryProdInterest, string> = {
     'product-analytics': 'Product analytics',
@@ -53,13 +50,13 @@ export function mapBrowsingHistoryToProducts(browsingHistory: string[]): Product
 }
 
 /**
- * Maps AI product keys (underscore format, same as ProductKey values) to ProductKey values.
+ * Maps AI product keys (hyphenated format from WebsiteBrowsingHistoryProdInterest) to ProductKey values.
  * Only returns products that are available in onboarding.
  */
 export function mapAIProductsToProductKeys(products: string[]): ProductKey[] {
-    return products.filter(
-        (p): p is ProductKey => ONBOARDABLE_PRODUCTS.has(p as ProductKey) && p in availableOnboardingProducts
-    )
+    return products
+        .map((p) => PROD_INTEREST_TO_PRODUCT[p as WebsiteBrowsingHistoryProdInterest])
+        .filter((key): key is ProductKey => key !== null && key in availableOnboardingProducts)
 }
 
 /** Gets human-readable labels for browsing history items. */
