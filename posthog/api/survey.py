@@ -349,6 +349,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description and nh3.is_html(thank_you_description):
             value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
 
+        thank_you_close_button = value.get("thankYouMessageCloseButtonText")
+        if thank_you_close_button and nh3.is_html(thank_you_close_button):
+            value["thankYouMessageCloseButtonText"] = nh3_clean_with_allow_list(thank_you_close_button)
+
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
@@ -381,7 +385,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         return value
 
     def validate_translations(self, value):
-        """Validate survey-level translations (name and description only)."""
+        """Validate survey-level translations."""
         if value is None:
             return value
 
@@ -395,22 +399,21 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             cleaned_translation = {}
 
-            # Validate and sanitize name and description to prevent XSS
-            if "name" in translation_data:
-                if not isinstance(translation_data["name"], str):
-                    raise serializers.ValidationError(f"Translation for '{lang_code}': 'name' must be a string")
-                if nh3.is_html(translation_data["name"]):
-                    cleaned_translation["name"] = nh3_clean_with_allow_list(translation_data["name"])
-                else:
-                    cleaned_translation["name"] = translation_data["name"]
-
-            if "description" in translation_data:
-                if not isinstance(translation_data["description"], str):
-                    raise serializers.ValidationError(f"Translation for '{lang_code}': 'description' must be a string")
-                if nh3.is_html(translation_data["description"]):
-                    cleaned_translation["description"] = nh3_clean_with_allow_list(translation_data["description"])
-                else:
-                    cleaned_translation["description"] = translation_data["description"]
+            # Validate and sanitize all translatable fields to prevent XSS
+            for field in [
+                "name",
+                "description",
+                "thankYouMessageHeader",
+                "thankYouMessageDescription",
+                "thankYouMessageCloseButtonText",
+            ]:
+                if field in translation_data:
+                    if not isinstance(translation_data[field], str):
+                        raise serializers.ValidationError(f"Translation for '{lang_code}': '{field}' must be a string")
+                    if nh3.is_html(translation_data[field]):
+                        cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
+                    else:
+                        cleaned_translation[field] = translation_data[field]
 
             # Only store non-empty translations to avoid wasting storage
             if cleaned_translation:

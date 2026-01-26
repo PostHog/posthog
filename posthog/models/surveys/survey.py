@@ -277,7 +277,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     question_summaries = models.JSONField(blank=True, null=True)
 
     # Translations for multi-language support
-    # Format: { [languageCode]: { name: string, description: string, ... } }
+    # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
     # Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
     translations = models.JSONField(blank=True, null=True)
 
