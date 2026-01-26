@@ -1,5 +1,7 @@
 import { createHash } from 'crypto'
 
+import { parseJSON } from '~/utils/json-parse'
+
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
@@ -12,11 +14,13 @@ export type PushSubscriptionGetArgs = {
 }
 
 const toKey = (args: PushSubscriptionGetArgs): string => {
-    return `${args.teamId}:${args.distinctId}:${args.platform ?? 'all'}`
+    // Use JSON encoding to safely handle distinctIds containing colons or other special characters
+    return JSON.stringify([args.teamId, args.distinctId, args.platform ?? 'all'])
 }
 
 const fromKey = (key: string): PushSubscriptionGetArgs => {
-    const [teamId, distinctId, platform] = key.split(':', 3)
+    // Parse JSON-encoded key to safely handle distinctIds containing colons or other special characters
+    const [teamId, distinctId, platform] = parseJSON(key)
     return {
         teamId: parseInt(teamId),
         distinctId,
