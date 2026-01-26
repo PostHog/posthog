@@ -312,7 +312,7 @@ class WebAuthnSignupRegistrationThrottle(IPThrottle):
     Note: this is effectively 5 attempts per minute, because each attempt issues 2 requests: begin, complete.
     """
 
-    scope = "signup_ip"
+    scope = "webauthn_signup_registration_ip"
     rate = "10/minute"
 
 
