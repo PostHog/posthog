@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use crate::{
     ops::{
         janitor::{delete_completed_and_failed_jobs, detect_poison_pills, reset_stalled_jobs},
-        meta::{count_total_waiting_jobs, dead_letter, run_migrations},
+        meta::{count_total_waiting_jobs, dead_letter},
     },
     types::AggregatedDelete,
     PoolConfig, QueueError,
@@ -24,10 +24,6 @@ impl Janitor {
 
     pub fn from_pool(pool: PgPool) -> Self {
         Self { pool }
-    }
-
-    pub async fn run_migrations(&self) {
-        run_migrations(&self.pool).await;
     }
 
     pub async fn delete_completed_and_failed_jobs(
