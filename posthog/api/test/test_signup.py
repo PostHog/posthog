@@ -1373,6 +1373,35 @@ class TestPasskeySignupAPI(APIBaseTest):
         )
         self.assertEqual(User.objects.count(), count)
 
+    def test_non_empty_password_required_without_passkey_credential(self):
+        """
+        When signing up without a passkey credential in the session, non-empty password is required.
+        """
+        count = User.objects.count()
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "No",
+                "last_name": "Password",
+                "email": "nopassword@posthog.com",
+                "password": "",
+                "organization_name": "Test Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "password",
+            },
+        )
+        self.assertEqual(User.objects.count(), count)
+
 
 class TestInviteSignupAPI(APIBaseTest):
     """
