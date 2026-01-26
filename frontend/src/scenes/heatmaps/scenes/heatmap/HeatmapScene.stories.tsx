@@ -143,3 +143,50 @@ export const New: Story = {
         pageUrl: urls.heatmap('new'),
     },
 }
+
+const uploadSaved = {
+    id: 102,
+    short_id: 'hm_upload',
+    name: 'Uploaded screenshot',
+    url: '',
+    data_url: 'https://app.example.com/dashboard/*',
+    target_widths: [],
+    type: 'upload',
+    status: 'completed',
+    has_content: false,
+    image_url: '/uploaded_media/550e8400-e29b-41d4-a716-446655440000',
+    snapshots: [],
+    deleted: false,
+    created_by: { id: 1, uuid: 'user-1', distinct_id: 'd1', first_name: 'Alice', email: 'alice@ph.com' },
+    created_at: '2024-01-04T00:00:00Z',
+    updated_at: '2024-01-04T00:00:00Z',
+    exception: null,
+}
+
+export const UploadExample: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_upload'),
+        testOptions: {
+            waitForSelector: '#heatmap-screenshot',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/saved/hm_upload/': uploadSaved,
+                '/uploaded_media/550e8400-e29b-41d4-a716-446655440000': (_req, res, ctx) =>
+                    res(
+                        ctx.status(200),
+                        ctx.set('Content-Type', 'image/png'),
+                        // 1x1 transparent PNG
+                        ctx.body(
+                            Buffer.from(
+                                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+                                'base64'
+                            )
+                        )
+                    ),
+            },
+        }),
+    ],
+}

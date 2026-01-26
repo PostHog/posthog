@@ -23,3 +23,9 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const NewForm: Story = {}
+
+export const NewFormUploadType: Story = {
+    parameters: {
+        pageUrl: `${urls.heatmapNew ? urls.heatmapNew() : urls.heatmap('new')}?type=upload`,
+    },
+}

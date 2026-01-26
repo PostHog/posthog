@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 const savedList = {
-    count: 2,
+    count: 3,
     results: [
         {
             id: 1,
@@ -43,6 +43,24 @@ const savedList = {
             created_by: { id: 2, uuid: 'user-2', distinct_id: 'd2', first_name: 'Bob', email: 'bob@ph.com' },
             created_at: '2024-01-02T00:00:00Z',
             updated_at: '2024-01-02T00:00:00Z',
+            exception: null,
+        },
+        {
+            id: 3,
+            short_id: 'hm_upload1',
+            name: 'Auth-protected dashboard',
+            url: '',
+            data_url: 'https://app.example.com/dashboard/*',
+            target_widths: [],
+            type: 'upload',
+            status: 'completed',
+            has_content: false,
+            image_url: '/uploaded_media/550e8400-e29b-41d4-a716-446655440000',
+            snapshots: [],
+            deleted: false,
+            created_by: { id: 1, uuid: 'user-1', distinct_id: 'd1', first_name: 'Alice', email: 'alice@ph.com' },
+            created_at: '2024-01-03T00:00:00Z',
+            updated_at: '2024-01-03T00:00:00Z',
             exception: null,
         },
     ],
