@@ -46,5 +46,4 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 export const scene: SceneExport = {
     component: EventsScene,
     logic: eventsSceneLogic,
-    settingSectionId: 'environment-autocapture',
 }

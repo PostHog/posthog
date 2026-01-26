@@ -167,6 +167,7 @@ export function InsightMeta({
                 disableAutoPromptSubmit={true}
                 source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
                 fromProduct={ProductKey.PRODUCT_ANALYTICS}
+                tooltip="Create a survey to understand why users are dropping off"
             />
         ) : null
 
@@ -245,6 +246,20 @@ export function InsightMeta({
             moreButtons={
                 <>
                     {/* Insight related */}
+                    {canViewInsight && (
+                        <LemonButton
+                            to={urls.insightView(
+                                short_id,
+                                dashboardId,
+                                variablesOverride,
+                                filtersOverride,
+                                tile?.filters_overrides
+                            )}
+                            fullWidth
+                        >
+                            View
+                        </LemonButton>
+                    )}
                     {canEditInsight && (
                         <>
                             <LemonButton

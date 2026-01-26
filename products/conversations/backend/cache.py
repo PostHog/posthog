@@ -59,8 +59,9 @@ def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
         if hasattr(cache, "delete_pattern"):
             cache.delete_pattern(pattern)
         else:
-            # Fallback: delete initial key. Other variations expire via TTL.
+            # Fallback: delete initial key. Other variations expire via TTL (15s).
             cache.delete(get_messages_cache_key(team_id, ticket_id, None))
+            logger.info("conversations_cache_pattern_delete_unavailable", pattern=pattern)
     except Exception:
         logger.warning("conversations_cache_invalidate_error", pattern=pattern, exc_info=True)
 
