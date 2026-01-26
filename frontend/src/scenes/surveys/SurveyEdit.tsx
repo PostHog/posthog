@@ -71,9 +71,7 @@ import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { COMMON_LANGUAGES } from './SurveyTranslations'
-import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { canUseSurveyWizard } from './utils'
@@ -267,7 +265,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { guidedEditorEnabled } = useValues(surveysLogic)
+    const { guidedEditorEnabled } = useValues(surveyLogic)
     const previewSurvey = useMemo(() => {
         if (!editingLanguage || !survey.translations?.[editingLanguage]) {
             return survey
@@ -364,7 +362,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
 
     return (
         <SceneContent>
-            <div className="flex flex-col gap-y-4">
+            <div className={`flex flex-col gap-y-4 ${editingLanguage || hasTranslationValidationErrors ? 'mt-1' : ''}`}>
                 <SceneTitleSection
                     name={editingLanguage ? (survey.translations?.[editingLanguage]?.name ?? '') : survey.name}
                     description={
@@ -444,26 +442,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
-                {editingLanguage && (
-                    <div className="px-4 py-2 bg-warning-highlight rounded border border-warning sticky top-0 z-[9999] mb-2">
-                        <span className="text-sm">
-                            Editing translation for{' '}
-                            <strong>
-                                {COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage}
-                            </strong>
-                            . Only user-facing text can be translated - all other fields are editable in the{' '}
-                            <button
-                                onClick={() => setEditingLanguage(null)}
-                                className="font-semibold hover:underline cursor-pointer"
-                            >
-                                default language
-                            </button>{' '}
-                            only.
-                        </span>
-                    </div>
-                )}
-                {hasTranslationValidationErrors && (
-                    <div className="px-4 py-2 bg-warning-highlight rounded border border-warning mt-4">
+                <div className="sticky top-[34px] z-[100] bg-bg-3000">
+                    {hasTranslationValidationErrors ? (
+                        <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
                         <LemonCollapse
                             embedded
                             defaultActiveKey="validation-errors"
@@ -526,136 +507,156 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                             ]}
                         />
                     </div>
-                )}
+                ) : editingLanguage ? (
+                    <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
+                        <span className="text-sm">
+                            Editing translation for{' '}
+                            <strong>
+                                {COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage}
+                            </strong>
+                            . Only user-facing text can be translated - all other fields are editable in the{' '}
+                            <button
+                                onClick={() => setEditingLanguage(null)}
+                                className="font-semibold hover:underline cursor-pointer"
+                            >
+                                default language
+                            </button>{' '}
+                            only.
+                        </span>
+                    </div>
+                ) : null}
             </div>
-            <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
-                <div className="flex flex-col gap-2 flex-1 SurveyForm">
-                    <LemonCollapse
-                        activeKey={selectedSection || undefined}
-                        onChange={(section) => {
-                            setSelectedSection(section)
-                        }}
-                        className="bg-surface-primary"
-                        panels={[
-                            {
-                                key: SurveyEditSection.Presentation,
-                                header: 'Presentation',
-                                content: (
-                                    <LemonField name="type">
-                                        {({ onChange, value }) => {
-                                            return (
-                                                <div className="flex flex-col gap-2">
-                                                    <div className="grid grid-cols-2 2xl:grid-cols-4 gap-4">
-                                                        <PresentationTypeCard
-                                                            active={value === SurveyType.Popover}
-                                                            onClick={() => {
-                                                                onChange(SurveyType.Popover)
-                                                                if (survey.schedule === SurveySchedule.Always) {
-                                                                    setSurveyValue('schedule', SurveySchedule.Once)
-                                                                }
-                                                            }}
-                                                            title={SURVEY_TYPE_LABEL_MAP[SurveyType.Popover]}
-                                                            description="Automatically appears when PostHog JS is installed"
-                                                            value={SurveyType.Popover}
-                                                        >
-                                                            <div className="scale-[0.8] absolute -top-4 -left-4">
-                                                                <SurveyAppearancePreview
-                                                                    survey={survey}
-                                                                    previewPageIndex={0}
-                                                                />
-                                                            </div>
-                                                        </PresentationTypeCard>
-                                                        <PresentationTypeCard
-                                                            active={value === SurveyType.API}
-                                                            onClick={() => {
-                                                                onChange(SurveyType.API)
-                                                                if (survey.schedule === SurveySchedule.Always) {
-                                                                    setSurveyValue('schedule', SurveySchedule.Once)
-                                                                }
-                                                            }}
-                                                            title={SURVEY_TYPE_LABEL_MAP[SurveyType.API]}
-                                                            description="Use the PostHog API to show/hide your survey programmatically"
-                                                            value={SurveyType.API}
-                                                        >
-                                                            <div className="absolute left-4 w-[350px]">
-                                                                <SurveyAPIEditor survey={survey} />
-                                                            </div>
-                                                        </PresentationTypeCard>
-                                                        <PresentationTypeCard
-                                                            active={value === SurveyType.Widget}
-                                                            onClick={() => onChange(SurveyType.Widget)}
-                                                            title={SURVEY_TYPE_LABEL_MAP[SurveyType.Widget]}
-                                                            description="Set up a survey based on your own custom button or our prebuilt feedback tab"
-                                                            value={SurveyType.Widget}
-                                                        >
-                                                            <button className="bg-black py-2 px-3 min-w-[40px] absolute right-3 -bottom-16 text-white opacity-30 rounded scale-[2]">
-                                                                Feedback
-                                                            </button>
-                                                        </PresentationTypeCard>
-                                                        <PresentationTypeCard
-                                                            active={value === SurveyType.ExternalSurvey}
-                                                            onClick={() => onChange(SurveyType.ExternalSurvey)}
-                                                            title={SURVEY_TYPE_LABEL_MAP[SurveyType.ExternalSurvey]}
-                                                            description="Collect responses via an external link, hosted on PostHog. If you are already using surveys, make sure to upgrade posthog-js to at least v1.258.1."
-                                                            value={SurveyType.ExternalSurvey}
-                                                        >
-                                                            <LemonTag type="warning">BETA</LemonTag>
-                                                        </PresentationTypeCard>
-                                                    </div>
-                                                    {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
-                                                    {survey.type === SurveyType.ExternalSurvey && (
-                                                        <>
-                                                            <Tooltip title="Enable this to embed the survey in tools like Framer, Webflow, or other website builders that use iframes.">
-                                                                <LemonSwitch
-                                                                    checked={!!survey.enable_iframe_embedding}
-                                                                    onChange={(checked) =>
-                                                                        setSurveyValue(
-                                                                            'enable_iframe_embedding',
-                                                                            checked
-                                                                        )
+                <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
+                    <div className="flex flex-col gap-2 flex-1 SurveyForm">
+                        <LemonCollapse
+                            activeKey={selectedSection || undefined}
+                            onChange={(section) => {
+                                setSelectedSection(section)
+                            }}
+                            className="bg-surface-primary"
+                            panels={[
+                                {
+                                    key: SurveyEditSection.Presentation,
+                                    header: 'Presentation',
+                                    content: (
+                                        <LemonField name="type">
+                                            {({ onChange, value }) => {
+                                                return (
+                                                    <div className="flex flex-col gap-2">
+                                                        <div className="grid grid-cols-2 2xl:grid-cols-4 gap-4">
+                                                            <PresentationTypeCard
+                                                                active={value === SurveyType.Popover}
+                                                                onClick={() => {
+                                                                    onChange(SurveyType.Popover)
+                                                                    if (survey.schedule === SurveySchedule.Always) {
+                                                                        setSurveyValue('schedule', SurveySchedule.Once)
                                                                     }
-                                                                    label="Allow embedding in iframes"
-                                                                    bordered
-                                                                />
-                                                            </Tooltip>
-                                                            <div className="font-semibold">
-                                                                How hosted surveys work:
-                                                            </div>
-                                                            <ul className="space-y-2 text-sm">
-                                                                <li>
-                                                                    • The survey will be hosted by PostHog and you can
-                                                                    share the URL with your customers
-                                                                </li>
-                                                                <li>
-                                                                    • To identify respondents, add the{' '}
-                                                                    <code className="bg-surface-tertiary px-1 rounded">
-                                                                        distinct_id
-                                                                    </code>{' '}
-                                                                    query parameter to the URL. Here's an example:{'\n'}
-                                                                    <Link
-                                                                        to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}
-                                                                        target="_blank"
-                                                                    >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}</Link>
-                                                                </li>
-                                                                <li>
-                                                                    • Check more details about identifying respondents
-                                                                    in the{' '}
-                                                                    <Link
-                                                                        to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
-                                                                        target="_blank"
-                                                                    >
-                                                                        documentation
-                                                                    </Link>
-                                                                </li>
-                                                            </ul>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            )
-                                        }}
-                                    </LemonField>
-                                ),
-                            },
+                                                                }}
+                                                                title={SURVEY_TYPE_LABEL_MAP[SurveyType.Popover]}
+                                                                description="Automatically appears when PostHog JS is installed"
+                                                                value={SurveyType.Popover}
+                                                            >
+                                                                <div className="scale-[0.8] absolute -top-4 -left-4">
+                                                                    <SurveyAppearancePreview
+                                                                        survey={survey}
+                                                                        previewPageIndex={0}
+                                                                    />
+                                                                </div>
+                                                            </PresentationTypeCard>
+                                                            <PresentationTypeCard
+                                                                active={value === SurveyType.API}
+                                                                onClick={() => {
+                                                                    onChange(SurveyType.API)
+                                                                    if (survey.schedule === SurveySchedule.Always) {
+                                                                        setSurveyValue('schedule', SurveySchedule.Once)
+                                                                    }
+                                                                }}
+                                                                title={SURVEY_TYPE_LABEL_MAP[SurveyType.API]}
+                                                                description="Use the PostHog API to show/hide your survey programmatically"
+                                                                value={SurveyType.API}
+                                                            >
+                                                                <div className="absolute left-4 w-[350px]">
+                                                                    <SurveyAPIEditor survey={survey} />
+                                                                </div>
+                                                            </PresentationTypeCard>
+                                                            <PresentationTypeCard
+                                                                active={value === SurveyType.Widget}
+                                                                onClick={() => onChange(SurveyType.Widget)}
+                                                                title={SURVEY_TYPE_LABEL_MAP[SurveyType.Widget]}
+                                                                description="Set up a survey based on your own custom button or our prebuilt feedback tab"
+                                                                value={SurveyType.Widget}
+                                                            >
+                                                                <button className="bg-black py-2 px-3 min-w-[40px] absolute right-3 -bottom-16 text-white opacity-30 rounded scale-[2]">
+                                                                    Feedback
+                                                                </button>
+                                                            </PresentationTypeCard>
+                                                            <PresentationTypeCard
+                                                                active={value === SurveyType.ExternalSurvey}
+                                                                onClick={() => onChange(SurveyType.ExternalSurvey)}
+                                                                title={SURVEY_TYPE_LABEL_MAP[SurveyType.ExternalSurvey]}
+                                                                description="Collect responses via an external link, hosted on PostHog. If you are already using surveys, make sure to upgrade posthog-js to at least v1.258.1."
+                                                                value={SurveyType.ExternalSurvey}
+                                                            >
+                                                                <LemonTag type="warning">BETA</LemonTag>
+                                                            </PresentationTypeCard>
+                                                        </div>
+                                                        {survey.type === SurveyType.Widget && (
+                                                            <SurveyWidgetCustomization />
+                                                        )}
+                                                        {survey.type === SurveyType.ExternalSurvey && (
+                                                            <>
+                                                                <Tooltip title="Enable this to embed the survey in tools like Framer, Webflow, or other website builders that use iframes.">
+                                                                    <LemonSwitch
+                                                                        checked={!!survey.enable_iframe_embedding}
+                                                                        onChange={(checked) =>
+                                                                            setSurveyValue(
+                                                                                'enable_iframe_embedding',
+                                                                                checked
+                                                                            )
+                                                                        }
+                                                                        label="Allow embedding in iframes"
+                                                                        bordered
+                                                                    />
+                                                                </Tooltip>
+                                                                <div className="font-semibold">
+                                                                    How hosted surveys work:
+                                                                </div>
+                                                                <ul className="space-y-2 text-sm">
+                                                                    <li>
+                                                                        • The survey will be hosted by PostHog and you
+                                                                        can share the URL with your customers
+                                                                    </li>
+                                                                    <li>
+                                                                        • To identify respondents, add the{' '}
+                                                                        <code className="bg-surface-tertiary px-1 rounded">
+                                                                            distinct_id
+                                                                        </code>{' '}
+                                                                        query parameter to the URL. Here's an example:
+                                                                        {'\n'}
+                                                                        <Link
+                                                                            to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}
+                                                                            target="_blank"
+                                                                        >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}</Link>
+                                                                    </li>
+                                                                    <li>
+                                                                        • Check more details about identifying
+                                                                        respondents in the{' '}
+                                                                        <Link
+                                                                            to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                                                            target="_blank"
+                                                                        >
+                                                                            documentation
+                                                                        </Link>
+                                                                    </li>
+                                                                </ul>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                )
+                                            }}
+                                        </LemonField>
+                                    ),
+                                },
                             {
                                 key: SurveyEditSection.Steps,
                                 header: 'Steps',
@@ -1588,7 +1589,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     />
                 </div>
                 <div className="h-full">
-                    <div className="sticky top-16">
+                    <div
+                        className={`sticky ${editingLanguage || hasTranslationValidationErrors ? 'top-28' : 'top-16'}`}
+                    >
                         <SurveyFormAppearance
                             previewPageIndex={selectedPageIndex || 0}
                             survey={previewSurvey}
@@ -1597,6 +1600,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         />
                     </div>
                 </div>
+            </div>
             </div>
             <SurveyBranchingFlowModal survey={survey} isOpen={showFlowModal} onClose={() => setShowFlowModal(false)} />
         </SceneContent>
