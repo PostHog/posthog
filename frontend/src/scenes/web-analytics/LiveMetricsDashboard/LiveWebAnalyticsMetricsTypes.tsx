@@ -31,6 +31,6 @@ export interface CountryBreakdownItem {
 }
 
 export interface LiveGeoEvent {
-    country_code: string
-    distinct_id?: string
+    countryCode: string
+    distinctId: string
 }

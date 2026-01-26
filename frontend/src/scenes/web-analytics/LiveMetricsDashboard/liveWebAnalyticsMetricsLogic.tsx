@@ -96,9 +96,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addGeoEvents: (window, { events }) => {
                     const nowTs = Date.now() / 1000
                     for (const event of events) {
-                        if (event.country_code) {
-                            const distinctId = event.distinct_id!
-                            window.addGeoDataPoint(nowTs, event.country_code, distinctId)
+                        if (event.countryCode) {
+                            const distinctId = event.distinctId!
+                            window.addGeoDataPoint(nowTs, event.countryCode, distinctId)
                         }
                     }
                     return window
