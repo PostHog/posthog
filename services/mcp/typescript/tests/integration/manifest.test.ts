@@ -1,9 +1,8 @@
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 
+import { SKILLS_RESOURCES_URL } from '@/resources/index'
 import { loadSkillsManifest } from '@/resources/manifest-loader'
-
-const SKILLS_RESOURCES_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
 describe('Skills Manifest Integration', () => {
     it('should fetch, unzip, and validate the skills manifest from GitHub releases', async () => {
