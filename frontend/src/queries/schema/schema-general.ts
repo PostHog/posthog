@@ -5259,7 +5259,8 @@ export enum ProductIntentContext {
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
 
     // Surveys
-    SURVEYS_VIEWED = 'surveys_viewed', // deprecated, not used anymore
+    SURVEYS_VIEWED = 'surveys_viewed',
+    SURVEY_ADD_NEW = 'survey_add_new',
     SURVEY_CREATED = 'survey_created',
     SURVEY_LAUNCHED = 'survey_launched',
     SURVEY_VIEWED = 'survey_viewed',
