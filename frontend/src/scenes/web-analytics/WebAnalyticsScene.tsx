@@ -28,5 +28,4 @@ export function WebAnalyticsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: WebAnalyticsScene,
     logic: webAnalyticsLogic,
-    settingSectionId: 'environment-web-analytics',
 }

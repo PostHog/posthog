@@ -1,8 +1,10 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{http::Method, routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
 use capture_logs::config::Config;
+use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::service::Service;
 use capture_logs::service::{export_logs_http, options_handler};
@@ -101,7 +103,8 @@ async fn main() {
         .expect("could not bind management port");
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
-    let logs_service = match Service::new(kafka_sink, token_dropper).await {
+    let token_dropper_arc = Arc::new(token_dropper);
+    let logs_service = match Service::new(kafka_sink, token_dropper_arc).await {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);
@@ -126,6 +129,24 @@ async fn main() {
         .route(
             "/i/v1/logs",
             post(export_logs_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/logs/datadog",
+            post(datadog::export_datadog_logs_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/logs/datadog/api/v2/logs",
+            post(datadog::export_datadog_logs_http).options(options_handler),
+        )
+        // allow setting the token directly in the route path
+        // as the datadog agent allows custom paths but not query strings or headers
+        .route(
+            "/i/v1/logs/datadog/:token",
+            post(datadog::export_datadog_logs_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/logs/datadog/:token/api/v2/logs",
+            post(datadog::export_datadog_logs_http).options(options_handler),
         )
         .with_state(logs_service)
         .layer(axum::middleware::from_fn(track_metrics))

@@ -3,6 +3,7 @@ import { pluralize } from 'lib/utils'
 
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
+        create: 'Create new',
         'create-new': 'Create new',
         apps: 'Apps',
         'data-management': 'Data management',

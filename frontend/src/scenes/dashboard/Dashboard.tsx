@@ -43,7 +43,6 @@ export const scene: SceneExport<DashboardLogicProps> = {
         id: parseInt(id as string),
         placement,
     }),
-    settingSectionId: 'environment-product-analytics',
 }
 
 export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {

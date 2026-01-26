@@ -167,5 +167,4 @@ export function LiveEventsTable(): JSX.Element {
 export const scene: SceneExport = {
     component: LiveEventsTable,
     logic: liveEventsTableSceneLogic,
-    settingSectionId: 'environment-autocapture',
 }
