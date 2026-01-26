@@ -308,7 +308,7 @@ describe('LogsIngestionConsumer', () => {
             )
 
             // Clear team cache to ensure fresh data
-            await hub.teamManager.clearCache(team.id)
+            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
 
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
