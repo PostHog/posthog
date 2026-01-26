@@ -47,6 +47,8 @@ import logsListAttributeValues from './logs/listAttributeValues'
 import logsListAttributes from './logs/listAttributes'
 // Logs
 import logsQuery from './logs/query'
+// Max Tools
+import { executeSql } from './maxTools'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
@@ -70,8 +72,6 @@ import getAllSurveys from './surveys/getAll'
 import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
-// Max Tools
-import { maxExecuteSql } from './maxTools'
 // Misc
 import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
@@ -164,7 +164,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'demo-mcp-ui-apps': demoMcpUiApps,
     
     // Max Tools
-    'max-execute-sql': maxExecuteSql,
+    'execute-sql': executeSql,
 }
 
 export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {

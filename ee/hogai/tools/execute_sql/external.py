@@ -9,13 +9,7 @@ from .core import HogQLValidationError, execute_hogql_query, validate_hogql
 
 
 class ExecuteSQLExternalToolArgs(BaseModel):
-    query: str = Field(description="The HogQL query to be executed.")
-    viz_title: str = Field(
-        description="Short, concise name of the SQL query (2-5 words) that will be displayed as a header in the visualization."
-    )
-    viz_description: str = Field(
-        description="Short, concise summary of the SQL query (1 sentence) that will be displayed as a description in the visualization."
-    )
+    query: str = Field(description="The final SQL query to be executed.")
 
 
 @register_external_tool
@@ -31,8 +25,6 @@ class ExecuteSQLExternalTool(ExternalTool):
 
     async def execute(self, team: Team, user: User, **args) -> ExternalToolResult:
         query_str = args.get("query", "")
-        viz_title = args.get("viz_title", "Query Result")
-        viz_description = args.get("viz_description", "")
 
         # Validate the HogQL query
         try:
@@ -49,8 +41,8 @@ class ExecuteSQLExternalTool(ExternalTool):
             result = await execute_hogql_query(
                 team=team,
                 query=validated_query,
-                name=viz_title,
-                description=viz_description,
+                name="",
+                description="",
             )
         except MaxToolRetryableError as e:
             return ExternalToolResult(

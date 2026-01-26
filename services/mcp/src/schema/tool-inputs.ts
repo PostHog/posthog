@@ -463,12 +463,5 @@ export const DemoMcpUiAppsSchema = z.object({
 
 // Max Tools
 export const MaxExecuteSQLSchema = z.object({
-    query: z.string().min(1).describe('The HogQL query to execute'),
-    viz_title: z
-        .string()
-        .min(1)
-        .describe('Short, concise name of the SQL query (2-5 words) that will be displayed as a header'),
-    viz_description: z
-        .string()
-        .describe('Short, concise summary of the SQL query (1 sentence) that will be displayed as a description'),
+    query: z.string().min(1).describe('The final SQL query to be executed.'),
 })

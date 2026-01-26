@@ -5,13 +5,7 @@ description: 'Retrieve data from PostHog: system (insights, dashboards, cohorts,
 
 # Querying data in PostHog
 
-Use the PostHog CLI to execute HogQL queries:
-
-```bash
-posthog-cli exp query run "SELECT 1"
-```
-
-HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL.
+Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably.
 
 ## Search types
 
@@ -53,7 +47,7 @@ All system tables are prefixed with `system.`:
 **Example - List insights:**
 
 ```sql
-posthog-cli exp query run "SELECT id, name, short_id FROM system.insights WHERE NOT deleted LIMIT 10"
+SELECT id, name, short_id FROM system.insights WHERE NOT deleted LIMIT 10
 ```
 
 #### System Models Reference
@@ -105,14 +99,12 @@ Data collected via the PostHog SDK - used for product analytics.
 **Example - Weekly active users:**
 
 ```sql
-posthog-cli exp query run "
 SELECT toStartOfWeek(timestamp) AS week, count(DISTINCT person_id) AS users
 FROM events
-WHERE event = '\$pageview'
+WHERE event = '$pageview'
   AND timestamp > now() - INTERVAL 8 WEEK
 GROUP BY week
 ORDER BY week DESC
-"
 ```
 
 ## Querying guidelines
@@ -269,32 +261,34 @@ AND (variables.browser IS NULL OR properties.$browser = variables.browser)
 **Weekly active users with activation event:**
 
 ```sql
-posthog-cli exp query run "
 SELECT week_of, countIf(weekly_event_count >= 3)
 FROM (
    SELECT person.id AS person_id, toStartOfWeek(timestamp) AS week_of, count() AS weekly_event_count
    FROM events
    WHERE event = 'activation_event'
-     AND properties.\$current_url = 'https://example.com/foo/'
+     AND properties.$current_url = 'https://example.com/foo/'
      AND toStartOfWeek(now()) - INTERVAL 8 WEEK <= timestamp
      AND timestamp < toStartOfWeek(now())
    GROUP BY person.id, week_of
 )
 GROUP BY week_of
 ORDER BY week_of DESC
-"
 ```
 
 **Find cohorts by name:**
 
 ```sql
-posthog-cli exp query run "SELECT id, name, count FROM system.cohorts WHERE name ILIKE '%paying%' AND NOT deleted"
+SELECT id, name, count FROM system.cohorts WHERE name ILIKE '%paying%' AND NOT deleted
 ```
 
 **List feature flags:**
 
 ```sql
-posthog-cli exp query run "SELECT key, name, rollout_percentage FROM system.feature_flags WHERE NOT deleted ORDER BY created_at DESC LIMIT 20"
+SELECT key, name, rollout_percentage
+FROM system.feature_flags
+WHERE NOT deleted
+ORDER BY created_at DESC
+LIMIT 20
 ```
 
 ## Available HogQL functions

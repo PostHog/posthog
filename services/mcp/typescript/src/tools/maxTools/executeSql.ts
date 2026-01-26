@@ -9,11 +9,9 @@ const schema = MaxExecuteSQLSchema
 
 type Params = z.infer<typeof schema>
 
-export const maxExecuteSqlHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const executeSqlHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const result = await invokeMaxTool(context, 'execute_sql', {
         query: params.query,
-        viz_title: params.viz_title,
-        viz_description: params.viz_description,
     })
 
     if (!result.success) {
@@ -27,9 +25,9 @@ export const maxExecuteSqlHandler: ToolBase<typeof schema>['handler'] = async (c
 }
 
 const tool = (): ToolBase<typeof schema> => ({
-    name: 'max-execute-sql',
+    name: 'execute-sql',
     schema,
-    handler: maxExecuteSqlHandler,
+    handler: executeSqlHandler,
 })
 
 export default tool
