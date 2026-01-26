@@ -5,6 +5,7 @@ use std::time::Duration;
 use axum::async_trait;
 use kafka_deduplicator::kafka::{
     batch_consumer::*,
+    batch_context::ConsumerCommandSender,
     batch_message::*,
     offset_tracker::OffsetTracker,
     partition_router::{shutdown_workers, PartitionRouter, PartitionRouterConfig},
@@ -336,8 +337,14 @@ impl RebalanceHandler for RoutingRebalanceHandler {
         self.inner.setup_revoked_partitions(partitions);
     }
 
-    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
-        self.inner.async_setup_assigned_partitions(partitions).await
+    async fn async_setup_assigned_partitions(
+        &self,
+        partitions: &TopicPartitionList,
+        consumer_command_tx: &ConsumerCommandSender,
+    ) -> Result<()> {
+        self.inner
+            .async_setup_assigned_partitions(partitions, consumer_command_tx)
+            .await
     }
 
     async fn cleanup_revoked_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {

@@ -37,7 +37,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { tagSelectLogic } from 'lib/components/tagSelectLogic'
@@ -45,22 +44,15 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
-import { dateMapping, fullName, isNonEmptyObject, pluralize } from 'lib/utils'
+import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
+import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
@@ -77,13 +69,12 @@ import {
     AccessControlResourceType,
     ActivityScope,
     InsightType,
-    LayoutView,
     QueryBasedInsightModel,
     SavedInsightsTabs,
 } from '~/types'
 
 import { ReloadInsight } from './ReloadInsight'
-import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
+import { savedInsightsLogic } from './savedInsightsLogic'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -684,64 +675,16 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
     )
 }
 
-function SavedInsightsGrid(): JSX.Element {
-    const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
-    const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
-    const { currentProjectId } = useValues(projectLogic)
-    const paginationState = usePagination(insights?.results || [], pagination)
-
-    return (
-        <>
-            <div className="saved-insights-grid mb-2">
-                {paginationState.dataSourcePage.map((insight) => {
-                    return (
-                        <InsightCard
-                            key={insight.short_id}
-                            insight={insight}
-                            rename={() => renameInsight(insight)}
-                            duplicate={() => duplicateInsight(insight)}
-                            deleteWithUndo={async () =>
-                                await deleteInsightWithUndo({
-                                    object: insight,
-                                    endpoint: `projects/${currentProjectId}/insights`,
-                                    callback: loadInsights,
-                                })
-                            }
-                            placement="SavedInsightGrid"
-                        />
-                    )
-                })}
-                {insightsLoading && (
-                    <div className="min-h-[30rem]">
-                        <SpinnerOverlay sceneLevel />
-                    </div>
-                )}
-            </div>
-            <PaginationControl {...paginationState} nouns={['insight', 'insights']} bordered />
-        </>
-    )
-}
-
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
+    const { insights, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
 
-    const { hasTagging } = useValues(organizationLogic)
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const { filteredTags, search: tagSearch } = useValues(tagSelectLogic)
-    const { setSearch: setTagSearch } = useActions(tagSelectLogic)
-
-    const { meFirstMembers, filteredMembers, search: memberSearch } = useValues(membersLogic)
-    const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
-
-    const { tab, layoutView, page } = filters
-
-    const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
-    const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
+    const { tab } = filters
 
     const handleTagToggle = (tag: string): void => {
         const selected = new Set(filters.tags || [])
@@ -883,78 +826,14 @@ export function SavedInsights(): JSX.Element {
             },
             sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof QueryBasedInsightModel,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                      more: (
-                          <div className="max-w-100 deprecated-space-y-2">
-                              <LemonInput
-                                  type="search"
-                                  placeholder="Search tags"
-                                  autoFocus
-                                  value={tagSearch}
-                                  onChange={setTagSearch}
-                                  fullWidth
-                                  className="max-w-full"
-                              />
-                              <ul className="deprecated-space-y-px">
-                                  {filteredTags.map((tag: string) => (
-                                      <li key={tag}>
-                                          <LemonButton
-                                              fullWidth
-                                              role="menuitem"
-                                              size="small"
-                                              onClick={() => handleTagToggle(tag)}
-                                          >
-                                              <span className="flex items-center justify-between gap-2 flex-1">
-                                                  <span className="flex items-center gap-2 max-w-full">
-                                                      <input
-                                                          type="checkbox"
-                                                          className="cursor-pointer"
-                                                          checked={filters.tags?.includes(tag) || false}
-                                                          readOnly
-                                                      />
-                                                      <span>{tag}</span>
-                                                  </span>
-                                              </span>
-                                          </LemonButton>
-                                      </li>
-                                  ))}
-                                  {filteredTags.length === 0 ? (
-                                      <div className="p-2 text-secondary italic truncate border-t">
-                                          {tagSearch ? <span>No matching tags</span> : <span>No tags</span>}
-                                      </div>
-                                  ) : null}
-                                  {(filters.tags?.length || 0) > 0 && (
-                                      <>
-                                          <div className="my-1 border-t" />
-                                          <li>
-                                              <LemonButton
-                                                  fullWidth
-                                                  role="menuitem"
-                                                  size="small"
-                                                  onClick={() => setSavedInsightsFilters({ tags: [] })}
-                                                  type="tertiary"
-                                              >
-                                                  Clear selection
-                                              </LemonButton>
-                                          </li>
-                                      </>
-                                  )}
-                              </ul>
-                          </div>
-                      ),
-                      moreIcon: <IconFilter />,
-                      moreFilterCount: filters.tags?.length || 0,
-                  },
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof QueryBasedInsightModel,
+            key: 'tags',
+            render: function renderTags(tags: string[]) {
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        },
         ...(tab === SavedInsightsTabs.Yours
             ? []
             : [
@@ -1202,65 +1081,30 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className="my-0" />
-                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center my-0">
-                        <span className="text-secondary">
-                            {count
-                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
-                                : null}
-                        </span>
-                        <div>
-                            <LemonSegmentedButton
-                                onChange={(newValue) => setSavedInsightsFilters({ layoutView: newValue })}
-                                value={layoutView}
-                                options={[
-                                    {
-                                        value: LayoutView.List,
-                                        label: 'List',
-                                        icon: <IconListView />,
-                                    },
-                                    {
-                                        value: LayoutView.Card,
-                                        label: 'Cards',
-                                        icon: <IconGridView />,
-                                    },
-                                ]}
-                                size="small"
-                            />
-                        </div>
-                    </div>
-                    <ReloadInsight />
-                    {layoutView === LayoutView.List ? (
-                        <LemonTable
-                            loading={insightsLoading}
-                            columns={columns}
-                            dataSource={insights.results}
-                            pagination={pagination}
-                            noSortingCancellation
-                            sorting={sorting}
-                            onSort={(newSorting) =>
-                                setSavedInsightsFilters({
-                                    order: newSorting
-                                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                        : undefined,
-                                })
-                            }
-                            rowKey="id"
-                            loadingSkeletonRows={15}
-                            nouns={['insight', 'insights']}
-                            hideSortingIndicatorWhenInactive
-                            emptyState={
-                                !insightsLoading && insights.count < 1 ? (
-                                    <div className="py-8">
-                                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
-                                    </div>
-                                ) : undefined
-                            }
-                        />
-                    ) : !insightsLoading && insights.count < 1 ? (
+                    {!insightsLoading && insights.count < 1 ? (
                         <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
-                        <SavedInsightsGrid />
+                        <>
+                            <ReloadInsight />
+                            <LemonTable
+                                loading={insightsLoading}
+                                columns={columns}
+                                dataSource={insights.results}
+                                pagination={pagination}
+                                noSortingCancellation
+                                sorting={sorting}
+                                onSort={(newSorting) =>
+                                    setSavedInsightsFilters({
+                                        order: newSorting
+                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                            : undefined,
+                                    })
+                                }
+                                rowKey="id"
+                                loadingSkeletonRows={15}
+                                nouns={['insight', 'insights']}
+                            />
+                        </>
                     )}
                 </>
             )}

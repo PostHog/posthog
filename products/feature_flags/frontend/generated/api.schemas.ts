@@ -123,7 +123,7 @@ export type FeatureFlagApiSurveys = { [key: string]: unknown }
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface FeatureFlagApi {
     readonly id: number
@@ -210,7 +210,7 @@ export type PatchedFeatureFlagApiSurveys = { [key: string]: unknown }
 export type PatchedFeatureFlagApiFeatures = { [key: string]: unknown }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface PatchedFeatureFlagApi {
     readonly id?: number
