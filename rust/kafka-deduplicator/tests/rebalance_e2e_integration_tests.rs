@@ -357,7 +357,10 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         max_capacity: 1_000_000,
     };
     let coordinator = create_test_coordinator();
-    let store_manager = Arc::new(StoreManager::new(consumer_store_config, coordinator.clone()));
+    let store_manager = Arc::new(StoreManager::new(
+        consumer_store_config,
+        coordinator.clone(),
+    ));
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
     let processor = Arc::new(CountingProcessor::new());
 
@@ -504,7 +507,12 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
 
     // Create the ProcessorRebalanceHandler
     let handler: ProcessorRebalanceHandler<CapturedEvent, CountingProcessor> =
-        ProcessorRebalanceHandler::new(store_manager.clone(), coordinator, offset_tracker.clone(), None);
+        ProcessorRebalanceHandler::new(
+            store_manager.clone(),
+            coordinator,
+            offset_tracker.clone(),
+            None,
+        );
 
     // Assign partition 0
     let mut partitions = TopicPartitionList::new();
@@ -587,7 +595,12 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
     let handler: ProcessorRebalanceHandler<CapturedEvent, CountingProcessor> =
-        ProcessorRebalanceHandler::new(store_manager.clone(), coordinator, offset_tracker.clone(), None);
+        ProcessorRebalanceHandler::new(
+            store_manager.clone(),
+            coordinator,
+            offset_tracker.clone(),
+            None,
+        );
 
     let mut partitions = TopicPartitionList::new();
     partitions.add_partition_offset(&test_topic, 0, Offset::Beginning)?;

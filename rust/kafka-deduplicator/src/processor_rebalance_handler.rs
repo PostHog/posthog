@@ -620,7 +620,12 @@ mod tests {
 
         // Test handler without router
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), coordinator.clone(), offset_tracker.clone(), None);
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator.clone(),
+                offset_tracker.clone(),
+                None,
+            );
         assert!(handler.router.is_none());
 
         // Test handler with router
@@ -977,7 +982,12 @@ mod tests {
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), coordinator, offset_tracker, None);
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator,
+                offset_tracker,
+                None,
+            );
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1096,7 +1106,12 @@ mod tests {
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), coordinator, offset_tracker, None);
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator,
+                offset_tracker,
+                None,
+            );
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1231,7 +1246,12 @@ mod tests {
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), coordinator, offset_tracker, None);
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator,
+                offset_tracker,
+                None,
+            );
 
         // Create command channel
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();

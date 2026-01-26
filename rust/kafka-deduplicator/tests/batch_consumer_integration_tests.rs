@@ -14,12 +14,9 @@ use kafka_deduplicator::kafka::{
     test_utils::TestRebalanceHandler,
     types::Partition,
 };
-use kafka_deduplicator::store::DeduplicationStoreConfig;
-use kafka_deduplicator::store_manager::StoreManager;
 use kafka_deduplicator::test_utils::create_test_coordinator;
 
 use common_types::CapturedEvent;
-use tempfile::TempDir;
 
 use anyhow::Result;
 use rdkafka::{
@@ -49,7 +46,6 @@ fn create_batch_kafka_consumer(
     BatchConsumer<CapturedEvent>,
     UnboundedReceiver<Batch<CapturedEvent>>,
     oneshot::Sender<()>,
-    TempDir, // Keep temp dir alive for the duration of the test
 )> {
     let mut config = ClientConfig::new();
     config
@@ -83,15 +79,8 @@ fn create_batch_kafka_consumer(
         }
     }
 
-    // Create store manager for offset tracker
-    let temp_dir = TempDir::new()?;
-    let store_config = DeduplicationStoreConfig {
-        path: temp_dir.path().to_path_buf(),
-        max_capacity: 1000,
-    };
+    // Create offset tracker with coordinator
     let coordinator = create_test_coordinator();
-    let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
-
     let processor = Arc::new(TestProcessor { sender: chan_tx });
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
@@ -107,7 +96,7 @@ fn create_batch_kafka_consumer(
         Duration::from_secs(1),
     )?;
 
-    Ok((consumer, chan_rx, shutdown_tx, temp_dir))
+    Ok((consumer, chan_rx, shutdown_tx))
 }
 
 /// Helper to send test messages
@@ -188,7 +177,7 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     send_test_messages(&test_topic, test_messages).await?;
 
-    let (consumer, mut batch_rx, shutdown_tx, _temp_dir) =
+    let (consumer, mut batch_rx, shutdown_tx) =
         create_batch_kafka_consumer(&test_topic, &group_id, batch_size, batch_timeout)?;
 
     // Start consumption in background task
@@ -455,16 +444,8 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
     // Create the processor that counts messages
     let processor = Arc::new(CountingProcessor::new());
 
-    // Create store manager for offset tracker
-    let temp_dir = TempDir::new()?;
-    let store_config = DeduplicationStoreConfig {
-        path: temp_dir.path().to_path_buf(),
-        max_capacity: 1000,
-    };
+    // Create offset tracker with coordinator
     let coordinator = create_test_coordinator();
-    let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
-
-    // Create offset tracker
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
     // Create router with partition workers

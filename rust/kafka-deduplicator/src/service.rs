@@ -102,7 +102,10 @@ impl KafkaDeduplicatorService {
         let rebalance_coordinator = Arc::new(RebalanceCoordinator::new());
 
         // Create store manager for handling concurrent store creation
-        let store_manager = Arc::new(StoreManager::new(store_config.clone(), rebalance_coordinator.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            store_config.clone(),
+            rebalance_coordinator.clone(),
+        ));
 
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {

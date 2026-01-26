@@ -830,7 +830,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_all_new_events() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone(), create_test_coordinator()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_coordinator(),
+        ));
 
         // Pre-create store (as would happen during rebalance)
         store_manager
@@ -884,7 +887,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_with_timestamp_duplicates() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone(), create_test_coordinator()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_coordinator(),
+        ));
 
         // Pre-create store (as would happen during rebalance)
         store_manager
@@ -936,7 +942,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_mixed_batch() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone(), create_test_coordinator()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_coordinator(),
+        ));
 
         // Pre-create store (as would happen during rebalance)
         store_manager
@@ -990,7 +999,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_events_without_uuid() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone(), create_test_coordinator()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_coordinator(),
+        ));
 
         // Pre-create store (as would happen during rebalance)
         store_manager
@@ -1038,7 +1050,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_large_batch() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone(), create_test_coordinator()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_coordinator(),
+        ));
 
         // Pre-create store (as would happen during rebalance)
         store_manager
@@ -1105,7 +1120,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_only_uuid_different() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone(), create_test_coordinator()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_coordinator(),
+        ));
 
         // Pre-create store (as would happen during rebalance)
         store_manager
@@ -1165,7 +1183,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_within_same_batch() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone(), create_test_coordinator()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_coordinator(),
+        ));
 
         // Pre-create store (as would happen during rebalance)
         store_manager
@@ -1207,7 +1228,10 @@ mod tests {
         // This simulates the scenario where a partition was revoked and messages
         // arrive for it before the consumer stops delivering them.
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone(), create_test_coordinator()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_coordinator(),
+        ));
 
         // NOTE: We intentionally do NOT pre-create a store here
 
