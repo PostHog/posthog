@@ -87,9 +87,15 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
-        setSharedMetricsFilters: async (_, breakpoint) => {
-            await breakpoint(300) // Debounce search
+    listeners(({ actions, values }) => ({
+        setSharedMetricsFilters: async ({ filters }, breakpoint) => {
+            // Debounce only if search is changed
+            const searchChanged = filters.search !== undefined && filters.search !== values.filters.search
+
+            if (searchChanged) {
+                await breakpoint(300) // Debounce search
+            }
+
             actions.loadSharedMetrics()
         },
     })),
