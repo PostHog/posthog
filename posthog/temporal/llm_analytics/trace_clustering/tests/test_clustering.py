@@ -111,6 +111,10 @@ class TestCalculateTraceDistances:
 class TestCompute2DCoordinates:
     @parameterized.expand([("umap",), ("pca",), ("tsne",)])
     def test_output_shape_is_2d(self, method):
+        # Skip UMAP test if threading backend isn't available
+        if method == "umap" and not umap_available:
+            pytest.skip("UMAP threading backend (TBB) not available")
+
         np.random.seed(42)
         embeddings = np.random.randn(20, 50)
         centroids = np.random.randn(3, 50)
