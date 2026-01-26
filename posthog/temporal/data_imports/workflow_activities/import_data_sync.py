@@ -1,8 +1,8 @@
 import uuid
+import asyncio
 import dataclasses
 from typing import Any, Optional
 
-from django.db import close_old_connections
 from django.db.models import Prefetch
 
 from structlog.contextvars import bind_contextvars
@@ -10,7 +10,8 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
@@ -53,91 +54,122 @@ class ImportDataActivityInputs:
 
 
 @activity.defn
-def import_data_activity_sync(inputs: ImportDataActivityInputs):
+async def import_data_activity_sync(inputs: ImportDataActivityInputs):
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
 
     report_heartbeat_timeout(inputs, logger)
 
-    with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
-        close_old_connections()
-        setup_row_tracking(inputs.team_id, inputs.schema_id)
+    async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
+        await asyncio.to_thread(setup_row_tracking, inputs.team_id, inputs.schema_id)
 
-        model = ExternalDataJob.objects.prefetch_related(
-            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-        ).get(id=inputs.run_id)
+        @database_sync_to_async
+        def _get_model_data():
+            model = ExternalDataJob.objects.prefetch_related(
+                "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
+            ).get(id=inputs.run_id)
 
-        logger.debug("Running *SYNC* import_data")
+            source_type = ExternalDataSourceType(model.pipeline.source_type)
 
-        source_type = ExternalDataSourceType(model.pipeline.source_type)
-
-        job_inputs = PipelineInputs(
-            source_id=inputs.source_id,
-            schema_id=inputs.schema_id,
-            run_id=inputs.run_id,
-            team_id=inputs.team_id,
-            job_type=source_type,
-            dataset_name=model.folder_path(),
-        )
-
-        trim_source_job_inputs(model.pipeline)
-
-        schema: ExternalDataSchema | None = model.schema
-        assert schema is not None
-
-        if inputs.reset_pipeline is not None:
-            reset_pipeline = inputs.reset_pipeline
-        else:
-            reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
-
-        logger.debug(f"schema.sync_type_config = {schema.sync_type_config}")
-        logger.debug(f"reset_pipeline = {reset_pipeline}")
-
-        schema = (
-            ExternalDataSchema.objects.prefetch_related("source")
-            .exclude(deleted=True)
-            .get(id=inputs.schema_id, team_id=inputs.team_id)
-        )
-
-        processed_incremental_last_value = None
-        processed_incremental_earliest_value = None
-
-        if reset_pipeline is not True:
-            processed_incremental_last_value = process_incremental_value(
-                schema.sync_type_config.get("incremental_field_last_value"),
-                schema.sync_type_config.get("incremental_field_type"),
-            )
-            processed_incremental_earliest_value = process_incremental_value(
-                schema.incremental_field_earliest_value,
-                schema.incremental_field_type,
+            job_inputs = PipelineInputs(
+                source_id=inputs.source_id,
+                schema_id=inputs.schema_id,
+                run_id=inputs.run_id,
+                team_id=inputs.team_id,
+                job_type=source_type,
+                dataset_name=model.folder_path(),
             )
 
-        if schema.should_use_incremental_field:
-            logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
+            trim_source_job_inputs(model.pipeline)
+
+            schema: ExternalDataSchema | None = model.schema
+            assert schema is not None
+
+            if inputs.reset_pipeline is not None:
+                reset_pipeline = inputs.reset_pipeline
+            else:
+                reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
+
+            sync_type_config = schema.sync_type_config
+
+            schema = (
+                ExternalDataSchema.objects.prefetch_related("source")
+                .exclude(deleted=True)
+                .get(id=inputs.schema_id, team_id=inputs.team_id)
+            )
+
+            processed_incremental_last_value = None
+            processed_incremental_earliest_value = None
+
+            if reset_pipeline is not True:
+                processed_incremental_last_value = process_incremental_value(
+                    schema.sync_type_config.get("incremental_field_last_value"),
+                    schema.sync_type_config.get("incremental_field_type"),
+                )
+                processed_incremental_earliest_value = process_incremental_value(
+                    schema.incremental_field_earliest_value,
+                    schema.incremental_field_type,
+                )
+
+            pipeline_job_inputs = model.pipeline.job_inputs
+
+            return (
+                source_type,
+                job_inputs,
+                reset_pipeline,
+                sync_type_config,
+                schema.name,
+                str(schema.id),
+                schema.should_use_incremental_field,
+                schema.incremental_field if schema.should_use_incremental_field else None,
+                schema.incremental_field_type if schema.should_use_incremental_field else None,
+                processed_incremental_last_value if schema.should_use_incremental_field else None,
+                processed_incremental_earliest_value if schema.should_use_incremental_field else None,
+                pipeline_job_inputs,
+            )
+
+        (
+            source_type,
+            job_inputs,
+            reset_pipeline,
+            sync_type_config,
+            schema_name,
+            schema_id,
+            should_use_incremental_field,
+            incremental_field,
+            incremental_field_type,
+            processed_incremental_last_value,
+            processed_incremental_earliest_value,
+            pipeline_job_inputs,
+        ) = await _get_model_data()
+
+        await logger.adebug("Running import_data activity")
+
+        await logger.adebug(f"schema.sync_type_config = {sync_type_config}")
+        await logger.adebug(f"reset_pipeline = {reset_pipeline}")
+
+        if should_use_incremental_field:
+            await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
         if processed_incremental_earliest_value:
-            logger.debug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
+            await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
-                schema_name=schema.name,
-                schema_id=str(schema.id),
+                schema_name=schema_name,
+                schema_id=schema_id,
                 team_id=inputs.team_id,
-                should_use_incremental_field=schema.should_use_incremental_field,
-                incremental_field=schema.incremental_field if schema.should_use_incremental_field else None,
-                incremental_field_type=schema.incremental_field_type if schema.should_use_incremental_field else None,
-                db_incremental_field_last_value=processed_incremental_last_value
-                if schema.should_use_incremental_field
-                else None,
-                db_incremental_field_earliest_value=processed_incremental_earliest_value
-                if schema.should_use_incremental_field
-                else None,
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field=incremental_field,
+                incremental_field_type=incremental_field_type,
+                db_incremental_field_last_value=processed_incremental_last_value,
+                db_incremental_field_earliest_value=processed_incremental_earliest_value,
                 logger=logger,
                 job_id=inputs.run_id,
             )
             new_source = SourceRegistry.get_source(source_type)
-            config = new_source.parse_config(model.pipeline.job_inputs)
+            config = new_source.parse_config(pipeline_job_inputs)
 
             resumable_source_manager: ResumableSourceManager | None = None
             if isinstance(new_source, ResumableSource):
@@ -146,7 +178,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             else:
                 source = new_source.source_for_pipeline(config, source_inputs)
 
-            return _run(
+            return await asyncio.to_thread(
+                _run,
                 job_inputs=job_inputs,
                 source=source,
                 logger=logger,
@@ -155,7 +188,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 resumable_source_manager=resumable_source_manager,
             )
         else:
-            raise ValueError(f"Source type {model.pipeline.source_type} not supported")
+            raise ValueError(f"Source type {source_type} not supported")
 
 
 def _run(

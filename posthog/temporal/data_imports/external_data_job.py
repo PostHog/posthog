@@ -1,11 +1,11 @@
 import re
 import json
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 
 from django.conf import settings
-from django.db import close_old_connections
 
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
@@ -15,10 +15,11 @@ from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.schedule import trigger_schedule_buffer_one
+from posthog.temporal.common.schedule import a_trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.sources import SourceRegistry
@@ -88,87 +89,102 @@ class UpdateExternalDataJobStatusInputs:
 
 
 @activity.defn
-def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
+async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    close_old_connections()
-
-    rows_tracked = get_rows(inputs.team_id, inputs.schema_id)
+    rows_tracked = await asyncio.to_thread(get_rows, inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
-        logger.debug(msg)
+        await logger.adebug(msg)
         capture_exception(Exception(msg))
 
-    finish_row_tracking(inputs.team_id, inputs.schema_id)
+    await asyncio.to_thread(finish_row_tracking, inputs.team_id, inputs.schema_id)
 
-    if inputs.job_id is None:
-        job: ExternalDataJob | None = (
-            ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
-            .order_by("-created_at")
-            .first()
-        )
-        if job is None:
-            logger.info("No job to update status on")
-            return
+    @database_sync_to_async
+    def _get_job_id() -> str | None:
+        if inputs.job_id is None:
+            job: ExternalDataJob | None = (
+                ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
+                .order_by("-created_at")
+                .first()
+            )
+            if job is None:
+                return None
+            return str(job.pk)
+        return inputs.job_id
 
-        job_id = str(job.pk)
-    else:
-        job_id = inputs.job_id
+    job_id = await _get_job_id()
+    if job_id is None:
+        await logger.ainfo("No job to update status on")
+        return
 
     if inputs.internal_error:
-        logger.exception(
+        await logger.aexception(
             f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
         )
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
-        source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
-        non_retryable_errors = source_cls.get_non_retryable_errors()
+        @database_sync_to_async
+        def _handle_internal_error() -> str | None:
+            source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
+            source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            non_retryable_errors = source_cls.get_non_retryable_errors()
 
-        if len(non_retryable_errors) == 0:
-            non_retryable_errors = Any_Source_Errors
-        else:
-            non_retryable_errors = {**non_retryable_errors, **Any_Source_Errors}
+            if len(non_retryable_errors) == 0:
+                non_retryable_errors_dict = Any_Source_Errors
+            else:
+                non_retryable_errors_dict = {**non_retryable_errors, **Any_Source_Errors}
 
-        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
-        if has_non_retryable_error:
-            posthoganalytics.capture(
-                distinct_id=get_machine_id(),
-                event="schema non-retryable error",
-                properties={
-                    "schemaId": inputs.schema_id,
-                    "sourceId": inputs.source_id,
-                    "sourceType": source.source_type,
-                    "jobId": inputs.job_id,
-                    "teamId": inputs.team_id,
-                    "error": inputs.internal_error,
-                },
+            has_non_retryable_error = any(
+                error in internal_error_normalized for error in non_retryable_errors_dict.keys()
             )
-            update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
+            if has_non_retryable_error:
+                posthoganalytics.capture(
+                    distinct_id=get_machine_id(),
+                    event="schema non-retryable error",
+                    properties={
+                        "schemaId": inputs.schema_id,
+                        "sourceId": inputs.source_id,
+                        "sourceType": source.source_type,
+                        "jobId": inputs.job_id,
+                        "teamId": inputs.team_id,
+                        "error": inputs.internal_error,
+                    },
+                )
+                update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
-            friendly_errors = [
-                friendly_error
-                for error, friendly_error in non_retryable_errors.items()
-                if error in internal_error_normalized
-            ]
+                friendly_errors = [
+                    friendly_error
+                    for error, friendly_error in non_retryable_errors_dict.items()
+                    if error in internal_error_normalized
+                ]
 
-            if friendly_errors and friendly_errors[0] is not None:
-                logger.exception(friendly_errors[0])
-                inputs.latest_error = friendly_errors[0]
+                if friendly_errors and friendly_errors[0] is not None:
+                    return friendly_errors[0]
+            return None
 
-    job = update_external_job_status(
-        job_id=job_id,
-        status=ExternalDataJob.Status(inputs.status),
-        latest_error=inputs.latest_error,
-        team_id=inputs.team_id,
-    )
+        friendly_error = await _handle_internal_error()
+        if friendly_error is not None:
+            await logger.aexception(friendly_error)
+            inputs.latest_error = friendly_error
 
-    job.finished_at = dt.datetime.now(dt.UTC)
-    job.save()
+    @database_sync_to_async
+    def _update_job():
+        job = update_external_job_status(
+            job_id=job_id,
+            status=ExternalDataJob.Status(inputs.status),
+            latest_error=inputs.latest_error,
+            team_id=inputs.team_id,
+        )
 
-    logger.info(
+        job.finished_at = dt.datetime.now(dt.UTC)
+        job.save()
+
+    await _update_job()
+
+    await logger.ainfo(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
     )
 
@@ -187,19 +203,24 @@ class CreateSourceTemplateInputs:
 
 
 @activity.defn
-def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
-    create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
+async def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
+    await asyncio.to_thread(create_warehouse_templates_for_source, team_id=inputs.team_id, run_id=inputs.run_id)
 
 
 @activity.defn
-def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
-    schema = ExternalDataSchema.objects.get(id=schedule_id)
-    logger = LOGGER.bind(team_id=schema.team.pk)
+async def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
+    @database_sync_to_async
+    def _get_team_id() -> int:
+        schema = ExternalDataSchema.objects.get(id=schedule_id)
+        return schema.team.pk
 
-    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+    team_id = await _get_team_id()
+    logger = LOGGER.bind(team_id=team_id)
 
-    temporal = sync_connect()
-    trigger_schedule_buffer_one(temporal, schedule_id)
+    await logger.adebug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+
+    temporal = await async_connect()
+    await a_trigger_schedule_buffer_one(temporal, schedule_id)
 
 
 # TODO: update retry policies

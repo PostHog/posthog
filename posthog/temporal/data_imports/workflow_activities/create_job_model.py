@@ -2,11 +2,10 @@ import uuid
 import typing
 import dataclasses
 
-from django.db import close_old_connections
-
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.data_load.service import delete_external_data_schedule
@@ -36,15 +35,17 @@ class CreateExternalDataJobModelActivityInputs:
 
 
 @activity.defn
-def create_external_data_job_model_activity(
+async def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
 ) -> tuple[str, bool, str]:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    close_old_connections()
+    workflow_id = activity.info().workflow_id
+    workflow_run_id = activity.info().workflow_run_id
 
-    try:
+    @database_sync_to_async
+    def _create_job() -> tuple[str, bool, str]:
         source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
         schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
 
@@ -58,8 +59,8 @@ def create_external_data_job_model_activity(
             schema_id=inputs.schema_id,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
-            workflow_id=activity.info().workflow_id,
-            workflow_run_id=activity.info().workflow_run_id,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
             pipeline_version=ExternalDataJob.PipelineVersion.V2,
             billable=inputs.billable,
         )
@@ -70,13 +71,16 @@ def create_external_data_job_model_activity(
 
         source: ExternalDataSource = schema.source
 
-        logger.info(
+        return str(job.id), schema.is_incremental or schema.is_append, source.source_type
+
+    try:
+        result = await _create_job()
+        await logger.ainfo(
             f"Created external data job for external data source {inputs.source_id}",
         )
-
-        return str(job.id), schema.is_incremental or schema.is_append, source.source_type
+        return result
     except Exception as e:
-        logger.exception(
+        await logger.aexception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"
         )
         raise
