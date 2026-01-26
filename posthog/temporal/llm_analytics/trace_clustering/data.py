@@ -351,9 +351,12 @@ def fetch_item_summaries(
         trace_ts = row[5]
         trace_ts_str = trace_ts.isoformat() if trace_ts else ""
 
-        # For trace-level, trace_id is the same as item_id
-        # For generation-level, trace_id is the parent trace from $ai_trace_id property
-        trace_id = row[7] if row[7] else item_id
+        # For trace-level, trace_id is the same as item_id (fallback ok)
+        # For generation-level, trace_id must come from $ai_trace_id property (no fallback)
+        if analysis_level == "generation":
+            trace_id = row[7]
+        else:
+            trace_id = row[7] if row[7] else item_id
 
         summaries[item_id] = {
             "title": row[1],
