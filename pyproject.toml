@@ -206,7 +206,7 @@ dev = [
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli~=1.10.18",
-    "datamodel-code-generator~=0.53.0",
+    "datamodel-code-generator~=0.36.0",
     "debugpy~=1.8.0",
     "deepdiff~=8.6.1",
     "django-linear-migrations~=2.17.0",
