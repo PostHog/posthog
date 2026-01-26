@@ -1,19 +1,11 @@
-import { Redis } from 'ioredis'
+import { HealthCheckResult } from '../../../types'
+import { overflowRedirectEventsTotal, overflowRedirectKeysTotal } from './metrics'
+import { OverflowEventBatch, OverflowRedirectService } from './overflow-redirect-service'
+import { OverflowRedisRepository, OverflowType } from './overflow-redis-repository'
 
-import {
-    overflowRedirectEventsTotal,
-    overflowRedirectKeysTotal,
-    overflowRedirectRedisLatency,
-    overflowRedirectRedisOpsTotal,
-} from './metrics'
-import {
-    BaseOverflowRedirectConfig,
-    BaseOverflowRedirectService,
-    OverflowEventBatch,
-    OverflowType,
-} from './overflow-redirect-service'
-
-export type OverflowLaneOverflowRedirectConfig = BaseOverflowRedirectConfig
+export interface OverflowLaneOverflowRedirectConfig {
+    redisRepository: OverflowRedisRepository
+}
 
 /**
  * Overflow lane implementation of overflow redirect.
@@ -29,15 +21,20 @@ export type OverflowLaneOverflowRedirectConfig = BaseOverflowRedirectConfig
  * Once events stop coming, the flag expires after TTL and future events will
  * be processed in the main lane again.
  */
-export class OverflowLaneOverflowRedirect extends BaseOverflowRedirectService {
+export class OverflowLaneOverflowRedirect implements OverflowRedirectService {
+    private redisRepository: OverflowRedisRepository
+
     constructor(config: OverflowLaneOverflowRedirectConfig) {
-        super(config)
+        this.redisRepository = config.redisRepository
     }
 
     async handleEventBatch(type: OverflowType, batch: OverflowEventBatch[]): Promise<Set<string>> {
         // Refresh TTL for all keys in the batch
         if (batch.length > 0) {
-            await this.batchRefreshTTL(type, batch)
+            await this.redisRepository.batchRefreshTTL(
+                type,
+                batch.map((e) => e.key)
+            )
         }
 
         // Record key-level metrics - all keys pass through (no redirects in overflow lane)
@@ -51,40 +48,8 @@ export class OverflowLaneOverflowRedirect extends BaseOverflowRedirectService {
         return new Set()
     }
 
-    /**
-     * Batch refresh TTL for keys in Redis using pipeline of GETEX commands.
-     * GETEX only refreshes TTL if the key exists - it won't create new keys.
-     */
-    private async batchRefreshTTL(type: OverflowType, events: OverflowEventBatch[]): Promise<void> {
-        const startTime = performance.now()
-        let succeeded = false
-
-        await this.withRedisClient(
-            'batchRefreshTTL',
-            { type, count: events.length },
-            async (client: Redis) => {
-                const pipeline = client.pipeline()
-
-                // Queue GETEX with EX for each event to refresh TTL (only if key exists)
-                for (const event of events) {
-                    const key = this.redisKey(type, event.key.token, event.key.distinctId)
-                    pipeline.getex(key, 'EX', this.redisTTLSeconds)
-                }
-
-                await pipeline.exec()
-                succeeded = true
-                overflowRedirectRedisOpsTotal.labels('getex', 'success').inc()
-            },
-            undefined
-        )
-
-        // Record latency and error metrics
-        const latencySeconds = (performance.now() - startTime) / 1000
-        overflowRedirectRedisLatency.labels('getex').observe(latencySeconds)
-
-        if (!succeeded) {
-            overflowRedirectRedisOpsTotal.labels('getex', 'error').inc()
-        }
+    async healthCheck(): Promise<HealthCheckResult> {
+        return this.redisRepository.healthCheck()
     }
 
     async shutdown(): Promise<void> {

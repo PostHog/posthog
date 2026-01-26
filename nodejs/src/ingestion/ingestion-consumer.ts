@@ -45,6 +45,7 @@ import { ok } from './pipelines/results'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
 /**
  * Narrowed Hub type for IngestionConsumer.
@@ -194,11 +195,16 @@ export class IngestionConsumer {
 
         this.name = `ingestion-consumer-${this.topic}`
 
+        // Create shared Redis repository for overflow redirect services
+        const overflowRedisRepository = new RedisOverflowRepository({
+            redisPool: this.hub.redisPool,
+            redisTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+        })
+
         // Create overflow redirect service only when overflow is enabled (main lane)
         if (this.overflowEnabled()) {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
-                redisPool: this.hub.redisPool,
-                redisTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+                redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                 bucketCapacity: this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
@@ -209,8 +215,7 @@ export class IngestionConsumer {
         // Create TTL refresh service when consuming from overflow topic (overflow lane)
         if (this.hub.INGESTION_LANE_TYPE === 'overflow' && this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
-                redisPool: this.hub.redisPool,
-                redisTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+                redisRepository: overflowRedisRepository,
             })
         }
 

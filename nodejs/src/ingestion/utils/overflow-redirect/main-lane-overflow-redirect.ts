@@ -1,5 +1,4 @@
-import { Redis } from 'ioredis'
-
+import { HealthCheckResult } from '../../../types'
 import { MemoryRateLimiter } from '../overflow-detector'
 import {
     overflowRedirectCacheHitsTotal,
@@ -7,17 +6,12 @@ import {
     overflowRedirectEventsTotal,
     overflowRedirectKeysTotal,
     overflowRedirectRateLimitDecisions,
-    overflowRedirectRedisLatency,
-    overflowRedirectRedisOpsTotal,
 } from './metrics'
-import {
-    BaseOverflowRedirectConfig,
-    BaseOverflowRedirectService,
-    OverflowEventBatch,
-    OverflowType,
-} from './overflow-redirect-service'
+import { OverflowEventBatch, OverflowRedirectService } from './overflow-redirect-service'
+import { OverflowRedisRepository, OverflowType, memberKey } from './overflow-redis-repository'
 
-export interface MainLaneOverflowRedirectConfig extends BaseOverflowRedirectConfig {
+export interface MainLaneOverflowRedirectConfig {
+    redisRepository: OverflowRedisRepository
     statefulEnabled: boolean
     localCacheTTLSeconds: number
     bucketCapacity: number
@@ -41,14 +35,15 @@ interface CacheEntry {
  *
  * Uses individual Redis keys with native TTL expiry (no ZSET).
  */
-export class MainLaneOverflowRedirect extends BaseOverflowRedirectService {
+export class MainLaneOverflowRedirect implements OverflowRedirectService {
     private localCache: Map<string, CacheEntry>
     private rateLimiter: MemoryRateLimiter
     private localCacheTTLSeconds: number
     private statefulEnabled: boolean
+    private redisRepository: OverflowRedisRepository
 
     constructor(config: MainLaneOverflowRedirectConfig) {
-        super(config)
+        this.redisRepository = config.redisRepository
         this.localCache = new Map()
         this.rateLimiter = new MemoryRateLimiter(config.bucketCapacity, config.replenishRate)
         this.localCacheTTLSeconds = config.localCacheTTLSeconds
@@ -92,7 +87,7 @@ export class MainLaneOverflowRedirect extends BaseOverflowRedirectService {
 
                 if (cached === true) {
                     // Already flagged - redirect
-                    toRedirect.add(this.memberKey(event.key.token, event.key.distinctId))
+                    toRedirect.add(memberKey(event.key.token, event.key.distinctId))
                     overflowRedirectCacheHitsTotal.labels(type, 'hit_flagged').inc()
                 } else if (cached === null) {
                     // Known not in Redis - check rate limit only
@@ -107,15 +102,18 @@ export class MainLaneOverflowRedirect extends BaseOverflowRedirectService {
 
             // Step 2: Batch check Redis for cache misses using MGET (stateful only)
             if (needsRedisCheck.length > 0) {
-                const redisResults = await this.batchCheckRedis(type, needsRedisCheck)
+                const redisResults = await this.redisRepository.batchCheck(
+                    type,
+                    needsRedisCheck.map((e) => e.key)
+                )
 
                 for (const event of needsRedisCheck) {
-                    const memberKey = this.memberKey(event.key.token, event.key.distinctId)
+                    const mKey = memberKey(event.key.token, event.key.distinctId)
                     const cacheKey = this.localCacheKey(type, event.key.token, event.key.distinctId)
 
-                    if (redisResults.get(memberKey)) {
+                    if (redisResults.get(mKey)) {
                         // Flagged in Redis - redirect
-                        toRedirect.add(memberKey)
+                        toRedirect.add(mKey)
                         this.setCachedValue(cacheKey, true)
                     } else {
                         // Not in Redis - cache null and check rate limit
@@ -136,7 +134,7 @@ export class MainLaneOverflowRedirect extends BaseOverflowRedirectService {
         const newlyFlagged: OverflowEventBatch[] = []
 
         for (const event of needsRateLimitCheck) {
-            const rateLimitKey = this.memberKey(event.key.token, event.key.distinctId)
+            const rateLimitKey = memberKey(event.key.token, event.key.distinctId)
             const allowed = this.rateLimiter.consume(rateLimitKey, event.eventCount, event.firstTimestamp)
 
             if (!allowed) {
@@ -160,7 +158,10 @@ export class MainLaneOverflowRedirect extends BaseOverflowRedirectService {
             overflowRedirectCacheSize.set(this.localCache.size)
 
             // Async Redis write - cache already updated so concurrent batches will see the flag
-            await this.batchFlagInRedis(type, newlyFlagged)
+            await this.redisRepository.batchFlag(
+                type,
+                newlyFlagged.map((e) => e.key)
+            )
         }
 
         // Record key-level metrics
@@ -171,8 +172,8 @@ export class MainLaneOverflowRedirect extends BaseOverflowRedirectService {
         let redirectedEvents = 0
         let passedEvents = 0
         for (const event of batch) {
-            const memberKey = this.memberKey(event.key.token, event.key.distinctId)
-            if (toRedirect.has(memberKey)) {
+            const mKey = memberKey(event.key.token, event.key.distinctId)
+            if (toRedirect.has(mKey)) {
                 redirectedEvents += event.eventCount
             } else {
                 passedEvents += event.eventCount
@@ -184,91 +185,11 @@ export class MainLaneOverflowRedirect extends BaseOverflowRedirectService {
         return toRedirect
     }
 
-    /**
-     * Batch check Redis using MGET.
-     * Returns a Map of memberKey -> isFlagged (true if key exists)
-     */
-    private async batchCheckRedis(type: OverflowType, events: OverflowEventBatch[]): Promise<Map<string, boolean>> {
-        const defaultResult = new Map<string, boolean>()
-        for (const event of events) {
-            defaultResult.set(this.memberKey(event.key.token, event.key.distinctId), false)
-        }
-
-        const startTime = performance.now()
-        const result = await this.withRedisClient(
-            'batchCheckRedis',
-            { type, count: events.length },
-            async (client: Redis) => {
-                const results = new Map<string, boolean>()
-
-                // Build array of Redis keys
-                const redisKeys = events.map((event) => this.redisKey(type, event.key.token, event.key.distinctId))
-
-                // MGET returns array of values (or null for missing keys)
-                const values = await client.mget(...redisKeys)
-
-                // Process results
-                for (let i = 0; i < events.length; i++) {
-                    const memberKey = this.memberKey(events[i].key.token, events[i].key.distinctId)
-                    // Key exists if value is not null
-                    results.set(memberKey, values[i] !== null)
-                }
-
-                overflowRedirectRedisOpsTotal.labels('mget', 'success').inc()
-                return results
-            },
-            defaultResult
-        )
-
-        // Record latency regardless of success/failure
-        const latencySeconds = (performance.now() - startTime) / 1000
-        overflowRedirectRedisLatency.labels('mget').observe(latencySeconds)
-
-        // If we got the default result, it means Redis failed
-        if (result === defaultResult && events.length > 0) {
-            overflowRedirectRedisOpsTotal.labels('mget', 'error').inc()
-        }
-
-        return result
+    async healthCheck(): Promise<HealthCheckResult> {
+        return this.redisRepository.healthCheck()
     }
 
-    /**
-     * Batch flag keys in Redis using pipeline of SET commands with EX (TTL).
-     */
-    private async batchFlagInRedis(type: OverflowType, events: OverflowEventBatch[]): Promise<void> {
-        const startTime = performance.now()
-        let succeeded = false
-
-        await this.withRedisClient(
-            'batchFlagInRedis',
-            { type, count: events.length },
-            async (client: Redis) => {
-                const pipeline = client.pipeline()
-
-                // Queue SET with EX for each event
-                for (const event of events) {
-                    const key = this.redisKey(type, event.key.token, event.key.distinctId)
-                    pipeline.set(key, '1', 'EX', this.redisTTLSeconds)
-                }
-
-                await pipeline.exec()
-                succeeded = true
-                overflowRedirectRedisOpsTotal.labels('set', 'success').inc()
-            },
-            undefined
-        )
-
-        // Record latency and error metrics
-        const latencySeconds = (performance.now() - startTime) / 1000
-        overflowRedirectRedisLatency.labels('set').observe(latencySeconds)
-
-        if (!succeeded) {
-            overflowRedirectRedisOpsTotal.labels('set', 'error').inc()
-        }
-    }
-
-    async shutdown(): Promise<void> {
-        // Clear local cache
+    shutdown(): Promise<void> {
         this.localCache.clear()
         return Promise.resolve()
     }

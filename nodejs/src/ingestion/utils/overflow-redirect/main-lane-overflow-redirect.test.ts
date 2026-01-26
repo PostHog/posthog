@@ -1,15 +1,14 @@
-import { Pool as GenericPool } from 'generic-pool'
-import { Redis } from 'ioredis'
-
+import { HealthCheckResultOk } from '../../../types'
 import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'
 import { OverflowEventBatch } from './overflow-redirect-service'
+import { OverflowRedisRepository } from './overflow-redis-repository'
 
-const createMockRedisPool = (mockRedis: Partial<Redis>): GenericPool<Redis> => {
-    return {
-        acquire: jest.fn().mockResolvedValue(mockRedis as Redis),
-        release: jest.fn().mockResolvedValue(undefined),
-    } as unknown as GenericPool<Redis>
-}
+const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
+    batchCheck: jest.fn().mockResolvedValue(new Map()),
+    batchFlag: jest.fn().mockResolvedValue(undefined),
+    batchRefreshTTL: jest.fn().mockResolvedValue(undefined),
+    healthCheck: jest.fn().mockResolvedValue(new HealthCheckResultOk()),
+})
 
 const createBatch = (
     token: string,
@@ -23,40 +22,27 @@ const createBatch = (
 })
 
 describe('MainLaneOverflowRedirect', () => {
-    let mockRedis: jest.Mocked<Partial<Redis>>
-    let mockPool: GenericPool<Redis>
+    let mockRepository: jest.Mocked<OverflowRedisRepository>
     let service: MainLaneOverflowRedirect
 
-    const defaultConfig: MainLaneOverflowRedirectConfig = {
-        redisPool: null as unknown as GenericPool<Redis>,
-        redisTTLSeconds: 300,
-        localCacheTTLSeconds: 60,
-        bucketCapacity: 10,
-        replenishRate: 1,
-        statefulEnabled: true,
+    const createService = (overrides: Partial<MainLaneOverflowRedirectConfig> = {}): MainLaneOverflowRedirect => {
+        return new MainLaneOverflowRedirect({
+            redisRepository: mockRepository,
+            localCacheTTLSeconds: 60,
+            bucketCapacity: 10,
+            replenishRate: 1,
+            statefulEnabled: true,
+            ...overrides,
+        })
     }
 
     beforeEach(() => {
-        const mockPipeline = {
-            set: jest.fn().mockReturnThis(),
-            exec: jest.fn().mockResolvedValue([]),
-        }
-        mockRedis = {
-            mget: jest.fn().mockResolvedValue([null]), // Default: key not in Redis
-            pipeline: jest.fn().mockReturnValue(mockPipeline),
-            ping: jest.fn().mockResolvedValue('PONG'),
-        }
-        mockPool = createMockRedisPool(mockRedis)
-        service = new MainLaneOverflowRedirect({
-            ...defaultConfig,
-            redisPool: mockPool,
-        })
+        mockRepository = createMockRepository()
+        service = createService()
     })
 
     describe('handleEventBatch', () => {
         it('returns empty set when no events exceed rate limit', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
-
             const batch = [createBatch('token1', 'user1', 5)]
 
             const result = await service.handleEventBatch('events', batch)
@@ -65,8 +51,6 @@ describe('MainLaneOverflowRedirect', () => {
         })
 
         it('returns keys that exceed rate limit', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
-
             // Bucket capacity is 10, so 15 events should exceed
             const batch = [createBatch('token1', 'user1', 15)]
 
@@ -77,38 +61,23 @@ describe('MainLaneOverflowRedirect', () => {
         })
 
         it('flags newly rate-limited keys in Redis', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
-            const mockPipeline = {
-                set: jest.fn().mockReturnThis(),
-                exec: jest.fn().mockResolvedValue([]),
-            }
-            mockRedis.pipeline = jest.fn().mockReturnValue(mockPipeline)
-
             const batch = [createBatch('token1', 'user1', 15)]
 
             await service.handleEventBatch('events', batch)
 
-            expect(mockPipeline.set).toHaveBeenCalledWith(
-                '@posthog/stateful-overflow/events:token1:user1',
-                '1',
-                'EX',
-                300
-            )
-            expect(mockPipeline.exec).toHaveBeenCalled()
+            expect(mockRepository.batchFlag).toHaveBeenCalledWith('events', [{ token: 'token1', distinctId: 'user1' }])
         })
 
         it('checks Redis for keys not in local cache', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
-
             const batch = [createBatch('token1', 'user1', 5)]
 
             await service.handleEventBatch('events', batch)
 
-            expect(mockRedis.mget).toHaveBeenCalledWith('@posthog/stateful-overflow/events:token1:user1')
+            expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', [{ token: 'token1', distinctId: 'user1' }])
         })
 
         it('returns keys that are already flagged in Redis', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue(['1'])
+            mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
 
             const batch = [createBatch('token1', 'user1', 1)]
 
@@ -120,44 +89,48 @@ describe('MainLaneOverflowRedirect', () => {
 
         it('uses local cache for subsequent calls', async () => {
             // First call: Redis says key is flagged
-            mockRedis.mget = jest.fn().mockResolvedValue(['1'])
+            mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
 
             const batch1 = [createBatch('token1', 'user1', 1)]
             await service.handleEventBatch('events', batch1)
 
             // Reset mock
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
+            mockRepository.batchCheck.mockClear()
 
-            // Second call: should use cache, not Redis
+            // Second call: should use cache, not repository
             const batch2 = [createBatch('token1', 'user1', 1)]
             const result = await service.handleEventBatch('events', batch2)
 
             expect(result.size).toBe(1)
             expect(result.has('token1:user1')).toBe(true)
-            // mget should not have been called for the second batch
-            expect(mockRedis.mget).not.toHaveBeenCalled()
+            expect(mockRepository.batchCheck).not.toHaveBeenCalled()
         })
 
         it('caches negative results (not in Redis)', async () => {
             // First call: key not in Redis
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
+            mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))
 
             const batch1 = [createBatch('token1', 'user1', 1)]
             await service.handleEventBatch('events', batch1)
 
             // Reset mock
-            mockRedis.mget = jest.fn().mockResolvedValue(['1'])
+            mockRepository.batchCheck.mockClear()
+            mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
 
-            // Second call: should use cache (null), not check Redis again
+            // Second call: should use cache (null), not check repository again
             const batch2 = [createBatch('token1', 'user1', 1)]
             await service.handleEventBatch('events', batch2)
 
-            // mget should not have been called for the second batch
-            expect(mockRedis.mget).not.toHaveBeenCalled()
+            expect(mockRepository.batchCheck).not.toHaveBeenCalled()
         })
 
         it('handles multiple keys independently', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null, null])
+            mockRepository.batchCheck.mockResolvedValue(
+                new Map([
+                    ['token1:user1', false],
+                    ['token1:user2', false],
+                ])
+            )
 
             const batch = [
                 createBatch('token1', 'user1', 5), // Below limit
@@ -171,9 +144,7 @@ describe('MainLaneOverflowRedirect', () => {
             expect(result.has('token1:user1')).toBe(false)
         })
 
-        it('batches multiple Redis MGET calls', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null, null, null])
-
+        it('batches all keys in a single batchCheck call', async () => {
             const batch = [
                 createBatch('token1', 'user1', 1),
                 createBatch('token1', 'user2', 1),
@@ -182,39 +153,35 @@ describe('MainLaneOverflowRedirect', () => {
 
             await service.handleEventBatch('events', batch)
 
-            expect(mockRedis.mget).toHaveBeenCalledWith(
-                '@posthog/stateful-overflow/events:token1:user1',
-                '@posthog/stateful-overflow/events:token1:user2',
-                '@posthog/stateful-overflow/events:token2:user1'
-            )
+            expect(mockRepository.batchCheck).toHaveBeenCalledTimes(1)
+            expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', [
+                { token: 'token1', distinctId: 'user1' },
+                { token: 'token1', distinctId: 'user2' },
+                { token: 'token2', distinctId: 'user1' },
+            ])
         })
     })
 
     describe('fail-open behavior', () => {
-        it('treats keys as not flagged when Redis MGET fails', async () => {
-            mockRedis.mget = jest.fn().mockRejectedValue(new Error('Redis error'))
+        it('treats keys as not flagged when batchCheck returns all false (repository fail-open default)', async () => {
+            // The repository layer handles Redis errors and returns defaults (all false)
+            // Simulate repository fail-open by returning the default "not flagged" result
+            mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))
 
             const batch = [createBatch('token1', 'user1', 5)]
 
             const result = await service.handleEventBatch('events', batch)
 
-            // Should not throw, and should return empty set (below rate limit)
             expect(result.size).toBe(0)
         })
 
-        it('still redirects when Redis SET fails but rate limit exceeded', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
-            const mockPipeline = {
-                set: jest.fn().mockReturnThis(),
-                exec: jest.fn().mockRejectedValue(new Error('Redis error')),
-            }
-            mockRedis.pipeline = jest.fn().mockReturnValue(mockPipeline)
-
+        it('still redirects based on rate limit even when batchFlag is a no-op', async () => {
+            // Even if batchFlag does nothing (e.g. repository fail-open), the local
+            // rate limit decision still causes a redirect for this batch
             const batch = [createBatch('token1', 'user1', 15)]
 
             const result = await service.handleEventBatch('events', batch)
 
-            // Should still redirect even though Redis write failed
             expect(result.size).toBe(1)
             expect(result.has('token1:user1')).toBe(true)
         })
@@ -222,15 +189,10 @@ describe('MainLaneOverflowRedirect', () => {
 
     describe('rate limiting behavior', () => {
         it('rate limit state persists across batches', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
-
             // First batch: consume 8 of 10 tokens
             const batch1 = [createBatch('token1', 'user1', 8)]
             const result1 = await service.handleEventBatch('events', batch1)
             expect(result1.size).toBe(0)
-
-            // Reset mget mock for second call (won't be called due to cache)
-            mockRedis.mget = jest.fn()
 
             // Second batch: consume 3 more tokens (total 11, exceeds 10)
             const batch2 = [createBatch('token1', 'user1', 3)]
@@ -240,14 +202,11 @@ describe('MainLaneOverflowRedirect', () => {
         })
 
         it('different keys have independent rate limits', async () => {
-            mockRedis.mget = jest.fn().mockResolvedValue([null, null])
-
             // Exhaust tokens for user1
             const batch1 = [createBatch('token1', 'user1', 15)]
             await service.handleEventBatch('events', batch1)
 
             // user2 should still have tokens
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
             const batch2 = [createBatch('token1', 'user2', 5)]
             const result = await service.handleEventBatch('events', batch2)
 
@@ -256,35 +215,29 @@ describe('MainLaneOverflowRedirect', () => {
     })
 
     describe('healthCheck', () => {
-        it('returns ok when Redis is healthy', async () => {
+        it('delegates to repository', async () => {
             const result = await service.healthCheck()
 
             expect(result.status).toBe('ok')
-        })
-
-        it('returns error when Redis fails', async () => {
-            mockRedis.ping = jest.fn().mockRejectedValue(new Error('Connection refused'))
-
-            const result = await service.healthCheck()
-
-            expect(result.status).toBe('error')
+            expect(mockRepository.healthCheck).toHaveBeenCalled()
         })
     })
 
     describe('shutdown', () => {
         it('clears local cache', async () => {
             // Populate cache
-            mockRedis.mget = jest.fn().mockResolvedValue(['1'])
+            mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
             await service.handleEventBatch('events', [createBatch('token1', 'user1', 1)])
 
             await service.shutdown()
 
             // After shutdown, cache should be cleared
-            // Next call should hit Redis again
-            mockRedis.mget = jest.fn().mockResolvedValue([null])
+            // Next call should check repository again
+            mockRepository.batchCheck.mockClear()
+            mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))
             await service.handleEventBatch('events', [createBatch('token1', 'user1', 1)])
 
-            expect(mockRedis.mget).toHaveBeenCalled()
+            expect(mockRepository.batchCheck).toHaveBeenCalled()
         })
     })
 })

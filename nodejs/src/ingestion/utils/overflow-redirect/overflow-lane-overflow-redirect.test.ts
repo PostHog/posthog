@@ -1,15 +1,14 @@
-import { Pool as GenericPool } from 'generic-pool'
-import { Redis } from 'ioredis'
-
-import { OverflowLaneOverflowRedirect, OverflowLaneOverflowRedirectConfig } from './overflow-lane-overflow-redirect'
+import { HealthCheckResultError, HealthCheckResultOk } from '../../../types'
+import { OverflowLaneOverflowRedirect } from './overflow-lane-overflow-redirect'
 import { OverflowEventBatch } from './overflow-redirect-service'
+import { OverflowRedisRepository } from './overflow-redis-repository'
 
-const createMockRedisPool = (mockRedis: Partial<Redis>): GenericPool<Redis> => {
-    return {
-        acquire: jest.fn().mockResolvedValue(mockRedis as Redis),
-        release: jest.fn().mockResolvedValue(undefined),
-    } as unknown as GenericPool<Redis>
-}
+const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
+    batchCheck: jest.fn().mockResolvedValue(new Map()),
+    batchFlag: jest.fn().mockResolvedValue(undefined),
+    batchRefreshTTL: jest.fn().mockResolvedValue(undefined),
+    healthCheck: jest.fn().mockResolvedValue(new HealthCheckResultOk()),
+})
 
 const createBatch = (
     token: string,
@@ -23,27 +22,13 @@ const createBatch = (
 })
 
 describe('OverflowLaneOverflowRedirect', () => {
-    let mockRedis: jest.Mocked<Partial<Redis>>
-    let mockPool: GenericPool<Redis>
+    let mockRepository: jest.Mocked<OverflowRedisRepository>
     let service: OverflowLaneOverflowRedirect
 
-    const defaultConfig: OverflowLaneOverflowRedirectConfig = {
-        redisPool: null as unknown as GenericPool<Redis>,
-        redisTTLSeconds: 300,
-    }
-
     beforeEach(() => {
-        mockRedis = {
-            pipeline: jest.fn().mockReturnValue({
-                getex: jest.fn().mockReturnThis(),
-                exec: jest.fn().mockResolvedValue([]),
-            }),
-            ping: jest.fn().mockResolvedValue('PONG'),
-        }
-        mockPool = createMockRedisPool(mockRedis)
+        mockRepository = createMockRepository()
         service = new OverflowLaneOverflowRedirect({
-            ...defaultConfig,
-            redisPool: mockPool,
+            redisRepository: mockRepository,
         })
     })
 
@@ -56,52 +41,33 @@ describe('OverflowLaneOverflowRedirect', () => {
             expect(result.size).toBe(0)
         })
 
-        it('refreshes TTL using GETEX for all keys in batch', async () => {
-            const mockPipeline = {
-                getex: jest.fn().mockReturnThis(),
-                exec: jest.fn().mockResolvedValue([]),
-            }
-            mockRedis.pipeline = jest.fn().mockReturnValue(mockPipeline)
-
+        it('refreshes TTL for all keys in batch', async () => {
             const batch = [createBatch('token1', 'user1'), createBatch('token1', 'user2')]
 
             await service.handleEventBatch('events', batch)
 
-            expect(mockPipeline.getex).toHaveBeenCalledWith('@posthog/stateful-overflow/events:token1:user1', 'EX', 300)
-            expect(mockPipeline.getex).toHaveBeenCalledWith('@posthog/stateful-overflow/events:token1:user2', 'EX', 300)
-            expect(mockPipeline.exec).toHaveBeenCalled()
+            expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('events', [
+                { token: 'token1', distinctId: 'user1' },
+                { token: 'token1', distinctId: 'user2' },
+            ])
         })
 
-        it('uses correct Redis key format for different overflow types', async () => {
-            const mockPipeline = {
-                getex: jest.fn().mockReturnThis(),
-                exec: jest.fn().mockResolvedValue([]),
-            }
-            mockRedis.pipeline = jest.fn().mockReturnValue(mockPipeline)
-
+        it('uses correct overflow type', async () => {
             await service.handleEventBatch('recordings', [createBatch('token1', 'session1')])
 
-            expect(mockPipeline.getex).toHaveBeenCalledWith(
-                '@posthog/stateful-overflow/recordings:token1:session1',
-                'EX',
-                300
-            )
+            expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('recordings', [
+                { token: 'token1', distinctId: 'session1' },
+            ])
         })
 
         it('handles empty batch gracefully', async () => {
             const result = await service.handleEventBatch('events', [])
 
             expect(result.size).toBe(0)
-            expect(mockRedis.pipeline).not.toHaveBeenCalled()
+            expect(mockRepository.batchRefreshTTL).not.toHaveBeenCalled()
         })
 
-        it('batches all GETEX calls in single pipeline', async () => {
-            const mockPipeline = {
-                getex: jest.fn().mockReturnThis(),
-                exec: jest.fn().mockResolvedValue([]),
-            }
-            mockRedis.pipeline = jest.fn().mockReturnValue(mockPipeline)
-
+        it('sends all keys in a single batchRefreshTTL call', async () => {
             const batch = [
                 createBatch('token1', 'user1'),
                 createBatch('token1', 'user2'),
@@ -110,79 +76,40 @@ describe('OverflowLaneOverflowRedirect', () => {
 
             await service.handleEventBatch('events', batch)
 
-            // Should call pipeline once
-            expect(mockRedis.pipeline).toHaveBeenCalledTimes(1)
-            // Should queue 3 GETEX calls
-            expect(mockPipeline.getex).toHaveBeenCalledTimes(3)
-            // Should exec once
-            expect(mockPipeline.exec).toHaveBeenCalledTimes(1)
+            expect(mockRepository.batchRefreshTTL).toHaveBeenCalledTimes(1)
+            expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('events', [
+                { token: 'token1', distinctId: 'user1' },
+                { token: 'token1', distinctId: 'user2' },
+                { token: 'token2', distinctId: 'user1' },
+            ])
         })
     })
 
     describe('fail-open behavior', () => {
-        it('continues processing when Redis fails', async () => {
-            const mockPipeline = {
-                getex: jest.fn().mockReturnThis(),
-                exec: jest.fn().mockRejectedValue(new Error('Redis error')),
-            }
-            mockRedis.pipeline = jest.fn().mockReturnValue(mockPipeline)
-
+        it('returns empty set even when batchRefreshTTL is a no-op', async () => {
+            // The repository layer handles Redis errors internally (fail-open)
+            // From the service perspective, batchRefreshTTL completes without error
+            // and the service still returns an empty set (no redirects from overflow lane)
             const batch = [createBatch('token1', 'user1')]
 
-            // Should not throw
-            const result = await service.handleEventBatch('events', batch)
-
-            // Should still return empty set (no redirects)
-            expect(result.size).toBe(0)
-        })
-
-        it('continues when pool acquire fails', async () => {
-            mockPool.acquire = jest.fn().mockRejectedValue(new Error('Pool exhausted'))
-
-            const batch = [createBatch('token1', 'user1')]
-
-            // Should not throw
             const result = await service.handleEventBatch('events', batch)
 
             expect(result.size).toBe(0)
-        })
-    })
-
-    describe('GETEX behavior', () => {
-        it('only refreshes TTL for existing keys (does not create new keys)', async () => {
-            // GETEX returns null for non-existent keys but doesn't create them
-            const mockPipeline = {
-                getex: jest.fn().mockReturnThis(),
-                exec: jest.fn().mockResolvedValue([
-                    [null, null],
-                    [null, '1'],
-                ]),
-            }
-            mockRedis.pipeline = jest.fn().mockReturnValue(mockPipeline)
-
-            const batch = [
-                createBatch('token1', 'user1'), // Key doesn't exist
-                createBatch('token1', 'user2'), // Key exists
-            ]
-
-            const result = await service.handleEventBatch('events', batch)
-
-            // Still returns empty set regardless of whether keys exist
-            expect(result.size).toBe(0)
-            // Both keys had GETEX called
-            expect(mockPipeline.getex).toHaveBeenCalledTimes(2)
         })
     })
 
     describe('healthCheck', () => {
-        it('returns ok when Redis is healthy', async () => {
+        it('delegates to repository', async () => {
             const result = await service.healthCheck()
 
             expect(result.status).toBe('ok')
+            expect(mockRepository.healthCheck).toHaveBeenCalled()
         })
 
-        it('returns error when Redis fails', async () => {
-            mockRedis.ping = jest.fn().mockRejectedValue(new Error('Connection refused'))
+        it('returns error when repository health check fails', async () => {
+            mockRepository.healthCheck.mockResolvedValue(
+                new HealthCheckResultError('OverflowRedirectService is down', {})
+            )
 
             const result = await service.healthCheck()
 
