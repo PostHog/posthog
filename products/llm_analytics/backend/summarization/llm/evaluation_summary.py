@@ -125,4 +125,4 @@ async def summarize_evaluation_runs(
             model=str(model),
             error=str(e),
         )
-        raise exceptions.APIException(f"Failed to generate evaluation summary: {e}") from e
+        raise exceptions.APIException("Failed to generate evaluation summary") from e

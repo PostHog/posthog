@@ -127,6 +127,23 @@ def _fetch_evaluation_runs(
     ]
 
     # Add result filter conditions
+    # Helper for "applicable is NULL or applicable != false" condition
+    # This handles evaluations without N/A where applicable field is not set (NULL)
+    def _applicable_or_null() -> ast.Expr:
+        return ast.Or(
+            exprs=[
+                ast.Call(
+                    name="isNull",
+                    args=[ast.Field(chain=["properties", "$ai_evaluation_applicable"])],
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["properties", "$ai_evaluation_applicable"]),
+                    right=ast.Constant(value=False),
+                ),
+            ]
+        )
+
     if filter_type == "pass":
         where_conditions.append(
             ast.CompareOperation(
@@ -135,13 +152,7 @@ def _fetch_evaluation_runs(
                 right=ast.Constant(value=True),
             )
         )
-        where_conditions.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=["properties", "$ai_evaluation_applicable"]),
-                right=ast.Constant(value=False),
-            )
-        )
+        where_conditions.append(_applicable_or_null())
     elif filter_type == "fail":
         where_conditions.append(
             ast.CompareOperation(
@@ -150,13 +161,7 @@ def _fetch_evaluation_runs(
                 right=ast.Constant(value=False),
             )
         )
-        where_conditions.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=["properties", "$ai_evaluation_applicable"]),
-                right=ast.Constant(value=False),
-            )
-        )
+        where_conditions.append(_applicable_or_null())
     elif filter_type == "na":
         where_conditions.append(
             ast.CompareOperation(
