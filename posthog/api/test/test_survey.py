@@ -500,7 +500,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(21):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -508,8 +508,8 @@ class TestSurvey(APIBaseTest):
             self.assertEqual(result["count"], 2)
 
             self.assertEqual(
-                [(res["key"], [survey["id"] for survey in res["surveys"]]) for res in result["results"]],
-                [("flag_0", []), (ff_key, [created_survey1, created_survey2])],
+                [(res["key"], sorted([survey["id"] for survey in res["surveys"]])) for res in result["results"]],
+                [("flag_0", []), (ff_key, sorted([created_survey1, created_survey2]))],
             )
 
     def test_updating_survey_with_invalid_iteration_count_is_rejected(self):

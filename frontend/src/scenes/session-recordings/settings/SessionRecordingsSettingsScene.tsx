@@ -2,10 +2,13 @@ import { BindLogic, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { Settings } from 'scenes/settings/Settings'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { SessionRecordingsPageTabs } from '../SessionRecordings'
@@ -40,7 +43,7 @@ export const sessionRecordingsSettingsSceneLogic = kea<sessionRecordingsSettings
 export const scene: SceneExport = {
     component: SessionRecordingsSettingsScene,
     logic: sessionRecordingsSettingsSceneLogic,
-    settingSectionId: 'environment-replay',
+    productKey: ProductKey.SESSION_REPLAY,
 }
 
 export interface SessionRecordingsSettingsSceneProps {
@@ -54,6 +57,12 @@ export function SessionRecordingsSettingsScene({ tabId }: SessionRecordingsSetti
     return (
         <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
             <SceneContent className="-mb-14">
+                <SceneTitleSection
+                    name={sceneConfigurations[Scene.Replay].name}
+                    resourceType={{
+                        type: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
+                    }}
+                />
                 <SessionRecordingsPageTabs />
                 <Settings
                     logicKey={SETTINGS_LOGIC_KEY}

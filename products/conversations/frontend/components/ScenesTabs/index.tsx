@@ -18,7 +18,7 @@ export function ScenesTabs(): JSX.Element {
                 action={{ children: 'Send feedback', id: 'support-feedback-button' }}
             >
                 <p>
-                    Support is in alpha. Please let us know what you'd like to see here and/or report any issues
+                    Support is in private alpha. Please let us know what you'd like to see here and/or report any issues
                     directly to us!
                 </p>
             </LemonBanner>

@@ -542,7 +542,7 @@ jobs:
             - name: Check for changes that affect data modeling temporal worker
               id: check_changes_data_modeling_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/data_warehouse|^posthog/temporal/common|^posthog/warehouse|^products/data_modeling|^products/data_warehouse|^posthog/management/commands|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
               if: steps.check_changes_data_modeling_temporal_worker.outputs.changed == 'true'

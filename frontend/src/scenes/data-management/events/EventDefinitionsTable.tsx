@@ -17,7 +17,6 @@ import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -43,7 +42,6 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
-    const { hasTagging } = useValues(organizationLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -77,17 +75,13 @@ export function EventDefinitionsTable(): JSX.Element {
             },
             sorter: true,
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function Render(_, definition: EventDefinition) {
-                          return <ObjectTags tags={definition.tags ?? []} staticOnly />
-                      },
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: function Render(_, definition: EventDefinition) {
+                return <ObjectTags tags={definition.tags ?? []} staticOnly />
+            },
+        } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
         {
             key: 'actions',
             width: 180,
@@ -168,20 +162,16 @@ export function EventDefinitionsTable(): JSX.Element {
                     className="flex-1 min-w-60"
                 />
                 <div className="flex items-center gap-2 flex-shrink-0">
-                    {hasTagging && (
-                        <>
-                            <span>Tags:</span>
-                            <TagSelect
-                                defaultLabel="Any tags"
-                                value={filters.tags || []}
-                                onChange={(tags) => {
-                                    setFilters({ tags })
-                                }}
-                                data-attr="event-tags-filter"
-                                size="small"
-                            />
-                        </>
-                    )}
+                    <span>Tags:</span>
+                    <TagSelect
+                        defaultLabel="Any tags"
+                        value={filters.tags || []}
+                        onChange={(tags) => {
+                            setFilters({ tags })
+                        }}
+                        data-attr="event-tags-filter"
+                        size="small"
+                    />
                     <span>Type:</span>
                     <LemonSelect
                         value={filters.event_type}

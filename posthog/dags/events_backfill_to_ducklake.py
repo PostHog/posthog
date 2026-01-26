@@ -622,7 +622,7 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
         return cluster.any_host_by_role(
             fn=do_export,
             workload=workload,
-            node_role=NodeRole.COORDINATOR,
+            node_role=NodeRole.DATA,
         ).result()
 
     if parallel_chunks > 1:

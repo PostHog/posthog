@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -15323,7 +15323,8 @@
                 "RedditAds",
                 "TikTokAds",
                 "BingAds",
-                "Shopify"
+                "Shopify",
+                "SnapchatAds"
             ],
             "type": "string"
         },
@@ -15577,7 +15578,8 @@
                 "folder",
                 "folder_open",
                 "conversations",
-                "toolbar"
+                "toolbar",
+                "settings"
             ],
             "type": "string"
         },
@@ -22429,6 +22431,7 @@
                 "feature_preview_enabled",
                 "workflow_created",
                 "data_pipeline_created",
+                "batch_export_created",
                 "notebook_created",
                 "product_tour_created",
                 "task_created",
@@ -22493,8 +22496,9 @@
                 "mobile_replay",
                 "notebooks",
                 "persons",
-                "pipeline_transformations",
+                "pipeline_batch_exports",
                 "pipeline_destinations",
+                "pipeline_transformations",
                 "platform_and_support",
                 "product_analytics",
                 "product_tours",

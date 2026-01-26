@@ -5,11 +5,14 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+
 import { logsSceneLogic } from '../../../logsSceneLogic'
 
 export const AttributesFilter = (): JSX.Element => {
     const { filterGroup } = useValues(logsSceneLogic)
     const { setFilterGroup } = useActions(logsSceneLogic)
+    const { setFilter } = useActions(logsViewerConfigLogic)
 
     const rootKey = 'logs'
 
@@ -22,7 +25,10 @@ export const AttributesFilter = (): JSX.Element => {
                 TaxonomicFilterGroupType.LogResourceAttributes,
                 TaxonomicFilterGroupType.LogAttributes,
             ]}
-            onChange={(filterGroup) => setFilterGroup(filterGroup)}
+            onChange={(filterGroup) => {
+                setFilterGroup(filterGroup)
+                setFilter('filterGroup', filterGroup)
+            }}
         >
             <NestedFilterGroup />
         </UniversalFilters>
