@@ -8,7 +8,9 @@ import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { useOpenAi } from 'scenes/max/useOpenAi'
@@ -21,6 +23,7 @@ import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePan
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
 
+import { SidePanelContentContainer } from '../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
@@ -288,6 +291,8 @@ export function SidePanelSupport(): JSX.Element {
     const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
     const isBillingLoaded = !billingLoading && billing !== undefined
 
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
     const handleOpenEmailForm = (): void => {
         if (showEmailSupport && isBillingLoaded) {
             openEmailForm()
@@ -344,10 +349,14 @@ export function SidePanelSupport(): JSX.Element {
     }
 
     return (
-        <div className="SidePanelSupport">
+        <div
+            className={cn('SidePanelSupport', {
+                contents: isRemovingSidePanelFlag,
+            })}
+        >
             <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />
 
-            <div className="overflow-y-auto flex flex-col h-full">
+            <SidePanelContentContainer flagOffClassName="overflow-y-auto flex flex-col h-full">
                 <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
@@ -490,7 +499,7 @@ export function SidePanelSupport(): JSX.Element {
                         </>
                     )}
                 </div>
-            </div>
+            </SidePanelContentContainer>
         </div>
     )
 }

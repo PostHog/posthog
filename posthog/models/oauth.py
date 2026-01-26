@@ -87,7 +87,7 @@ class OAuthApplication(AbstractApplication):
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
 
             # Custom URL schemes for native apps (RFC 8252 Section 7.1)
-            # These look like: myapp://callback, array://oauth
+            # These look like: myapp://callback, twig://oauth
             is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
 
             if is_custom_scheme:

@@ -506,3 +506,44 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         call_args = mock_send_email.call_args
         # Verify slug defaults to empty string
         assert call_args[0][2] == ""
+
+    def test_soft_delete_comment_without_providing_content(self) -> None:
+        # Create a comment
+        existing = self._create_comment({"content": "This is a comment"})
+
+        # Soft delete by setting deleted=True without providing content
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{existing['id']}",
+            {"deleted": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["deleted"] is True
+        assert response.json()["content"] == "This is a comment"
+
+    def test_soft_deleted_comments_excluded_from_list_by_default(self) -> None:
+        # Create comments
+        self._create_comment({"content": "comment 1"})
+        comment_to_delete = self._create_comment({"content": "comment 2"})
+
+        # Verify both exist
+        response = self.client.get(f"/api/projects/{self.team.id}/comments")
+        assert len(response.json()["results"]) == 2
+
+        # Soft delete
+        self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{comment_to_delete['id']}",
+            {"deleted": True},
+        )
+
+        # Verify deleted comment is excluded from list
+        response = self.client.get(f"/api/projects/{self.team.id}/comments")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["content"] == "comment 1"
+
+    def test_hard_delete_returns_method_not_allowed(self) -> None:
+        existing = self._create_comment({"content": "This is a comment"})
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/comments/{existing['id']}")
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
