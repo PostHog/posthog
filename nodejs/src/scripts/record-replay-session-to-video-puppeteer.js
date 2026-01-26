@@ -294,21 +294,22 @@ async function main() {
         const recordStarted = Date.now()
         // Configure screen recorder
         const recorderConfig = {
-            followNewTab: false,
-            fps: 30,
-            ffmpeg_Path: null, // Use system ffmpeg if needed
+            followNewTab: false, // Always a single tab is recorded
+            // Adjust FPS based on the playback speed, so we can speed up seamlessly later
+            fps: 30 * playbackSpeed, // TODO: Decide if it's not too much or if we need to adjust bitrate to match
+            ffmpeg_Path: null, // Should pick the system one
             videoFrame: {
                 width,
                 height,
             },
-            videoCrf: 23,
+            videoCrf: 23, // Default, could need to adjust
             videoCodec: 'libvpx-vp9',
             videoPreset: 'ultrafast',
-            videoBitrate: 1000,
-            autopad: {
-                color: 'black',
-            },
-            aspectRatio: '16:9',
+            // Adjusting bitrate to match the playback speed to keep the quality
+            videoBitrate: 1000 * playbackSpeed, // TODO: Decide if it should be linear
+            // No autopad
+            // Keep to two aspect ratios for the time being
+            aspectRatio: width > height ? '16:9' : '9:16', // TODO: Find a better way to decide it
         }
         recorder = new PuppeteerScreenRecorder(page, recorderConfig)
         // Start recording
