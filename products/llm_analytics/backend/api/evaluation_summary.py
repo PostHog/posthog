@@ -8,26 +8,28 @@ Endpoints:
 - POST /api/environments/:id/llm_analytics/evaluation_summary/ - Summarize evaluation runs
 """
 
-import hashlib
 import time
+import hashlib
 from typing import cast
+
+from django.core.cache import cache
 
 import structlog
 from asgiref.sync import async_to_sync
-from django.core.cache import cache
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import report_user_action
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
@@ -46,9 +48,7 @@ logger = structlog.get_logger(__name__)
 class EvaluationSummaryRequestSerializer(serializers.Serializer):
     """Request serializer for evaluation summary - accepts IDs only, fetches data server-side."""
 
-    evaluation_id = serializers.UUIDField(
-        help_text="UUID of the evaluation config to summarize"
-    )
+    evaluation_id = serializers.UUIDField(help_text="UUID of the evaluation config to summarize")
     filter = serializers.ChoiceField(
         choices=["all", "pass", "fail", "na"],
         default="all",

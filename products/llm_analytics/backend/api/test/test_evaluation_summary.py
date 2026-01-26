@@ -3,11 +3,12 @@ Tests for evaluation summary API endpoint.
 """
 
 import uuid
+
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.test.base import APIBaseTest
 from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.summarization.llm.evaluation_schema import (
     EvaluationPattern,
