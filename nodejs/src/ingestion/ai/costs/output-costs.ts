@@ -19,7 +19,7 @@ const mustAddReasoningCost = (model: string): boolean => {
  * - Text output tokens are calculated at the standard completion rate.
  *
  * Example for gemini-2.5-flash-image:
- * - Text output: $0.40/1M tokens
+ * - Text output: $2.50/1M tokens
  * - Image output: $30/1M tokens (1290 tokens per image = $0.039/image)
  */
 export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
