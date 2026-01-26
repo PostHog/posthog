@@ -20,7 +20,6 @@ import { logsSceneLogic } from './logsSceneLogic'
 export const scene: SceneExport = {
     component: LogsScene,
     logic: logsSceneLogic,
-    settingSectionId: 'environment-logs',
 }
 
 export function LogsScene(): JSX.Element {

@@ -21,7 +21,6 @@ import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 export const scene: SceneExport = {
     component: EarlyAccessFeatures,
     logic: earlyAccessFeaturesLogic,
-    settingSectionId: 'environment-feature-flags',
 }
 
 const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
