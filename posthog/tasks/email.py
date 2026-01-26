@@ -32,6 +32,7 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
+from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
@@ -749,17 +750,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             logger.warning("Skipping discussions mentioned email: no valid recipients after filtering")
             return
 
-        # Generate href from comment data if slug not provided
-        if not slug:
-            if comment.scope == "Replay":
-                href = f"{settings.SITE_URL}/replay/{comment.item_id}"
-            elif comment.scope == "Notebook":
-                href = f"{settings.SITE_URL}/notebook/{comment.item_id}"
-            else:
-                # Fallback for other scopes
-                href = settings.SITE_URL
-        else:
-            href = f"{settings.SITE_URL}{slug}"
+        href = build_comment_item_url(comment.scope, comment.item_id, slug)
 
         campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
         message = EmailMessage(
