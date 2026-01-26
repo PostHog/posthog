@@ -22,7 +22,6 @@ procs:
         shell: |-
             bin/check_kafka_clickhouse_up && \
             bin/check_temporal_up && \
-            bin/check_video_deps && \
             bin/check_ducklake_up && \
             if [ -n "$TEMPORAL_DISABLE_HOT_RELOAD" ]; then \
                 python manage.py start_temporal_worker --task-queue development-task-queue 2>&1 | tee /tmp/posthog-temporal-worker.log; \
@@ -63,6 +62,12 @@ procs:
             bin/check_postgres_up posthog && \
             bin/start-rust-service feature-flags 2>&1 | tee /tmp/posthog-feature-flags.log
 
+    livestream:
+        shell: |-
+            bin/check_postgres_up posthog && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-go-service livestream 2>&1 | tee /tmp/posthog-livestream.log
+
     property-defs-rs:
         shell: |-
             bin/check_postgres_up && \
@@ -96,6 +101,15 @@ procs:
     llm-gateway:
         shell: 'bin/check_postgres_up && bin/start-llm-gateway 2>&1 | tee /tmp/posthog-llm-gateway.log'
         autostart: true
+        env:
+            LLM_GATEWAY_DEBUG: 'true'
+            LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
+            LLM_GATEWAY_POSTHOG_PROJECT_TOKEN: 'phc_localposthogprojecttoken'
+            LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
+
+    mcp:
+        shell: 'bin/start-mcp-server 2>&1 | tee /tmp/posthog-mcp.log'
+        autostart: false
 
     # This takes ~10 s
     migrate-postgres:

@@ -20,10 +20,10 @@ import {
     ActivityScope,
     Breadcrumb,
     Experiment,
+    ExperimentProgressStatus,
     ExperimentVelocityStats,
     ExperimentsTabs,
     FeatureFlagType,
-    ProgressStatus,
 } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
@@ -37,7 +37,7 @@ export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> 
 
 export interface ExperimentsFilters {
     search?: string
-    status?: ProgressStatus | 'all'
+    status?: ExperimentProgressStatus | 'all'
     created_by_id?: number
     archived?: boolean
     page?: number
@@ -71,13 +71,18 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-export function getExperimentStatus(experiment: Experiment): ProgressStatus {
+export function getExperimentStatus(experiment: Experiment): ExperimentProgressStatus {
     if (!experiment.start_date) {
-        return ProgressStatus.Draft
+        return ExperimentProgressStatus.Draft
     } else if (!experiment.end_date) {
-        return ProgressStatus.Running
+        // When the feature flag is disabled, we show "Paused" to the user for better UX.
+        // This is just a virtual status, the backend still considers the experiment "running".
+        if (experiment.feature_flag && !experiment.feature_flag.active) {
+            return ExperimentProgressStatus.Paused
+        }
+        return ExperimentProgressStatus.Running
     }
-    return ProgressStatus.Complete
+    return ExperimentProgressStatus.Complete
 }
 
 export function isSingleVariantShipped(experiment: Experiment): boolean {
@@ -103,13 +108,15 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
     )
 }
 
-export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
+export function getExperimentStatusColor(status: ExperimentProgressStatus): LemonTagType {
     switch (status) {
-        case ProgressStatus.Draft:
+        case ExperimentProgressStatus.Draft:
             return 'default'
-        case ProgressStatus.Running:
+        case ExperimentProgressStatus.Running:
             return 'success'
-        case ProgressStatus.Complete:
+        case ExperimentProgressStatus.Paused:
+            return 'warning'
+        case ExperimentProgressStatus.Complete:
             return 'completion'
     }
 }
