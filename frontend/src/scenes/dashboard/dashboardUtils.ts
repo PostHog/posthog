@@ -29,7 +29,7 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
  * The minimum interval between manual dashboard refreshes.
  * This is used to block the dashboard refresh button.
  */
-export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 0
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
