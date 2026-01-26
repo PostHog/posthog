@@ -122,7 +122,10 @@ export function SceneTabs(): JSX.Element {
                                 data-attr="scene-tab-new-button"
                                 onClick={(e) => {
                                     e.preventDefault()
-                                    newTab()
+                                    const currentPath = router.values.location.pathname
+                                    // If on /sql route, open a new /sql tab, otherwise default to /search
+                                    const isSqlRoute = currentPath.endsWith('/sql')
+                                    newTab(isSqlRoute ? '/sql' : null)
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}

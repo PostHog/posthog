@@ -5,12 +5,13 @@ import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from prometheus_client import REGISTRY
+from prometheus_client import PLATFORM_COLLECTOR, PROCESS_COLLECTOR, CollectorRegistry
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
+from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
@@ -46,7 +47,7 @@ class ManagedWorker:
     metrics_server: CombinedMetricsServer
 
     async def run(self) -> None:
-        self.metrics_server.start()
+        await self.metrics_server.start()
         await self.worker.run()
 
     def is_shutdown(self) -> bool:
@@ -54,7 +55,7 @@ class ManagedWorker:
 
     async def shutdown(self) -> None:
         await self.worker.shutdown()
-        self.metrics_server.stop()
+        await self.metrics_server.stop()
 
 
 async def create_worker(
@@ -131,10 +132,17 @@ async def create_worker(
         )
     )
 
+    # Create a separate CollectorRegistry for the metrics server to avoid lock contention
+    # with any other parts of the application that might use the global REGISTRY.
+    # This ensures the metrics server thread cannot deadlock with other threads.
+    metrics_server_registry = CollectorRegistry()
+    metrics_server_registry.register(PROCESS_COLLECTOR)
+    metrics_server_registry.register(PLATFORM_COLLECTOR)
+
     metrics_server = CombinedMetricsServer(
         port=metrics_port,
         temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
-        registry=REGISTRY,
+        registry=metrics_server_registry,
     )
     client = await connect(
         host,
@@ -155,7 +163,7 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            interceptors=[LivenessInterceptor(), PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
@@ -175,7 +183,7 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            interceptors=[LivenessInterceptor(), PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,

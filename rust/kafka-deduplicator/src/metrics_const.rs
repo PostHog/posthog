@@ -45,29 +45,6 @@ pub const TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
 pub const TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER: &str =
     "timestamp_dedup_field_differences_total";
 
-// ==== UUID deduplication metrics ====
-/// Histogram for timestamp variance in milliseconds for UUID duplicates
-pub const UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM: &str = "uuid_dedup_timestamp_variance_ms";
-
-/// Histogram for number of unique timestamps seen for the same UUID
-pub const UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM: &str = "uuid_dedup_unique_timestamps";
-
-/// Histogram for similarity score in UUID deduplication
-pub const UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM: &str = "uuid_dedup_similarity_score";
-
-/// Histogram for number of different fields in UUID deduplication
-pub const UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM: &str = "uuid_dedup_different_fields";
-
-/// Histogram for number of different properties in UUID deduplication
-pub const UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str = "uuid_dedup_different_properties";
-
-/// Histogram for properties similarity score in UUID deduplication
-pub const UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
-    "uuid_dedup_properties_similarity_score";
-
-/// Counter for specific fields that differ in UUID deduplication
-pub const UUID_DEDUP_FIELD_DIFFERENCES_COUNTER: &str = "uuid_dedup_field_differences_total";
-
 // ==== Cleanup operations metrics ====
 /// Counter for cleanup operations performed
 pub const CLEANUP_OPERATIONS_COUNTER: &str = "cleanup_operations_total";
@@ -130,6 +107,10 @@ pub const STORE_CREATION_EVENTS: &str = "store_creation_events_total";
 
 /// Gauge for active store count
 pub const ACTIVE_STORE_COUNT: &str = "active_store_count";
+
+/// Gauge for number of overlapping rebalances in progress
+/// Value > 0 means rebalance async work is ongoing; used to block orphan cleanup
+pub const REBALANCING_COUNT: &str = "rebalancing_count";
 
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)

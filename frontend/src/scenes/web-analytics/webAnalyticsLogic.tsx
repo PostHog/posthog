@@ -21,7 +21,6 @@ import {
     isNotNil,
     isValidRelativeOrAbsoluteDate,
     objectsEqual,
-    updateDatesWithInterval,
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -115,6 +114,13 @@ import { webAnalyticsHealthLogic } from './health'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+
+export interface DateFilterState {
+    dateFrom: string | null
+    dateTo: string | null
+    interval: IntervalType
+    isIntervalManuallySet: boolean
+}
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
@@ -341,10 +347,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateFrom: INITIAL_DATE_FROM,
                 dateTo: INITIAL_DATE_TO,
                 interval: INITIAL_INTERVAL,
-            },
+                isIntervalManuallySet: false,
+            } as DateFilterState,
             persistConfig,
             {
-                setDates: (_, { dateTo, dateFrom }) => {
+                setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
                     if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
                         dateTo = INITIAL_DATE_TO
                     }
@@ -354,17 +361,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return {
                         dateTo,
                         dateFrom,
-                        interval: getDefaultInterval(dateFrom, dateTo),
+                        interval: isIntervalManuallySet ? interval : getDefaultInterval(dateFrom, dateTo),
+                        isIntervalManuallySet,
                     }
                 },
-                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
-                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval,
-                    }
-                },
+                setInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                    dateTo,
+                    dateFrom,
+                    interval,
+                    isIntervalManuallySet: true,
+                }),
                 setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
                     if (!dateFrom && !dateTo) {
                         dateFrom = INITIAL_DATE_FROM
@@ -380,12 +386,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         dateTo,
                         dateFrom,
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
+                        isIntervalManuallySet: !!interval,
                     }
                 },
                 clearFilters: () => ({
                     dateFrom: INITIAL_DATE_FROM,
                     dateTo: INITIAL_DATE_TO,
                     interval: INITIAL_INTERVAL,
+                    isIntervalManuallySet: false,
                 }),
             },
         ],
@@ -956,7 +964,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
-                    canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                    canOpenInsight: true,
                     canOpenModal: true,
                 })
 
@@ -1021,7 +1029,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 embedded: true,
                                 hideTooltipOnScroll: true,
                             },
-                            canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                            canOpenInsight: true,
                             canOpenModal: true,
                         }
                     }
@@ -1049,7 +1057,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             showActions: true,
                             columns,
                         },
-                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenInsight: true,
                         canOpenModal: true,
                     }
                 }
@@ -1163,7 +1171,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             conversionGoal,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
-                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenInsight: true,
                         canOpenModal: false,
                     },
                     {
@@ -1686,7 +1694,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               embedded: true,
                                           },
                                           insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                          canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                                          canOpenInsight: true,
                                       }
                                     : null,
                                 shouldShowGeoIPQueries
@@ -1766,7 +1774,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   embedded: true,
                               },
                               insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                              canOpenInsight: true,
                               canOpenModal: true,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
@@ -2048,7 +2056,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
                               canOpenModal: true,
-                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                              canOpenInsight: true,
                               docs: {
                                   title: 'Frustrating Pages',
                                   description: (
