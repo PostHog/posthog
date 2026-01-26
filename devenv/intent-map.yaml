@@ -153,9 +153,9 @@ intents:
         description: 'Data pipeline transformations and destinations'
         capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
 
-    max:
-        description: 'Max AI assistant'
-        capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions]
+    ai_features:
+        description: 'AI features'
+        capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions, temporal_workflows]
 
     dashboards:
         description: 'Dashboard management and exports'
