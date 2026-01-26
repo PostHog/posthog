@@ -79,3 +79,120 @@ class TestHeatmapsAPI(APIBaseTest):
         other = SavedHeatmap.objects.create(team=other_team, url="https://example.com")
         r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{other.id}/content/")
         self.assertEqual(r.status_code, 404)
+
+    def test_create_upload_type_with_image_url(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "upload",
+                "image_url": "/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+                "data_url": "https://example.com/page/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 201)
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertEqual(saved.type, SavedHeatmap.Type.UPLOAD)
+        self.assertEqual(saved.image_url, "/uploaded_media/550e8400-e29b-41d4-a716-446655440000")
+        self.assertEqual(saved.status, SavedHeatmap.Status.COMPLETED)
+
+    def test_upload_type_status_is_completed_immediately(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "upload",
+                "image_url": "/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+                "data_url": "https://example.com/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data["status"], "completed")
+
+    def test_upload_type_url_is_optional(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "upload",
+                "image_url": "/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+                "data_url": "https://example.com/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 201)
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertEqual(saved.url, "")
+
+    def test_upload_type_requires_image_url(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "upload",
+                "data_url": "https://example.com/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("image_url", str(resp.data))
+
+    def test_non_upload_type_requires_url(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "iframe",
+                "data_url": "https://example.com/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("url", str(resp.data))
+
+    def test_retrieve_upload_type_returns_image_url(self):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="",
+            data_url="https://example.com/*",
+            type=SavedHeatmap.Type.UPLOAD,
+            image_url="/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+            status=SavedHeatmap.Status.COMPLETED,
+            created_by=self.user,
+        )
+        resp = self.client.get(f"/api/environments/{self.team.id}/saved/{saved.short_id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["type"], "upload")
+        self.assertEqual(resp.data["image_url"], "/uploaded_media/550e8400-e29b-41d4-a716-446655440000")
+
+    def test_upload_type_rejects_invalid_image_url_format(self):
+        # External URL should be rejected
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "upload",
+                "image_url": "https://evil.com/image.png",
+                "data_url": "https://example.com/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("image_url", str(resp.data))
+
+    def test_upload_type_rejects_arbitrary_path(self):
+        # Arbitrary internal path should be rejected
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "upload",
+                "image_url": "/api/projects/1/some_secret",
+                "data_url": "https://example.com/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("image_url", str(resp.data))
+
+    def test_upload_type_accepts_absolute_url_from_uploaded_media(self):
+        # Absolute URLs from uploaded_media API should be accepted
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {
+                "type": "upload",
+                "image_url": "https://us.posthog.com/uploaded_media/550e8400-e29b-41d4-a716-446655440000",
+                "data_url": "https://example.com/*",
+            },
+        )
+        self.assertEqual(resp.status_code, 201)
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertEqual(saved.image_url, "https://us.posthog.com/uploaded_media/550e8400-e29b-41d4-a716-446655440000")

@@ -4825,6 +4825,7 @@ export interface HeatmapExportContext {
     heatmap_url: string
     heatmap_data_url?: string
     heatmap_type?: HeatmapType
+    width?: number | null
     filename?: string
     heatmap_filters?: HeatmapFilters
     heatmap_color_palette?: string | null
@@ -6338,7 +6339,7 @@ export interface DataWarehouseActivityRecord {
     origin?: DataWarehouseSavedQueryOrigin | null
 }
 
-export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
+export type HeatmapType = 'screenshot' | 'iframe' | 'recording' | 'upload'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
 
 export interface HeatmapScreenshotType {
@@ -6347,6 +6348,7 @@ export interface HeatmapScreenshotType {
     short_id: string
     url: string
     data_url: string | null
+    image_url?: string | null
     type: HeatmapType
     width: number
     status: HeatmapStatus

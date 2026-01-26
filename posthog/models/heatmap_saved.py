@@ -14,12 +14,14 @@ class SavedHeatmap(UUIDTModel):
         SCREENSHOT = "screenshot", "Screenshot"
         IFRAME = "iframe", "Iframe"
         RECORDING = "recording", "Recording"
+        UPLOAD = "upload", "Upload"
 
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    url = models.URLField(max_length=2000)
+    url = models.URLField(max_length=2000, blank=True, default="")
     data_url = models.URLField(max_length=2000, null=True, blank=True, help_text="URL for fetching heatmap data")
+    image_url = models.TextField(max_length=2000, null=True, blank=True, help_text="Path or URL to uploaded image")
     # Planned widths to generate for screenshot-type heatmaps
     target_widths = models.JSONField(default=list)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.SCREENSHOT)
@@ -59,6 +61,7 @@ class SavedHeatmap(UUIDTModel):
             "team_id": self.team_id,
             "url": self.url,
             "data_url": self.data_url,
+            "image_url": self.image_url,
             "target_widths": self.target_widths,
             "type": self.type,
             "status": self.status,

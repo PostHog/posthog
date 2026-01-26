@@ -5321,10 +5321,11 @@ const api = {
 
         async create(data: {
             name: string
-            url: string
+            url?: string
             data_url?: string | null
             width?: number
             type?: HeatmapType
+            image_url?: string | null
         }): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
         },
@@ -5340,6 +5341,7 @@ const api = {
                 data_url: string | null
                 width: number
                 type: HeatmapType
+                image_url: string | null
             }>
         ): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
