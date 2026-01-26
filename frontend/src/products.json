@@ -5,7 +5,7 @@
             "category": "Tools",
             "iconType": "data_pipeline",
             "type": "hog_function",
-            "intents": ["pipeline_destinations", "pipeline_transformations", "site_apps"]
+            "intents": ["pipeline_batch_exports", "pipeline_destinations", "pipeline_transformations", "site_apps"]
         },
         {
             "path": "Support",
