@@ -78,6 +78,10 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 return []
 
             # Query last generation per trace (with timestamp bounds for efficiency)
+            # Note: We use argMax(uuid, timestamp) to select only the LAST generation
+            # per trace. This means only the most recent generation in each trace
+            # gets summarized, which is intentional to avoid duplicate summaries
+            # and focus on the final output of each trace.
             trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_context.keys()])
 
             # Convert ISO format to ClickHouse-compatible format
@@ -92,7 +96,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 FROM events
                 WHERE event = '$ai_generation'
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
-                    AND timestamp <= toDateTime({end_ts}, 'UTC')
+                    AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id IN {trace_ids}
                 GROUP BY trace_id
                 """
