@@ -4,8 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    atomic = False  # Required for concurrent index creation
-
     dependencies = [
         ("posthog", "0987_add_column_configuration_constraints"),
     ]
@@ -20,24 +18,5 @@ class Migration(migrations.Migration):
                 help_text="Type of system cohort, or NULL for user-created cohorts",
                 null=True,
             ),
-        ),
-        # Create unique index concurrently, then register constraint in Django state
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "unique_system_cohort_per_team" ON "posthog_cohort" ("team_id", "system_type") WHERE "system_type" IS NOT NULL; -- existing-table-constraint-ignore',
-                    reverse_sql='DROP INDEX CONCURRENTLY IF EXISTS "unique_system_cohort_per_team";',
-                ),
-            ],
-            state_operations=[
-                migrations.AddConstraint(
-                    model_name="cohort",
-                    constraint=models.UniqueConstraint(
-                        condition=models.Q(system_type__isnull=False),
-                        fields=["team", "system_type"],
-                        name="unique_system_cohort_per_team",
-                    ),
-                ),
-            ],
         ),
     ]
