@@ -1,4 +1,7 @@
 {
+    "env": {
+        "ENABLE_EXPERIMENTAL_MCP_CLI": "true"
+    },
     "enabledPlugins": {
         "pyright-lsp@claude-plugins-official": true,
         "typescript-lsp@claude-plugins-official": true

@@ -7,6 +7,8 @@ description: 'Retrieve data from PostHog: system (insights, dashboards, cohorts,
 
 Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably.
 
+Do not assume that data exists. Use the SQL tool proactively to find right data.
+
 ## Search types
 
 Proactively use differnt search types depending on a task:
@@ -79,7 +81,7 @@ All entities are scoped by a team by default. You cannot access data of another 
 
 ### 2. Captured Data (Analytics Data)
 
-Data collected via the PostHog SDK - used for product analytics.
+Data collected via the PostHog SDK - used for analytics.
 
 | Table                 | Description                                            |
 | --------------------- | ------------------------------------------------------ |
@@ -108,6 +110,34 @@ ORDER BY week DESC
 ```
 
 ## Querying guidelines
+
+### Schema verification
+
+Before writing analytical queries, always verify that:
+
+- The required event names or actions exist.
+- Properties and property values of events, persons, sessions, and groups data exist.
+
+Follow this workflow:
+
+1. **Fetch the tool schema** - Use `posthog:read-data-schema` to get the latest schema from the MCP.
+1. **Verify data exist** - Use `posthog:read-data-schema` with differrent data types to check if the data you need is captured
+1. **Only then write the query** - Once you've confirmed the data exists, write and execute your analytical query
+
+<example>
+User: Find AI traces with human feedback
+Assistant:
+1. First, verify the events exist:
+   - Call `posthog:read-data-schema` with `schema_type: "events"`
+   - Check if `$ai_trace`, `$ai_generation`, `$ai_feedback` events are in the results
+2. If required events don't exist, inform the user immediately instead of running queries that will return empty results
+3. If events exist, verify the properties:
+   - Call `posthog:read-data-schema` with `schema_type: "event_properties"` and `event_name: "$ai_trace"`
+   - Check if `$ai_feedback`, `$ai_trace_id` properties exist
+4. Only then execute the analytical query
+</example>
+
+This prevents wasted API calls and gives users immediate feedback when the data they're looking for doesn't exist.
 
 ### Skipping index
 

@@ -2,6 +2,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pydantic
+from asgiref.sync import async_to_sync
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -80,7 +81,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         url_path="invoke/(?P<tool_name>[^/.]+)",
         required_scopes=["insight:read", "query:read"],
     )
-    async def invoke_tool(self, request: Request, tool_name: str, *args, **kwargs):
+    def invoke_tool(self, request: Request, tool_name: str, *args, **kwargs):
         """
         Invoke an external tool by name.
 
@@ -89,6 +90,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         """
         # Import here to ensure external tools are registered
         import ee.hogai.tools.execute_sql.external  # noqa: F401
+        import ee.hogai.tools.read_taxonomy_external  # noqa: F401
 
         tool = get_external_tool(tool_name)
         if tool is None:
@@ -108,7 +110,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        result = await tool.execute(
+        result = async_to_sync(tool.execute)(
             team=self.team,
             user=cast(User, request.user),
             **validated_args.model_dump(),
