@@ -242,20 +242,18 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                         <div className="flex items-center justify-end pt-4 border-t border-border">
                             <div className="flex items-center gap-2">
                                 {currentStep === 'when' && (
-                                    <>
-                                        <LemonButton type="secondary" onClick={() => setStep('appearance')}>
-                                            Customize appearance
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="secondary"
-                                            loading={surveySaving}
-                                            disabled={surveyLaunching}
-                                            onClick={handleSaveClick}
-                                        >
-                                            {isEditing ? 'Save changes' : 'Save as draft'}
-                                        </LemonButton>
-                                    </>
+                                    <LemonButton type="secondary" onClick={() => setStep('appearance')}>
+                                        Customize appearance
+                                    </LemonButton>
                                 )}
+                                <LemonButton
+                                    type="secondary"
+                                    loading={surveySaving}
+                                    disabled={surveyLaunching}
+                                    onClick={handleSaveClick}
+                                >
+                                    {isEditing ? 'Save changes' : 'Save as draft'}
+                                </LemonButton>
                                 {currentStep === 'when' ? (
                                     !isEditing && (
                                         <LemonButton
