@@ -246,18 +246,20 @@ export function InsightMeta({
             moreButtons={
                 <>
                     {/* Insight related */}
-                    <LemonButton
-                        to={urls.insightView(
-                            short_id,
-                            dashboardId,
-                            variablesOverride,
-                            filtersOverride,
-                            tile?.filters_overrides
-                        )}
-                        fullWidth
-                    >
-                        View
-                    </LemonButton>
+                    {canViewInsight && (
+                        <LemonButton
+                            to={urls.insightView(
+                                short_id,
+                                dashboardId,
+                                variablesOverride,
+                                filtersOverride,
+                                tile?.filters_overrides
+                            )}
+                            fullWidth
+                        >
+                            View
+                        </LemonButton>
+                    )}
                     {canEditInsight && (
                         <>
                             <LemonButton
