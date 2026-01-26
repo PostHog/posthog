@@ -41,7 +41,7 @@ export function SurveyEditQuestionHeader({
     setSelectedPageIndex,
     setSurveyValue,
 }: SurveyQuestionHeaderProps): JSX.Element {
-    const { hasBranchingLogic } = useValues(surveyLogic)
+    const { hasBranchingLogic, editingLanguage } = useValues(surveyLogic)
     const { deleteBranchingLogic } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
@@ -63,7 +63,11 @@ export function SurveyEditQuestionHeader({
                 <SurveyDragHandle listeners={listeners} hasMultipleQuestions={survey.questions.length > 1} />
 
                 <b>
-                    Question {index + 1}. {survey.questions[index].question}
+                    Question {index + 1}.{' '}
+                    {editingLanguage
+                        ? (survey.questions[index].translations?.[editingLanguage]?.question ??
+                          survey.questions[index].question)
+                        : survey.questions[index].question}
                 </b>
             </div>
             {survey.questions.length > 1 && (
