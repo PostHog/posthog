@@ -160,8 +160,28 @@ export class MessageAwareBatchPipelineBuilder<
 > {
     constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
 
-    handleResults(config: PipelineConfig): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-        return new BatchPipelineBuilder(new ResultHandlingPipeline(this.pipeline, config))
+    handleResults(config: PipelineConfig): ResultHandledBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
+        return new ResultHandledBatchPipelineBuilder(new ResultHandlingPipeline(this.pipeline, config))
+    }
+}
+
+/**
+ * Builder returned after handleResults(). Only allows handleSideEffects() to be called,
+ * enforcing that side effects must be handled before building.
+ */
+export class ResultHandledBatchPipelineBuilder<
+    TInput,
+    TOutput,
+    CInput extends { message: Message },
+    COutput extends { message: Message } = CInput,
+> {
+    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
+
+    handleSideEffects(
+        promiseScheduler: PromiseScheduler,
+        options: { await: boolean }
+    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
+        return new BatchPipelineBuilder(new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options))
     }
 }
 
