@@ -380,6 +380,13 @@ class KernelRuntimeService:
             output_callback(line)
         return buffer
 
+    def _is_hogql_marker_line(self, line: str) -> bool:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(payload, dict) and payload.get("marker") == self._HOGQL_BRIDGE_MARKER
+
     def _register_cleanup_hooks(self) -> None:
         def _cleanup(*_: Any) -> None:
             self.shutdown_all()
@@ -984,19 +991,24 @@ class KernelRuntimeService:
 
         attempt = 0
         wrapped_code = self._wrap_code_with_hogql_exec_id(code, exec_id)
-        should_dedupe_output = output_callback is not None and "hogql_execute" in code
+        should_dedupe_output = output_callback is not None and ("hogql_execute" in code or "execute_hogql" in code)
         emitted_lines: list[str] = []
         while True:
             attempt_output_callback = output_callback
+            if output_callback:
+
+                def filtered_output_callback(line: str) -> None:
+                    if self._is_hogql_marker_line(line):
+                        return
+                    output_callback(line)
+
+                attempt_output_callback = filtered_output_callback
+
             if should_dedupe_output and output_callback:
                 attempt_state = {"index": 0, "skipping": True}
 
                 def deduping_callback(line: str, *, attempt_state: dict[str, int | bool] = attempt_state) -> None:
-                    try:
-                        payload = json.loads(line)
-                    except json.JSONDecodeError:
-                        payload = None
-                    if isinstance(payload, dict) and payload.get("marker") == self._HOGQL_BRIDGE_MARKER:
+                    if self._is_hogql_marker_line(line):
                         return
                     if attempt_state["skipping"]:
                         index = attempt_state["index"]
@@ -1004,7 +1016,7 @@ class KernelRuntimeService:
                             attempt_state["index"] = index + 1
                             return
                         attempt_state["skipping"] = False
-                    output_callback(line)
+                    filtered_output_callback(line)
                     emitted_lines.append(line)
 
                 attempt_output_callback = deduping_callback
