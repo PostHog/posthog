@@ -27,6 +27,7 @@ import { linksLogic } from './linksLogic'
 export const scene: SceneExport = {
     component: LinksScene,
     logic: linksLogic,
+    productKey: ProductKey.LINKS,
 }
 
 export function LinksScene(): JSX.Element {

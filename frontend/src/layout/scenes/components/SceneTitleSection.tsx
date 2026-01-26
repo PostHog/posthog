@@ -5,6 +5,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
@@ -152,6 +153,15 @@ export function SceneTitleSection({
 
     const effectiveDescription = description
 
+    // Always include ProductSetupButton alongside other actions
+    // Product auto-selection is handled by SceneContent via globalSetupLogic
+    const effectiveActions = (
+        <>
+            <ProductSetupButton />
+            {actions}
+        </>
+    )
+
     useEffect(() => {
         const stickyElement = document.querySelector('[data-sticky-sentinel]')
         if (!stickyElement) {
@@ -233,9 +243,9 @@ export function SceneTitleSection({
                             </>
                         )}
                     </div>
-                    {actions && (
+                    {effectiveActions && (
                         <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first">
-                            {actions}
+                            {effectiveActions}
                             <SceneTitlePanelButton />
                         </div>
                     )}
