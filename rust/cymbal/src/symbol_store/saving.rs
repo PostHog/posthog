@@ -20,6 +20,22 @@ use crate::{
 
 use super::{Fetcher, Parser, S3Client};
 
+const MAX_REF_BYTES: usize = 2048;
+
+// We truncate the reference to resolve an issue with the maximum size in a BTRee index on Postgres
+// TODO: update model to use a hash of the reference instead
+fn truncate_ref(s: &str) -> &str {
+    if s.len() <= MAX_REF_BYTES {
+        return s;
+    }
+    // Find a valid UTF-8 boundary at or before MAX_REF_BYTES
+    let mut end = MAX_REF_BYTES;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 // A wrapping layer around a fetcher and parser, that provides transparent storing of the
 // source bytes into s3, and the storage pointer into a postgres database.
 pub struct Saving<F> {
@@ -276,13 +292,14 @@ impl SymbolSetRecord {
         // Query looks a bit odd. Symbol sets are usable by cymbal if they have no storage ptr (indicating an
         // unfound symbol set) or if they have a content hash (indicating a full saved symbol set). The in-between
         // states (storage_ptr is not null AND content_hash is null) indicate an ongoing upload.
+        let truncated_ref = truncate_ref(set_ref);
         let mut record = sqlx::query_as!(
             SymbolSetRecord,
             r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason, content_hash, last_used
             FROM posthog_errortrackingsymbolset
             WHERE (content_hash is not null OR storage_ptr is null) AND team_id = $1 AND ref = $2"#,
             team_id,
-            set_ref
+            truncated_ref
         )
         .fetch_optional(pool)
         .await?;
@@ -332,6 +349,7 @@ impl SymbolSetRecord {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
+        let truncated_ref = truncate_ref(&self.set_ref);
         self.id = sqlx::query_scalar!(
             r#"
             INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash)
@@ -341,7 +359,7 @@ impl SymbolSetRecord {
             "#,
             self.id,
             self.team_id,
-            self.set_ref,
+            truncated_ref,
             self.storage_ptr,
             self.failure_reason,
             self.created_at,
@@ -387,7 +405,7 @@ mod test {
     use crate::{
         config::Config,
         symbol_store::{
-            saving::{Saving, SymbolSetRecord},
+            saving::{truncate_ref, Saving, SymbolSetRecord, MAX_REF_BYTES},
             sourcemap::SourcemapProvider,
             Provider, S3Client,
         },
@@ -396,6 +414,36 @@ mod test {
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
+
+    #[test]
+    fn test_truncate_ref_short_string() {
+        let short = "hello";
+        assert_eq!(truncate_ref(short), short);
+    }
+
+    #[test]
+    fn test_truncate_ref_exact_length() {
+        let exact: String = "a".repeat(MAX_REF_BYTES);
+        assert_eq!(truncate_ref(&exact), exact.as_str());
+    }
+
+    #[test]
+    fn test_truncate_ref_long_string() {
+        let long: String = "a".repeat(MAX_REF_BYTES + 100);
+        let truncated = truncate_ref(&long);
+        assert_eq!(truncated.len(), MAX_REF_BYTES);
+    }
+
+    #[test]
+    fn test_truncate_ref_multibyte_char_boundary() {
+        // Create a string with multibyte characters (emoji is 4 bytes)
+        let prefix: String = "a".repeat(MAX_REF_BYTES - 2);
+        let with_emoji = format!("{}🎉extra", prefix); // emoji at position 1022, would split at 1024
+        let truncated = truncate_ref(&with_emoji);
+        // Should truncate before the emoji to stay at a valid char boundary
+        assert!(truncated.len() <= MAX_REF_BYTES);
+        assert!(truncated.is_char_boundary(truncated.len()));
+    }
 
     fn get_symbol_data_bytes() -> Vec<u8> {
         write_symbol_data(posthog_symbol_data::SourceAndMap {

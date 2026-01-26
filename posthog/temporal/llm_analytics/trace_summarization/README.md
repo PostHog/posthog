@@ -107,15 +107,16 @@ Edit `ALLOWED_TEAM_IDS` in `constants.py`. Empty list = coordinator skips all te
 
 Key constants in `constants.py`:
 
-| Constant                             | Default    | Description                 |
-| ------------------------------------ | ---------- | --------------------------- |
-| `DEFAULT_MAX_TRACES_PER_WINDOW`      | 100        | Max traces per window       |
-| `DEFAULT_BATCH_SIZE`                 | 3          | Concurrent trace processing |
-| `DEFAULT_MODE`                       | "detailed" | Summary detail level        |
-| `DEFAULT_WINDOW_MINUTES`             | 60         | Time window to query        |
-| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES` | 120        | Max workflow duration       |
-| `SAMPLE_TIMEOUT_SECONDS`             | 300        | Sampling activity timeout   |
-| `GENERATE_SUMMARY_TIMEOUT_SECONDS`   | 300        | Summary activity timeout    |
+| Constant                             | Default        | Description                 |
+| ------------------------------------ | -------------- | --------------------------- |
+| `DEFAULT_MAX_TRACES_PER_WINDOW`      | 100            | Max traces per window       |
+| `DEFAULT_BATCH_SIZE`                 | 3              | Concurrent trace processing |
+| `DEFAULT_MODE`                       | "detailed"     | Summary detail level        |
+| `DEFAULT_MODEL`                      | "gpt-4.1-nano" | LLM model for summarization |
+| `DEFAULT_WINDOW_MINUTES`             | 60             | Time window to query        |
+| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES` | 120            | Max workflow duration       |
+| `SAMPLE_TIMEOUT_SECONDS`             | 300            | Sampling activity timeout   |
+| `GENERATE_SUMMARY_TIMEOUT_SECONDS`   | 300            | Summary activity timeout    |
 
 Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `SUMMARIZE_RETRY_POLICY` (2 attempts), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (2 attempts).
 

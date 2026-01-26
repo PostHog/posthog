@@ -10,7 +10,7 @@ from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
 logger = structlog.get_logger(__name__)
 
-TARGET_LIMIT_COST_PER_HOUR: Final[float] = 20.0
+TARGET_LIMIT_COST_PER_HOUR: Final[float] = 60.0
 CACHE_TTL_SECONDS: Final[int] = 300
 
 
@@ -41,6 +41,10 @@ class ModelCost(TypedDict, total=False):
     """Legacy field: defaults to max_output_tokens if set, otherwise max_input_tokens."""
     litellm_provider: str
     """Provider identifier (e.g., "anthropic", "openai", "vertex_ai")."""
+    supports_vision: bool
+    """Whether the model supports image/vision input."""
+    mode: str
+    """Model mode (e.g., "chat", "completion", "embedding")."""
 
 
 class ModelCostService:
@@ -101,6 +105,10 @@ class ModelCostService:
     def get_costs(self, model: str) -> ModelCost | None:
         self._ensure_fresh()
         return self._costs.get(model)
+
+    def get_all_models(self) -> dict[str, ModelCost]:
+        self._ensure_fresh()
+        return self._costs
 
 
 def get_model_limits(model: str) -> ModelLimits:

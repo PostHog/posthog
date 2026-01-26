@@ -329,6 +329,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Pre-query to cache things like instance settings
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
+        # No actions yet, so no tags prefetch query
         with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
@@ -338,7 +339,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "a", ""),
         )
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        # With actions, there's an extra tags prefetch query
+        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -347,10 +349,10 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
-    def test_get_tags_on_non_ee_returns_empty_list(self):
+    def test_get_tags_returns_list(self):
         action = Action.objects.create(team=self.team, name="bla")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
         action.tagged_items.create(tag_id=tag.id)
@@ -358,20 +360,20 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(response.json()["tags"], ["random"])
         self.assertEqual(Action.objects.all().count(), 1)
 
-    def test_create_tags_on_non_ee_not_allowed(self):
+    def test_create_action_with_tags(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             {"name": "Default", "tags": ["random", "hello"]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 0)
+        self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
+        self.assertEqual(Tag.objects.all().count(), 2)
 
-    def test_update_tags_on_non_ee_not_allowed(self):
+    def test_update_action_tags(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
         action.tagged_items.create(tag_id=tag.id)
@@ -386,7 +388,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
 
     def test_undefined_tags_allows_other_props_to_update(self):
         action = Action.objects.create(team_id=self.team.id, name="private action")
@@ -402,7 +404,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["name"], "action new name")
         self.assertEqual(response.json()["description"], "Internal system metrics.")
 
-    def test_empty_tags_does_not_delete_tags(self):
+    def test_empty_tags_clears_all_tags(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
         action.tagged_items.create(tag_id=tag.id)
@@ -420,7 +422,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 1)
+        self.assertEqual(Tag.objects.all().count(), 0)
 
     def test_hard_deletion_is_forbidden(self):
         response = self.client.post(

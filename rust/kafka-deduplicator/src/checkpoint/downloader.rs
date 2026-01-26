@@ -22,7 +22,7 @@ pub trait CheckpointDownloader: Send + Sync + std::fmt::Debug {
 
     /// Given a list of fully-qualified remote file keys, download all
     /// files in parallel from remote storage and into the given local
-    /// directory path, creating that base directory if it doesn't exist
+    /// directory path. Caller is responsible for creating the directory.
     async fn download_files(&self, remote_keys: &[String], local_base_path: &Path) -> Result<()>;
 
     /// Check if the downloader is available and configured for use

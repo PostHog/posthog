@@ -30,6 +30,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -483,7 +484,6 @@ async def materialize_model(
             await database_sync_to_async(job.save)()
         except Exception as e:
             exception_str = str(e)
-
             # If the count doesn't succeed due to the query timeout being exceeded, then re-raise
             if "Timeout exceeded" in exception_str:
                 raise
@@ -610,10 +610,8 @@ async def materialize_model(
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
-            saved_query.sync_frequency_interval = None
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
-            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
             if isinstance(e, NonRetryableException):
                 raise
@@ -727,11 +725,13 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     context.output_format = "TabSeparated"
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
@@ -773,11 +773,13 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
