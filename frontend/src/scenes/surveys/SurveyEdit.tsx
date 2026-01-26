@@ -4,7 +4,7 @@ import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -41,6 +41,7 @@ import { SurveyActionTrigger } from 'scenes/surveys/SurveyActionTrigger'
 import { SurveyCancelEventTrigger, SurveyEventTrigger } from 'scenes/surveys/SurveyEventTrigger'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
+import { SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
@@ -67,6 +68,7 @@ import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { COMMON_LANGUAGES } from './SurveyTranslations'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
@@ -232,6 +234,7 @@ function SurveyCompletionConditions(): JSX.Element {
 export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const {
         survey,
+        editingLanguage,
         urlMatchTypeValidationError,
         hasTargetingSet,
         selectedPageIndex,
@@ -249,6 +252,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         resetTargeting,
         setSelectedPageIndex,
         setSelectedSection,
+        setEditingLanguage,
         setFlagPropertyErrors,
         deleteBranchingLogic,
         setSurveyManualErrors,
@@ -257,9 +261,67 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { guidedEditorEnabled } = useValues(surveysLogic)
+    const previewSurvey = useMemo(() => {
+        if (!editingLanguage || !survey.translations?.[editingLanguage]) {
+            return survey
+        }
+
+        const processed = { ...survey }
+        const translation = survey.translations[editingLanguage]
+
+        if (translation.name) {
+            processed.name = translation.name
+        }
+        if (translation.description) {
+            processed.description = translation.description
+        }
+
+        if (
+            translation.thankYouMessageHeader ||
+            translation.thankYouMessageDescription ||
+            translation.thankYouMessageCloseButtonText
+        ) {
+            processed.appearance = {
+                ...survey.appearance,
+                ...(translation.thankYouMessageHeader && { thankYouMessageHeader: translation.thankYouMessageHeader }),
+                ...(translation.thankYouMessageDescription && {
+                    thankYouMessageDescription: translation.thankYouMessageDescription,
+                }),
+                ...(translation.thankYouMessageCloseButtonText && {
+                    thankYouMessageCloseButtonText: translation.thankYouMessageCloseButtonText,
+                }),
+            }
+        }
+
+        processed.questions = survey.questions.map((q) => {
+            const qTrans = q.translations?.[editingLanguage]
+            if (qTrans) {
+                return {
+                    ...q,
+                    question: qTrans.question || q.question,
+                    description: qTrans.description || q.description,
+                    choices: qTrans.choices || q.choices,
+                    buttonText: qTrans.buttonText || q.buttonText,
+                    link: qTrans.link || q.link,
+                    lowerBoundLabel: qTrans.lowerBoundLabel || q.lowerBoundLabel,
+                    upperBoundLabel: qTrans.upperBoundLabel || q.upperBoundLabel,
+                }
+            }
+            return q
+        })
+
+        return processed
+    }, [survey, editingLanguage])
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
+
+    // Auto-expand Steps panel when a language is selected for translation or when returning to default
+    useEffect(() => {
+        if (editingLanguage !== undefined) {
+            setSelectedSection(SurveyEditSection.Steps)
+        }
+    }, [editingLanguage, setSelectedSection])
 
     const handleCancelClick = (): void => {
         editingSurvey(false)
@@ -295,14 +357,42 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         <SceneContent>
             <div className="flex flex-col gap-y-4">
                 <SceneTitleSection
-                    name={survey.name}
-                    description={survey.description}
+                    name={editingLanguage ? (survey.translations?.[editingLanguage]?.name ?? '') : survey.name}
+                    description={
+                        editingLanguage
+                            ? (survey.translations?.[editingLanguage]?.description ?? '')
+                            : survey.description
+                    }
                     resourceType={{
                         type: 'survey',
                     }}
                     canEdit
-                    onNameChange={(name) => setSurveyValue('name', name)}
-                    onDescriptionChange={(description) => setSurveyValue('description', description)}
+                    onNameChange={(name) => {
+                        if (editingLanguage) {
+                            setSurveyValue('translations', {
+                                ...survey.translations,
+                                [editingLanguage]: {
+                                    ...survey.translations?.[editingLanguage],
+                                    name,
+                                },
+                            })
+                        } else {
+                            setSurveyValue('name', name)
+                        }
+                    }}
+                    onDescriptionChange={(description) => {
+                        if (editingLanguage) {
+                            setSurveyValue('translations', {
+                                ...survey.translations,
+                                [editingLanguage]: {
+                                    ...survey.translations?.[editingLanguage],
+                                    description,
+                                },
+                            })
+                        } else {
+                            setSurveyValue('description', description)
+                        }
+                    }}
                     renameDebounceMs={0}
                     forceEdit
                     actions={
@@ -339,6 +429,24 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
+                {editingLanguage && (
+                    <div className="px-4 py-2 bg-warning-highlight rounded border border-warning sticky top-0 z-[9999] mb-2">
+                        <span className="text-sm">
+                            Editing translation for{' '}
+                            <strong>
+                                {COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage}
+                            </strong>
+                            . Only user-facing text can be translated - all other fields are editable in the{' '}
+                            <button
+                                onClick={() => setEditingLanguage(null)}
+                                className="font-semibold hover:underline cursor-pointer"
+                            >
+                                default language
+                            </button>{' '}
+                            only.
+                        </span>
+                    </div>
+                )}
             </div>
             <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
                 <div className="flex flex-col gap-2 flex-1 SurveyForm">
@@ -617,17 +725,50 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               <LemonField.Pure label="Thank you header">
                                                                                   <LemonInput
                                                                                       value={
-                                                                                          survey.appearance
-                                                                                              .thankYouMessageHeader
+                                                                                          editingLanguage
+                                                                                              ? (survey.translations?.[
+                                                                                                    editingLanguage
+                                                                                                ]
+                                                                                                    ?.thankYouMessageHeader ??
+                                                                                                '')
+                                                                                              : (survey.appearance
+                                                                                                    .thankYouMessageHeader ??
+                                                                                                '')
                                                                                       }
-                                                                                      onChange={(val) =>
-                                                                                          setSurveyValue('appearance', {
-                                                                                              ...survey.appearance,
-                                                                                              thankYouMessageHeader:
-                                                                                                  val,
-                                                                                          })
+                                                                                      onChange={(val) => {
+                                                                                          if (editingLanguage) {
+                                                                                              setSurveyValue(
+                                                                                                  'translations',
+                                                                                                  {
+                                                                                                      ...survey.translations,
+                                                                                                      [editingLanguage]:
+                                                                                                          {
+                                                                                                              ...survey
+                                                                                                                  .translations?.[
+                                                                                                                  editingLanguage
+                                                                                                              ],
+                                                                                                              thankYouMessageHeader:
+                                                                                                                  val,
+                                                                                                          },
+                                                                                                  }
+                                                                                              )
+                                                                                          } else {
+                                                                                              setSurveyValue(
+                                                                                                  'appearance',
+                                                                                                  {
+                                                                                                      ...survey.appearance,
+                                                                                                      thankYouMessageHeader:
+                                                                                                          val,
+                                                                                                  }
+                                                                                              )
+                                                                                          }
+                                                                                      }}
+                                                                                      placeholder={
+                                                                                          editingLanguage
+                                                                                              ? survey.appearance
+                                                                                                    .thankYouMessageHeader
+                                                                                              : 'ex: Thank you for your feedback!'
                                                                                       }
-                                                                                      placeholder="ex: Thank you for your feedback!"
                                                                                   />
                                                                               </LemonField.Pure>
                                                                               <LemonField.Pure
@@ -636,35 +777,77 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               >
                                                                                   <HTMLEditor
                                                                                       value={
-                                                                                          survey.appearance
-                                                                                              .thankYouMessageDescription
+                                                                                          editingLanguage
+                                                                                              ? (survey.translations?.[
+                                                                                                    editingLanguage
+                                                                                                ]
+                                                                                                    ?.thankYouMessageDescription ??
+                                                                                                '')
+                                                                                              : (survey.appearance
+                                                                                                    .thankYouMessageDescription ??
+                                                                                                '')
                                                                                       }
-                                                                                      onChange={(val) =>
-                                                                                          setSurveyValue('appearance', {
-                                                                                              ...survey.appearance,
-                                                                                              thankYouMessageDescription:
-                                                                                                  val,
-                                                                                              thankYouMessageDescriptionContentType,
-                                                                                          })
-                                                                                      }
-                                                                                      onTabChange={(key) => {
-                                                                                          const updatedAppearance = {
-                                                                                              ...survey.appearance,
-                                                                                              thankYouMessageDescriptionContentType:
-                                                                                                  key === 'html'
-                                                                                                      ? 'html'
-                                                                                                      : 'text',
+                                                                                      onChange={(val) => {
+                                                                                          if (editingLanguage) {
+                                                                                              setSurveyValue(
+                                                                                                  'translations',
+                                                                                                  {
+                                                                                                      ...survey.translations,
+                                                                                                      [editingLanguage]:
+                                                                                                          {
+                                                                                                              ...survey
+                                                                                                                  .translations?.[
+                                                                                                                  editingLanguage
+                                                                                                              ],
+                                                                                                              thankYouMessageDescription:
+                                                                                                                  val,
+                                                                                                          },
+                                                                                                  }
+                                                                                              )
+                                                                                          } else {
+                                                                                              setSurveyValue(
+                                                                                                  'appearance',
+                                                                                                  {
+                                                                                                      ...survey.appearance,
+                                                                                                      thankYouMessageDescription:
+                                                                                                          val,
+                                                                                                      thankYouMessageDescriptionContentType,
+                                                                                                  }
+                                                                                              )
                                                                                           }
-                                                                                          setSurveyValue(
-                                                                                              'appearance',
-                                                                                              updatedAppearance
-                                                                                          )
                                                                                       }}
+                                                                                      onTabChange={
+                                                                                          editingLanguage
+                                                                                              ? undefined
+                                                                                              : (key) => {
+                                                                                                    const updatedAppearance =
+                                                                                                        {
+                                                                                                            ...survey.appearance,
+                                                                                                            thankYouMessageDescriptionContentType:
+                                                                                                                key ===
+                                                                                                                'html'
+                                                                                                                    ? 'html'
+                                                                                                                    : 'text',
+                                                                                                        }
+                                                                                                    setSurveyValue(
+                                                                                                        'appearance',
+                                                                                                        updatedAppearance
+                                                                                                    )
+                                                                                                }
+                                                                                      }
                                                                                       activeTab={
                                                                                           thankYouMessageDescriptionContentType ??
                                                                                           'text'
                                                                                       }
-                                                                                      textPlaceholder="ex: We really appreciate it."
+                                                                                      textPlaceholder={
+                                                                                          editingLanguage
+                                                                                              ? survey.appearance
+                                                                                                    .thankYouMessageDescription
+                                                                                              : 'ex: We really appreciate it.'
+                                                                                      }
+                                                                                      disableTabSwitching={
+                                                                                          !!editingLanguage
+                                                                                      }
                                                                                   />
                                                                               </LemonField.Pure>
                                                                               <LemonField.Pure
@@ -673,17 +856,50 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               >
                                                                                   <LemonInput
                                                                                       value={
-                                                                                          survey.appearance
-                                                                                              .thankYouMessageCloseButtonText
+                                                                                          editingLanguage
+                                                                                              ? (survey.translations?.[
+                                                                                                    editingLanguage
+                                                                                                ]
+                                                                                                    ?.thankYouMessageCloseButtonText ??
+                                                                                                '')
+                                                                                              : (survey.appearance
+                                                                                                    .thankYouMessageCloseButtonText ??
+                                                                                                '')
                                                                                       }
-                                                                                      onChange={(val) =>
-                                                                                          setSurveyValue('appearance', {
-                                                                                              ...survey.appearance,
-                                                                                              thankYouMessageCloseButtonText:
-                                                                                                  val,
-                                                                                          })
+                                                                                      onChange={(val) => {
+                                                                                          if (editingLanguage) {
+                                                                                              setSurveyValue(
+                                                                                                  'translations',
+                                                                                                  {
+                                                                                                      ...survey.translations,
+                                                                                                      [editingLanguage]:
+                                                                                                          {
+                                                                                                              ...survey
+                                                                                                                  .translations?.[
+                                                                                                                  editingLanguage
+                                                                                                              ],
+                                                                                                              thankYouMessageCloseButtonText:
+                                                                                                                  val,
+                                                                                                          },
+                                                                                                  }
+                                                                                              )
+                                                                                          } else {
+                                                                                              setSurveyValue(
+                                                                                                  'appearance',
+                                                                                                  {
+                                                                                                      ...survey.appearance,
+                                                                                                      thankYouMessageCloseButtonText:
+                                                                                                          val,
+                                                                                                  }
+                                                                                              )
+                                                                                          }
+                                                                                      }}
+                                                                                      placeholder={
+                                                                                          editingLanguage
+                                                                                              ? survey.appearance
+                                                                                                    .thankYouMessageCloseButtonText
+                                                                                              : 'example: Close'
                                                                                       }
-                                                                                      placeholder="example: Close"
                                                                                   />
                                                                               </LemonField.Pure>
                                                                               <LemonField.Pure className="mt-2">
@@ -747,6 +963,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                         </div>
                                     </>
                                 ),
+                            },
+                            {
+                                key: SurveyEditSection.Translations,
+                                header: 'Translations',
+                                content: <SurveyTranslations />,
                             },
                             ...(survey.type !== SurveyType.API
                                 ? [
@@ -1276,7 +1497,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     <div className="sticky top-16">
                         <SurveyFormAppearance
                             previewPageIndex={selectedPageIndex || 0}
-                            survey={survey}
+                            survey={previewSurvey}
                             handleSetSelectedPageIndex={(pageIndex) => setSelectedPageIndex(pageIndex)}
                             isEditingSurvey={isEditingSurvey}
                         />
