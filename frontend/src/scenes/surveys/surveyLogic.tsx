@@ -1836,6 +1836,33 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey) =>
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
+        choicesMismatchedLanguages: [
+            (s) => [s.survey],
+            (survey): string[] => {
+                const mismatchedLanguages = new Set<string>()
+
+                survey.questions.forEach((question) => {
+                    const originalChoices = question.choices || []
+                    if (
+                        question.translations &&
+                        (question.type === SurveyQuestionType.SingleChoice ||
+                            question.type === SurveyQuestionType.MultipleChoice)
+                    ) {
+                        Object.entries(question.translations).forEach(([lang, trans]) => {
+                            if (trans.choices && trans.choices.length !== originalChoices.length) {
+                                mismatchedLanguages.add(lang)
+                            }
+                        })
+                    }
+                })
+
+                return Array.from(mismatchedLanguages)
+            },
+        ],
+        hasChoicesMismatch: [
+            (s) => [s.choicesMismatchedLanguages],
+            (mismatchedLanguages): boolean => mismatchedLanguages.length > 0,
+        ],
         surveyAsInsightURL: [
             (s) => [s.survey],
             (survey) => {

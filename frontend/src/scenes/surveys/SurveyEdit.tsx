@@ -247,6 +247,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         surveyErrors,
         user,
         surveyLoading,
+        choicesMismatchedLanguages,
+        hasChoicesMismatch,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -426,6 +428,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 loading={surveyLoading}
                                 form="survey"
                                 size="small"
+                                disabledReason={
+                                    hasChoicesMismatch
+                                        ? `Cannot save: choices translations don't match. Please update translations for: ${choicesMismatchedLanguages.join(', ')}`
+                                        : undefined
+                                }
                             >
                                 {id === 'new' ? 'Save as draft' : 'Save'}
                             </LemonButton>
@@ -447,6 +454,24 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 default language
                             </button>{' '}
                             only.
+                        </span>
+                    </div>
+                )}
+                {hasChoicesMismatch && (
+                    <div className="px-4 py-2 bg-danger-highlight rounded border border-danger mt-4">
+                        <span className="text-sm">
+                            ⚠️ Choices were modified in the default language. Please update choices translations for:{' '}
+                            {choicesMismatchedLanguages.map((lang, index) => (
+                                <span key={lang}>
+                                    {index > 0 && ', '}
+                                    <button
+                                        onClick={() => setEditingLanguage(lang)}
+                                        className="font-bold hover:underline cursor-pointer text-danger"
+                                    >
+                                        {COMMON_LANGUAGES.find((l) => l.value === lang)?.label || lang}
+                                    </button>
+                                </span>
+                            ))}
                         </span>
                     </div>
                 )}
