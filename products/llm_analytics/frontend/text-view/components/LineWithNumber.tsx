@@ -3,8 +3,6 @@ import { useEffect, useRef } from 'react'
 
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -32,11 +30,7 @@ export function LineWithNumber({
     onCopyPermalink,
 }: LineWithNumberProps): JSX.Element {
     const lineRef = useRef<HTMLSpanElement>(null)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-
-    const showDiscussions = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] && !!traceId
-    const showTranslation = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRANSLATION]
 
     const commentsLogicProps = {
         scope: ActivityScope.LLM_TRACE,
@@ -102,7 +96,7 @@ export function LineWithNumber({
             onClick: handleCopyPermalink,
             'data-attr': 'llma-line-copy-link',
         },
-        ...(showDiscussions
+        ...(traceId
             ? [
                   {
                       label: 'Start discussion',
@@ -111,21 +105,17 @@ export function LineWithNumber({
                   },
               ]
             : []),
-        ...(showTranslation
-            ? [
-                  {
-                      label: 'Translate',
-                      onClick: () => {
-                          if (dataProcessingAccepted) {
-                              setShowTranslatePopover(true)
-                          } else {
-                              setShowConsentPopover(true)
-                          }
-                      },
-                      'data-attr': 'llma-line-translate',
-                  },
-              ]
-            : []),
+        {
+            label: 'Translate',
+            onClick: () => {
+                if (dataProcessingAccepted) {
+                    setShowTranslatePopover(true)
+                } else {
+                    setShowConsentPopover(true)
+                }
+            },
+            'data-attr': 'llma-line-translate',
+        },
     ]
 
     return (

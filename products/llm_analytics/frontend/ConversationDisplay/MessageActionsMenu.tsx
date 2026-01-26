@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -26,7 +24,6 @@ export interface MessageActionsMenuProps {
 
 export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.Element | null => {
     const { traceId } = useValues(llmAnalyticsTraceLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const commentsLogicProps = {
         scope: ActivityScope.LLM_TRACE,
@@ -70,40 +67,24 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
         setTimeout(() => insertQuoteIntoEditor(quotedContent), EDITOR_RETRY_DELAY_MS)
     }
 
-    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    const showDiscussions = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]
-    const showTranslation = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRANSLATION]
-
     const menuItems: LemonMenuItems = [
-        ...(showDiscussions
-            ? [
-                  {
-                      label: 'Start discussion',
-                      onClick: handleStartDiscussion,
-                      'data-attr': 'llma-message-start-discussion',
-                  },
-              ]
-            : []),
-        ...(showTranslation
-            ? [
-                  {
-                      label: 'Translate',
-                      onClick: () => {
-                          if (dataProcessingAccepted) {
-                              setShowTranslatePopover(true)
-                          } else {
-                              setShowConsentPopover(true)
-                          }
-                      },
-                      'data-attr': 'llma-message-translate',
-                  },
-              ]
-            : []),
+        {
+            label: 'Start discussion',
+            onClick: handleStartDiscussion,
+            'data-attr': 'llma-message-start-discussion',
+        },
+        {
+            label: 'Translate',
+            onClick: () => {
+                if (dataProcessingAccepted) {
+                    setShowTranslatePopover(true)
+                } else {
+                    setShowConsentPopover(true)
+                }
+            },
+            'data-attr': 'llma-message-translate',
+        },
     ]
-
-    if (menuItems.length === 0) {
-        return null
-    }
 
     const handleConsentApproved = (): void => {
         setShowConsentPopover(false)
