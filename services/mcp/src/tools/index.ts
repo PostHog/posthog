@@ -73,7 +73,7 @@ import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
 // Misc
-import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
+import { getToolsForFeatures as getFilteredToolNames, getToolDefinition, type ToolFilterOptions } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
@@ -168,8 +168,8 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'read-data-schema': readDataSchema,
 }
 
-export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {
-    const allowedToolNames = getFilteredToolNames(features)
+export const getToolsFromContext = async (context: Context, options?: ToolFilterOptions): Promise<Tool<ZodObjectAny>[]> => {
+    const allowedToolNames = getFilteredToolNames(options)
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {

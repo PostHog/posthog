@@ -200,6 +200,18 @@ const handleRequest = async (
         return MCP.serveSSE('/sse').fetch(request, env, ctx).then(errorHandler)
     }
 
+    // Twig MCP endpoints - only expose tools with new_mcp: true
+    if (url.pathname.startsWith('/twig/mcp')) {
+        Object.assign(ctx.props, { newMcpOnly: true })
+        return MCP.serve('/twig/mcp').fetch(request, env, ctx).then(errorHandler)
+    }
+
+    if (url.pathname.startsWith('/twig/sse')) {
+        Object.assign(ctx.props, { newMcpOnly: true })
+        return MCP.serveSSE('/twig/sse').fetch(request, env, ctx).then(errorHandler)
+    }
+
+
     log.extend({ error: 'route_not_found' })
     return new Response('Not found', { status: 404 })
 }

@@ -9,6 +9,7 @@ export const ToolDefinitionSchema = z.object({
     summary: z.string(),
     title: z.string(),
     required_scopes: z.array(z.string()),
+    new_mcp: z.boolean(),
     annotations: z.object({
         destructiveHint: z.boolean(),
         idempotentHint: z.boolean(),
@@ -42,14 +43,26 @@ export function getToolDefinition(toolName: string): ToolDefinition {
     return definition
 }
 
-export function getToolsForFeatures(features?: string[]): string[] {
-    const toolDefinitions = getToolDefinitions()
+export interface ToolFilterOptions {
+    features?: string[] | undefined
+    newMcpOnly?: boolean | undefined
+}
 
-    if (!features || features.length === 0) {
-        return Object.keys(toolDefinitions)
+export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+    const toolDefinitions = getToolDefinitions()
+    const { features, newMcpOnly } = options || {}
+
+    let entries = Object.entries(toolDefinitions)
+
+    // Filter by new_mcp if requested
+    if (newMcpOnly) {
+        entries = entries.filter(([_, definition]) => definition.new_mcp === true)
     }
 
-    return Object.entries(toolDefinitions)
-        .filter(([_, definition]) => definition.feature && features.includes(definition.feature))
-        .map(([toolName, _]) => toolName)
+    // Filter by features if provided
+    if (features && features.length > 0) {
+        entries = entries.filter(([_, definition]) => definition.feature && features.includes(definition.feature))
+    }
+
+    return entries.map(([toolName, _]) => toolName)
 }
