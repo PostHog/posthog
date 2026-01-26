@@ -249,6 +249,10 @@ class DuckLakeStorageConfig:
         Returns:
             SQL statement to create the scoped S3 secret
         """
+        effective_region = region or self.region
+        if not effective_region:
+            raise ValueError("Region is required for scoped S3 secrets")
+
         secret_parts = [
             "TYPE S3",
             f"KEY_ID '{ducklake_escape(access_key)}'",
@@ -256,8 +260,7 @@ class DuckLakeStorageConfig:
         ]
         if session_token:
             secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(session_token)}'")
-        if region or self.region:
-            secret_parts.append(f"REGION '{ducklake_escape(region or self.region)}'")
+        secret_parts.append(f"REGION '{ducklake_escape(effective_region)}'")
         secret_parts.append(f"SCOPE '{ducklake_escape(scope)}'")
 
         return f"CREATE OR REPLACE SECRET {secret_name} ({', '.join(secret_parts)})"
