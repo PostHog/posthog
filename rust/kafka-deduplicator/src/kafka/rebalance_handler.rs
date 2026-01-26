@@ -2,6 +2,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rdkafka::TopicPartitionList;
 
+use crate::kafka::batch_context::ConsumerCommandSender;
+
 /// Trait for handling Kafka consumer rebalance events
 /// Users implement this to define their partition-specific logic
 ///
@@ -106,7 +108,15 @@ pub trait RebalanceHandler: Send + Sync {
 
     /// Called asynchronously after partition assignment.
     /// Use for slow initialization: downloading checkpoints, warming caches.
-    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()>;
+    ///
+    /// The `consumer_command_tx` can be used to send `ConsumerCommand::Resume` when
+    /// all stores are ready. Partitions are paused during assignment and must be
+    /// resumed after checkpoint import completes.
+    async fn async_setup_assigned_partitions(
+        &self,
+        partitions: &TopicPartitionList,
+        consumer_command_tx: &ConsumerCommandSender,
+    ) -> Result<()>;
 
     /// Called asynchronously after partition revocation.
     /// Use for slow cleanup: draining worker queues, uploading checkpoints, deleting files.
@@ -130,6 +140,7 @@ mod tests {
     use rdkafka::Offset;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use tokio::sync::mpsc;
 
     // Test implementation of RebalanceHandler
     #[derive(Default)]
@@ -165,6 +176,7 @@ mod tests {
         async fn async_setup_assigned_partitions(
             &self,
             _partitions: &TopicPartitionList,
+            _consumer_command_tx: &ConsumerCommandSender,
         ) -> Result<()> {
             Ok(())
         }
@@ -263,8 +275,9 @@ mod tests {
             .await
             .unwrap();
         // 6. Assign cleanup (async, in background)
+        let (tx, _rx) = mpsc::unbounded_channel();
         handler
-            .async_setup_assigned_partitions(&partitions)
+            .async_setup_assigned_partitions(&partitions, &tx)
             .await
             .unwrap();
 

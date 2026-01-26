@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
-use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
+use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, TopicPartitionList};
 use tracing::{error, info, warn};
 
@@ -17,6 +17,18 @@ pub enum RebalanceEvent {
     Assign(Vec<Partition>),
 }
 
+/// Commands sent from rebalance handler to consumer for partition control
+#[derive(Debug)]
+pub enum ConsumerCommand {
+    /// Resume consumption for the specified partitions (after checkpoint import completes)
+    Resume(TopicPartitionList),
+}
+
+/// Sender for consumer commands - passed to rebalance handler
+pub type ConsumerCommandSender = mpsc::UnboundedSender<ConsumerCommand>;
+/// Receiver for consumer commands - held by BatchConsumer
+pub type ConsumerCommandReceiver = mpsc::UnboundedReceiver<ConsumerCommand>;
+
 pub struct BatchConsumerContext {
     rebalance_handler: Arc<dyn RebalanceHandler>,
     /// Handle to the async runtime for executing async callbacks from sync context
@@ -25,14 +37,17 @@ pub struct BatchConsumerContext {
     rebalance_tx: mpsc::UnboundedSender<RebalanceEvent>,
 }
 impl BatchConsumerContext {
-    pub fn new(rebalance_handler: Arc<dyn RebalanceHandler>) -> Self {
+    pub fn new(
+        rebalance_handler: Arc<dyn RebalanceHandler>,
+        consumer_command_tx: ConsumerCommandSender,
+    ) -> Self {
         // Create channel for rebalance events
         let (tx, rx) = mpsc::unbounded_channel();
 
         // Start the async rebalance worker
         let worker_handler = rebalance_handler.clone();
         Handle::current().spawn(async move {
-            Self::rebalance_worker(rx, worker_handler).await;
+            Self::rebalance_worker(rx, worker_handler, consumer_command_tx).await;
         });
 
         Self {
@@ -51,6 +66,7 @@ impl BatchConsumerContext {
     async fn rebalance_worker(
         mut rx: mpsc::UnboundedReceiver<RebalanceEvent>,
         handler: Arc<dyn RebalanceHandler>,
+        consumer_command_tx: ConsumerCommandSender,
     ) {
         info!("Starting rebalance cleanup worker");
 
@@ -76,7 +92,7 @@ impl BatchConsumerContext {
                 }
                 RebalanceEvent::Assign(partitions) => {
                     info!(
-                        "Rebalance worker: cleaning up {} assigned partitions",
+                        "Rebalance worker: setting up {} assigned partitions (async)",
                         partitions.len()
                     );
 
@@ -86,10 +102,21 @@ impl BatchConsumerContext {
                         tpl.add_partition(partition.topic(), partition.partition_number());
                     }
 
-                    // Call cleanup handler (downloads checkpoints, etc.)
+                    // Call async setup handler (downloads checkpoints, creates stores)
                     // Note: setup_assigned_partitions was already called synchronously
-                    if let Err(e) = handler.async_setup_assigned_partitions(&tpl).await {
-                        error!("Partition assignment cleanup failed: {}", e);
+                    // Note: Partitions were paused in post_rebalance, will be resumed after this completes
+                    if let Err(e) = handler
+                        .async_setup_assigned_partitions(&tpl, &consumer_command_tx)
+                        .await
+                    {
+                        // Note: This error path is rare - async_setup_assigned_partitions
+                        // returns Ok(()) for normal scenarios (cancellation, revoked partitions).
+                        // It only errors if the consumer command channel is broken.
+                        error!("Partition assignment async setup failed: {}", e);
+                        // Try to resume anyway as a fallback (will likely also fail if channel is broken)
+                        if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(tpl)) {
+                            error!("Failed to send resume command after setup failure: {}", e);
+                        }
                     }
                 }
             }
@@ -147,7 +174,7 @@ impl ConsumerContext for BatchConsumerContext {
         }
     }
 
-    fn post_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
+    fn post_rebalance(&self, base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         info!("Post-rebalance event: {:?}", rebalance);
 
         // Handle partition assignment if applicable
@@ -155,17 +182,35 @@ impl ConsumerContext for BatchConsumerContext {
             Rebalance::Assign(partitions) => {
                 info!("Assigned {} partitions", partitions.count());
 
+                // PAUSE partitions IMMEDIATELY to prevent message delivery
+                // until checkpoint import completes. This fixes the race condition
+                // where workers create fresh stores before checkpoints are imported.
+                // The partitions will be resumed after async_setup_assigned_partitions
+                // completes via a ConsumerCommand::Resume.
+                if let Err(e) = base_consumer.pause(partitions) {
+                    error!(
+                        "Failed to pause {} newly assigned partitions: {}",
+                        partitions.count(),
+                        e
+                    );
+                } else {
+                    info!(
+                        "Paused {} newly assigned partitions - will resume after checkpoint import",
+                        partitions.count()
+                    );
+                }
+
                 // SYNC: Call setup handler directly within callback
                 // This creates partition workers BEFORE messages can arrive
                 self.rebalance_handler.setup_assigned_partitions(partitions);
 
                 info!(
-                    "📋 Total partitions assigned: {} partitions",
+                    "Total partitions assigned: {} partitions (paused until stores ready)",
                     partitions.count()
                 );
 
-                // ASYNC: Send cleanup event to worker for slow operations
-                // (downloading checkpoints, etc.)
+                // ASYNC: Send event to worker for slow operations
+                // (downloading checkpoints, creating stores, then RESUME)
                 let partitions: Vec<Partition> = partitions
                     .elements()
                     .into_iter()

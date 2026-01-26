@@ -952,9 +952,9 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
     )
-    # Setting `id` to `0` - the same as an `integer` incremental initial value
+    # Setting `id` to `1` - greater than the `integer` incremental initial value of `0`
     await postgres_connection.execute(
-        "INSERT INTO {schema}.test_table (id) VALUES (0)".format(schema=postgres_config["schema"])
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
     )
     await postgres_connection.commit()
 
@@ -984,7 +984,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
     assert len(columns) == 1
     assert any(x == "id" for x in columns)
 
-    # Include rows that have the same incremental value as the `initial_value`
+    # Rows with id > initial_value (0) are included
     assert len(res.results) == 1
 
 
@@ -2174,6 +2174,14 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
+
+    # Insert a new row with created_at greater than the last synced value so the `>` operator picks it up
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (3, '2025-03-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),

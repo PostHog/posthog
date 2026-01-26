@@ -65,10 +65,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.TAGGING,
-                "name": AvailableFeature.TAGGING,
-            },
-            {
                 "key": AvailableFeature.ADVANCED_PERMISSIONS,
                 "name": AvailableFeature.ADVANCED_PERMISSIONS,
             },
@@ -385,7 +381,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(11, 12)):
+            with self.assertNumQueries(FuzzyInt(12, 13)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -2158,16 +2154,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
 
-    def test_create_unlisted_dashboard_creates_tags_without_tagging_feature(self):
-        """Test that unlisted dashboards get tags even if org doesn't have TAGGING feature"""
-        # Remove TAGGING feature from organization
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        # Verify org doesn't have tagging
-        self.assertFalse(self.organization.is_feature_available(AvailableFeature.TAGGING))
-
-        # Create unlisted dashboard
+    def test_create_unlisted_dashboard_creates_tags(self):
+        """Test that unlisted dashboards get tags"""
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
             {"tag": "llm-analytics"},
@@ -2181,7 +2169,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard.creation_mode, "unlisted")
         self.assertEqual(dashboard.name, "LLM Analytics Default")
 
-        # Verify tags were created despite org lacking TAGGING feature
+        # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
         self.assertEqual(tags, ["llm-analytics"])
 

@@ -677,5 +677,9 @@ events_ducklake_backfill_job = define_asset_job(
     name="events_ducklake_backfill_job",
     selection=["events_ducklake_backfill"],
     config=events_backfill_partitioned_config,
-    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **CONCURRENCY_TAG},
+    tags={
+        "owner": JobOwners.TEAM_DATA_STACK.value,
+        "disable_slack_notifications": True,  # Squelch notifications until this job is fully in production
+        **CONCURRENCY_TAG,
+    },
 )
