@@ -8,21 +8,19 @@ from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCal
 
 from posthog.models import Team, User
 
-from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.chat_agent.sql.prompts import (
     SQL_EXPRESSIONS_DOCS,
     SQL_SUPPORTED_AGGREGATIONS_DOCS,
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 
+from .core import HogQLValidationError, execute_hogql_query, validate_hogql
 from .prompts import (
     EXECUTE_SQL_CONTEXT_PROMPT,
     EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT,
@@ -41,7 +39,7 @@ class ExecuteSQLToolArgs(BaseModel):
     )
 
 
-class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
+class ExecuteSQLTool(MaxTool):
     name: str = "execute_sql"
     args_schema: type[BaseModel] = ExecuteSQLToolArgs
     context_prompt_template: str = EXECUTE_SQL_CONTEXT_PROMPT
@@ -68,17 +66,15 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
     async def _arun_impl(
         self, query: str, viz_title: str, viz_description: str
     ) -> tuple[str, ToolMessagesArtifact | None]:
-        parsed_query = self._parse_output({"query": query})
+        # Validate the HogQL query using shared core logic
         try:
-            await self._quality_check_output(
-                output=parsed_query,
-            )
-        except PydanticOutputParserException as e:
+            validated_query = await validate_hogql(query, self._team)
+        except HogQLValidationError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
         # Display an ephemeral visualization message to the user.
         artifact = await self._context_manager.artifacts.acreate(
-            VisualizationArtifactContent(query=parsed_query.query, name=viz_title, description=viz_description),
+            VisualizationArtifactContent(query=validated_query, name=viz_title, description=viz_description),
             "SQL Query",
         )
         artifact_message = self._context_manager.artifacts.create_message(
@@ -87,16 +83,15 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             content_type=ArtifactContentType.VISUALIZATION,
         )
 
-        insight_context = InsightContext(
-            team=self._team,
-            query=parsed_query.query,
-            name=viz_title,
-            description=viz_description,
-            insight_id=artifact_message.artifact_id,
-        )
-
+        # Execute the query using shared core logic
         try:
-            result = await insight_context.execute_and_format()
+            result = await execute_hogql_query(
+                team=self._team,
+                query=validated_query,
+                name=viz_title,
+                description=viz_description,
+                insight_id=artifact_message.artifact_id,
+            )
         except MaxToolRetryableError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
         except Exception:
@@ -109,7 +104,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                     content=result,
                     id=str(uuid4()),
                     tool_call_id=self.tool_call_id,
-                    ui_payload={self.get_name(): parsed_query.query.query},
+                    ui_payload={self.get_name(): validated_query.query},
                 ),
             ]
         )

@@ -1,6 +1,6 @@
 ---
 name: posthog-query-data
-description: 'Retrieve data from PostHog: system (insights, dashboards, cohorts, feature flags, experiemtns, surveys, groups, group type mappings, data warehouse tables, insight teams), captured data from SDKs (events, properties, property values), and connected data warehouse.'
+description: 'Retrieve data from PostHog: system (insights, dashboards, cohorts, feature flags, experiments, surveys, groups, group type mappings, data warehouse tables, teams), analytics data captured with SDKs (events, properties, property values), and connected data warehouse.'
 ---
 
 # Querying data in PostHog
@@ -115,7 +115,97 @@ ORDER BY week DESC
 "
 ```
 
----
+## Querying guidelines
+
+### Skipping index
+
+You should use the skipping index signature to write optimized analytical queries.
+
+### Time ranges
+
+All analytical queries and subqueries must always have time ranges set for supported tables (events). If the user doesn't state it, Assume default time range based on the data volume, like a day, week, or month.
+
+#### How you should use time ranges
+
+<example>
+User: Find events from returning browsers - browsers that appeared both yesterday and today
+Assistant:
+```sql
+SELECT event FROM events WHERE timestamp >= now() - INTERVAL 1 DAY and properties['$browser'] IN (SELECT properties['$browser'] FROM events WHERE timestamp >= now() - INTERVAL 2 DAY and timestamp < now() - INTERVAL 1 DAY)
+```
+</example>
+
+#### How you should NOT write queries
+
+<example>
+User: List 10 events with SQL
+Assistant:
+```sql
+SELECT event, timestamp, distinct_id, properties FROM events ORDER BY timestamp DESC LIMIT 10
+```
+</example>
+
+### JOINs
+
+#### General guidelines
+
+Keep in mind that the right expression is loaded in memory when joining data in ClickHouse, so the joining query or table must always fit in memory. Common strategies:
+
+- Analytical functions and combinators.
+- Subqueries as a source or filter.
+- Arrays (arrayMap, arrayJoin) and ARRAY JOIN.
+
+#### System data
+
+You are allowed joining system data. Insights are the most used entity, so keep it on the left.
+
+Example:
+
+```sql
+SELECT i.name FROM system.insights AS i INNER JOIN system.dashboard_tiles AS t ON i.id = t.insight_id WHERE t.dashboard_id = 1
+```
+
+#### Analytical data
+
+Prefer using analytical functions and subqueries for joins. Do not use raw joins on the events table.
+
+##### How you should join data
+
+<example>
+User: Find ai traces with feedback
+Assistant:
+```sql
+SELECT
+ g.properties.$ai_trace_id as trace_id
+FROM events AS g
+WHERE
+  timestamp >= now() - INTERVAL 1 WEEK
+  AND g.event = '$ai_generation'
+  AND trace_id IN (SELECT properties.$ai_trace_id FROM events WHERE event = '$ai_feedback' AND timestamp >= now() - INTERVAL 1 WEEK)
+```
+<reasoning>A subquery is used instead a JOIN clause. Both queries have the timestamp filters.</reasoning>
+</example>
+
+##### How you should NOT join data
+
+<example>
+User: Find ai traces with feedback
+Assistant:
+```sql
+SELECT
+ g.properties.$ai_trace_id
+FROM events AS g
+INNER JOIN (SELECT properties.$ai_trace_id as trace_id FROM events WHERE event = '$ai_feedback') AS f
+ON g.properties.$ai_trace_id = f.trace_id
+WHERE g.event = '$ai_generation'
+```
+<reasoning>Join is not necessary here. The assistant could've used a subquery.</reasoning>
+</example>
+
+### Other constraints
+
+- All queries are limited to 100 rows, so you should use LIMIT and OFFSET for pagination.
+- You should cherry-pick `properties` of events, persons, or groups, so we don't get OOMs.
 
 ## HogQL Differences from Standard SQL
 

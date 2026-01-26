@@ -13,7 +13,6 @@ Cohorts are groups of persons used for segmentation and targeting.
 | `description`        | varchar(1000)     | NOT NULL | Cohort description                                                          |
 | `deleted`            | boolean           | NOT NULL | Soft delete flag                                                            |
 | `filters`            | jsonb             | NULL     | Modern filter structure for cohort criteria                                 |
-| `groups`             | jsonb             | NOT NULL | **Deprecated** - use `filters` instead                                      |
 | `query`              | jsonb             | NULL     | HogQL query for analytical cohorts                                          |
 | `version`            | integer           | NULL     | Current calculation version                                                 |
 | `pending_version`    | integer           | NULL     | Version being calculated                                                    |
@@ -26,13 +25,12 @@ Cohorts are groups of persons used for segmentation and targeting.
 | `is_static`          | boolean           | NOT NULL | Static (manually uploaded) vs dynamic cohort                                |
 | `cohort_type`        | varchar(50)       | NULL     | One of: `static`, `person_property`, `behavioral`, `realtime`, `analytical` |
 | `created_by_id`      | integer           | NULL     | FK to `posthog_user.id`                                                     |
-| `team_id`            | integer           | NOT NULL | FK to `posthog_team.id`                                                     |
 
 ### HogQL Queryable Fields
 
 Available via `system.cohorts`:
 
-- `id`, `team_id`, `name`, `description`, `deleted`, `filters`, `groups`, `query`, `created_at`, `last_calculation`, `version`, `count`, `is_static`
+- `id`, `name`, `description`, `deleted`, `filters`, `groups`, `query`, `created_at`, `last_calculation`, `version`, `count`, `is_static`
 
 ### Cohort Types
 
@@ -106,7 +104,6 @@ Available via `system.cohorts`:
 
 ### Key Relationships
 
-- **Team**: `team_id` -> `posthog_team.id` (required)
 - **Created By**: `created_by_id` -> `posthog_user.id`
 - **Persons**: Many-to-many via `posthog_cohortpeople`
 - **Calculation History**: One-to-many via `posthog_cohortcalculationhistory`
@@ -166,7 +163,6 @@ Audit trail for cohort calculation jobs.
 | `error`       | text              | NULL     | Full error message if failed              |
 | `error_code`  | varchar(64)       | NULL     | Categorized error code                    |
 | `cohort_id`   | integer           | NOT NULL | FK to `posthog_cohort.id`                 |
-| `team_id`     | integer           | NOT NULL | FK to `posthog_team.id`                   |
 
 ### Error Codes
 
@@ -216,11 +212,9 @@ Represents an individual user tracked by PostHog.
 | `is_identified`              | boolean           | NOT NULL | Whether person has been identified   |
 | `version`                    | bigint            | NULL     | Version for ClickHouse sync          |
 | `is_user_id`                 | integer           | NULL     | Legacy user ID                       |
-| `team_id`                    | integer           | NOT NULL | FK to `posthog_team.id`              |
 
 ### Key Relationships
 
-- **Team**: `team_id` -> `posthog_team.id` (required)
 - **Distinct IDs**: One-to-many via `posthog_persondistinctid`
 - **Cohorts**: Many-to-many via `posthog_cohortpeople`
 
@@ -244,11 +238,6 @@ Maps distinct IDs (anonymous or identified) to person records.
 | `distinct_id` | varchar(400) | NOT NULL | The distinct ID string       |
 | `version`     | bigint       | NULL     | Version for sync             |
 | `person_id`   | bigint       | NOT NULL | FK to `posthog_person.id`    |
-| `team_id`     | integer      | NOT NULL | FK to `posthog_team.id`      |
-
-### Constraints
-
-- `(team_id, distinct_id)` is unique - a distinct ID can only belong to one person per team
 
 ### Important Notes
 
@@ -262,7 +251,6 @@ Maps distinct IDs (anonymous or identified) to person records.
 
 ```text
 posthog_cohort (main cohort definition)
-├── team_id -> posthog_team.id
 ├── created_by_id -> posthog_user.id
 ├── <-M:N-> posthog_person via posthog_cohortpeople
 └── <- posthog_cohortcalculationhistory.cohort_id
@@ -272,13 +260,11 @@ posthog_cohortpeople (junction table)
 └── person_id -> posthog_person.id
 
 posthog_person
-├── team_id -> posthog_team.id
 ├── <- posthog_persondistinctid.person_id
 └── <-M:N-> posthog_cohort via posthog_cohortpeople
 
 posthog_persondistinctid
 ├── person_id -> posthog_person.id
-└── team_id -> posthog_team.id
 
 posthog_experiment
 └── exposure_cohort_id -> posthog_cohort.id

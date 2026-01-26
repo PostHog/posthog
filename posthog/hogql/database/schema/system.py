@@ -40,7 +40,6 @@ cohorts: PostgresTable = PostgresTable(
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "filters": StringJSONDatabaseField(name="filters"),
-        "groups": StringJSONDatabaseField(name="groups"),
         "query": StringJSONDatabaseField(name="query"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "last_calculation": DateTimeDatabaseField(name="last_calculation"),

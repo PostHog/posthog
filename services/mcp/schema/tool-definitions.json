@@ -782,5 +782,19 @@
             "openWorldHint": false,
             "readOnlyHint": true
         }
+    },
+    "max-execute-sql": {
+        "description": "Execute a HogQL query using Max AI's query execution engine. This tool validates and executes HogQL queries directly, returning formatted results. Use this when you have a complete HogQL query to run.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Execute a HogQL query using Max AI.",
+        "title": "Execute SQL via Max",
+        "required_scopes": ["query:read", "insight:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     }
 }

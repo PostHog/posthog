@@ -24,13 +24,12 @@ Actions are named combinations of events and conditions used for filtering and a
 | `pinned_at`            | timestamp with tz | NULL     | When action was pinned             |
 | `summary`              | text              | NULL     | AI-generated summary               |
 | `created_by_id`        | integer           | NULL     | FK to `posthog_user.id`            |
-| `team_id`              | integer           | NOT NULL | FK to `posthog_team.id`            |
 
 ### HogQL Queryable Fields
 
 Available via `system.actions`:
 
-- `id`, `team_id`, `name`, `description`, `deleted`, `created_at`, `updated_at`, `steps_json`
+- `id`, `name`, `description`, `deleted`, `created_at`, `updated_at`, `steps_json`
 
 ### Steps JSON Structure
 
@@ -67,7 +66,6 @@ Available via `system.actions`:
 
 ### Key Relationships
 
-- **Team**: `team_id` -> `posthog_team.id` (required)
 - **Created By**: `created_by_id` -> `posthog_user.id`
 - **Action Steps**: Legacy relationship via `posthog_actionstep` (deprecated, use `steps_json`)
 - **Surveys**: Many-to-many via `posthog_survey_actions`

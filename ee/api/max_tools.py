@@ -2,7 +2,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pydantic
-from rest_framework import serializers
+from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -15,6 +15,7 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
+from ee.hogai.external_tool import get_external_tool
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 
@@ -72,3 +73,45 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 for event_type, data in assistant.invoke()
             ]
         )
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="invoke/(?P<tool_name>[^/.]+)",
+        required_scopes=["insight:read", "query:read"],
+    )
+    async def invoke_tool(self, request: Request, tool_name: str, *args, **kwargs):
+        """
+        Invoke an external tool by name.
+
+        This endpoint allows external callers (MCP, API) to invoke Max AI tools
+        directly without going through the full LangChain conversation flow.
+        """
+        # Import here to ensure external tools are registered
+        import ee.hogai.tools.execute_sql.external  # noqa: F401
+
+        tool = get_external_tool(tool_name)
+        if tool is None:
+            return Response(
+                {"success": False, "content": f"Tool '{tool_name}' not found", "error": "tool_not_found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        args_data = request.data.get("args", {})
+
+        # Validate args against tool schema
+        try:
+            validated_args = tool.args_schema.model_validate(args_data)
+        except pydantic.ValidationError as e:
+            return Response(
+                {"success": False, "content": f"Invalid arguments: {e}", "error": "validation_error"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = await tool.execute(
+            team=self.team,
+            user=cast(User, request.user),
+            **validated_args.model_dump(),
+        )
+
+        return Response(result.model_dump())
