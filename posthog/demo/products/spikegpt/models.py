@@ -154,6 +154,14 @@ class SpikeGPTPerson(SimPerson):
     # Individual actions
 
     def start_chat(self):
+        # Identify user on first chat
+        if not self.has_signed_up:
+            person_properties: dict[str, str | bool] = {"email": self.email, "name": self.name}
+            if self.cluster.is_test_cluster:
+                person_properties["$test_user"] = True
+            self.active_client.identify(self.active_client.active_distinct_id, person_properties)
+            self.has_signed_up = True
+
         random_chat = self.cluster.random.choice(FAKE_CHATS)
         conversation_so_far: list[dict] = []
         for message in random_chat:
