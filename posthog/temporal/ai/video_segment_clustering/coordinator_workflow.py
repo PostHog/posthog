@@ -91,7 +91,10 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                         lookback_hours=inputs.lookback_hours,
                     ),
                     id=f"video-segment-clustering-team-{team_id}-{temporalio.workflow.now().isoformat()}",
-                    execution_timeout=timedelta(hours=1),
+                    # Clustering is fast, but priming session summaries takes a while due to video export.
+                    # However, 3h should comfortably allow exporting even long sessions, thanks to optimization like
+                    # ignoring inactivity or playback speedup. If this is not enough, then we need to optimize export further.
+                    execution_timeout=timedelta(hours=3),
                     retry_policy=RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(seconds=30),
