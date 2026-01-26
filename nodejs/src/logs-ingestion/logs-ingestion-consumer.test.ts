@@ -269,6 +269,8 @@ describe('LogsIngestionConsumer', () => {
             expect(producedMessages[0].headers).toEqual({
                 token: team.api_token,
                 team_id: team.id.toString(),
+                'json-parse': 'true',
+                'retention-days': '15',
             })
         })
 
@@ -290,6 +292,40 @@ describe('LogsIngestionConsumer', () => {
             expect(message.messages[0].headers).toEqual({
                 token: team.api_token,
                 team_id: team.id.toString(),
+                'json-parse': 'true',
+                'retention-days': '15',
+            })
+        })
+
+        it('should use custom logs_settings when set', async () => {
+            // Update team with custom logs settings
+            await hub.db.postgres.query(
+                `UPDATE posthog_team
+                 SET logs_settings = $1
+                 WHERE id = $2`,
+                [JSON.stringify({ json_parse_logs: false, retention_days: 30 }), team.id],
+                'updateTeamLogsSettings'
+            )
+
+            // Clear team cache to ensure fresh data
+            await hub.teamManager.clearCache(team.id)
+
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const producedMessages = mockProducerObserver.getProducedMessages()
+            expect(producedMessages).toHaveLength(1)
+
+            const message = producedMessages[0]
+            expect(message.messages[0].headers).toEqual({
+                token: team.api_token,
+                team_id: team.id.toString(),
+                'json-parse': 'false',
+                'retention-days': '30',
             })
         })
     })
