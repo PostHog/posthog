@@ -158,12 +158,7 @@ export function LogsRetentionSettings(): JSX.Element {
                     type="number"
                     value={retentionDays}
                     onChange={(value) => {
-                        if (typeof value === 'number' && !isNaN(value)) {
-                            setRetentionDays(value)
-                        } else {
-                            // Allow clearing the input or temporarily invalid values
-                            setRetentionDays(NaN)
-                        }
+                        setRetentionDays(value || NaN)
                     }}
                     min={2}
                     max={90}
