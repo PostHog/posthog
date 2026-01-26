@@ -1034,9 +1034,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: `Data pipelines`,
         intents: [
+            ProductKey.PIPELINE_BATCH_EXPORTS,
             ProductKey.PIPELINE_DESTINATIONS,
             ProductKey.PIPELINE_TRANSFORMATIONS,
-            ProductKey.PIPELINE_BATCH_EXPORTS,
             ProductKey.SITE_APPS,
         ],
         category: 'Tools',
