@@ -86,9 +86,7 @@ class TwoFactorResetTokenGenerator(PasswordResetTokenGenerator):
             else usable_user.requested_2fa_reset_at.replace(microsecond=0, tzinfo=None)
         )
         # Include passkeys_enabled_for_2fa so that changing 2FA settings invalidates tokens
-        return (
-            f"{usable_user.pk}:{usable_user.email}:{usable_user.passkeys_enabled_for_2fa}:{reset_timestamp}:{timestamp}"
-        )
+        return f"{usable_user.pk}:{usable_user.email}:{usable_user.password}:{usable_user.passkeys_enabled_for_2fa}:{reset_timestamp}:{timestamp}"
 
 
 two_factor_reset_token_generator = TwoFactorResetTokenGenerator()
