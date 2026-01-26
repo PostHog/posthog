@@ -22,6 +22,7 @@ from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
+from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
@@ -525,6 +526,12 @@ class Resolver(CloningVisitor):
                     raise QueryError("matchesAction can only be used with the events table")
                 return self.visit(
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
+                )
+            if node.name == "getSurveyResponse":
+                return self.visit(get_survey_response(node=node, args=node.args))
+            if node.name == "uniqueSurveySubmissionsFilter":
+                return self.visit(
+                    unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
 
         node = super().visit_call(node)
