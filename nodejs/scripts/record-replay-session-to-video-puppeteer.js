@@ -34,7 +34,6 @@
 const puppeteer = require('puppeteer')
 const { PuppeteerScreenRecorder } = require('puppeteer-screen-recorder')
 const path = require('path')
-const fs = require('fs')
 
 const HEIGHT_OFFSET = 85
 const PLAYBACK_SPEED_MULTIPLIER = 4
