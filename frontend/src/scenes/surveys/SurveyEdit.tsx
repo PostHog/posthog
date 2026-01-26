@@ -71,6 +71,9 @@ import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
+import { COMMON_LANGUAGES } from './SurveyTranslations'
+import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { canUseSurveyWizard } from './utils'
@@ -254,6 +257,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         resetTargeting,
         setSelectedPageIndex,
         setSelectedSection,
+        setEditingLanguage,
         setFlagPropertyErrors,
         deleteBranchingLogic,
         editingSurvey,
@@ -304,9 +308,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
 
     const [showFlowModal, setShowFlowModal] = useState(false)
 
-    // Auto-expand Steps panel when a language is selected for translation
+    // Auto-expand Steps panel when a language is selected for translation or when returning to default
     useEffect(() => {
-        if (editingLanguage) {
+        if (editingLanguage !== undefined) {
             setSelectedSection(SurveyEditSection.Steps)
         }
     }, [editingLanguage, setSelectedSection])
@@ -419,10 +423,20 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     }
                 />
                 {editingLanguage && (
-                    <div className="flex items-center gap-2 px-4 py-2 bg-warning-highlight rounded border border-warning">
-                        <IconInfo className="text-warning" />
+                    <div className="px-4 py-2 bg-warning-highlight rounded border border-warning sticky top-0 z-[9999] mb-2">
                         <span className="text-sm">
-                            Editing translation for <strong>{editingLanguage}</strong>
+                            Editing translation for{' '}
+                            <strong>
+                                {COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage}
+                            </strong>
+                            . Only user-facing text can be translated - all other fields are editable in the{' '}
+                            <button
+                                onClick={() => setEditingLanguage(null)}
+                                className="font-semibold hover:underline cursor-pointer"
+                            >
+                                default language
+                            </button>{' '}
+                            only.
                         </span>
                     </div>
                 )}
