@@ -38,7 +38,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
-            "$ai_stream": "true" if is_streaming else "false",
+            "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
