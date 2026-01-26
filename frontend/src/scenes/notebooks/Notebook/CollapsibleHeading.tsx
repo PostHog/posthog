@@ -7,6 +7,7 @@ import { Editor, ReactRenderer } from '@tiptap/react'
 import { IconEye, IconTriangleDownFilled, IconTriangleRightFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { humanList, identifierToHuman, pluralize } from 'lib/utils'
 
 import { NotebookNodeType } from '../types'
@@ -16,6 +17,8 @@ const MAX_COLLAPSIBLE_H_LEVEL = 3
 
 // This is how the collapsed/expanded state is persisted - via the `collapsed` attribute on the node
 export const CollapsibleHeading = Heading.extend({
+    draggable: true,
+
     addAttributes() {
         return {
             ...this.parent?.(),
@@ -76,15 +79,23 @@ function createDecorations(doc: PMNode, editor: Editor): DecorationSet {
         }
     })
 
-    // Caret button per heading via ReactRenderer
+    // Caret button and drag handle per heading via ReactRenderer
     for (const info of topNodes) {
         if (info.isHeading) {
+            const headingStart = info.pos
             const isLevelCollapsible = info.level && info.level <= MAX_COLLAPSIBLE_H_LEVEL
+
+            // Add drag handle for all headings when editor is editable
+            if (editor.isEditable) {
+                const dragHandleRenderer = new ReactRenderer(HeadingDragHandle, { editor })
+                decorations.push(Decoration.widget(headingStart + 1, dragHandleRenderer.element, { side: -2 }))
+            }
+
             if (!isLevelCollapsible) {
                 continue
             }
-            const headingStart = info.pos
-            const renderer = new ReactRenderer(HeadingToggle, {
+
+            const toggleRenderer = new ReactRenderer(HeadingToggle, {
                 editor,
                 props: {
                     collapsed: !!info.collapsed,
@@ -101,7 +112,7 @@ function createDecorations(doc: PMNode, editor: Editor): DecorationSet {
                     },
                 },
             })
-            decorations.push(Decoration.widget(headingStart + 1, renderer.element, { side: -1 }))
+            decorations.push(Decoration.widget(headingStart + 1, toggleRenderer.element, { side: -1 }))
         }
     }
 
@@ -155,6 +166,14 @@ function HeadingToggle({ collapsed, onClick }: { collapsed: boolean; onClick?: (
             onClick={onClick}
             icon={collapsed ? <IconTriangleRightFilled /> : <IconTriangleDownFilled />}
         />
+    )
+}
+
+function HeadingDragHandle(): JSX.Element {
+    return (
+        <span className="HeadingDragHandle" data-drag-handle>
+            <IconDragHandle className="HeadingDragHandle__icon" />
+        </span>
     )
 }
 const createCollapsedContentDecoration = (

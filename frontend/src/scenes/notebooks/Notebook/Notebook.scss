@@ -41,6 +41,22 @@
                     &:hover {
                         opacity: 1;
                     }
+
+                    .HeadingDragHandle {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        cursor: grab;
+
+                        &:active {
+                            cursor: grabbing;
+                        }
+                    }
+
+                    .HeadingDragHandle__icon {
+                        color: var(--text-3000);
+                        opacity: 0.4;
+                    }
                 }
 
                 &:not(:hover) > .ProseMirror-widget {
