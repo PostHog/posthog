@@ -808,16 +808,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
-def create_system_cohorts(team: "Team") -> list["Cohort"]:
-    """Create the system 'Test users' cohort for a team."""
-    return [
-        Cohort.objects.create(
-            team=team,
-            name="Test users",
-            description="System cohort containing users with $test_user property set to true",
-            system_type=SystemCohortType.TEST_USERS,
-            is_static=False,
-            filters={
+def get_or_create_system_cohorts(team: "Team") -> list["Cohort"]:
+    test_users_cohort, _ = Cohort.objects.get_or_create(
+        team=team,
+        system_type=SystemCohortType.TEST_USERS,
+        defaults={
+            "name": "Test users",
+            "description": "System cohort containing users with $test_user property set to true",
+            "is_static": False,
+            "filters": {
                 "properties": {
                     "type": "OR",
                     "values": [
@@ -835,8 +834,9 @@ def create_system_cohorts(team: "Team") -> list["Cohort"]:
                     ],
                 }
             },
-        )
-    ]
+        },
+    )
+    return [test_users_cohort]
 
 
 class CohortPeople(models.Model):

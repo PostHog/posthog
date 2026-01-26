@@ -28,7 +28,7 @@ from posthog.models import Action, FeatureFlag, Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortType, SystemCohortType, create_system_cohorts
+from posthog.models.cohort.cohort import CohortType, SystemCohortType, get_or_create_system_cohorts
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization
 from posthog.models.property import BehavioralPropertyType
@@ -5164,7 +5164,7 @@ class TestSystemCohort(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(system_cohort_in_list["system_type"], SystemCohortType.TEST_USERS)
 
     def test_create_system_cohorts_helper(self):
-        [cohort] = create_system_cohorts(self.team)
+        [cohort] = get_or_create_system_cohorts(self.team)
 
         self.assertEqual(cohort.name, "Test users")
         self.assertEqual(cohort.system_type, SystemCohortType.TEST_USERS)

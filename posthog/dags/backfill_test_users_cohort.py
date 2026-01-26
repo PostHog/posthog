@@ -3,7 +3,7 @@
 import dagster
 
 from posthog.dags.common import JobOwners
-from posthog.models.cohort.cohort import Cohort, SystemCohortType, create_system_cohorts
+from posthog.models.cohort.cohort import Cohort, SystemCohortType, get_or_create_system_cohorts
 from posthog.models.team.team import Team
 
 
@@ -64,7 +64,7 @@ def create_test_users_cohort_for_chunk(
         if Cohort.objects.filter(team=team, system_type=SystemCohortType.TEST_USERS).exists():
             context.log.info(f"Team {team_id} already has test users cohort, skipping")
             continue
-        create_system_cohorts(team)
+        get_or_create_system_cohorts(team)
         created_count += 1
         context.log.info(f"Created test users cohort for team {team_id}")
 

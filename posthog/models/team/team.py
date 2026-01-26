@@ -118,9 +118,9 @@ class TeamManager(models.Manager):
     def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
         team = cast("Team", self.create(**kwargs))
 
-        from posthog.models.cohort.cohort import create_system_cohorts
+        from posthog.models.cohort.cohort import get_or_create_system_cohorts
 
-        [test_users_cohort] = create_system_cohorts(team)
+        [test_users_cohort] = get_or_create_system_cohorts(team)
 
         if kwargs.get("is_demo"):
             if initiating_user is None:
