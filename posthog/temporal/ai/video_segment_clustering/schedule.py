@@ -1,18 +1,35 @@
 """Schedule configuration for hourly video segment clustering coordinator."""
 
-from datetime import timedelta
-
 from django.conf import settings
 
-from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleIntervalSpec, ScheduleSpec
+from temporalio.client import (
+    Client,
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleIntervalSpec,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
+    ScheduleSpec,
+)
 
-from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKBACK_WINDOW
+from posthog.temporal.ai.video_segment_clustering.constants import (
+    DEFAULT_LOOKBACK_WINDOW,
+    PROACTIVE_TASKS_SCHEDULE_INTERVAL,
+)
 from posthog.temporal.ai.video_segment_clustering.coordinator_workflow import VideoSegmentClusteringCoordinatorInputs
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 
 async def create_video_segment_clustering_coordinator_schedule(client: Client):
-    """Run task inference on schedule."""
+    """Run task inference on schedule.
+
+    Every PROACTIVE_TASKS_SCHEDULE_INTERVAL, we run video segment clustering for teams with proactive tasks enabled,
+    with a lookback window of DEFAULT_LOOKBACK_WINDOW.
+
+    In practice: Every hour, we summarize session recordings finished in the last hour, and then group segments
+    from the last 7 days (incl. the latest ones). From that, we create tasks for segments suggesting new action items,
+    and/or update existing tasks based on the new segments.
+    """
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "video-segment-clustering-coordinator",
@@ -22,8 +39,11 @@ async def create_video_segment_clustering_coordinator_schedule(client: Client):
             id="video-segment-clustering-coordinator-schedule",
             task_queue=settings.MAX_AI_TASK_QUEUE,
         ),
-        # FIXME: 1min just for testing, before merging we'll change this to 1h
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=1))]),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=PROACTIVE_TASKS_SCHEDULE_INTERVAL)]),
+        policy=SchedulePolicy(
+            overlap=ScheduleOverlapPolicy.SKIP,  # If preceding run is still running, skip the new one - this is simplest
+            catchup_window=PROACTIVE_TASKS_SCHEDULE_INTERVAL,  # After Temporal is down, only catch up on the last PROACTIVE_TASKS_SCHEDULE_INTERVAL of missed runs
+        ),
     )
 
     schedule_id = "video-segment-clustering-coordinator-schedule"
