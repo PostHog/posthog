@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInputSelect } from '@posthog/lemon-ui'
 
 import { SurveyQuestionType } from '~/types'
 
@@ -136,7 +136,26 @@ export function SurveyTranslations(): JSX.Element {
                             size="xsmall"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                removeLanguage(lang)
+                                LemonDialog.open({
+                                    title: 'Delete translation',
+                                    description: (
+                                        <p className="py-2">
+                                            Are you sure you want to delete the translation for{' '}
+                                            <strong>
+                                                {COMMON_LANGUAGES.find((l) => l.value === lang)?.label || lang}
+                                            </strong>
+                                            ? This action cannot be undone.
+                                        </p>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => removeLanguage(lang),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
                             }}
                         />
                     </div>
