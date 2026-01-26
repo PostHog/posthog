@@ -1016,7 +1016,7 @@ const EventContent = React.memo(
                                                   <>
                                                       Summary{' '}
                                                       <LemonTag className="ml-1" type="completion">
-                                                          Alpha
+                                                          Beta
                                                       </LemonTag>
                                                   </>
                                               ),

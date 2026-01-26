@@ -5,6 +5,7 @@ import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -17,12 +18,14 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { SceneLayout } from '../scenes/SceneLayout'
+import { ScenePanelContainer } from '../scenes/ScenePanelContainer'
 import { SceneTabs } from '../scenes/SceneTabs'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
+import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
 import { themeLogic } from './themeLogic'
 
 export function Navigation({
@@ -41,10 +44,14 @@ export function Navigation({
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
     const { activeTabId } = useValues(sceneLogic)
-    const { registerScenePanelElement } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+    const { sidePanelOpen, sidePanelAvailable } = useValues(sidePanelStateLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
+    // Legacy: sceneLayoutLogic values for portal-based panel (when flag is off)
+    const { registerScenePanelElement } = useActions(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -76,7 +83,11 @@ export function Navigation({
                 Skip to content
             </a>
             <div
-                className={cn('app-layout bg-surface-tertiary', mobileLayout && 'app-layout--mobile')}
+                className={cn('app-layout bg-surface-tertiary', {
+                    'app-layout--mobile': mobileLayout,
+                    'app-layout--sidepanel-open': isRemovingSidePanelFlag && sidePanelOpen && sidePanelAvailable,
+                    'app-layout--ai-first': isRemovingSidePanelFlag,
+                })}
                 style={
                     {
                         ...theme?.mainStyle,
@@ -108,6 +119,7 @@ export function Navigation({
                             '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative',
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
+                                'lg:mr-2': isRemovingSidePanelFlag,
                             }
                         )}
                     >
@@ -123,6 +135,7 @@ export function Navigation({
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
                                     'rounded-tl-none': firstTabIsActive,
+                                    'rounded-tr-none': isRemovingSidePanelFlag && sceneConfig?.scenePanelTabs?.length,
                                 }
                             )}
                             onScroll={(e) => {
@@ -148,34 +161,35 @@ export function Navigation({
                             </SceneLayout>
                         </main>
 
-                        {scenePanelIsPresent && (
-                            <>
-                                <div
-                                    className={cn(
-                                        'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
-                                        'absolute right-0 top-0 @[1200px]/main-content-container:relative @[1200px]/main-content-container:right-auto @[1200px]/main-content-container:top-auto',
-                                        {
-                                            hidden: !scenePanelOpenManual,
-                                            'z-1': isLayoutPanelVisible,
-                                        }
-                                    )}
-                                >
-                                    <div className="h-[50px] flex items-center justify-end gap-2 -mx-2 px-4 py-2 border-b border-primary shrink-0">
-                                        <SceneTitlePanelButton inPanel />
-                                    </div>
-                                    <ScrollableShadows
-                                        direction="vertical"
-                                        className="grow flex-1"
-                                        innerClassName="px-2 py-2 bg-primary"
-                                        styledScrollbars
-                                    >
-                                        <div ref={registerScenePanelElement} />
-                                    </ScrollableShadows>
+                        {/* New: ScenePanelContainer when flag is on */}
+                        {isRemovingSidePanelFlag && <ScenePanelContainer />}
+
+                        {/* Legacy: Portal-based panel when flag is off */}
+                        {!isRemovingSidePanelFlag && scenePanelIsPresent && (
+                            <div
+                                className={cn(
+                                    'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
+                                    'absolute right-0 top-0 @[1200px]/main-content-container:relative @[1200px]/main-content-container:right-auto @[1200px]/main-content-container:top-auto',
+                                    {
+                                        hidden: !scenePanelOpenManual,
+                                        'z-1': isLayoutPanelVisible,
+                                    }
+                                )}
+                            >
+                                <div className="h-[50px] flex items-center justify-end gap-2 -mx-2 px-4 py-2 border-b border-primary shrink-0">
+                                    <SceneTitlePanelButton inPanel />
                                 </div>
-                            </>
+                                <ScrollableShadows
+                                    direction="vertical"
+                                    className="grow flex-1"
+                                    innerClassName="px-2 py-2 bg-primary"
+                                    styledScrollbars
+                                >
+                                    <div ref={registerScenePanelElement} />
+                                </ScrollableShadows>
+                            </div>
                         )}
                     </div>
-
                     <SidePanel className="right-nav" />
                 </ProjectDragAndDropProvider>
             </div>

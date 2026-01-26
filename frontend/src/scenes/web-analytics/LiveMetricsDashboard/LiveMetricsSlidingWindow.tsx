@@ -3,6 +3,10 @@ import { SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
 export class LiveMetricsSlidingWindow {
     private buckets = new Map<number, SlidingWindowBucket>()
     private windowSizeSeconds: number
+    // Tracks how many buckets each user appears in for efficient total unique user counting
+    private userBucketCounts = new Map<string, number>()
+    // Tracks how many buckets each device appears in, per device type
+    private deviceBucketCounts = new Map<string, Map<string, number>>()
 
     constructor(windowSizeMinutes: number) {
         this.windowSizeSeconds = windowSizeMinutes * 60
@@ -10,14 +14,39 @@ export class LiveMetricsSlidingWindow {
 
     addDataPoint(
         eventTs: number,
-        data: Partial<SlidingWindowBucket> & { distinctId?: string; distinctIds?: string[] }
+        distinctId: string,
+        data: {
+            pageviews?: number
+            pathname?: string
+            device?: { deviceId: string; deviceType: string }
+        }
     ): void {
-        const bucketTs = Math.floor(eventTs / 60) * 60
-        const bucket = this.buckets.get(bucketTs) ?? {
-            pageviews: 0,
-            devices: new Map(),
-            paths: new Map(),
-            uniqueUsers: new Set(),
+        const bucket = this.getOrCreateBucket(eventTs)
+
+        this.addUserToBucket(bucket, distinctId)
+
+        if (data.pageviews) {
+            bucket.pageviews += data.pageviews
+        }
+
+        if (data.pathname) {
+            bucket.paths.set(data.pathname, (bucket.paths.get(data.pathname) || 0) + 1)
+        }
+
+        if (data.device) {
+            this.addDeviceToBucket(bucket, data.device.deviceType, data.device.deviceId)
+        }
+
+        this.prune()
+    }
+
+    extendBucketData(eventTs: number, data: SlidingWindowBucket): void {
+        const bucket = this.getOrCreateBucket(eventTs)
+
+        if (data.uniqueUsers) {
+            for (const distinctId of data.uniqueUsers) {
+                this.addUserToBucket(bucket, distinctId)
+            }
         }
 
         if (data.pageviews) {
@@ -25,8 +54,10 @@ export class LiveMetricsSlidingWindow {
         }
 
         if (data.devices) {
-            for (const [device, count] of data.devices) {
-                bucket.devices.set(device, (bucket.devices.get(device) || 0) + count)
+            for (const [deviceType, deviceIds] of data.devices) {
+                for (const deviceId of deviceIds) {
+                    this.addDeviceToBucket(bucket, deviceType, deviceId)
+                }
             }
         }
 
@@ -35,28 +66,72 @@ export class LiveMetricsSlidingWindow {
                 bucket.paths.set(path, (bucket.paths.get(path) || 0) + count)
             }
         }
-        if (data.uniqueUsers) {
-            for (const id of data.uniqueUsers) {
-                bucket.uniqueUsers.add(id)
-            }
-        }
-        if (data.distinctId) {
-            bucket.uniqueUsers.add(data.distinctId)
-        }
-        if (data.distinctIds) {
-            for (const id of data.distinctIds) {
-                bucket.uniqueUsers.add(id)
-            }
-        }
 
-        this.buckets.set(bucketTs, bucket)
-        this.prune(eventTs)
+        this.prune()
     }
 
-    private prune(nowTs: number): void {
+    private addUserToBucket(bucket: SlidingWindowBucket, userId: string): void {
+        if (!bucket.uniqueUsers.has(userId)) {
+            bucket.uniqueUsers.add(userId)
+            this.userBucketCounts.set(userId, (this.userBucketCounts.get(userId) || 0) + 1)
+        }
+    }
+
+    private addDeviceToBucket(bucket: SlidingWindowBucket, deviceType: string, deviceId: string): void {
+        const bucketDeviceIds = bucket.devices.get(deviceType) ?? new Set<string>()
+
+        if (!bucketDeviceIds.has(deviceId)) {
+            bucketDeviceIds.add(deviceId)
+            bucket.devices.set(deviceType, bucketDeviceIds)
+
+            // Update global tracking
+            const deviceTypeCounts = this.deviceBucketCounts.get(deviceType) ?? new Map<string, number>()
+            deviceTypeCounts.set(deviceId, (deviceTypeCounts.get(deviceId) || 0) + 1)
+            this.deviceBucketCounts.set(deviceType, deviceTypeCounts)
+        }
+    }
+
+    private removeUsersFromTracking(bucket: SlidingWindowBucket): void {
+        for (const userId of bucket.uniqueUsers) {
+            const count = this.userBucketCounts.get(userId) || 0
+            if (count <= 1) {
+                this.userBucketCounts.delete(userId)
+            } else {
+                this.userBucketCounts.set(userId, count - 1)
+            }
+        }
+    }
+
+    private removeDevicesFromTracking(bucket: SlidingWindowBucket): void {
+        for (const [deviceType, deviceIds] of bucket.devices) {
+            const deviceTypeCounts = this.deviceBucketCounts.get(deviceType)
+            if (!deviceTypeCounts) {
+                continue
+            }
+
+            for (const deviceId of deviceIds) {
+                const count = deviceTypeCounts.get(deviceId) || 0
+                if (count <= 1) {
+                    deviceTypeCounts.delete(deviceId)
+                } else {
+                    deviceTypeCounts.set(deviceId, count - 1)
+                }
+            }
+
+            // Clean up empty device type maps
+            if (deviceTypeCounts.size === 0) {
+                this.deviceBucketCounts.delete(deviceType)
+            }
+        }
+    }
+
+    private prune(): void {
+        const nowTs = Date.now() / 1000
         const threshold = nowTs - this.windowSizeSeconds
-        for (const ts of this.buckets.keys()) {
+        for (const [ts, bucket] of this.buckets.entries()) {
             if (ts < threshold) {
+                this.removeUsersFromTracking(bucket)
+                this.removeDevicesFromTracking(bucket)
                 this.buckets.delete(ts)
             }
         }
@@ -74,17 +149,35 @@ export class LiveMetricsSlidingWindow {
         return total
     }
 
-    getDeviceTotals(): Map<string, number> {
-        const deviceTotals = new Map<string, number>()
+    getDeviceBreakdown(): { device: string; count: number; percentage: number }[] {
+        let total = 0
+        const counts: { device: string; count: number }[] = []
 
-        for (const bucket of this.buckets.values()) {
-            for (const [device, count] of bucket.devices) {
-                const current = deviceTotals.get(device) ?? 0
-                deviceTotals.set(device, current + count)
-            }
+        for (const [deviceType, deviceIdCounts] of this.deviceBucketCounts) {
+            const count = deviceIdCounts.size
+            total += count
+            counts.push({ device: deviceType, count })
         }
 
-        return deviceTotals
+        if (total === 0) {
+            return []
+        }
+
+        return counts
+            .map(({ device, count }) => ({
+                device,
+                count,
+                percentage: (count / total) * 100,
+            }))
+            .sort((a, b) => b.count - a.count)
+    }
+
+    getTotalDeviceCount(): number {
+        let total = 0
+        for (const deviceIdCounts of this.deviceBucketCounts.values()) {
+            total += deviceIdCounts.size
+        }
+        return total
     }
 
     getTopPaths(limit: number): { path: string; views: number }[] {
@@ -98,5 +191,27 @@ export class LiveMetricsSlidingWindow {
             .map(([path, views]) => ({ path, views }))
             .sort((a, b) => b.views - a.views)
             .slice(0, limit)
+    }
+
+    getTotalUniqueUsers(): number {
+        return this.userBucketCounts.size
+    }
+
+    private getOrCreateBucket(eventTs: number): SlidingWindowBucket {
+        const bucketTs = Math.floor(eventTs / 60) * 60
+
+        let bucket = this.buckets.get(bucketTs)
+
+        if (!bucket) {
+            bucket = {
+                pageviews: 0,
+                devices: new Map<string, Set<string>>(),
+                paths: new Map<string, number>(),
+                uniqueUsers: new Set<string>(),
+            }
+            this.buckets.set(bucketTs, bucket)
+        }
+
+        return bucket
     }
 }

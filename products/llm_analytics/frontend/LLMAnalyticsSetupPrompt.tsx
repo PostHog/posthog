@@ -15,13 +15,13 @@ export function LLMAnalyticsSetupPrompt({
     children: React.ReactNode
     className?: string
 }): JSX.Element {
-    const { hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmAnalyticsLogic)
+    const { hasSentAiEvent, hasSentAiEventLoading } = useValues(llmAnalyticsLogic)
 
-    return hasSentAiGenerationEventLoading ? (
+    return hasSentAiEventLoading ? (
         <div className="flex justify-center">
             <Spinner />
         </div>
-    ) : !hasSentAiGenerationEvent ? (
+    ) : !hasSentAiEvent ? (
         <IngestionStatusCheck className={className} />
     ) : (
         <>{children}</>

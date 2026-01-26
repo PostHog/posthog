@@ -59,6 +59,7 @@ export const createEmptyInsight = (
     name: '',
     description: '',
     tags: [],
+    dashboards: [],
     result: null,
 })
 

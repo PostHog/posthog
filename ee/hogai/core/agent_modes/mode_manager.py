@@ -20,6 +20,7 @@ class AgentModeManager(AssistantContextMixin, ABC):
     _state: AssistantState | None = None
     _node: Optional["AgentExecutable"] = None
     _tools_node: Optional["AgentToolsExecutable"] = None
+    _supermode: AgentMode | None = None
 
     def __init__(
         self,
@@ -39,7 +40,8 @@ class AgentModeManager(AssistantContextMixin, ABC):
         # Validate mode is in registry, fall back to default mode if not
         if state.agent_mode and state.agent_mode not in self.mode_registry:
             self._mode = AgentMode.PRODUCT_ANALYTICS
-        self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
+        else:
+            self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
     @abstractmethod

@@ -5,6 +5,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -23,8 +24,19 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
 export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
-    const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
+    const {
+        scenePanelOpenManual,
+        sceneLayoutConfig,
+        scenePanelIsPresent: legacyScenePanelIsPresent,
+    } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
+    // When flag is on: Check if scene has panel tabs configured
+    // When flag is off: Use the legacy scenePanelIsPresent from logic (set via portal)
+    const scenePanelIsPresent = isRemovingSidePanelFlag
+        ? Boolean(sceneLayoutConfig?.scenePanelTabs?.length)
+        : legacyScenePanelIsPresent
 
     // Show "Open" button when panel is closed, show "Close" button when panel is open
     // Both should never render simultaneously to avoid Playwright strict mode violations
@@ -323,7 +335,7 @@ function SceneName({
                                 className: `${textClasses} w-full hover:bg-fill-input py-0`,
                                 autoHeight: true,
                             }),
-                            '[&_.LemonIcon]:size-4'
+                            '[&_.LemonIcon]:size-4 input-like'
                         )}
                         placeholder="Enter name"
                         onBlur={() => {
@@ -456,7 +468,7 @@ function SceneDescription({
                                 className: `${textClasses} w-full hover:bg-fill-input px-[var(--button-padding-x-sm)]`,
                                 autoHeight: true,
                             }),
-                            '[&_.LemonIcon]:size-4'
+                            '[&_.LemonIcon]:size-4 input-like'
                         )}
                         wrapperClassName="w-full"
                         markdown={markdown}

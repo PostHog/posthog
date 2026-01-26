@@ -4,12 +4,12 @@ use crate::metrics::consts::{
     COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER,
     COHORT_CACHE_SIZE_BYTES_GAUGE, DB_COHORT_ERRORS_COUNTER, DB_COHORT_READS_COUNTER,
 };
+use axum::async_trait;
 use common_database::PostgresReader;
 use common_types::TeamId;
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 
 /// CohortCacheManager manages the in-memory cache of cohorts using `moka` for caching.
 ///
@@ -18,10 +18,17 @@ use tokio::sync::Mutex;
 /// - **Memory-based eviction**: The cache estimates memory usage per entry and evicts
 ///   least recently used entries when the total estimated memory exceeds the configured limit.
 ///   This prevents unbounded memory growth from large cohort filter definitions.
+/// - **Per-key coalescing**: Uses moka's `try_get_with` to ensure that concurrent requests
+///   for the same team coalesce into a single database fetch, while requests for different
+///   teams proceed in parallel. This prevents thundering herd on cache miss without
+///   introducing cross-team blocking.
+///
+/// The manager is generic over the fetcher type `F` to allow dependency injection
+/// for testing while maintaining static dispatch
 ///
 /// ```text
 /// CohortCacheManager {
-///     reader: PostgresReader,
+///     fetcher: PostgresCohortFetcher { reader },
 ///     cache: Cache<TeamId, Vec<Cohort>> {
 ///         // Example:
 ///         2: [
@@ -31,16 +38,45 @@ use tokio::sync::Mutex;
 ///         5: [
 ///             Cohort { id: 3, name: "Beta Users", filters: {...} }
 ///         ]
-///     },
-///     fetch_lock: Mutex<()> // Manager-wide lock
+///     }
 /// }
 /// ```
 ///
-#[derive(Clone)]
-pub struct CohortCacheManager {
-    reader: PostgresReader,
+pub struct CohortCacheManager<F: CohortFetcher = PostgresCohortFetcher> {
+    fetcher: Arc<F>,
     cache: Cache<TeamId, Vec<Cohort>>,
-    fetch_lock: Arc<Mutex<()>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum CohortFetchError {
+    DatabaseUnavailable,
+    QueryFailed(String),
+}
+
+/// Trait for fetching cohorts from a data source.
+/// This abstraction allows for dependency injection and testing.
+#[async_trait]
+pub trait CohortFetcher: Send + Sync + 'static {
+    async fn fetch(&self, team_id: TeamId) -> Result<Vec<Cohort>, CohortFetchError>;
+}
+
+/// Default implementation that fetches cohorts from PostgreSQL.
+#[derive(Clone)]
+pub struct PostgresCohortFetcher {
+    reader: PostgresReader,
+}
+
+impl PostgresCohortFetcher {
+    pub fn new(reader: PostgresReader) -> Self {
+        Self { reader }
+    }
+}
+
+#[async_trait]
+impl CohortFetcher for PostgresCohortFetcher {
+    async fn fetch(&self, team_id: TeamId) -> Result<Vec<Cohort>, CohortFetchError> {
+        Cohort::list_from_pg(self.reader.clone(), team_id).await
+    }
 }
 
 /// Calculates the total estimated memory weight of a slice of cohorts.
@@ -54,12 +90,26 @@ fn cohorts_weight(cohorts: &[Cohort]) -> u32 {
         .fold(0u32, u32::saturating_add)
 }
 
-impl CohortCacheManager {
+impl CohortCacheManager<PostgresCohortFetcher> {
+    /// Creates a new CohortCacheManager with the default PostgreSQL fetcher.
+    pub fn new(
+        reader: PostgresReader,
+        capacity_bytes: Option<u64>,
+        ttl_seconds: Option<u64>,
+    ) -> Self {
+        let fetcher = PostgresCohortFetcher::new(reader);
+        Self::new_with_fetcher(fetcher, capacity_bytes, ttl_seconds)
+    }
+}
+
+impl<F: CohortFetcher> CohortCacheManager<F> {
     /// Default cache capacity: 256 MB
     const DEFAULT_CAPACITY_BYTES: u64 = 268_435_456;
 
-    pub fn new(
-        reader: PostgresReader,
+    /// Creates a new CohortCacheManager with a custom fetcher.
+    /// This allows dependency injection for testing.
+    pub fn new_with_fetcher(
+        fetcher: F,
         capacity_bytes: Option<u64>,
         ttl_seconds: Option<u64>,
     ) -> Self {
@@ -77,51 +127,48 @@ impl CohortCacheManager {
             .build();
 
         Self {
-            reader,
+            fetcher: Arc::new(fetcher),
             cache,
-            fetch_lock: Arc::new(Mutex::new(())),
         }
     }
 
     /// Retrieves cohorts for a given team.
     ///
-    /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
-    /// caches the result upon successful retrieval, and then returns it.
+    /// Uses moka's `try_get_with` for per-key coalescing:
+    /// - If cached: returns immediately (cache hit)
+    /// - If not cached: only one caller fetches from DB, others wait for the result
+    /// - Different teams fetch in parallel (no cross-team blocking)
     pub async fn get_cohorts(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
-        // First check cache before acquiring lock
-        if let Some(cached_cohorts) = self.cache.get(&team_id).await {
+        if let Some(cached) = self.cache.get(&team_id).await {
             common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
-            return Ok(cached_cohorts.clone());
+            return Ok(cached);
         }
 
-        // Acquire the lock before fetching
-        let _lock = self.fetch_lock.lock().await;
+        let fetcher = self.fetcher.clone();
 
-        // Double-check the cache after acquiring lock
-        if let Some(cached_cohorts) = self.cache.get(&team_id).await {
-            common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
-            return Ok(cached_cohorts.clone());
-        }
-
-        // If we get here, we have a cache miss
         common_metrics::inc(COHORT_CACHE_MISS_COUNTER, &[], 1);
 
-        // Attempt to fetch from DB
-        match Cohort::list_from_pg(self.reader.clone(), team_id).await {
-            Ok(fetched_cohorts) => {
-                common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
-                self.cache.insert(team_id, fetched_cohorts.clone()).await;
-
-                // Report cache metrics for observability
+        self.cache
+            .try_get_with(team_id, async move {
+                match fetcher.fetch(team_id).await {
+                    Ok(cohorts) => {
+                        common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
+                        Ok(cohorts)
+                    }
+                    Err(e) => {
+                        common_metrics::inc(DB_COHORT_ERRORS_COUNTER, &[], 1);
+                        Err(e)
+                    }
+                }
+            })
+            .await
+            .map_err(|arc_err| FlagError::from((*arc_err).clone()))
+            .inspect(|_| {
+                // Report cache metrics after successful fetch
+                // Note: This runs for all callers (fetcher + coalesced waiters),
+                // but that's fine - it just reports current cache state
                 self.report_cache_metrics();
-
-                Ok(fetched_cohorts)
-            }
-            Err(e) => {
-                common_metrics::inc(DB_COHORT_ERRORS_COUNTER, &[], 1);
-                Err(e)
-            }
-        }
+            })
     }
 
     /// Starts periodic monitoring of cache metrics.
@@ -167,10 +214,32 @@ impl CohortCacheManager {
     }
 }
 
+impl<F: CohortFetcher> Clone for CohortCacheManager<F> {
+    fn clone(&self) -> Self {
+        Self {
+            fetcher: Arc::clone(&self.fetcher),
+            cache: self.cache.clone(),
+        }
+    }
+}
+
+impl From<CohortFetchError> for FlagError {
+    fn from(value: CohortFetchError) -> Self {
+        match value {
+            CohortFetchError::DatabaseUnavailable => FlagError::DatabaseUnavailable,
+            CohortFetchError::QueryFailed(msg) => FlagError::Internal(msg),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::test_utils::TestContext;
+    use axum::async_trait;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
     use tokio::time::{sleep, Duration};
 
     fn create_test_cohort(filters: Option<serde_json::Value>) -> Cohort {
@@ -202,7 +271,7 @@ mod tests {
     #[test]
     fn test_cohorts_weight_single_cohort() {
         let cohort = create_test_cohort(Some(serde_json::json!({"key": "value"})));
-        let weight = cohorts_weight(&[cohort.clone()]);
+        let weight = cohorts_weight(std::slice::from_ref(&cohort));
 
         assert!(weight > 0, "Single cohort should have non-zero weight");
         assert_eq!(
@@ -219,8 +288,8 @@ mod tests {
             "nested": {"deep": {"values": ["a", "b", "c", "d", "e"]}}
         })));
 
-        let small_weight = cohorts_weight(&[small.clone()]);
-        let large_weight = cohorts_weight(&[large.clone()]);
+        let small_weight = cohorts_weight(std::slice::from_ref(&small));
+        let large_weight = cohorts_weight(std::slice::from_ref(&large));
         let combined_weight = cohorts_weight(&[small, large]);
 
         assert_eq!(
@@ -241,7 +310,7 @@ mod tests {
         });
 
         let large_cohort = create_test_cohort(Some(large_filters));
-        let single_weight = cohorts_weight(&[large_cohort.clone()]);
+        let single_weight = cohorts_weight(std::slice::from_ref(&large_cohort));
 
         // Create many cohorts - weight should not overflow
         let many_cohorts: Vec<Cohort> = (0..10000).map(|_| large_cohort.clone()).collect();
@@ -693,5 +762,438 @@ mod tests {
 
         monitor_handle.abort();
         Ok(())
+    }
+
+    // ==================== Concurrency Tests ====================
+    //
+    // These tests verify the concurrency properties of CohortCacheManager:
+    // - Same-team coalescing: concurrent requests for one team result in 1 DB fetch
+    // - Cross-team parallelism: requests for different teams execute in parallel
+    // - Error propagation: errors are propagated to all coalesced waiters
+    // - Error not cached: failed fetches are retried on subsequent requests
+    //
+    // DESIGN NOTE: These tests use explicit synchronization (Notify, Barrier) instead
+    // of timing delays to be deterministic regardless of OS scheduling or CI load.
+
+    /// A mock fetcher that tracks call counts and supports synchronization primitives
+    /// for testing concurrency behavior.
+    struct MockFetcher {
+        fetch_count: AtomicU32,
+        /// Barrier to synchronize concurrent fetches - ensures they start together
+        barrier: Option<Arc<Barrier>>,
+        /// Cohorts to return on success
+        cohorts: Vec<Cohort>,
+    }
+
+    impl MockFetcher {
+        fn new(cohorts: Vec<Cohort>) -> Self {
+            Self {
+                fetch_count: AtomicU32::new(0),
+                barrier: None,
+                cohorts,
+            }
+        }
+
+        fn with_barrier(mut self, barrier: Arc<Barrier>) -> Self {
+            self.barrier = Some(barrier);
+            self
+        }
+
+        fn fetch_count(&self) -> u32 {
+            self.fetch_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl CohortFetcher for MockFetcher {
+        async fn fetch(&self, _team_id: TeamId) -> Result<Vec<Cohort>, CohortFetchError> {
+            self.fetch_count.fetch_add(1, Ordering::SeqCst);
+
+            if let Some(barrier) = &self.barrier {
+                barrier.wait().await;
+            }
+
+            Ok(self.cohorts.clone())
+        }
+    }
+
+    /// A fetcher with explicit synchronization for testing coalescing behavior.
+    ///
+    /// Protocol:
+    /// 1. Test spawns N tasks that call get_cohorts
+    /// 2. First task enters fetch, signals `fetch_started`, waits on `may_complete`
+    /// 3. Test receives `fetch_started`, yields to let other tasks queue, signals `may_complete`
+    /// 4. Fetch completes, all coalesced tasks get the result
+    /// 5. Assert only 1 fetch occurred
+    struct CoalescingTestFetcher {
+        fetch_count: AtomicU32,
+        /// Signaled when fetch has started - test waits on this
+        fetch_started: Arc<tokio::sync::Notify>,
+        /// Fetcher waits on this before completing - test signals when ready
+        may_complete: Arc<tokio::sync::Notify>,
+        /// If set, return this error instead of success
+        error: Option<CohortFetchError>,
+        cohorts: Vec<Cohort>,
+    }
+
+    impl CoalescingTestFetcher {
+        fn new(
+            cohorts: Vec<Cohort>,
+            fetch_started: Arc<tokio::sync::Notify>,
+            may_complete: Arc<tokio::sync::Notify>,
+        ) -> Self {
+            Self {
+                fetch_count: AtomicU32::new(0),
+                fetch_started,
+                may_complete,
+                error: None,
+                cohorts,
+            }
+        }
+
+        fn with_error(mut self, error: CohortFetchError) -> Self {
+            self.error = Some(error);
+            self
+        }
+
+        fn fetch_count(&self) -> u32 {
+            self.fetch_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl CohortFetcher for CoalescingTestFetcher {
+        async fn fetch(&self, _team_id: TeamId) -> Result<Vec<Cohort>, CohortFetchError> {
+            self.fetch_count.fetch_add(1, Ordering::SeqCst);
+
+            // Signal that fetch has started
+            self.fetch_started.notify_one();
+
+            // Wait for permission to complete (test controls this)
+            self.may_complete.notified().await;
+
+            if let Some(ref error) = self.error {
+                Err(error.clone())
+            } else {
+                Ok(self.cohorts.clone())
+            }
+        }
+    }
+
+    /// Tests that multiple concurrent requests for the same team result in exactly 1 DB fetch.
+    ///
+    /// This test is deterministic: it uses explicit synchronization to ensure all requests
+    /// are queued before the fetch completes, regardless of OS scheduling.
+    #[tokio::test]
+    async fn test_same_team_coalescing() {
+        const NUM_CONCURRENT_REQUESTS: usize = 10;
+        const TEAM_ID: TeamId = 42;
+
+        let fetch_started = Arc::new(tokio::sync::Notify::new());
+        let may_complete = Arc::new(tokio::sync::Notify::new());
+
+        let fetcher = CoalescingTestFetcher::new(
+            vec![create_test_cohort(None)],
+            Arc::clone(&fetch_started),
+            Arc::clone(&may_complete),
+        );
+
+        let cache = CohortCacheManager::new_with_fetcher(fetcher, None, None);
+
+        // Spawn concurrent requests for the same team
+        let handles: Vec<_> = (0..NUM_CONCURRENT_REQUESTS)
+            .map(|_| {
+                let cache = cache.clone();
+                tokio::spawn(async move { cache.get_cohorts(TEAM_ID).await })
+            })
+            .collect();
+
+        // Wait for the fetch to start (with timeout for safety)
+        tokio::time::timeout(Duration::from_secs(5), fetch_started.notified())
+            .await
+            .expect("Fetch should have started");
+
+        // Yield to the executor multiple times to ensure all other tasks have
+        // entered get_cohorts and are waiting on moka's internal coalescing.
+        // This is deterministic: we're giving the executor explicit opportunities
+        // to schedule all spawned tasks before we allow the fetch to complete.
+        for _ in 0..NUM_CONCURRENT_REQUESTS {
+            tokio::task::yield_now().await;
+        }
+
+        // Now allow the fetch to complete
+        may_complete.notify_one();
+
+        // Wait for all requests to complete
+        let results =
+            tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(handles))
+                .await
+                .expect("All requests should complete");
+
+        // All requests should succeed
+        for result in &results {
+            assert!(
+                result.as_ref().unwrap().is_ok(),
+                "All requests should succeed"
+            );
+        }
+
+        // Only 1 fetch should have occurred due to coalescing
+        assert_eq!(
+            cache.fetcher.fetch_count(),
+            1,
+            "Only 1 DB fetch should occur for {} concurrent requests to the same team",
+            NUM_CONCURRENT_REQUESTS
+        );
+    }
+
+    /// Tests that concurrent requests for different teams execute in parallel.
+    ///
+    /// This test is deterministic: it uses a barrier inside the fetch that requires
+    /// all N fetches to arrive before any can proceed. If fetches were serialized
+    /// (as with the old global mutex), this would deadlock.
+    #[tokio::test]
+    async fn test_cross_team_parallelism() {
+        const NUM_TEAMS: usize = 5;
+
+        // Barrier requires all NUM_TEAMS fetches to arrive before any can proceed.
+        // If fetches were serialized, this would deadlock.
+        let barrier = Arc::new(Barrier::new(NUM_TEAMS));
+
+        let fetcher = MockFetcher::new(vec![create_test_cohort(None)]).with_barrier(barrier);
+
+        let cache = CohortCacheManager::new_with_fetcher(fetcher, None, None);
+
+        // Spawn concurrent requests for different teams
+        let handles: Vec<_> = (0..NUM_TEAMS)
+            .map(|i| {
+                let cache = cache.clone();
+                let team_id = (i + 1) as TeamId;
+                tokio::spawn(async move { cache.get_cohorts(team_id).await })
+            })
+            .collect();
+
+        // Use a timeout to detect deadlock (would occur if fetches were serialized)
+        let results =
+            tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(handles))
+                .await
+                .expect("Deadlock detected: cross-team requests should execute in parallel");
+
+        // All requests should succeed
+        for result in &results {
+            assert!(
+                result.as_ref().unwrap().is_ok(),
+                "All requests should succeed"
+            );
+        }
+
+        // Each team should have triggered exactly one fetch
+        assert_eq!(
+            cache.fetcher.fetch_count(),
+            NUM_TEAMS as u32,
+            "Each team should trigger exactly one fetch"
+        );
+    }
+
+    /// Tests that when a fetch fails, all coalesced waiters receive the error.
+    ///
+    /// Uses the same deterministic synchronization as test_same_team_coalescing.
+    #[tokio::test]
+    async fn test_error_propagation_to_coalesced_waiters() {
+        const NUM_CONCURRENT_REQUESTS: usize = 5;
+        const TEAM_ID: TeamId = 42;
+
+        let fetch_started = Arc::new(tokio::sync::Notify::new());
+        let may_complete = Arc::new(tokio::sync::Notify::new());
+
+        let fetcher = CoalescingTestFetcher::new(
+            vec![],
+            Arc::clone(&fetch_started),
+            Arc::clone(&may_complete),
+        )
+        .with_error(CohortFetchError::DatabaseUnavailable);
+
+        let cache = CohortCacheManager::new_with_fetcher(fetcher, None, None);
+
+        // Spawn concurrent requests
+        let handles: Vec<_> = (0..NUM_CONCURRENT_REQUESTS)
+            .map(|_| {
+                let cache = cache.clone();
+                tokio::spawn(async move { cache.get_cohorts(TEAM_ID).await })
+            })
+            .collect();
+
+        // Wait for the fetch to start
+        tokio::time::timeout(Duration::from_secs(5), fetch_started.notified())
+            .await
+            .expect("Fetch should have started");
+
+        // Yield to let all other tasks queue up
+        for _ in 0..NUM_CONCURRENT_REQUESTS {
+            tokio::task::yield_now().await;
+        }
+
+        // Allow the fetch to complete (with error)
+        may_complete.notify_one();
+
+        let results =
+            tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(handles))
+                .await
+                .expect("All requests should complete");
+
+        // All requests should receive the error
+        for (i, result) in results.iter().enumerate() {
+            let inner = result.as_ref().unwrap();
+            assert!(
+                inner.is_err(),
+                "Request {} should have received an error",
+                i
+            );
+            assert!(
+                matches!(inner, Err(FlagError::DatabaseUnavailable)),
+                "Request {} should have received DatabaseUnavailable error",
+                i
+            );
+        }
+
+        // Only 1 fetch should have occurred
+        assert_eq!(
+            cache.fetcher.fetch_count(),
+            1,
+            "Only 1 DB fetch should occur even when it fails"
+        );
+    }
+
+    /// Tests that errors are not cached - subsequent requests should retry the fetch.
+    #[tokio::test]
+    async fn test_error_not_cached() {
+        const TEAM_ID: TeamId = 42;
+
+        // Use an atomic to track whether we should return an error
+        let should_fail = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let fetch_count = Arc::new(AtomicU32::new(0));
+
+        // Create a custom fetcher that fails on first call, succeeds on second
+        struct ConditionalFetcher {
+            should_fail: Arc<std::sync::atomic::AtomicBool>,
+            fetch_count: Arc<AtomicU32>,
+        }
+
+        #[async_trait]
+        impl CohortFetcher for ConditionalFetcher {
+            async fn fetch(&self, team_id: TeamId) -> Result<Vec<Cohort>, CohortFetchError> {
+                self.fetch_count.fetch_add(1, Ordering::SeqCst);
+
+                if self.should_fail.load(Ordering::SeqCst) {
+                    Err(CohortFetchError::DatabaseUnavailable)
+                } else {
+                    Ok(vec![Cohort {
+                        id: 1,
+                        name: Some("Test".to_string()),
+                        description: None,
+                        team_id,
+                        deleted: false,
+                        filters: None,
+                        query: None,
+                        version: Some(1),
+                        pending_version: None,
+                        count: None,
+                        is_calculating: false,
+                        is_static: false,
+                        errors_calculating: 0,
+                        groups: serde_json::json!({}),
+                        created_by_id: None,
+                    }])
+                }
+            }
+        }
+
+        let fetcher = ConditionalFetcher {
+            should_fail: Arc::clone(&should_fail),
+            fetch_count: Arc::clone(&fetch_count),
+        };
+
+        let cache = CohortCacheManager::new_with_fetcher(fetcher, None, None);
+
+        // First request should fail
+        let result1 = cache.get_cohorts(TEAM_ID).await;
+        assert!(result1.is_err(), "First request should fail");
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            1,
+            "Should have fetched once"
+        );
+
+        // Disable failure mode
+        should_fail.store(false, Ordering::SeqCst);
+
+        // Second request should retry and succeed (error was not cached)
+        let result2 = cache.get_cohorts(TEAM_ID).await;
+        assert!(result2.is_ok(), "Second request should succeed after retry");
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            2,
+            "Should have fetched twice (error was not cached)"
+        );
+
+        // Third request should hit the cache
+        let result3 = cache.get_cohorts(TEAM_ID).await;
+        assert!(result3.is_ok(), "Third request should succeed from cache");
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            2,
+            "Should not fetch again (success was cached)"
+        );
+    }
+
+    /// Tests that the second request for the same team hits the cache (no DB call).
+    #[tokio::test]
+    async fn test_cache_hit_path() {
+        const TEAM_ID: TeamId = 42;
+
+        let fetcher = MockFetcher::new(vec![create_test_cohort(None)]);
+
+        let cache = CohortCacheManager::new_with_fetcher(fetcher, None, None);
+
+        // First request - cache miss
+        let result1 = cache.get_cohorts(TEAM_ID).await;
+        assert!(result1.is_ok(), "First request should succeed");
+        assert_eq!(cache.fetcher.fetch_count(), 1, "Should have fetched once");
+
+        // Second request - cache hit
+        let result2 = cache.get_cohorts(TEAM_ID).await;
+        assert!(result2.is_ok(), "Second request should succeed");
+        assert_eq!(
+            cache.fetcher.fetch_count(),
+            1,
+            "Should not fetch again (cache hit)"
+        );
+
+        // Verify both requests returned the same data
+        assert_eq!(
+            result1.unwrap().len(),
+            result2.unwrap().len(),
+            "Both requests should return the same cohorts"
+        );
+    }
+
+    /// Tests that CohortFetchError variants map correctly to FlagError.
+    #[test]
+    fn test_cohort_fetch_error_conversion() {
+        // DatabaseUnavailable -> FlagError::DatabaseUnavailable
+        let db_unavailable = CohortFetchError::DatabaseUnavailable;
+        let flag_error: FlagError = db_unavailable.into();
+        assert!(
+            matches!(flag_error, FlagError::DatabaseUnavailable),
+            "DatabaseUnavailable should map to FlagError::DatabaseUnavailable"
+        );
+
+        // QueryFailed -> FlagError::Internal
+        let query_failed = CohortFetchError::QueryFailed("test error".to_string());
+        let flag_error: FlagError = query_failed.into();
+        assert!(
+            matches!(flag_error, FlagError::Internal(msg) if msg == "test error"),
+            "QueryFailed should map to FlagError::Internal with the message"
+        );
     }
 }
