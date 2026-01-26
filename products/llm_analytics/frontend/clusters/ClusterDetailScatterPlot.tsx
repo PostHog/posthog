@@ -108,12 +108,20 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                                     }
 
                                     const point = context.raw as ScatterPoint
-                                    if (point.traceId) {
-                                        const summary = traceSummaries[point.traceId]
+                                    // For generation-level, summaries are keyed by generation_id
+                                    // For trace-level, summaries are keyed by trace_id
+                                    const summaryKey =
+                                        clusteringLevel === 'generation' ? point.generationId : point.traceId
+                                    if (summaryKey) {
+                                        const summary = traceSummaries[summaryKey]
                                         if (summary?.title) {
                                             return summary.title
                                         }
-                                        return `Trace ${point.traceId.slice(0, 8)}...`
+                                    }
+                                    if (point.traceId) {
+                                        return clusteringLevel === 'generation'
+                                            ? `Generation ${(point.generationId || point.traceId).slice(0, 8)}...`
+                                            : `Trace ${point.traceId.slice(0, 8)}...`
                                     }
                                     return undefined
                                 },
