@@ -162,6 +162,36 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 },
             },
         ],
+
+        sessionTracesErrors: [
+            new Set<string>() as Set<string>,
+            {
+                loadSessionTracesFailure: (state, { sessionId }) => new Set(state).add(sessionId),
+                loadSessionTracesSuccess: (state, { sessionId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(sessionId)
+                    return newSet
+                },
+                setDates: () => new Set<string>(),
+                setPropertyFilters: () => new Set<string>(),
+                setShouldFilterTestAccounts: () => new Set<string>(),
+            },
+        ],
+
+        fullTracesErrors: [
+            new Set<string>() as Set<string>,
+            {
+                loadFullTraceFailure: (state, { traceId }) => new Set(state).add(traceId),
+                loadFullTraceSuccess: (state, { traceId }) => {
+                    const newSet = new Set(state)
+                    newSet.delete(traceId)
+                    return newSet
+                },
+                setDates: () => new Set<string>(),
+                setPropertyFilters: () => new Set<string>(),
+                setShouldFilterTestAccounts: () => new Set<string>(),
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({

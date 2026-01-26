@@ -297,9 +297,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         modelOptions: {
             __default: [] as ModelOption[],
             loadModelOptions: async () => {
-                // FAKE ERROR FOR TESTING - REMOVE THIS
-                throw new ApiError('Rate limited', 429)
-
                 const response = await api.get('/api/llm_proxy/models/')
 
                 if (!response) {
