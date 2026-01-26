@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import subprocess
 from dataclasses import asdict, dataclass
+from io import open_code
 from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -293,14 +294,13 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
             video = page.video
             if video is None:
                 raise RuntimeError("Playwright did not produce a video. Ensure record_video_dir is set.")
-            tmp_webm = os.path.join(self.record_dir, f"{uuid.uuid4()}.webm")
             if hasattr(video, "save_as"):
-                video.save_as(tmp_webm)
+                video.save_as(self.output_path)
             else:
                 src = video.path()
                 if not src:
                     raise RuntimeError("Playwright did not provide a video path.")
-                shutil.move(src, tmp_webm)
+                shutil.move(src, self.output_path)
             pre_roll = max(0.0, ready_at - record_started)
             # Clean up Playwright resources
             try:
@@ -310,7 +310,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 pass
             # Return the result
             return RecordingResult(
-                video_path=tmp_webm,
+                video_path=self.output_path,
                 pre_roll=pre_roll,
                 playback_speed=playback_speed,
                 measured_width=measured_width,
@@ -712,8 +712,10 @@ def record_replay_to_file(
             ).record()
         # ============ Common post-processing (ffmpeg) ============
         # TODO: Remove after testing
-        with open(f"video_rendered_{uuid.uuid4()}_{'nodejs' if use_nodejs else 'playwright'}.webm", "w") as f:
-            f.write(tmp_webm)
+        with open_code(result.video_path, "rb") as f:
+            content = f.read()
+            with open(f"video_rendered_{uuid.uuid4()}_{'nodejs' if use_nodejs else 'playwright'}.webm", "w") as f:
+                f.write(content)
         logger.info(
             "video_exporter.recording_complete",
             pre_roll=result.pre_roll,
