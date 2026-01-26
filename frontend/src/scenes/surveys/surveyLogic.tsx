@@ -1141,11 +1141,41 @@ export const surveyLogic = kea<surveyLogicType>([
                     if (q.type === SurveyQuestionType.MultipleChoice || q.type === SurveyQuestionType.SingleChoice) {
                         delete q.hasOpenChoice
                     }
+
+                    // Clean up translations when question type changes
+                    const cleanedTranslations = q.translations
+                        ? Object.entries(q.translations).reduce(
+                              (acc, [lang, trans]) => {
+                                  const cleanedTrans = { ...trans }
+
+                                  // Remove fields that don't apply to the new type
+                                  if (
+                                      type !== SurveyQuestionType.SingleChoice &&
+                                      type !== SurveyQuestionType.MultipleChoice
+                                  ) {
+                                      delete cleanedTrans.choices
+                                  }
+                                  if (type !== SurveyQuestionType.Link) {
+                                      delete cleanedTrans.link
+                                  }
+                                  if (type !== SurveyQuestionType.Rating) {
+                                      delete cleanedTrans.lowerBoundLabel
+                                      delete cleanedTrans.upperBoundLabel
+                                  }
+
+                                  acc[lang] = cleanedTrans
+                                  return acc
+                              },
+                              {} as Record<string, any>
+                          )
+                        : undefined
+
                     newQuestions[idx] = {
                         ...q,
                         ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
                         question,
                         description,
+                        translations: cleanedTranslations,
                     }
                     return {
                         ...state,
