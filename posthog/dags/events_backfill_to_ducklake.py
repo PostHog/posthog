@@ -129,7 +129,8 @@ EVENTS_COLUMNS = """
     group3_created_at,
     group4_created_at,
     person_mode,
-    historical_migration
+    historical_migration,
+    NOW() as _inserted_at
 """
 
 # Expected columns in the DuckLake events table (for schema validation)
@@ -158,6 +159,7 @@ EXPECTED_DUCKLAKE_COLUMNS = {
     "group4_created_at",
     "person_mode",
     "historical_migration",
+    "_inserted_at",
 }
 
 
