@@ -13,7 +13,6 @@
  */
 export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyTypeEnumApi = {
     AND: 'AND',
     OR: 'OR',
@@ -40,7 +39,6 @@ export const PropertyTypeEnumApi = {
  */
 export type OperatorEnumApi = (typeof OperatorEnumApi)[keyof typeof OperatorEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OperatorEnumApi = {
     exact: 'exact',
     is_not: 'is_not',
@@ -63,14 +61,12 @@ export const OperatorEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -101,7 +97,6 @@ export const NullEnumApi = {} as const
  */
 export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyItemTypeEnumApi = {
     event: 'event',
     event_metadata: 'event_metadata',
@@ -134,7 +129,7 @@ export interface PropertyItemApi {
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string
-    operator?: OperatorEnumApi | BlankEnumApi | NullEnumApi
+    operator?: OperatorEnumApi | BlankEnumApi | NullEnumApi | null
     type?: PropertyItemTypeEnumApi | BlankEnumApi
 }
 
@@ -244,7 +239,6 @@ export type EnvironmentsPersonsListParams = {
 export type EnvironmentsPersonsListFormat =
     (typeof EnvironmentsPersonsListFormat)[keyof typeof EnvironmentsPersonsListFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsListFormat = {
     csv: 'csv',
     json: 'json',
@@ -257,7 +251,6 @@ export type EnvironmentsPersonsRetrieveParams = {
 export type EnvironmentsPersonsRetrieveFormat =
     (typeof EnvironmentsPersonsRetrieveFormat)[keyof typeof EnvironmentsPersonsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -270,7 +263,6 @@ export type EnvironmentsPersonsUpdateParams = {
 export type EnvironmentsPersonsUpdateFormat =
     (typeof EnvironmentsPersonsUpdateFormat)[keyof typeof EnvironmentsPersonsUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsUpdateFormat = {
     csv: 'csv',
     json: 'json',
@@ -283,7 +275,6 @@ export type EnvironmentsPersonsPartialUpdateParams = {
 export type EnvironmentsPersonsPartialUpdateFormat =
     (typeof EnvironmentsPersonsPartialUpdateFormat)[keyof typeof EnvironmentsPersonsPartialUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsPartialUpdateFormat = {
     csv: 'csv',
     json: 'json',
@@ -296,7 +287,6 @@ export type EnvironmentsPersonsActivityRetrieve2Params = {
 export type EnvironmentsPersonsActivityRetrieve2Format =
     (typeof EnvironmentsPersonsActivityRetrieve2Format)[keyof typeof EnvironmentsPersonsActivityRetrieve2Format]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsActivityRetrieve2Format = {
     csv: 'csv',
     json: 'json',
@@ -313,7 +303,6 @@ export type EnvironmentsPersonsDeletePropertyCreateParams = {
 export type EnvironmentsPersonsDeletePropertyCreateFormat =
     (typeof EnvironmentsPersonsDeletePropertyCreateFormat)[keyof typeof EnvironmentsPersonsDeletePropertyCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsDeletePropertyCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -326,7 +315,6 @@ export type EnvironmentsPersonsPropertiesTimelineRetrieveParams = {
 export type EnvironmentsPersonsPropertiesTimelineRetrieveFormat =
     (typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat)[keyof typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsPropertiesTimelineRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -339,7 +327,6 @@ export type EnvironmentsPersonsSplitCreateParams = {
 export type EnvironmentsPersonsSplitCreateFormat =
     (typeof EnvironmentsPersonsSplitCreateFormat)[keyof typeof EnvironmentsPersonsSplitCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsSplitCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -360,7 +347,6 @@ export type EnvironmentsPersonsUpdatePropertyCreateParams = {
 export type EnvironmentsPersonsUpdatePropertyCreateFormat =
     (typeof EnvironmentsPersonsUpdatePropertyCreateFormat)[keyof typeof EnvironmentsPersonsUpdatePropertyCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsUpdatePropertyCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -373,7 +359,6 @@ export type EnvironmentsPersonsActivityRetrieveParams = {
 export type EnvironmentsPersonsActivityRetrieveFormat =
     (typeof EnvironmentsPersonsActivityRetrieveFormat)[keyof typeof EnvironmentsPersonsActivityRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsActivityRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -406,7 +391,6 @@ export type EnvironmentsPersonsBulkDeleteCreateParams = {
 export type EnvironmentsPersonsBulkDeleteCreateFormat =
     (typeof EnvironmentsPersonsBulkDeleteCreateFormat)[keyof typeof EnvironmentsPersonsBulkDeleteCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsBulkDeleteCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -419,7 +403,6 @@ export type EnvironmentsPersonsCohortsRetrieveParams = {
 export type EnvironmentsPersonsCohortsRetrieveFormat =
     (typeof EnvironmentsPersonsCohortsRetrieveFormat)[keyof typeof EnvironmentsPersonsCohortsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsCohortsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -432,7 +415,6 @@ export type EnvironmentsPersonsFunnelRetrieveParams = {
 export type EnvironmentsPersonsFunnelRetrieveFormat =
     (typeof EnvironmentsPersonsFunnelRetrieveFormat)[keyof typeof EnvironmentsPersonsFunnelRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsFunnelRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -445,7 +427,6 @@ export type EnvironmentsPersonsFunnelCreateParams = {
 export type EnvironmentsPersonsFunnelCreateFormat =
     (typeof EnvironmentsPersonsFunnelCreateFormat)[keyof typeof EnvironmentsPersonsFunnelCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsFunnelCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -458,7 +439,6 @@ export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
 export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat =
     (typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat)[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -471,7 +451,6 @@ export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
 export type EnvironmentsPersonsFunnelCorrelationCreateFormat =
     (typeof EnvironmentsPersonsFunnelCorrelationCreateFormat)[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -484,7 +463,6 @@ export type EnvironmentsPersonsLifecycleRetrieveParams = {
 export type EnvironmentsPersonsLifecycleRetrieveFormat =
     (typeof EnvironmentsPersonsLifecycleRetrieveFormat)[keyof typeof EnvironmentsPersonsLifecycleRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsLifecycleRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -497,7 +475,6 @@ export type EnvironmentsPersonsResetPersonDistinctIdCreateParams = {
 export type EnvironmentsPersonsResetPersonDistinctIdCreateFormat =
     (typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat)[keyof typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsResetPersonDistinctIdCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -510,7 +487,6 @@ export type EnvironmentsPersonsStickinessRetrieveParams = {
 export type EnvironmentsPersonsStickinessRetrieveFormat =
     (typeof EnvironmentsPersonsStickinessRetrieveFormat)[keyof typeof EnvironmentsPersonsStickinessRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsStickinessRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -523,7 +499,6 @@ export type EnvironmentsPersonsTrendsRetrieveParams = {
 export type EnvironmentsPersonsTrendsRetrieveFormat =
     (typeof EnvironmentsPersonsTrendsRetrieveFormat)[keyof typeof EnvironmentsPersonsTrendsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsTrendsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -536,7 +511,6 @@ export type EnvironmentsPersonsValuesRetrieveParams = {
 export type EnvironmentsPersonsValuesRetrieveFormat =
     (typeof EnvironmentsPersonsValuesRetrieveFormat)[keyof typeof EnvironmentsPersonsValuesRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsPersonsValuesRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -572,7 +546,6 @@ export type PersonsListParams = {
 
 export type PersonsListFormat = (typeof PersonsListFormat)[keyof typeof PersonsListFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsListFormat = {
     csv: 'csv',
     json: 'json',
@@ -584,7 +557,6 @@ export type PersonsRetrieveParams = {
 
 export type PersonsRetrieveFormat = (typeof PersonsRetrieveFormat)[keyof typeof PersonsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -596,7 +568,6 @@ export type PersonsUpdateParams = {
 
 export type PersonsUpdateFormat = (typeof PersonsUpdateFormat)[keyof typeof PersonsUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsUpdateFormat = {
     csv: 'csv',
     json: 'json',
@@ -608,7 +579,6 @@ export type PersonsPartialUpdateParams = {
 
 export type PersonsPartialUpdateFormat = (typeof PersonsPartialUpdateFormat)[keyof typeof PersonsPartialUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsPartialUpdateFormat = {
     csv: 'csv',
     json: 'json',
@@ -621,7 +591,6 @@ export type PersonsActivityRetrieve2Params = {
 export type PersonsActivityRetrieve2Format =
     (typeof PersonsActivityRetrieve2Format)[keyof typeof PersonsActivityRetrieve2Format]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsActivityRetrieve2Format = {
     csv: 'csv',
     json: 'json',
@@ -638,7 +607,6 @@ export type PersonsDeletePropertyCreateParams = {
 export type PersonsDeletePropertyCreateFormat =
     (typeof PersonsDeletePropertyCreateFormat)[keyof typeof PersonsDeletePropertyCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsDeletePropertyCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -651,7 +619,6 @@ export type PersonsPropertiesTimelineRetrieveParams = {
 export type PersonsPropertiesTimelineRetrieveFormat =
     (typeof PersonsPropertiesTimelineRetrieveFormat)[keyof typeof PersonsPropertiesTimelineRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsPropertiesTimelineRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -663,7 +630,6 @@ export type PersonsSplitCreateParams = {
 
 export type PersonsSplitCreateFormat = (typeof PersonsSplitCreateFormat)[keyof typeof PersonsSplitCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsSplitCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -684,7 +650,6 @@ export type PersonsUpdatePropertyCreateParams = {
 export type PersonsUpdatePropertyCreateFormat =
     (typeof PersonsUpdatePropertyCreateFormat)[keyof typeof PersonsUpdatePropertyCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsUpdatePropertyCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -697,7 +662,6 @@ export type PersonsActivityRetrieveParams = {
 export type PersonsActivityRetrieveFormat =
     (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsActivityRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -730,7 +694,6 @@ export type PersonsBulkDeleteCreateParams = {
 export type PersonsBulkDeleteCreateFormat =
     (typeof PersonsBulkDeleteCreateFormat)[keyof typeof PersonsBulkDeleteCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsBulkDeleteCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -743,7 +706,6 @@ export type PersonsCohortsRetrieveParams = {
 export type PersonsCohortsRetrieveFormat =
     (typeof PersonsCohortsRetrieveFormat)[keyof typeof PersonsCohortsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsCohortsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -755,7 +717,6 @@ export type PersonsFunnelRetrieveParams = {
 
 export type PersonsFunnelRetrieveFormat = (typeof PersonsFunnelRetrieveFormat)[keyof typeof PersonsFunnelRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsFunnelRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -767,7 +728,6 @@ export type PersonsFunnelCreateParams = {
 
 export type PersonsFunnelCreateFormat = (typeof PersonsFunnelCreateFormat)[keyof typeof PersonsFunnelCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsFunnelCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -780,7 +740,6 @@ export type PersonsFunnelCorrelationRetrieveParams = {
 export type PersonsFunnelCorrelationRetrieveFormat =
     (typeof PersonsFunnelCorrelationRetrieveFormat)[keyof typeof PersonsFunnelCorrelationRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsFunnelCorrelationRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -793,7 +752,6 @@ export type PersonsFunnelCorrelationCreateParams = {
 export type PersonsFunnelCorrelationCreateFormat =
     (typeof PersonsFunnelCorrelationCreateFormat)[keyof typeof PersonsFunnelCorrelationCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsFunnelCorrelationCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -806,7 +764,6 @@ export type PersonsLifecycleRetrieveParams = {
 export type PersonsLifecycleRetrieveFormat =
     (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsLifecycleRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -819,7 +776,6 @@ export type PersonsResetPersonDistinctIdCreateParams = {
 export type PersonsResetPersonDistinctIdCreateFormat =
     (typeof PersonsResetPersonDistinctIdCreateFormat)[keyof typeof PersonsResetPersonDistinctIdCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsResetPersonDistinctIdCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -832,7 +788,6 @@ export type PersonsStickinessRetrieveParams = {
 export type PersonsStickinessRetrieveFormat =
     (typeof PersonsStickinessRetrieveFormat)[keyof typeof PersonsStickinessRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsStickinessRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -844,7 +799,6 @@ export type PersonsTrendsRetrieveParams = {
 
 export type PersonsTrendsRetrieveFormat = (typeof PersonsTrendsRetrieveFormat)[keyof typeof PersonsTrendsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsTrendsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -856,7 +810,6 @@ export type PersonsValuesRetrieveParams = {
 
 export type PersonsValuesRetrieveFormat = (typeof PersonsValuesRetrieveFormat)[keyof typeof PersonsValuesRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonsValuesRetrieveFormat = {
     csv: 'csv',
     json: 'json',

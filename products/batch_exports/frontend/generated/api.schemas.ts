@@ -14,7 +14,6 @@
  */
 export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ModelEnumApi = {
     events: 'events',
     persons: 'persons',
@@ -23,14 +22,12 @@ export const ModelEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -48,7 +45,6 @@ export const NullEnumApi = {} as const
 export type BatchExportDestinationTypeEnumApi =
     (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BatchExportDestinationTypeEnumApi = {
     S3: 'S3',
     Snowflake: 'Snowflake',
@@ -98,7 +94,6 @@ export interface BatchExportDestinationApi {
  */
 export type IntervalEnumApi = (typeof IntervalEnumApi)[keyof typeof IntervalEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IntervalEnumApi = {
     hour: 'hour',
     day: 'day',
@@ -120,7 +115,6 @@ export const IntervalEnumApi = {
  */
 export type BatchExportRunStatusEnumApi = (typeof BatchExportRunStatusEnumApi)[keyof typeof BatchExportRunStatusEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BatchExportRunStatusEnumApi = {
     Cancelled: 'Cancelled',
     Completed: 'Completed',
@@ -222,7 +216,7 @@ export interface BatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
     destination: BatchExportDestinationApi
     interval: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
@@ -249,8 +243,8 @@ export interface BatchExportApi {
     readonly latest_runs: readonly BatchExportRunApi[]
     hogql_query?: string
     /** A schema of custom fields to select when exporting data. */
-    readonly schema: unknown
-    filters?: unknown
+    readonly schema: unknown | null
+    filters?: unknown | null
 }
 
 export interface PaginatedBatchExportListApi {
@@ -284,7 +278,7 @@ export interface PatchedBatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
     destination?: BatchExportDestinationApi
     interval?: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
@@ -311,8 +305,8 @@ export interface PatchedBatchExportApi {
     readonly latest_runs?: readonly BatchExportRunApi[]
     hogql_query?: string
     /** A schema of custom fields to select when exporting data. */
-    readonly schema?: unknown
-    filters?: unknown
+    readonly schema?: unknown | null
+    filters?: unknown | null
 }
 
 export type EnvironmentsBatchExportsListParams = {

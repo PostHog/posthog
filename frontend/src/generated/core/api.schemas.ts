@@ -19,7 +19,6 @@
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -33,14 +32,12 @@ export const RoleAtOrganizationEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -66,7 +63,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 /**
@@ -77,7 +74,6 @@ export interface UserBasicApi {
  */
 export type CreationModeEnumApi = (typeof CreationModeEnumApi)[keyof typeof CreationModeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CreationModeEnumApi = {
     default: 'default',
     template: 'template',
@@ -92,7 +88,6 @@ export const CreationModeEnumApi = {
 export type DashboardRestrictionLevelApi =
     (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardRestrictionLevelApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
@@ -101,7 +96,6 @@ export const DashboardRestrictionLevelApi = {
 export type EffectiveRestrictionLevelEnumApi =
     (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EffectiveRestrictionLevelEnumApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
@@ -110,7 +104,6 @@ export const EffectiveRestrictionLevelEnumApi = {
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EffectivePrivilegeLevelEnumApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
@@ -239,7 +232,7 @@ export interface SharingConfigurationApi {
     enabled?: boolean
     /** @nullable */
     readonly access_token: string | null
-    settings?: unknown
+    settings?: unknown | null
     password_required?: boolean
     readonly share_passwords: string
 }
@@ -332,7 +325,6 @@ export interface PatchedDashboardApi {
  */
 export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExportFormatEnumApi = {
     'image/png': 'image/png',
     'application/pdf': 'application/pdf',
@@ -357,7 +349,7 @@ export interface ExportedAssetApi {
     export_format: ExportFormatEnumApi
     readonly created_at: string
     readonly has_content: string
-    export_context?: unknown
+    export_context?: unknown | null
     readonly filename: string
     /** @nullable */
     readonly expires_after: string | null
@@ -388,7 +380,7 @@ export interface FileSystemApi {
     ref?: string | null
     /** @nullable */
     href?: string | null
-    meta?: unknown
+    meta?: unknown | null
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at: string
@@ -419,7 +411,7 @@ export interface PatchedFileSystemApi {
     ref?: string | null
     /** @nullable */
     href?: string | null
-    meta?: unknown
+    meta?: unknown | null
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at?: string
@@ -455,7 +447,7 @@ export interface CreateGroupApi {
     group_type_index: number
     /** @maxLength 400 */
     group_key: string
-    group_properties?: unknown
+    group_properties?: unknown | null
 }
 
 /**
@@ -487,7 +479,6 @@ export interface CreateGroupApi {
  */
 export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const KindCf2EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
@@ -558,7 +549,6 @@ export interface PatchedIntegrationApi {
  */
 export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TargetTypeEnumApi = {
     email: 'email',
     slack: 'slack',
@@ -573,7 +563,6 @@ export const TargetTypeEnumApi = {
  */
 export type FrequencyEnumApi = (typeof FrequencyEnumApi)[keyof typeof FrequencyEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FrequencyEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
@@ -592,7 +581,6 @@ export const FrequencyEnumApi = {
  */
 export type ByweekdayEnumApi = (typeof ByweekdayEnumApi)[keyof typeof ByweekdayEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ByweekdayEnumApi = {
     monday: 'monday',
     tuesday: 'tuesday',
@@ -797,7 +785,6 @@ export interface PatchedOrganizationDomainApi {
 export type OrganizationMembershipLevelApi =
     (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OrganizationMembershipLevelApi = {
     NUMBER_1: 1,
     NUMBER_8: 8,
@@ -824,7 +811,7 @@ export interface OrganizationInviteApi {
     /** @nullable */
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
-    private_project_access?: unknown
+    private_project_access?: unknown | null
     send_email?: boolean
     combine_pending_invites?: boolean
 }
@@ -1477,7 +1464,6 @@ export interface PatchedOrganizationMemberApi {
  */
 export type TimezoneEnumApi = (typeof TimezoneEnumApi)[keyof typeof TimezoneEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TimezoneEnumApi = {
     'Africa/Abidjan': 'Africa/Abidjan',
     'Africa/Accra': 'Africa/Accra',
@@ -2090,7 +2076,7 @@ export interface ProjectBackwardCompatBasicApi {
     readonly api_token: string
     readonly name: string
     readonly completed_snippet_onboarding: boolean
-    readonly has_completed_onboarding_for: unknown
+    readonly has_completed_onboarding_for: unknown | null
     readonly ingested_event: boolean
     readonly is_demo: boolean
     readonly timezone: TimezoneEnumApi
@@ -2111,7 +2097,6 @@ export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EffectiveMembershipLevelEnumApi = {
     NUMBER_1: 1,
     NUMBER_8: 8,
@@ -2124,7 +2109,6 @@ export const EffectiveMembershipLevelEnumApi = {
  */
 export type WeekStartDayEnumApi = (typeof WeekStartDayEnumApi)[keyof typeof WeekStartDayEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WeekStartDayEnumApi = {
     NUMBER_0: 0,
     NUMBER_1: 1,
@@ -2137,7 +2121,6 @@ export const WeekStartDayEnumApi = {
  */
 export type BusinessModelEnumApi = (typeof BusinessModelEnumApi)[keyof typeof BusinessModelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BusinessModelEnumApi = {
     b2b: 'b2b',
     b2c: 'b2c',
@@ -2164,7 +2147,7 @@ export interface ProjectBackwardCompatApi {
      */
     product_description?: string | null
     readonly created_at: string
-    readonly effective_membership_level: EffectiveMembershipLevelEnumApi
+    readonly effective_membership_level: EffectiveMembershipLevelEnumApi | null
     readonly has_group_types: boolean
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -2184,21 +2167,21 @@ export interface ProjectBackwardCompatApi {
     test_account_filters?: unknown
     /** @nullable */
     test_account_filters_default_checked?: boolean | null
-    path_cleaning_filters?: unknown
+    path_cleaning_filters?: unknown | null
     is_demo?: boolean
     timezone?: TimezoneEnumApi
     data_attributes?: unknown
     /** @nullable */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
+    correlation_config?: unknown | null
     /** @nullable */
     autocapture_opt_out?: boolean | null
     /** @nullable */
     autocapture_exceptions_opt_in?: boolean | null
     /** @nullable */
     autocapture_web_vitals_opt_in?: boolean | null
-    autocapture_web_vitals_allowed_metrics?: unknown
-    autocapture_exceptions_errors_to_ignore?: unknown
+    autocapture_web_vitals_allowed_metrics?: unknown | null
+    autocapture_exceptions_errors_to_ignore?: unknown | null
     /** @nullable */
     capture_console_log_opt_in?: boolean | null
     /** @nullable */
@@ -2215,17 +2198,17 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     session_recording_minimum_duration_milliseconds?: number | null
-    session_recording_linked_flag?: unknown
-    session_recording_network_payload_capture_config?: unknown
-    session_recording_masking_config?: unknown
-    session_replay_config?: unknown
-    survey_config?: unknown
+    session_recording_linked_flag?: unknown | null
+    session_recording_network_payload_capture_config?: unknown | null
+    session_recording_masking_config?: unknown | null
+    session_replay_config?: unknown | null
+    survey_config?: unknown | null
     access_control?: boolean
     /**
      * @minimum -32768
      * @maximum 32767
      */
-    week_start_day?: WeekStartDayEnumApi | NullEnumApi
+    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
     /** @nullable */
     primary_dashboard?: number | null
     /** @nullable */
@@ -2235,10 +2218,10 @@ export interface ProjectBackwardCompatApi {
     readonly person_on_events_querying_enabled: string
     /** @nullable */
     inject_web_apps?: boolean | null
-    extra_settings?: unknown
-    modifiers?: unknown
+    extra_settings?: unknown | null
+    modifiers?: unknown | null
     readonly default_modifiers: string
-    has_completed_onboarding_for?: unknown
+    has_completed_onboarding_for?: unknown | null
     /** @nullable */
     surveys_opt_in?: boolean | null
     /** @nullable */
@@ -2257,10 +2240,10 @@ export interface ProjectBackwardCompatApi {
 * `b2b` - B2B
 * `b2c` - B2C
 * `other` - Other */
-    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi
+    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    conversations_settings?: unknown | null
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2285,7 +2268,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     product_description?: string | null
     readonly created_at?: string
-    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi
+    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi | null
     readonly has_group_types?: boolean
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -2305,21 +2288,21 @@ export interface PatchedProjectBackwardCompatApi {
     test_account_filters?: unknown
     /** @nullable */
     test_account_filters_default_checked?: boolean | null
-    path_cleaning_filters?: unknown
+    path_cleaning_filters?: unknown | null
     is_demo?: boolean
     timezone?: TimezoneEnumApi
     data_attributes?: unknown
     /** @nullable */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
+    correlation_config?: unknown | null
     /** @nullable */
     autocapture_opt_out?: boolean | null
     /** @nullable */
     autocapture_exceptions_opt_in?: boolean | null
     /** @nullable */
     autocapture_web_vitals_opt_in?: boolean | null
-    autocapture_web_vitals_allowed_metrics?: unknown
-    autocapture_exceptions_errors_to_ignore?: unknown
+    autocapture_web_vitals_allowed_metrics?: unknown | null
+    autocapture_exceptions_errors_to_ignore?: unknown | null
     /** @nullable */
     capture_console_log_opt_in?: boolean | null
     /** @nullable */
@@ -2336,17 +2319,17 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     session_recording_minimum_duration_milliseconds?: number | null
-    session_recording_linked_flag?: unknown
-    session_recording_network_payload_capture_config?: unknown
-    session_recording_masking_config?: unknown
-    session_replay_config?: unknown
-    survey_config?: unknown
+    session_recording_linked_flag?: unknown | null
+    session_recording_network_payload_capture_config?: unknown | null
+    session_recording_masking_config?: unknown | null
+    session_replay_config?: unknown | null
+    survey_config?: unknown | null
     access_control?: boolean
     /**
      * @minimum -32768
      * @maximum 32767
      */
-    week_start_day?: WeekStartDayEnumApi | NullEnumApi
+    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
     /** @nullable */
     primary_dashboard?: number | null
     /** @nullable */
@@ -2356,10 +2339,10 @@ export interface PatchedProjectBackwardCompatApi {
     readonly person_on_events_querying_enabled?: string
     /** @nullable */
     inject_web_apps?: boolean | null
-    extra_settings?: unknown
-    modifiers?: unknown
+    extra_settings?: unknown | null
+    modifiers?: unknown | null
     readonly default_modifiers?: string
-    has_completed_onboarding_for?: unknown
+    has_completed_onboarding_for?: unknown | null
     /** @nullable */
     surveys_opt_in?: boolean | null
     /** @nullable */
@@ -2378,10 +2361,10 @@ export interface PatchedProjectBackwardCompatApi {
 * `b2b` - B2B
 * `b2c` - B2C
 * `other` - Other */
-    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi
+    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    conversations_settings?: unknown | null
 }
 
 export interface RoleApi {
@@ -2419,7 +2402,6 @@ export interface PatchedRoleApi {
  */
 export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CreationTypeEnumApi = {
     USR: 'USR',
     GIT: 'GIT',
@@ -2434,7 +2416,6 @@ export const CreationTypeEnumApi = {
  */
 export type AnnotationScopeEnumApi = (typeof AnnotationScopeEnumApi)[keyof typeof AnnotationScopeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AnnotationScopeEnumApi = {
     dashboard_item: 'dashboard_item',
     dashboard: 'dashboard',
@@ -2521,7 +2502,6 @@ export interface PatchedAnnotationApi {
  */
 export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CohortTypeEnumApi = {
     static: 'static',
     person_property: 'person_property',
@@ -2594,8 +2574,8 @@ export interface CohortApi {
                 }]
             }
         } */
-    filters?: unknown
-    query?: unknown
+    filters?: unknown | null
+    query?: unknown | null
     /** @nullable */
     readonly version: number | null
     /** @nullable */
@@ -2619,7 +2599,7 @@ export interface CohortApi {
 * `behavioral` - behavioral
 * `realtime` - realtime
 * `analytical` - analytical */
-    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi | null
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -2698,8 +2678,8 @@ export interface PatchedCohortApi {
                 }]
             }
         } */
-    filters?: unknown
-    query?: unknown
+    filters?: unknown | null
+    query?: unknown | null
     /** @nullable */
     readonly version?: number | null
     /** @nullable */
@@ -2723,7 +2703,7 @@ export interface PatchedCohortApi {
 * `behavioral` - behavioral
 * `realtime` - realtime
 * `analytical` - analytical */
-    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi | null
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -2748,7 +2728,7 @@ export interface CommentApi {
     slug?: string
     /** @nullable */
     content?: string | null
-    rich_content?: unknown
+    rich_content?: unknown | null
     readonly version: number
     readonly created_at: string
     /**
@@ -2756,7 +2736,7 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown
+    item_context?: unknown | null
     /** @maxLength 79 */
     scope: string
     /** @nullable */
@@ -2780,7 +2760,7 @@ export interface PatchedCommentApi {
     slug?: string
     /** @nullable */
     content?: string | null
-    rich_content?: unknown
+    rich_content?: unknown | null
     readonly version?: number
     readonly created_at?: string
     /**
@@ -2788,7 +2768,7 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown
+    item_context?: unknown | null
     /** @maxLength 79 */
     scope?: string
     /** @nullable */
@@ -2803,7 +2783,6 @@ export interface PatchedCommentApi {
 export type DashboardTemplateScopeEnumApi =
     (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardTemplateScopeEnumApi = {
     team: 'team',
     global: 'global',
@@ -2822,11 +2801,11 @@ export interface DashboardTemplateApi {
      * @nullable
      */
     dashboard_description?: string | null
-    dashboard_filters?: unknown
+    dashboard_filters?: unknown | null
     /** @nullable */
     tags?: string[] | null
-    tiles?: unknown
-    variables?: unknown
+    tiles?: unknown | null
+    variables?: unknown | null
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -2840,7 +2819,7 @@ export interface DashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
 }
@@ -2866,11 +2845,11 @@ export interface PatchedDashboardTemplateApi {
      * @nullable
      */
     dashboard_description?: string | null
-    dashboard_filters?: unknown
+    dashboard_filters?: unknown | null
     /** @nullable */
     tags?: string[] | null
-    tiles?: unknown
-    variables?: unknown
+    tiles?: unknown | null
+    variables?: unknown | null
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -2884,7 +2863,7 @@ export interface PatchedDashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id?: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
 }
@@ -2975,7 +2954,6 @@ export interface PatchedEnterpriseEventDefinitionApi {
  */
 export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyType549EnumApi = {
     DateTime: 'DateTime',
     String: 'String',
@@ -2998,7 +2976,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi
+    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -3030,7 +3008,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi
+    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -3044,7 +3022,6 @@ export interface PatchedEnterprisePropertyDefinitionApi {
  */
 export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ModelNameEnumApi = {
     FeatureFlag: 'FeatureFlag',
 } as const
@@ -3057,7 +3034,6 @@ export const ModelNameEnumApi = {
  */
 export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RecurrenceIntervalEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
@@ -3084,7 +3060,7 @@ export interface ScheduledChangeApi {
     readonly created_by: UserBasicApi
     readonly updated_at: string
     is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi
+    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_executed_at: string | null
     /** @nullable */
@@ -3119,7 +3095,7 @@ export interface PatchedScheduledChangeApi {
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
     is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi
+    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_executed_at?: string | null
     /** @nullable */
@@ -3132,7 +3108,6 @@ export interface PatchedScheduledChangeApi {
  */
 export type ToolbarModeEnumApi = (typeof ToolbarModeEnumApi)[keyof typeof ToolbarModeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ToolbarModeEnumApi = {
     disabled: 'disabled',
     toolbar: 'toolbar',
@@ -3154,7 +3129,7 @@ export interface TeamBasicApi {
     readonly api_token: string
     readonly name: string
     readonly completed_snippet_onboarding: boolean
-    readonly has_completed_onboarding_for: unknown
+    readonly has_completed_onboarding_for: unknown | null
     readonly ingested_event: boolean
     readonly is_demo: boolean
     readonly timezone: TimezoneEnumApi
@@ -3163,7 +3138,6 @@ export interface TeamBasicApi {
 
 export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MembershipLevelEnumApi = {
     NUMBER_1: 1,
     NUMBER_8: 8,
@@ -3178,7 +3152,6 @@ export const MembershipLevelEnumApi = {
  */
 export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PluginsAccessLevelEnumApi = {
     NUMBER_0: 0,
     NUMBER_3: 3,
@@ -3193,7 +3166,6 @@ export const PluginsAccessLevelEnumApi = {
 export type DefaultExperimentStatsMethodEnumApi =
     (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DefaultExperimentStatsMethodEnumApi = {
     bayesian: 'bayesian',
     frequentist: 'frequentist',
@@ -3213,7 +3185,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi
+    readonly membership_level: MembershipLevelEnumApi | null
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -3236,7 +3208,7 @@ export interface OrganizationApi {
 
 * `bayesian` - Bayesian
 * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -3271,7 +3243,7 @@ export interface OrganizationBasicApi {
     slug: string
     /** @nullable */
     readonly logo_media_id: string | null
-    readonly membership_level: MembershipLevelEnumApi
+    readonly membership_level: MembershipLevelEnumApi | null
     members_can_use_personal_api_keys?: boolean
     /**
      * Set this to 'No' to temporarily disable an organization.
@@ -3300,7 +3272,6 @@ export interface ScenePersonalisationBasicApi {
  */
 export type ThemeModeEnumApi = (typeof ThemeModeEnumApi)[keyof typeof ThemeModeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ThemeModeEnumApi = {
     light: 'light',
     dark: 'dark',
@@ -3314,7 +3285,6 @@ export const ThemeModeEnumApi = {
  */
 export type ShortcutPositionEnumApi = (typeof ShortcutPositionEnumApi)[keyof typeof ShortcutPositionEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ShortcutPositionEnumApi = {
     above: 'above',
     below: 'below',
@@ -3343,7 +3313,7 @@ export interface UserApi {
     anonymize_data?: boolean | null
     /** @nullable */
     allow_impersonation?: boolean | null
-    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi
+    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi | null
     readonly has_password: boolean
     readonly id: number
     /** Designates whether the user can log into this admin site. */
@@ -3368,13 +3338,13 @@ export interface UserApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly has_sso_enforcement: boolean
-    has_seen_product_intro_for?: unknown
+    has_seen_product_intro_for?: unknown | null
     readonly scene_personalisation: readonly ScenePersonalisationBasicApi[]
-    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi
-    hedgehog_config?: unknown
+    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi | null
+    hedgehog_config?: unknown | null
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
+    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi | null
     role_at_organization?: RoleAtOrganizationEnumApi
     /**
      * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -3414,7 +3384,7 @@ export interface PatchedUserApi {
     anonymize_data?: boolean | null
     /** @nullable */
     allow_impersonation?: boolean | null
-    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi
+    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi | null
     readonly has_password?: boolean
     readonly id?: number
     /** Designates whether the user can log into this admin site. */
@@ -3439,13 +3409,13 @@ export interface PatchedUserApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly has_sso_enforcement?: boolean
-    has_seen_product_intro_for?: unknown
+    has_seen_product_intro_for?: unknown | null
     readonly scene_personalisation?: readonly ScenePersonalisationBasicApi[]
-    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi
-    hedgehog_config?: unknown
+    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi | null
+    hedgehog_config?: unknown | null
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
+    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi | null
     role_at_organization?: RoleAtOrganizationEnumApi
     /**
      * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -3469,7 +3439,6 @@ export type EnvironmentsDashboardsListParams = {
 export type EnvironmentsDashboardsListFormat =
     (typeof EnvironmentsDashboardsListFormat)[keyof typeof EnvironmentsDashboardsListFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsListFormat = {
     json: 'json',
     txt: 'txt',
@@ -3482,7 +3451,6 @@ export type EnvironmentsDashboardsCreateParams = {
 export type EnvironmentsDashboardsCreateFormat =
     (typeof EnvironmentsDashboardsCreateFormat)[keyof typeof EnvironmentsDashboardsCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsCreateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3495,7 +3463,6 @@ export type EnvironmentsDashboardsRetrieveParams = {
 export type EnvironmentsDashboardsRetrieveFormat =
     (typeof EnvironmentsDashboardsRetrieveFormat)[keyof typeof EnvironmentsDashboardsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsRetrieveFormat = {
     json: 'json',
     txt: 'txt',
@@ -3508,7 +3475,6 @@ export type EnvironmentsDashboardsUpdateParams = {
 export type EnvironmentsDashboardsUpdateFormat =
     (typeof EnvironmentsDashboardsUpdateFormat)[keyof typeof EnvironmentsDashboardsUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsUpdateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3521,7 +3487,6 @@ export type EnvironmentsDashboardsPartialUpdateParams = {
 export type EnvironmentsDashboardsPartialUpdateFormat =
     (typeof EnvironmentsDashboardsPartialUpdateFormat)[keyof typeof EnvironmentsDashboardsPartialUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsPartialUpdateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3534,7 +3499,6 @@ export type EnvironmentsDashboardsDestroyParams = {
 export type EnvironmentsDashboardsDestroyFormat =
     (typeof EnvironmentsDashboardsDestroyFormat)[keyof typeof EnvironmentsDashboardsDestroyFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsDestroyFormat = {
     json: 'json',
     txt: 'txt',
@@ -3547,7 +3511,6 @@ export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
 export type EnvironmentsDashboardsMoveTilePartialUpdateFormat =
     (typeof EnvironmentsDashboardsMoveTilePartialUpdateFormat)[keyof typeof EnvironmentsDashboardsMoveTilePartialUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsMoveTilePartialUpdateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3560,7 +3523,6 @@ export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
 export type EnvironmentsDashboardsStreamTilesRetrieveFormat =
     (typeof EnvironmentsDashboardsStreamTilesRetrieveFormat)[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
     json: 'json',
     txt: 'txt',
@@ -3573,7 +3535,6 @@ export type EnvironmentsDashboardsCreateFromTemplateJsonCreateParams = {
 export type EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat =
     (typeof EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat)[keyof typeof EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3586,7 +3547,6 @@ export type EnvironmentsDashboardsCreateUnlistedDashboardCreateParams = {
 export type EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat =
     (typeof EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat)[keyof typeof EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3798,7 +3758,6 @@ export type CohortsPersonsRetrieveParams = {
 export type CohortsPersonsRetrieveFormat =
     (typeof CohortsPersonsRetrieveFormat)[keyof typeof CohortsPersonsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CohortsPersonsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -3836,7 +3795,6 @@ export type DashboardsListParams = {
 
 export type DashboardsListFormat = (typeof DashboardsListFormat)[keyof typeof DashboardsListFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsListFormat = {
     json: 'json',
     txt: 'txt',
@@ -3848,7 +3806,6 @@ export type DashboardsCreateParams = {
 
 export type DashboardsCreateFormat = (typeof DashboardsCreateFormat)[keyof typeof DashboardsCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsCreateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3860,7 +3817,6 @@ export type DashboardsRetrieveParams = {
 
 export type DashboardsRetrieveFormat = (typeof DashboardsRetrieveFormat)[keyof typeof DashboardsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsRetrieveFormat = {
     json: 'json',
     txt: 'txt',
@@ -3872,7 +3828,6 @@ export type DashboardsUpdateParams = {
 
 export type DashboardsUpdateFormat = (typeof DashboardsUpdateFormat)[keyof typeof DashboardsUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsUpdateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3885,7 +3840,6 @@ export type DashboardsPartialUpdateParams = {
 export type DashboardsPartialUpdateFormat =
     (typeof DashboardsPartialUpdateFormat)[keyof typeof DashboardsPartialUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsPartialUpdateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3897,7 +3851,6 @@ export type DashboardsDestroyParams = {
 
 export type DashboardsDestroyFormat = (typeof DashboardsDestroyFormat)[keyof typeof DashboardsDestroyFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsDestroyFormat = {
     json: 'json',
     txt: 'txt',
@@ -3910,7 +3863,6 @@ export type DashboardsMoveTilePartialUpdateParams = {
 export type DashboardsMoveTilePartialUpdateFormat =
     (typeof DashboardsMoveTilePartialUpdateFormat)[keyof typeof DashboardsMoveTilePartialUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsMoveTilePartialUpdateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3923,7 +3875,6 @@ export type DashboardsStreamTilesRetrieveParams = {
 export type DashboardsStreamTilesRetrieveFormat =
     (typeof DashboardsStreamTilesRetrieveFormat)[keyof typeof DashboardsStreamTilesRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsStreamTilesRetrieveFormat = {
     json: 'json',
     txt: 'txt',
@@ -3936,7 +3887,6 @@ export type DashboardsCreateFromTemplateJsonCreateParams = {
 export type DashboardsCreateFromTemplateJsonCreateFormat =
     (typeof DashboardsCreateFromTemplateJsonCreateFormat)[keyof typeof DashboardsCreateFromTemplateJsonCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsCreateFromTemplateJsonCreateFormat = {
     json: 'json',
     txt: 'txt',
@@ -3949,7 +3899,6 @@ export type DashboardsCreateUnlistedDashboardCreateParams = {
 export type DashboardsCreateUnlistedDashboardCreateFormat =
     (typeof DashboardsCreateUnlistedDashboardCreateFormat)[keyof typeof DashboardsCreateUnlistedDashboardCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardsCreateUnlistedDashboardCreateFormat = {
     json: 'json',
     txt: 'txt',
@@ -4142,7 +4091,6 @@ export type PropertyDefinitionsListParams = {
 
 export type PropertyDefinitionsListType = (typeof PropertyDefinitionsListType)[keyof typeof PropertyDefinitionsListType]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyDefinitionsListType = {
     event: 'event',
     person: 'person',

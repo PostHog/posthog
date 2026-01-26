@@ -101,7 +101,7 @@ export const environmentsEndpointsRetrieve2 = async (
 }
 
 /**
- * Update an existing endpoint. Parameters are optional.
+ * Update an existing endpoint. Parameters are optional. Use ?version=N to update a specific version's is_active status.
  */
 export type environmentsEndpointsUpdateResponse200 = {
     data: void
@@ -503,7 +503,7 @@ export const endpointsRetrieve2 = async (
 }
 
 /**
- * Update an existing endpoint. Parameters are optional.
+ * Update an existing endpoint. Parameters are optional. Use ?version=N to update a specific version's is_active status.
  */
 export type endpointsUpdateResponse200 = {
     data: void

@@ -32,7 +32,6 @@ export interface PaginatedErrorTrackingFingerprintListApi {
 export type ErrorTrackingIssueFullStatusEnumApi =
     (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ErrorTrackingIssueFullStatusEnumApi = {
     archived: 'archived',
     active: 'active',
@@ -75,7 +74,6 @@ export interface ErrorTrackingIssueAssignmentApi {
  */
 export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const KindCf2EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
@@ -159,7 +157,7 @@ export interface ErrorTrackingReleaseApi {
     hash_id: string
     readonly team_id: number
     readonly created_at: string
-    metadata?: unknown
+    metadata?: unknown | null
     version: string
     project: string
 }
@@ -178,7 +176,7 @@ export interface PatchedErrorTrackingReleaseApi {
     hash_id?: string
     readonly team_id?: number
     readonly created_at?: string
-    metadata?: unknown
+    metadata?: unknown | null
     version?: string
     project?: string
 }
@@ -189,7 +187,7 @@ export interface ErrorTrackingStackFrameApi {
     readonly created_at: string
     contents: unknown
     resolved: boolean
-    context?: unknown
+    context?: unknown | null
     symbol_set_ref?: string
     readonly release: ErrorTrackingReleaseApi
 }

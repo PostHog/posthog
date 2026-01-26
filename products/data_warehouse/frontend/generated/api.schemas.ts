@@ -16,7 +16,6 @@
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DataModelingJobStatusEnumApi = {
     Running: 'Running',
     Completed: 'Completed',
@@ -91,7 +90,6 @@ export interface PaginatedDataModelingJobListApi {
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SourceTypeEnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
@@ -156,7 +154,7 @@ export interface ExternalDataSourceSerializersApi {
     description?: string | null
     readonly last_run_at: string
     readonly schemas: string
-    job_inputs?: unknown
+    job_inputs?: unknown | null
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
      * The effective access level the user has for this object
@@ -196,7 +194,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     description?: string | null
     readonly last_run_at?: string
     readonly schemas?: string
-    job_inputs?: unknown
+    job_inputs?: unknown | null
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
      * The effective access level the user has for this object
@@ -217,7 +215,6 @@ export interface PatchedExternalDataSourceSerializersApi {
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -231,14 +228,12 @@ export const RoleAtOrganizationEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -264,7 +259,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 /**
@@ -276,7 +271,6 @@ export interface UserBasicApi {
  */
 export type StatusD5cEnumApi = (typeof StatusD5cEnumApi)[keyof typeof StatusD5cEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StatusD5cEnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
@@ -292,7 +286,6 @@ export const StatusD5cEnumApi = {
  */
 export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OriginEnumApi = {
     data_warehouse: 'data_warehouse',
     endpoint: 'endpoint',
@@ -318,7 +311,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: StatusD5cEnumApi | NullEnumApi
+    readonly status: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     readonly managed_viewset_kind: string
@@ -331,7 +324,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi
+    readonly origin: OriginEnumApi | NullEnumApi | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -355,7 +348,7 @@ export interface DataWarehouseSavedQueryApi {
     /** @maxLength 128 */
     name: string
     /** HogQL query */
-    query?: unknown
+    query?: unknown | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly sync_frequency: string
@@ -367,7 +360,7 @@ export interface DataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: StatusD5cEnumApi | NullEnumApi
+    readonly status: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     readonly managed_viewset_kind: string
@@ -385,7 +378,7 @@ export interface DataWarehouseSavedQueryApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi
+    readonly origin: OriginEnumApi | NullEnumApi | null
 }
 
 /**
@@ -400,7 +393,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
     /** @maxLength 128 */
     name?: string
     /** HogQL query */
-    query?: unknown
+    query?: unknown | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly sync_frequency?: string
@@ -412,7 +405,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status?: StatusD5cEnumApi | NullEnumApi
+    readonly status?: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     readonly managed_viewset_kind?: string
@@ -430,7 +423,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin?: OriginEnumApi | NullEnumApi
+    readonly origin?: OriginEnumApi | NullEnumApi | null
 }
 
 export interface DataWarehouseSavedQueryDraftApi {
@@ -488,7 +481,7 @@ export interface QueryTabStateApi {
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
             for a user.
              */
-    state?: unknown
+    state?: unknown | null
 }
 
 export interface PaginatedQueryTabStateListApi {
@@ -508,7 +501,7 @@ export interface PatchedQueryTabStateApi {
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
             for a user.
              */
-    state?: unknown
+    state?: unknown | null
 }
 
 export type EnvironmentsDataModelingJobsListParams = {

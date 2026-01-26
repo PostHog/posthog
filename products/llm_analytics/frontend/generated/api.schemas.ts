@@ -19,7 +19,6 @@
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -33,14 +32,12 @@ export const RoleAtOrganizationEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -66,15 +63,15 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
+    input?: unknown | null
+    output?: unknown | null
+    metadata?: unknown | null
     /**
      * @maxLength 255
      * @nullable
@@ -108,9 +105,9 @@ export interface PaginatedDatasetItemListApi {
 export interface PatchedDatasetItemApi {
     readonly id?: string
     dataset?: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
+    input?: unknown | null
+    output?: unknown | null
+    metadata?: unknown | null
     /**
      * @maxLength 255
      * @nullable
@@ -138,7 +135,7 @@ export interface DatasetApi {
     name: string
     /** @nullable */
     description?: string | null
-    metadata?: unknown
+    metadata?: unknown | null
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -163,7 +160,7 @@ export interface PatchedDatasetApi {
     name?: string
     /** @nullable */
     description?: string | null
-    metadata?: unknown
+    metadata?: unknown | null
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
@@ -219,7 +216,6 @@ export type EnvironmentsDatasetsListParams = {
 export type EnvironmentsDatasetsListOrderByItem =
     (typeof EnvironmentsDatasetsListOrderByItem)[keyof typeof EnvironmentsDatasetsListOrderByItem]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EnvironmentsDatasetsListOrderByItem = {
     '-created_at': '-created_at',
     '-updated_at': '-updated_at',
@@ -272,7 +268,6 @@ export type DatasetsListParams = {
 
 export type DatasetsListOrderByItem = (typeof DatasetsListOrderByItem)[keyof typeof DatasetsListOrderByItem]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DatasetsListOrderByItem = {
     '-created_at': '-created_at',
     '-updated_at': '-updated_at',

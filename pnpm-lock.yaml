@@ -59,8 +59,8 @@ importers:
         specifier: ^0.18.1
         version: 0.18.1
       orval:
-        specifier: 8.0.0-rc.5
-        version: 8.0.0-rc.5(typescript@5.2.2)
+        specifier: 8.0.3
+        version: 8.0.3(typescript@5.2.2)
       oxlint:
         specifier: ^1.8.0
         version: 1.9.0
@@ -2071,7 +2071,7 @@ importers:
         version: 8.57.0
       jest:
         specifier: '*'
-        version: 30.0.5(@types/node@22.15.17)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+        version: 30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       kea:
         specifier: ^3.1.7
         version: 3.1.7(react@18.2.0)
@@ -6374,35 +6374,38 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.1.0
 
-  '@orval/angular@8.0.0-rc.5':
-    resolution: {integrity: sha512-XoWrw3CfeURhyV0M0AOK/cAVBZQQC+DhLT9PwzqqH0TNqoCZCSmF9VVPsX7U6N6J6qYk3wPPpFNOThqomDYgtw==}
+  '@orval/angular@8.0.3':
+    resolution: {integrity: sha512-zZyHVunumuxWUQMeNgFSCMKyBGIG1NWqlcctMpfecOYo2MbMaU6WeNws7BcfTXV6EP5gNbVdOjSdZ5N/6iX/kQ==}
 
-  '@orval/axios@8.0.0-rc.5':
-    resolution: {integrity: sha512-8Vky3se1l4yRnjn4o7E5y0n/76TR+/JvnXrhF4ubuzZZOlWhTtzhGgfLYi82ERai79SWiy4BaxQiYqInorPpIQ==}
+  '@orval/axios@8.0.3':
+    resolution: {integrity: sha512-Cb++1weUwvJ6fJFsMBzqVxUfw9EoyCa0kPieqQ0DDzzzfKWejhmSMlwVsIzQciQZs+W8rGzgg4NCPEMZpkQlqw==}
 
-  '@orval/core@8.0.0-rc.5':
-    resolution: {integrity: sha512-vej33JLz7rZJW9SK35g4pV3hH8i+Dw9E1Jeu1kvV3QCwGMDwJsm9x5Y6yly+1iGgpBmYZNSYC3aKqWGyA2Bq4g==}
+  '@orval/core@8.0.3':
+    resolution: {integrity: sha512-0UmTR06J4cijFsaKwZ7osC4dbEyghg3OzuMNnkkPGMkObIO3VkIn39loKNz02s0WFEaujycMFfTOhjq7CQF3aQ==}
 
-  '@orval/fetch@8.0.0-rc.5':
-    resolution: {integrity: sha512-bkhNo0JxP/JEydHE8PfpNRH6TjDs4Vn1x/J4snmFwqdrnscAZ2LeZq3zu2YNGbvBuu2LkMIjO3hDIv6Y23IVag==}
+  '@orval/fetch@8.0.3':
+    resolution: {integrity: sha512-VXAcekE7OpmcIVXxfVSRl4VSOgQIKCsNjlOcrP6tuQii88WlGraOmP3dKRzpzeChlni2alU+1ABgoyQjJ74k+w==}
 
-  '@orval/hono@8.0.0-rc.5':
-    resolution: {integrity: sha512-g3uxB+u9nDDLK8bfSKEra7T2IpMoZTLJQCAmjKipY3ZLKpgRMOrUJGFNuulaREgqBYVYMg9yZxVQ8FutKEHDGw==}
+  '@orval/hono@8.0.3':
+    resolution: {integrity: sha512-eYHgKfaVKDR4pFmLXFmVgB0R+Wf4xgMWrvrGbtLRnwgLfnVn+ewlaXDwhgiKvt7KohIqHIGw+9GD4tzGFp/QOg==}
 
-  '@orval/mcp@8.0.0-rc.5':
-    resolution: {integrity: sha512-Mtl5MyO9XVKulaUgZzwONx4su+YEAsD3t2ne2GTymHvFrVfGqCcTXdBzexfU2kyxGYIcFwEbkafgUmq08pU2bw==}
+  '@orval/mcp@8.0.3':
+    resolution: {integrity: sha512-0ucpqUHgtHSSLKmqlGzlFHs9sUV+gK93vGMtMy2hLz6TXQqVRBulWB9KDC7vcurAw6jn09X/6No54bHNAKCY3A==}
 
-  '@orval/mock@8.0.0-rc.5':
-    resolution: {integrity: sha512-3KlnQExn0LMSUe3JoL/4RlsEh+HpGHPvQakh/fS0qQ0qnJpy5w87p5RnXc7AoqdLkTUbV2FbyQo27WIonTCuIw==}
+  '@orval/mock@8.0.3':
+    resolution: {integrity: sha512-X62XNsfKySBUifm+/x6kyPA97RSr3HgBn0HCFvNdgdUE5o/lR8izgnBwHjafmlHCh8dHXWQZGtSjM/lkj5so+Q==}
 
-  '@orval/query@8.0.0-rc.5':
-    resolution: {integrity: sha512-7B6No8IrUzYCQgMzSPGo6ZEdwXS06aGWP2A6JrRasM3f3qGJ3nBNWQtSKk6BkMeV1UOsn/s6zbjzpfW8qdPg2g==}
+  '@orval/query@8.0.3':
+    resolution: {integrity: sha512-jai3fZMy40BJ8xb+q4kxSEmn48SfHrY9VWLIOFKb3hE+5aEhiNxcNiPuNX4TeZfWkaLAEUBfI3if2XHJ5emTTA==}
 
-  '@orval/swr@8.0.0-rc.5':
-    resolution: {integrity: sha512-Mcu0rY2ip8ODFFqyH7DzpJuThTaUuSr94q2A4aWV3s8lSl6XNjFsfcMj5KgS8akfWtkvD8d55MsVMTwGVWJubg==}
+  '@orval/solid-start@8.0.3':
+    resolution: {integrity: sha512-UC9vVcVy4skAzh9WwwBZFjHubVutb5O7urvcIJuBxIy6SGcVd11goVRfw0HYSfhQONiAhTOAUsRB5hQfIiN0lw==}
 
-  '@orval/zod@8.0.0-rc.5':
-    resolution: {integrity: sha512-YSW59qILZ9OkQYmRdXoZehhkZEC841u91557Uz9OnTQG/m7kJ1C9AK+7rmil8jBtw5qD0xloIoGwNgusyBB1tQ==}
+  '@orval/swr@8.0.3':
+    resolution: {integrity: sha512-sFlJLf/0/Kt6NAnUTAwMLLWma5GsbbYOftL+abStHMRDzv0qP3OFReek3fz3ZGVi3mENSKWAO9EVwC1FKZ681w==}
+
+  '@orval/zod@8.0.3':
+    resolution: {integrity: sha512-mbnFvKp1HPwR9bopQiAlH3GGo9qlwFr4iwWH2zvmLjtRpP1t7Hox0/w94Yn0++HbtXf6jctm/lMUOS2F8C4eQA==}
 
   '@oxc-resolver/binding-darwin-arm64@1.12.0':
     resolution: {integrity: sha512-wYe+dlF8npM7cwopOOxbdNjtmJp17e/xF5c0K2WooQXy5VOh74icydM33+Uh/SZDgwyum09/U1FVCX5GdeQk+A==}
@@ -10894,6 +10897,7 @@ packages:
   aws-sdk@2.1366.0:
     resolution: {integrity: sha512-tS7y18KHH0eq43I8WJsxVBpwOMY45FSsu6a+A/6k0bMrE4zhd1fzhPN+5coNIODaGxnqVvgw9guLg3AOe4SpaA==}
     engines: {node: '>= 10.0.0'}
+    deprecated: The AWS SDK for JavaScript (v2) has reached end-of-support, and no longer receives updates. Please migrate your code to use AWS SDK for JavaScript (v3). More info https://a.co/cUPnyil
 
   aws4@1.13.2:
     resolution: {integrity: sha512-lHe62zvbTB5eEABUVi/AwVh0ZKY9rMMDhmm+eeyuuUQbQ3+J+fONVQOZyj+DdrvD4BY33uYniyRJ4UJIaSKAfw==}
@@ -16259,8 +16263,8 @@ packages:
   orderedmap@2.1.0:
     resolution: {integrity: sha512-/pIFexOm6S70EPdznemIz3BQZoJ4VTFrhqzu0ACBqBgeLsLxq8e6Jim63ImIfwW/zAD1AlXpRMlOv3aghmo4dA==}
 
-  orval@8.0.0-rc.5:
-    resolution: {integrity: sha512-GC80Pn2ZKHZRePYT4ngASG/7yWQaqysQggPfKnvWELtnb8+Ws1DOOpjcoa5GXrtc2tTgAmKyKvbl8rVSE30ROw==}
+  orval@8.0.3:
+    resolution: {integrity: sha512-L8RNV8aeCHy7qDI9Q3TlBIn+lCrCrqs+h83cHhuwz2otsOpDuT2J9BtkS8LxxTJrbjHFvwXbnkdKSfwWezxv3g==}
     engines: {node: '>=22.18.0'}
     hasBin: true
 
@@ -18838,10 +18842,6 @@ packages:
     resolution: {integrity: sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==}
     engines: {node: '>=8'}
 
-  strip-ansi@7.1.0:
-    resolution: {integrity: sha512-iq6eVVI64nQQTRYq2KtEg2d2uU7LElhTJwsH4YzIHZshxlgZms/wIc4VoDQTlG/IvVIrBKG06CrZnp0qv7hkcQ==}
-    engines: {node: '>=12'}
-
   strip-ansi@7.1.2:
     resolution: {integrity: sha512-gmBGslpoQJtgnMAvOVqGZpEz9dyoKTCzy2nfz/n8aIFhN/jCE/rCmcxabB6jOOHV+0WNnylOxaxBQPSvcWklhA==}
     engines: {node: '>=12'}
@@ -20628,7 +20628,7 @@ snapshots:
     dependencies:
       '@jsdevtools/ono': 7.1.3
       '@types/json-schema': 7.0.15
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
 
   '@apidevtools/openapi-schemas@2.1.0': {}
 
@@ -24041,7 +24041,7 @@ snapshots:
       globals: 13.23.0
       ignore: 5.2.4
       import-fresh: 3.3.0
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
       minimatch: 3.1.2
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
@@ -24281,7 +24281,7 @@ snapshots:
     dependencies:
       string-width: 5.1.2
       string-width-cjs: string-width@4.2.3
-      strip-ansi: 7.1.0
+      strip-ansi: 7.1.2
       strip-ansi-cjs: strip-ansi@6.0.1
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
@@ -24404,6 +24404,42 @@ snapshots:
       graceful-fs: 4.2.11
       jest-changed-files: 30.0.5
       jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest-haste-map: 30.0.5
+      jest-message-util: 30.0.5
+      jest-regex-util: 30.0.1
+      jest-resolve: 30.0.5
+      jest-resolve-dependencies: 30.0.5
+      jest-runner: 30.0.5
+      jest-runtime: 30.0.5
+      jest-snapshot: 30.0.5
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      jest-watcher: 30.0.5
+      micromatch: 4.0.8
+      pretty-format: 30.0.5
+      slash: 3.0.0
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - esbuild-register
+      - supports-color
+      - ts-node
+
+  '@jest/core@30.0.5(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))':
+    dependencies:
+      '@jest/console': 30.0.5
+      '@jest/pattern': 30.0.1
+      '@jest/reporters': 30.0.5
+      '@jest/test-result': 30.0.5
+      '@jest/transform': 30.0.5
+      '@jest/types': 30.0.5
+      '@types/node': 22.18.8
+      ansi-escapes: 4.3.2
+      chalk: 4.1.2
+      ci-info: 4.3.0
+      exit-x: 0.2.2
+      graceful-fs: 4.2.11
+      jest-changed-files: 30.0.5
+      jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-haste-map: 30.0.5
       jest-message-util: 30.0.5
       jest-regex-util: 30.0.1
@@ -25780,21 +25816,21 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 2.0.1(@opentelemetry/api@1.9.0)
 
-  '@orval/angular@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/angular@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/axios@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/axios@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/core@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/core@8.0.3(typescript@5.2.2)':
     dependencies:
       '@scalar/openapi-types': 0.5.3
       acorn: 8.15.0
@@ -25811,61 +25847,68 @@ snapshots:
       - supports-color
       - typescript
 
-  '@orval/fetch@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/fetch@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
       '@scalar/openapi-types': 0.5.3
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/hono@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/hono@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/zod': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
+      '@orval/zod': 8.0.3(typescript@5.2.2)
       fs-extra: 11.3.2
       remeda: 2.32.0
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/mcp@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/mcp@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/fetch': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/zod': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
+      '@orval/fetch': 8.0.3(typescript@5.2.2)
+      '@orval/zod': 8.0.3(typescript@5.2.2)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/mock@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/mock@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/query@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/query@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/fetch': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
+      '@orval/fetch': 8.0.3(typescript@5.2.2)
       chalk: 5.6.2
       remeda: 2.32.0
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/swr@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/solid-start@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/fetch': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/zod@8.0.0-rc.5(typescript@5.2.2)':
+  '@orval/swr@8.0.3(typescript@5.2.2)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
+      '@orval/fetch': 8.0.3(typescript@5.2.2)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+
+  '@orval/zod@8.0.3(typescript@5.2.2)':
+    dependencies:
+      '@orval/core': 8.0.3(typescript@5.2.2)
       remeda: 2.32.0
     transitivePeerDependencies:
       - supports-color
@@ -28940,7 +28983,7 @@ snapshots:
       es-module-lexer: 1.4.1
       express: 4.18.2
       fork-ts-checker-webpack-plugin: 8.0.0(typescript@5.2.2)(webpack@5.88.2)
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       html-webpack-plugin: 5.5.3(webpack@5.88.2)
       magic-string: 0.30.19
       path-browserify: 1.0.1
@@ -29010,7 +29053,7 @@ snapshots:
       execa: 5.1.1
       express: 4.18.2
       find-up: 5.0.0
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       get-npm-tarball-url: 2.0.3
       get-port: 5.1.1
       giget: 1.1.2
@@ -29099,7 +29142,7 @@ snapshots:
       file-system-cache: 2.3.0
       find-cache-dir: 3.3.2
       find-up: 5.0.0
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       glob: 10.4.5
       handlebars: 4.7.7
       lazy-universal-dotenv: 4.0.0
@@ -29148,7 +29191,7 @@ snapshots:
       compression: 1.7.4
       detect-port: 1.5.1
       express: 4.18.2
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       globby: 11.1.0
       ip: 2.0.0
       lodash: 4.17.21
@@ -29196,7 +29239,7 @@ snapshots:
       '@babel/types': 7.26.3
       '@storybook/csf': 0.1.13
       '@storybook/types': 7.6.4
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       recast: 0.23.4
       ts-dedent: 2.2.0
     transitivePeerDependencies:
@@ -29285,7 +29328,7 @@ snapshots:
       '@types/node': 18.18.4
       '@types/semver': 7.5.5
       babel-plugin-add-react-displayname: 0.0.5
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       magic-string: 0.30.19
       react: 18.2.0
       react-docgen: 7.0.1
@@ -29450,7 +29493,7 @@ snapshots:
       chalk: 4.1.2
       detect-package-manager: 2.0.1
       fetch-retry: 5.0.6
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       read-pkg-up: 7.0.1
     transitivePeerDependencies:
       - encoding
@@ -29473,7 +29516,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -29666,7 +29709,7 @@ snapshots:
   '@tailwindcss/node@4.0.11':
     dependencies:
       enhanced-resolve: 5.18.1
-      jiti: 2.4.2
+      jiti: 2.6.1
       tailwindcss: 4.0.11
 
   '@tailwindcss/node@4.0.12':
@@ -35882,6 +35925,25 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
+  jest-cli@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      '@jest/test-result': 29.7.0
+      '@jest/types': 29.6.3
+      chalk: 4.1.2
+      create-jest: 29.7.0(@types/node@25.0.9)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.9)(typescript@5.2.2))
+      exit: 0.1.2
+      import-local: 3.1.0
+      jest-config: 29.7.0(@types/node@25.0.9)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.9)(typescript@5.2.2))
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   jest-cli@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
@@ -35929,6 +35991,25 @@ snapshots:
       exit-x: 0.2.2
       import-local: 3.2.0
       jest-config: 30.0.5(@types/node@22.15.17)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - esbuild-register
+      - supports-color
+      - ts-node
+
+  jest-cli@30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2)):
+    dependencies:
+      '@jest/core': 30.0.5(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      '@jest/test-result': 30.0.5
+      '@jest/types': 30.0.5
+      chalk: 4.1.2
+      exit-x: 0.2.2
+      import-local: 3.2.0
+      jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-util: 30.0.5
       jest-validate: 30.0.5
       yargs: 17.7.2
@@ -36131,6 +36212,40 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
+  jest-config@30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2)):
+    dependencies:
+      '@babel/core': 7.28.0
+      '@jest/get-type': 30.0.1
+      '@jest/pattern': 30.0.1
+      '@jest/test-sequencer': 30.0.5
+      '@jest/types': 30.0.5
+      babel-jest: 30.0.5(@babel/core@7.28.0)
+      chalk: 4.1.2
+      ci-info: 4.3.0
+      deepmerge: 4.3.1
+      glob: 10.4.5
+      graceful-fs: 4.2.11
+      jest-circus: 30.0.5
+      jest-docblock: 30.0.1
+      jest-environment-node: 30.0.5
+      jest-regex-util: 30.0.1
+      jest-resolve: 30.0.5
+      jest-runner: 30.0.5
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      micromatch: 4.0.8
+      parse-json: 5.2.0
+      pretty-format: 30.0.5
+      slash: 3.0.0
+      strip-json-comments: 3.1.1
+    optionalDependencies:
+      '@types/node': 22.18.8
+      esbuild-register: 3.5.0(esbuild@0.27.2)
+      ts-node: 10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2)
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+
   jest-diff@29.7.0:
     dependencies:
       chalk: 4.1.2
@@ -36319,7 +36434,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -36598,8 +36713,8 @@ snapshots:
   jest-watch-typeahead@2.2.2(jest@29.7.0):
     dependencies:
       ansi-escapes: 6.0.0
-      chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      chalk: 5.6.2
+      jest: 29.7.0
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -36649,6 +36764,18 @@ snapshots:
       merge-stream: 2.0.0
       supports-color: 8.1.1
 
+  jest@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      '@jest/types': 29.6.3
+      import-local: 3.1.0
+      jest-cli: 29.7.0
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   jest@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
@@ -36679,6 +36806,19 @@ snapshots:
       '@jest/types': 30.0.5
       import-local: 3.2.0
       jest-cli: 30.0.5(@types/node@22.15.17)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - esbuild-register
+      - supports-color
+      - ts-node
+
+  jest@30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2)):
+    dependencies:
+      '@jest/core': 30.0.5(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      '@jest/types': 30.0.5
+      import-local: 3.2.0
+      jest-cli: 30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
     transitivePeerDependencies:
       - '@types/node'
       - babel-plugin-macros
@@ -36832,7 +36972,7 @@ snapshots:
   jsondiffpatch@0.6.0:
     dependencies:
       '@types/diff-match-patch': 1.0.36
-      chalk: 5.4.1
+      chalk: 5.6.2
       diff-match-patch: 1.0.5
 
   jsonfile@6.1.0:
@@ -37288,7 +37428,7 @@ snapshots:
 
   log-symbols@6.0.0:
     dependencies:
-      chalk: 5.4.1
+      chalk: 5.6.2
       is-unicode-supported: 1.3.0
 
   log-update@6.1.0:
@@ -38512,19 +38652,20 @@ snapshots:
 
   orderedmap@2.1.0: {}
 
-  orval@8.0.0-rc.5(typescript@5.2.2):
+  orval@8.0.3(typescript@5.2.2):
     dependencies:
       '@commander-js/extra-typings': 14.0.0(commander@14.0.2)
-      '@orval/angular': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/axios': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/core': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/fetch': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/hono': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/mcp': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/mock': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/query': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/swr': 8.0.0-rc.5(typescript@5.2.2)
-      '@orval/zod': 8.0.0-rc.5(typescript@5.2.2)
+      '@orval/angular': 8.0.3(typescript@5.2.2)
+      '@orval/axios': 8.0.3(typescript@5.2.2)
+      '@orval/core': 8.0.3(typescript@5.2.2)
+      '@orval/fetch': 8.0.3(typescript@5.2.2)
+      '@orval/hono': 8.0.3(typescript@5.2.2)
+      '@orval/mcp': 8.0.3(typescript@5.2.2)
+      '@orval/mock': 8.0.3(typescript@5.2.2)
+      '@orval/query': 8.0.3(typescript@5.2.2)
+      '@orval/solid-start': 8.0.3(typescript@5.2.2)
+      '@orval/swr': 8.0.3(typescript@5.2.2)
+      '@orval/zod': 8.0.3(typescript@5.2.2)
       '@scalar/json-magic': 0.8.8
       '@scalar/openapi-parser': 0.23.9
       '@scalar/openapi-types': 0.5.3
@@ -41732,10 +41873,6 @@ snapshots:
     dependencies:
       ansi-regex: 5.0.1
 
-  strip-ansi@7.1.0:
-    dependencies:
-      ansi-regex: 6.0.1
-
   strip-ansi@7.1.2:
     dependencies:
       ansi-regex: 6.0.1
@@ -42329,6 +42466,27 @@ snapshots:
     optionalDependencies:
       '@swc/core': 1.11.4(@swc/helpers@0.5.15)
 
+  ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2):
+    dependencies:
+      '@cspotcode/source-map-support': 0.8.1
+      '@tsconfig/node10': 1.0.9
+      '@tsconfig/node12': 1.0.11
+      '@tsconfig/node14': 1.0.3
+      '@tsconfig/node16': 1.0.3
+      '@types/node': 22.18.8
+      acorn: 8.10.0
+      acorn-walk: 8.2.0
+      arg: 4.1.3
+      create-require: 1.1.1
+      diff: 4.0.2
+      make-error: 1.3.6
+      typescript: 5.2.2
+      v8-compile-cache-lib: 3.0.1
+      yn: 3.1.1
+    optionalDependencies:
+      '@swc/core': 1.11.4(@swc/helpers@0.5.15)
+    optional: true
+
   ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.9)(typescript@5.2.2):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
@@ -42736,7 +42894,7 @@ snapshots:
 
   unplugin@1.4.0:
     dependencies:
-      acorn: 8.11.2
+      acorn: 8.15.0
       chokidar: 3.6.0
       webpack-sources: 3.2.3
       webpack-virtual-modules: 0.5.0

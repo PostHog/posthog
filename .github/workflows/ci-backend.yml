@@ -133,7 +133,6 @@ jobs:
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
-                        - 'frontend/src/lib/api-stub-for-orval.ts'
 
     detect-snapshot-mode:
         name: Detect snapshot mode

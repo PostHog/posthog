@@ -35,7 +35,6 @@ export interface PaginatedTaskListApi {
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OriginProductEnumApi = {
     error_tracking: 'error_tracking',
     eval_clusters: 'eval_clusters',
@@ -56,7 +55,6 @@ export const OriginProductEnumApi = {
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -70,14 +68,12 @@ export const RoleAtOrganizationEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -103,7 +99,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 export interface PatchedTaskApi {
@@ -126,7 +122,7 @@ export interface PatchedTaskApi {
      */
     github_integration?: number | null
     /** JSON schema for the task. This is used to validate the output of the task. */
-    json_schema?: unknown
+    json_schema?: unknown | null
     readonly latest_run?: string
     readonly created_at?: string
     readonly updated_at?: string

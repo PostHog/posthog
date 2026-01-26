@@ -312,8 +312,6 @@ const results = await Promise.allSettled(
         const configFile = path.join(tmpDir, `orval-${label}.config.mjs`)
         const outputFile = path.join(outputDir, 'api.ts')
         const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
-        // Stub for orval's esbuild bundling - avoids scss import chain
-        const apiStubPath = path.resolve(frontendRoot, 'src', 'lib', 'api-stub-for-orval.ts')
 
         fs.mkdirSync(outputDir, { recursive: true })
 
@@ -340,9 +338,7 @@ export default defineConfig({
         mutator: {
           path: '${mutatorPath}',
           name: 'apiMutator',
-          alias: {
-            'lib/api': '${apiStubPath}',
-          },
+          external: ['lib/api'],
         },
         components: {
           schemas: { suffix: 'Api' },
