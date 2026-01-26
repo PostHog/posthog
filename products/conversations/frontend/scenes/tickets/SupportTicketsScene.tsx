@@ -2,13 +2,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconChevronDown, IconRefresh } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -16,6 +14,13 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import {
+    AssigneeDisplay,
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+    AssigneeSelect,
+} from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { type Ticket, type TicketPriority, type TicketStatus, priorityOptions, statusOptions } from '../../types'
@@ -64,10 +69,23 @@ export function SupportTicketsScene(): JSX.Element {
                         size="small"
                         placeholder="Priority"
                     />
-                    <MemberSelect
-                        value={typeof assigneeFilter === 'number' ? assigneeFilter : null}
-                        onChange={(user) => setAssigneeFilter(user?.id ?? 'all')}
-                    />
+                    <AssigneeSelect
+                        assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
+                        onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
+                    >
+                        {(resolvedAssignee, isOpen) => (
+                            <LemonButton size="small" type="secondary" active={isOpen} sideIcon={<IconChevronDown />}>
+                                <span className="flex items-center gap-1">
+                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                    <AssigneeLabelDisplay
+                                        assignee={resolvedAssignee}
+                                        size="small"
+                                        placeholder="All assignees"
+                                    />
+                                </span>
+                            </LemonButton>
+                        )}
+                    </AssigneeSelect>
                     <LemonCheckbox
                         checked={assigneeFilter === 'unassigned'}
                         onChange={(checked) => setAssigneeFilter(checked ? 'unassigned' : 'all')}
@@ -180,14 +198,11 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Assignee',
                         key: 'assignee',
-                        render: (_, ticket) =>
-                            ticket.assigned_to_user ? (
-                                <div className="flex flex-row items-center flex-nowrap">
-                                    <ProfilePicture user={ticket.assigned_to_user} size="md" showName />
-                                </div>
-                            ) : (
-                                <span className="text-muted-alt text-xs">Unassigned</span>
-                            ),
+                        render: (_, ticket) => (
+                            <AssigneeResolver assignee={ticket.assignee ?? null}>
+                                {({ assignee }) => <AssigneeDisplay assignee={assignee} size="small" />}
+                            </AssigneeResolver>
+                        ),
                     },
                     {
                         title: 'Channel',

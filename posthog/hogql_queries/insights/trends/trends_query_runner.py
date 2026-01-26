@@ -909,10 +909,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         # Create a deep copy of the matching result to avoid modifying shared data
                         row_results.append(deepcopy(matching_result[0]))
                     else:
+                        data_source = results[0][0] if results and results[0] else {}
+                        data_length = len(data_source.get("data") or any_result.get("data") or [])
                         row_results.append(
                             {
                                 "label": f"filler for {breakdown_value}",
-                                "data": [0] * len(results[0][0].get("data") or any_result.get("data") or []),
+                                "data": [0] * data_length,
                                 "count": 0,
                                 "aggregated_value": 0,
                                 "action": None,
