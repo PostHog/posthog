@@ -98,14 +98,50 @@ export function ClustersView(): JSX.Element {
         )
     }
 
-    if (clusteringRuns.length === 0) {
+    // Show empty state only after checking both trace and generation levels
+    // Always show the level toggle so users can switch between levels
+    const showEmptyState = clusteringRuns.length === 0
+
+    if (showEmptyState) {
         return (
-            <div className="flex flex-col items-center justify-center p-8 text-center">
-                <h3 className="text-lg font-semibold mb-2">No clustering runs found</h3>
-                <p className="text-muted max-w-md">
-                    Clustering runs are generated automatically when you have enough traced LLM interactions. Check back
-                    later once more data has been collected.
-                </p>
+            <div className="space-y-4">
+                {/* Level toggle is always visible so users can switch */}
+                <div className="flex items-center gap-3">
+                    <Tooltip
+                        title="Traces cluster entire conversations, while generations cluster individual LLM calls"
+                        placement="bottom"
+                    >
+                        <span>
+                            <LemonSegmentedButton
+                                value={clusteringLevel}
+                                onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
+                                options={[
+                                    { value: 'trace', label: 'Traces' },
+                                    { value: 'generation', label: 'Generations' },
+                                ]}
+                                size="small"
+                            />
+                        </span>
+                    </Tooltip>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        onClick={loadClusteringRuns}
+                        tooltip="Refresh clustering runs"
+                    />
+                </div>
+
+                <div className="flex flex-col items-center justify-center p-8 text-center">
+                    <h3 className="text-lg font-semibold mb-2">
+                        No {clusteringLevel === 'generation' ? 'generation' : 'trace'} clustering runs found
+                    </h3>
+                    <p className="text-muted max-w-md">
+                        {clusteringLevel === 'trace'
+                            ? 'Try switching to "Generations" to see generation-level clusters, or check back later once more data has been collected.'
+                            : 'Try switching to "Traces" to see trace-level clusters, or check back later once more data has been collected.'}
+                    </p>
+                </div>
             </div>
         )
     }

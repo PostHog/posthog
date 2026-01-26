@@ -89,13 +89,12 @@ function TraceListItem({
                         clusteringLevel === 'generation'
                             ? {
                                   event: traceInfo.generation_id,
-                                  // Use timestamp - 24h buffer to ensure trace view captures all events before the generation
                                   ...(traceInfo.timestamp
-                                      ? { timestamp: dayjs(traceInfo.timestamp).subtract(24, 'hour').toISOString() }
+                                      ? { timestamp: dayjs.utc(traceInfo.timestamp).toISOString() }
                                       : {}),
                               }
                             : traceInfo.timestamp
-                              ? { timestamp: traceInfo.timestamp }
+                              ? { timestamp: dayjs.utc(traceInfo.timestamp).toISOString() }
                               : {}
                     )}
                     className="text-xs text-link hover:underline shrink-0"
