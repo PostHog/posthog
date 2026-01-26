@@ -372,7 +372,7 @@ def export_events_to_s3(
         {EVENTS_COLUMNS}
     FROM events
     WHERE {chunk_where}
-    SETTINGS s3_truncate_on_insert=1
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
     chunk_info = f"{team_id_chunk + 1}/{total_chunks}"
@@ -385,7 +385,7 @@ def export_events_to_s3(
         {EVENTS_COLUMNS}
     FROM events
     WHERE {chunk_where}
-    SETTINGS s3_truncate_on_insert=1
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
         context.log.info(f"[DRY RUN] Would export chunk {chunk_info} with SQL: {safe_sql[:800]}...")
         return []
