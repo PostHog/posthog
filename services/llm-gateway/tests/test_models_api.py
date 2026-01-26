@@ -156,7 +156,8 @@ class TestListModelsForProductEndpoint:
         assert response.status_code == 200
         data = response.json()
         model_ids = {m["id"] for m in data["data"]}
-        assert "claude-sonnet-4-5-20260101" in model_ids
+        assert "claude-sonnet-4-5" in model_ids
+        assert "claude-sonnet-4-5-20260101" not in model_ids
         assert "gpt-4o" not in model_ids
         assert "o1" not in model_ids
         assert "claude-3-5-sonnet-20241022" not in model_ids
@@ -166,7 +167,7 @@ class TestListModelsForProductEndpoint:
         assert response.status_code == 200
         data = response.json()
         model_ids = {m["id"] for m in data["data"]}
-        assert "claude-sonnet-4-5-20260101" in model_ids
+        assert "claude-sonnet-4-5" in model_ids
         assert "gpt-4o" not in model_ids
 
     def test_returns_error_for_invalid_product(self, client: TestClient):
