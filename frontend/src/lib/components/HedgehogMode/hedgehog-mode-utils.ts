@@ -30,12 +30,12 @@ const defaultConfig = (): HedgehogConfig => ({
 })
 
 export const sanitizeHedgehogConfig = (config: Record<string, any>): HedgehogConfig => {
-    if (config['version'] === 2) {
-        return config as HedgehogConfig
+    if (!config || typeof config !== 'object') {
+        return defaultConfig()
     }
 
-    if (!config) {
-        return defaultConfig()
+    if (config['version'] === 2) {
+        return config as HedgehogConfig
     }
 
     // Otherwise we assume v1 and migrate
