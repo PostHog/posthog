@@ -35,6 +35,11 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
         unmarkTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => ({ taskIdOrIds }),
         unmarkTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => ({ taskIdOrIds }),
 
+        // Internal actions for optimistic updates
+        // null value means "this task should appear as unmarked"
+        setOptimisticTaskStatuses: (statuses: Record<string, ActivationTaskStatus | null>) => ({ statuses }),
+        clearOptimisticTaskStatuses: (taskIds: SetupTaskId[]) => ({ taskIds }),
+
         // UI actions for the global setup popover
         setSelectedProduct: (productKey: ProductKey) => ({ productKey }),
         openGlobalSetup: true,
@@ -68,6 +73,23 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 clearHighlightSelector: () => null,
             },
         ],
+        // Optimistic task statuses - updated immediately before API call completes
+        // This allows the UI to respond instantly to user actions
+        // null means "this task should appear as unmarked" (for undo operations)
+        optimisticTaskStatuses: [
+            {} as Record<string, ActivationTaskStatus | null>,
+            {
+                setOptimisticTaskStatuses: (state, { statuses }) => ({ ...state, ...statuses }),
+                clearOptimisticTaskStatuses: (state, { taskIds }) => {
+                    const newState = { ...state }
+                    for (const taskId of taskIds) {
+                        // Set to null instead of deleting - null means "unmarked"
+                        newState[taskId] = null
+                    }
+                    return newState
+                },
+            },
+        ],
     }),
     selectors({
         availableProducts: [() => [], () => PRODUCTS_WITH_SETUP],
@@ -97,45 +119,24 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
     // by the time this logic is mounted
     listeners(({ actions }) => ({
         markTaskAsCompleted: async ({ taskIdOrIds }) => {
-            const teamLogic = globalTeamLogic.findMounted()
-            if (!teamLogic) {
-                return
-            }
-
-            const currentTeam = teamLogic.values.currentTeam
-            if (!currentTeam || !('onboarding_tasks' in currentTeam)) {
-                return
-            }
-
             const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
 
-            // Filter out already completed tasks
-            const tasksToComplete = taskIds.filter(
-                (taskId) => currentTeam.onboarding_tasks?.[taskId] !== ActivationTaskStatus.COMPLETED
-            )
-
-            if (tasksToComplete.length === 0) {
-                return
+            // Optimistically update UI immediately
+            const optimisticStatuses: Record<string, ActivationTaskStatus> = {}
+            for (const taskId of taskIds) {
+                optimisticStatuses[taskId] = ActivationTaskStatus.COMPLETED
             }
+            actions.setOptimisticTaskStatuses(optimisticStatuses)
+
+            // Reopen the quick start popover to show progress immediately
+            actions.openGlobalSetup()
 
             // Track analytics for each task
-            for (const taskId of tasksToComplete) {
+            for (const taskId of taskIds) {
                 posthog.capture('product setup task completed', { task: taskId })
             }
 
-            // Update team with completed tasks
-            const onboardingTasks = { ...currentTeam.onboarding_tasks }
-            for (const taskId of tasksToComplete) {
-                onboardingTasks[taskId] = ActivationTaskStatus.COMPLETED
-            }
-
-            teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
-
-            // Reopen the quick start popover to show progress
-            actions.openGlobalSetup()
-        },
-
-        markTaskAsSkipped: async ({ taskIdOrIds }) => {
+            // Persist to server in the background
             const teamLogic = globalTeamLogic.findMounted()
             if (!teamLogic) {
                 return
@@ -146,32 +147,52 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 return
             }
 
+            const onboardingTasks = { ...currentTeam.onboarding_tasks, ...optimisticStatuses }
+            teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
+        },
+
+        markTaskAsSkipped: async ({ taskIdOrIds }) => {
             const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
 
-            // Filter out already skipped tasks
-            const tasksToSkip = taskIds.filter(
-                (taskId) => currentTeam.onboarding_tasks?.[taskId] !== ActivationTaskStatus.SKIPPED
-            )
-
-            if (tasksToSkip.length === 0) {
-                return
+            // Optimistically update UI immediately
+            const optimisticStatuses: Record<string, ActivationTaskStatus> = {}
+            for (const taskId of taskIds) {
+                optimisticStatuses[taskId] = ActivationTaskStatus.SKIPPED
             }
+            actions.setOptimisticTaskStatuses(optimisticStatuses)
 
             // Track analytics for each task
-            for (const taskId of tasksToSkip) {
+            for (const taskId of taskIds) {
                 posthog.capture('product setup task skipped', { task: taskId })
             }
 
-            // Update team with skipped tasks
-            const onboardingTasks = { ...currentTeam.onboarding_tasks }
-            for (const taskId of tasksToSkip) {
-                onboardingTasks[taskId] = ActivationTaskStatus.SKIPPED
+            // Persist to server in the background
+            const teamLogic = globalTeamLogic.findMounted()
+            if (!teamLogic) {
+                return
             }
 
+            const currentTeam = teamLogic.values.currentTeam
+            if (!currentTeam || !('onboarding_tasks' in currentTeam)) {
+                return
+            }
+
+            const onboardingTasks = { ...currentTeam.onboarding_tasks, ...optimisticStatuses }
             teamLogic.actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
         },
 
         unmarkTaskAsCompleted: async ({ taskIdOrIds }) => {
+            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
+
+            // Clear optimistic statuses immediately for instant UI feedback
+            actions.clearOptimisticTaskStatuses(taskIds)
+
+            // Track analytics for each task
+            for (const taskId of taskIds) {
+                posthog.capture('product setup task uncompleted', { task: taskId })
+            }
+
+            // Persist to server in the background
             const teamLogic = globalTeamLogic.findMounted()
             if (!teamLogic) {
                 return
@@ -182,25 +203,8 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 return
             }
 
-            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
-
-            // Filter to only actually completed tasks
-            const tasksToUncomplete = taskIds.filter(
-                (taskId) => currentTeam.onboarding_tasks?.[taskId] === ActivationTaskStatus.COMPLETED
-            )
-
-            if (tasksToUncomplete.length === 0) {
-                return
-            }
-
-            // Track analytics for each task
-            for (const taskId of tasksToUncomplete) {
-                posthog.capture('product setup task uncompleted', { task: taskId })
-            }
-
-            // Remove the completed status
             const onboardingTasks = { ...currentTeam.onboarding_tasks }
-            for (const taskId of tasksToUncomplete) {
+            for (const taskId of taskIds) {
                 delete onboardingTasks[taskId]
             }
 
@@ -208,6 +212,17 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
         },
 
         unmarkTaskAsSkipped: async ({ taskIdOrIds }) => {
+            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
+
+            // Clear optimistic statuses immediately for instant UI feedback
+            actions.clearOptimisticTaskStatuses(taskIds)
+
+            // Track analytics for each task
+            for (const taskId of taskIds) {
+                posthog.capture('product setup task unskipped', { task: taskId })
+            }
+
+            // Persist to server in the background
             const teamLogic = globalTeamLogic.findMounted()
             if (!teamLogic) {
                 return
@@ -218,25 +233,8 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                 return
             }
 
-            const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
-
-            // Filter to only actually skipped tasks
-            const tasksToUnskip = taskIds.filter(
-                (taskId) => currentTeam.onboarding_tasks?.[taskId] === ActivationTaskStatus.SKIPPED
-            )
-
-            if (tasksToUnskip.length === 0) {
-                return
-            }
-
-            // Track analytics for each task
-            for (const taskId of tasksToUnskip) {
-                posthog.capture('product setup task unskipped', { task: taskId })
-            }
-
-            // Remove the skipped status
             const onboardingTasks = { ...currentTeam.onboarding_tasks }
-            for (const taskId of tasksToUnskip) {
+            for (const taskId of taskIds) {
                 delete onboardingTasks[taskId]
             }
 

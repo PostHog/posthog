@@ -45,6 +45,8 @@ export const productSetupLogic = kea<productSetupLogicType>([
             ['hasReverseProxy'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
+            globalSetupLogic,
+            ['optimisticTaskStatuses'],
         ],
         actions: [
             inviteLogic,
@@ -106,9 +108,14 @@ export const productSetupLogic = kea<productSetupLogicType>([
     selectors({
         productConfig: [(_, p) => [p.productKey], (productKey) => getProductSetupConfig(productKey)],
         allTasks: [(_, p) => [p.productKey], (productKey) => getTasksForProduct(productKey)],
+        // Merge server-saved tasks with optimistic updates (optimistic takes priority for instant feedback)
+        // null in optimistic means "unmarked" - takes priority over saved status
         savedOnboardingTasks: [
-            (s) => [s.currentTeam],
-            (currentTeam) => currentTeam?.onboarding_tasks ?? ({} as Record<string, ActivationTaskStatus>),
+            (s) => [s.currentTeam, s.optimisticTaskStatuses],
+            (currentTeam, optimisticTaskStatuses): Record<string, ActivationTaskStatus | null> => ({
+                ...currentTeam?.onboarding_tasks,
+                ...optimisticTaskStatuses,
+            }),
         ],
         tasksWithState: [
             (s) => [s.allTasks, s.savedOnboardingTasks, s.hasReverseProxy],
