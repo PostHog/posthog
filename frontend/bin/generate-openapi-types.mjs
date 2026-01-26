@@ -33,12 +33,14 @@ const generateAll = process.argv.includes('--all')
  * Returns:
  * - productFoldersOnDisk: Set of product folder names that exist in products/
  * - viewSetMapping: Map of ViewSet snake_case name to product folder
+ * - validatedRequestViewSets: Set of ViewSet snake_case names that use @validated_request
  */
 function loadProductMappings() {
     const productFoldersOnDisk = discoverProductFolders()
     const viewSetMapping = buildViewSetToProductMapping()
+    const validatedRequestViewSets = buildValidatedRequestViewSets()
 
-    return { productFoldersOnDisk, viewSetMapping }
+    return { productFoldersOnDisk, viewSetMapping, validatedRequestViewSets }
 }
 
 /**
@@ -93,6 +95,51 @@ function buildViewSetToProductMapping() {
     }
 
     return mapping
+}
+
+/**
+ * Scan posthog/api/ and ee/ for ViewSets that use @validated_request decorator.
+ * These endpoints should be included in core even without explicit tags.
+ * Returns: Set of ViewSet snake_case names
+ */
+function buildValidatedRequestViewSets() {
+    const viewSets = new Set()
+    const dirsToScan = [path.join(repoRoot, 'posthog', 'api'), path.join(repoRoot, 'ee')]
+
+    for (const dir of dirsToScan) {
+        if (!fs.existsSync(dir)) {
+            continue
+        }
+
+        const pyFiles = findPythonFiles(dir)
+
+        for (const pyFile of pyFiles) {
+            try {
+                const content = fs.readFileSync(pyFile, 'utf-8')
+
+                // Check if file uses @validated_request
+                if (!content.includes('@validated_request')) {
+                    continue
+                }
+
+                // Find all ViewSet classes in this file
+                const viewSetRegex = /class\s+(\w+ViewSet)[\s(]/g
+                let match
+                while ((match = viewSetRegex.exec(content)) !== null) {
+                    const viewSetName = match[1]
+                    const snakeCase = viewSetName
+                        .replace(/ViewSet$/, '')
+                        .replace(/([a-z])([A-Z])/g, '$1_$2')
+                        .toLowerCase()
+                    viewSets.add(snakeCase)
+                }
+            } catch {
+                // Skip unreadable files
+            }
+        }
+    }
+
+    return viewSets
 }
 
 /**
@@ -219,8 +266,9 @@ function resolveNestedRefs(schemas, refs) {
  * Routing priority:
  * 1. ViewSet in products/X/backend/ or URL contains /X/ -> products/X/frontend/generated/
  * 2. @extend_schema(tags=["product"]) matches product folder -> that product
- * 3. @extend_schema(tags=["core"]) -> frontend/src/generated/core/
- * 4. Otherwise -> skipped
+ * 3. @validated_request decorator in posthog/api/ or ee/ -> core
+ * 4. @extend_schema(tags=["core"]) -> frontend/src/generated/core/
+ * 5. Otherwise -> skipped
  */
 function buildGroupedSchemasByOutput(schema, mappings) {
     const grouped = new Map()
@@ -229,6 +277,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     const skippedTags = new Map()
     let skippedNoTags = 0
     let routedByViewSet = 0
+    let routedByValidatedRequest = 0
     let routedByTag = 0
 
     for (const [pathKey, operations] of Object.entries(schema.paths ?? {})) {
@@ -265,7 +314,18 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                 }
             }
 
-            // Priority 3: Explicit "core" tag
+            // Priority 3: ViewSet uses @validated_request decorator -> core
+            if (!outputDir) {
+                for (const snakeCase of mappings.validatedRequestViewSets) {
+                    if (operationId.includes(snakeCase)) {
+                        outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
+                        routingMethod = 'validated_request'
+                        break
+                    }
+                }
+            }
+
+            // Priority 4: Explicit "core" tag
             if (!outputDir && tags.includes('core')) {
                 outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
                 routingMethod = 'tag'
@@ -285,6 +345,8 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 
             if (routingMethod === 'viewset') {
                 routedByViewSet++
+            } else if (routingMethod === 'validated_request') {
+                routedByValidatedRequest++
             } else {
                 routedByTag++
             }
@@ -308,6 +370,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     // Report routing stats
     console.log(`📊 Routing stats:`)
     console.log(`   ${routedByViewSet} endpoints routed by ViewSet/URL (auto-discovery)`)
+    console.log(`   ${routedByValidatedRequest} endpoints routed by @validated_request decorator`)
     console.log(`   ${routedByTag} endpoints routed by @extend_schema tags`)
     console.log('')
 

@@ -3107,6 +3107,25 @@ export type FileSystemListParams = {
     search?: string
 }
 
+export type FlagValueValuesRetrieveParams = {
+    /**
+     * The flag ID
+     */
+    key?: string
+}
+
+export type FlagValueValuesRetrieve200Item = { [key: string]: unknown }
+
+/**
+ * Unspecified response body
+ */
+export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
+
+/**
+ * Unspecified response body
+ */
+export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
+
 export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.

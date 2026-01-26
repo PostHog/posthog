@@ -27,6 +27,10 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
+    FlagValueValuesRetrieve200Item,
+    FlagValueValuesRetrieve400,
+    FlagValueValuesRetrieve404,
+    FlagValueValuesRetrieveParams,
     IntegrationApi,
     IntegrationsList2Params,
     InvitesListParams,
@@ -4036,6 +4040,71 @@ export const fileSystemUnfiledRetrieve = async (
     options?: RequestInit
 ): Promise<fileSystemUnfiledRetrieveResponse> => {
     return apiMutator<fileSystemUnfiledRetrieveResponse>(getFileSystemUnfiledRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get possible values for a feature flag.
+
+Query parameters:
+- key: The flag ID (required)
+Returns:
+
+- Array of objects with 'name' field containing possible values
+ */
+export type flagValueValuesRetrieveResponse200 = {
+    data: FlagValueValuesRetrieve200Item[]
+    status: 200
+}
+
+export type flagValueValuesRetrieveResponse400 = {
+    data: FlagValueValuesRetrieve400
+    status: 400
+}
+
+export type flagValueValuesRetrieveResponse404 = {
+    data: FlagValueValuesRetrieve404
+    status: 404
+}
+
+export type flagValueValuesRetrieveResponseSuccess = flagValueValuesRetrieveResponse200 & {
+    headers: Headers
+}
+export type flagValueValuesRetrieveResponseError = (
+    | flagValueValuesRetrieveResponse400
+    | flagValueValuesRetrieveResponse404
+) & {
+    headers: Headers
+}
+
+export type flagValueValuesRetrieveResponse =
+    | flagValueValuesRetrieveResponseSuccess
+    | flagValueValuesRetrieveResponseError
+
+export const getFlagValueValuesRetrieveUrl = (projectId: string, params?: FlagValueValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/flag_value/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/flag_value/values/`
+}
+
+export const flagValueValuesRetrieve = async (
+    projectId: string,
+    params?: FlagValueValuesRetrieveParams,
+    options?: RequestInit
+): Promise<flagValueValuesRetrieveResponse> => {
+    return apiMutator<flagValueValuesRetrieveResponse>(getFlagValueValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
