@@ -1515,10 +1515,8 @@ export type AnyCohortCriteriaType = CohortCriteriaType | EmptyCohortCriteriaType
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
-/** System cohort type for test users */
-export type SystemCohortTypeTestUsers = 'test_users'
-
-/** Union of all system cohort types managed by PostHog */
+// There's only one type of SystemCohort at the moment but let's future-proof
+export type SystemCohortTypeTestUsers = 1
 export type SystemCohortType = SystemCohortTypeTestUsers
 
 export interface CohortType {
