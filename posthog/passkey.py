@@ -26,8 +26,8 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-# Challenge timeout in milliseconds (5 minutes)
-CHALLENGE_TIMEOUT_MS = 300000
+# Challenge timeout in milliseconds (1 minute)
+CHALLENGE_TIMEOUT_MS = 60000
 
 # Secure public key algorithms - rejects weak algorithms like RSA with small key sizes
 SUPPORTED_PUB_KEY_ALGS = [
