@@ -6,12 +6,12 @@ import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
 import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AutoSizer } from 'react-virtualized-auto-sizer'
 import { List } from 'react-window'
 
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -32,24 +32,24 @@ const VIRTUALIZED_SELECT_OPTION_HEIGHT = 33
 
 const VIRTUALIZED_MAX_DROPDOWN_HEIGHT = 420
 
-interface VirtualizedOptionRowProps {
-    visibleOptions: LemonInputSelectOption[]
+interface VirtualizedOptionRowProps<T = string> {
+    visibleOptions: LemonInputSelectOption<T>[]
     selectedIndex: number
     stringKeys: string[]
     wasLimitReached: boolean
     limit?: number
-    _onActionItem: (key: string, e?: MouseEvent<HTMLButtonElement>) => void
+    _onActionItem: (key: string, e?: MouseEvent) => void
     setSelectedIndex: (index: number) => void
     allowCustomValues?: boolean
     disableEditing?: boolean
     setInputValue: (value: string) => void
     inputRef: React.RefObject<HTMLInputElement | null>
     _onFocus: () => void
-    getInputLabel: (option: LemonInputSelectOption) => React.ReactNode
-    getOptionIcon: (option: LemonInputSelectOption, isSelected: boolean) => JSX.Element | undefined
+    getInputLabel: (option: LemonInputSelectOption<T>) => React.ReactNode
+    getOptionIcon: (option: LemonInputSelectOption<T>, isSelected: boolean) => JSX.Element | null | undefined
 }
 
-const VirtualizedOptionRow = ({
+function VirtualizedOptionRow<T = string>({
     index,
     style,
     visibleOptions,
@@ -70,7 +70,7 @@ const VirtualizedOptionRow = ({
     ariaAttributes: Record<string, unknown>
     index: number
     style: CSSProperties
-} & VirtualizedOptionRowProps): JSX.Element => {
+} & VirtualizedOptionRowProps<T>): JSX.Element {
     const option = visibleOptions[index]
     const isFocused = index === selectedIndex
     const isSelected = stringKeys.includes(option.key)
@@ -442,7 +442,7 @@ export function LemonInputSelect<T = string>({
 
     const _onActionItem = (
         item: string,
-        popoverOptionClickEvent: MouseEvent | null,
+        popoverOptionClickEvent?: MouseEvent | null,
         shouldInitiateEdit?: boolean
     ): void => {
         if (shouldInitiateEdit && allowCustomValues) {
@@ -840,37 +840,33 @@ export function LemonInputSelect<T = string>({
                         virtualized ? (
                             <div>
                                 <AutoSizer
-                                    renderProp={({ width }) => {
-                                        if (!width) {
-                                            return null
-                                        }
-                                        const rowProps: VirtualizedOptionRowProps = {
-                                            visibleOptions,
-                                            selectedIndex,
-                                            stringKeys,
-                                            wasLimitReached,
-                                            limit,
-                                            _onActionItem,
-                                            setSelectedIndex,
-                                            allowCustomValues,
-                                            disableEditing,
-                                            setInputValue,
-                                            inputRef,
-                                            _onFocus,
-                                            getInputLabel,
-                                            getOptionIcon,
-                                        }
-                                        return (
-                                            <List
+                                    renderProp={({ width }) =>
+                                        width ? (
+                                            <List<VirtualizedOptionRowProps<T>>
                                                 style={{ width, height: virtualizedListHeight }}
                                                 rowCount={visibleOptions.length}
                                                 overscanCount={100}
                                                 rowHeight={VIRTUALIZED_SELECT_OPTION_HEIGHT}
                                                 rowComponent={VirtualizedOptionRow}
-                                                rowProps={rowProps}
+                                                rowProps={{
+                                                    visibleOptions,
+                                                    selectedIndex,
+                                                    stringKeys,
+                                                    wasLimitReached,
+                                                    limit,
+                                                    _onActionItem,
+                                                    setSelectedIndex,
+                                                    allowCustomValues,
+                                                    disableEditing,
+                                                    setInputValue,
+                                                    inputRef,
+                                                    _onFocus,
+                                                    getInputLabel,
+                                                    getOptionIcon,
+                                                }}
                                             />
-                                        )
-                                    }}
+                                        ) : null
+                                    }
                                 />
                             </div>
                         ) : (
