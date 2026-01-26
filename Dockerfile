@@ -167,16 +167,7 @@ ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
-# Add Confluent's client repository for librdkafka runtime
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "wget" \
-    "gnupg" \
-    && \
-    mkdir -p /etc/apt/keyrings && \
-    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
-    apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "chromium" \
     "chromium-driver" \
@@ -185,8 +176,6 @@ RUN apt-get update && \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "ffmpeg=7:5.1.8-0+deb12u1" \
-    "librdkafka1=2.10.1-1.cflt~deb12" \
-    "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
     "libssl3=3.0.17-1~deb12u2" \
     "libjemalloc2" \
