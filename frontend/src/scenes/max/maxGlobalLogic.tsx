@@ -10,7 +10,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -84,17 +83,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['featureFlags'],
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab'],
-            teamLogic,
-            ['currentTeamId'],
         ],
-        actions: [
-            router,
-            ['locationChanged'],
-            sidePanelStateLogic,
-            ['openSidePanel'],
-            teamLogic,
-            ['loadCurrentTeamSuccess'],
-        ],
+        actions: [router, ['locationChanged'], sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
         openSidePanelMax: (conversationId?: string) => ({ conversationId }),
@@ -210,22 +200,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         loadConversationHistoryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
-        loadCurrentTeamSuccess: ({ currentTeam }) => {
-            // Load conversation history when team becomes available (e.g., after login)
-            if (
-                currentTeam &&
-                values.featureFlags[FEATURE_FLAGS.AI_FIRST] &&
-                values.conversationHistory.length === 0 &&
-                !values.conversationHistoryLoading
-            ) {
-                actions.loadConversationHistory()
-            }
-        },
     })),
     afterMount(({ actions, values }) => {
-        // Only load conversation history if we have a valid team (i.e., user is authenticated)
-        // During auth/verification flows, currentTeamId will be null
-        if (values.featureFlags[FEATURE_FLAGS.AI_FIRST] && values.currentTeamId) {
+        if (values.featureFlags[FEATURE_FLAGS.AI_FIRST]) {
             actions.loadConversationHistory()
         }
     }),
