@@ -66,8 +66,8 @@ export const tableViewLogic = kea<tableViewLogicType>([
                     // If updating with current query state (no explicit updates provided)
                     if (!updates.name && !updates.visibility) {
                         updates = {
-                            columns: props.query.select,
-                            filters: props.query.properties,
+                            columns: props.query.select || [],
+                            filters: props.query.properties || [],
                         }
                     }
 
@@ -134,8 +134,8 @@ export const tableViewLogic = kea<tableViewLogicType>([
                     return false
                 }
                 // Compare current query state with saved view state
-                const currentColumns = query.source.select || []
-                const currentFilters = query.source.properties || []
+                const currentColumns = query.select || []
+                const currentFilters = query.properties || []
 
                 const columnsChanged = JSON.stringify(currentColumns) !== JSON.stringify(currentView.columns)
                 const filtersChanged = JSON.stringify(currentFilters) !== JSON.stringify(currentView.filters)
@@ -180,8 +180,9 @@ export const tableViewLogic = kea<tableViewLogicType>([
             const newQuery = {
                 ...props.query,
                 select: view.columns || [],
-                properties: view.filters,
+                properties: view.filters || [],
             } as TableViewSupportedQueryType
+
             props.setQuery(newQuery)
         },
 
