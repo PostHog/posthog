@@ -89,8 +89,6 @@ export interface TaskReference {
 export interface TaskReferencesResponse {
     results: TaskReference[]
     count: number
-    limit: number
-    offset: number
 }
 
 export type TaskUpsertProps = Optional<
