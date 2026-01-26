@@ -5160,7 +5160,7 @@ class TestSystemCohort(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Test users", cohort_names)
 
         system_cohort_in_list = next((c for c in response.json()["results"] if c["id"] == system_cohort.id), None)
-        self.assertIsNotNone(system_cohort_in_list)
+        assert system_cohort_in_list is not None
         self.assertEqual(system_cohort_in_list["system_type"], SystemCohortType.TEST_USERS)
 
     def test_create_system_cohorts_helper(self):
