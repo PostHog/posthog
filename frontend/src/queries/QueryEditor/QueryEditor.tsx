@@ -46,6 +46,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             >
                 <div className="flex-1">
                     <AutoSizer
+                        disableWidth
                         renderProp={({ height }) =>
                             height ? (
                                 <CodeEditor

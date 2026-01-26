@@ -58,6 +58,7 @@ export function CodeEditorResizeable({
             }}
         >
             <AutoSizer
+                disableWidth
                 renderProp={({ height }) =>
                     height ? (
                         <CodeEditor
