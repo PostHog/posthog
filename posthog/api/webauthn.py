@@ -496,7 +496,7 @@ class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
             user_display_name=email,
             authenticator_selection=AuthenticatorSelectionCriteria(
                 resident_key=ResidentKeyRequirement.REQUIRED,
-                user_verification=UserVerificationRequirement.PREFERRED,
+                user_verification=UserVerificationRequirement.REQUIRED,
             ),
             timeout=CHALLENGE_TIMEOUT_MS,
             supported_pub_key_algs=SUPPORTED_PUB_KEY_ALGS,
