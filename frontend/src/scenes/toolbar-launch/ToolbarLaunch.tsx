@@ -17,7 +17,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
-    settingSectionId: 'environment-details',
 }
 
 export function ToolbarLaunch(): JSX.Element {

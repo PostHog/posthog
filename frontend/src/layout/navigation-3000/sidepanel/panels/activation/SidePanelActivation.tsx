@@ -6,9 +6,11 @@ import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock, 
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { ProfessorHog } from 'lib/components/hedgehogs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import type { LemonIconProps } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
@@ -17,12 +19,14 @@ import {
     activationLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 
+import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { activationTaskContentMap } from './ActivationTaskContent'
 
 export const SidePanelActivation = (): JSX.Element | null => {
     const { completionPercent, sections, isReady, showHiddenSections, hasHiddenSections } = useValues(activationLogic)
     const { toggleShowHiddenSections } = useActions(activationLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     if (!isReady) {
         return null
@@ -31,7 +35,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
     return (
         <>
             <SidePanelPaneHeader title="Quick start" />
-            <div className="py-4 deprecated-space-y-2 overflow-y-auto no-scrollbar">
+            <SidePanelContentContainer flagOffClassName="py-4 deprecated-space-y-2 overflow-y-auto no-scrollbar">
                 <div className="flex flex-col px-4 deprecated-space-y-2">
                     <div className="flex">
                         <p>
@@ -54,7 +58,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                     {sections
                         .filter((section) => section.visible)
                         .map((section) => (
-                            <div className="px-4" key={section.key}>
+                            <div className={cn(!isRemovingSidePanelFlag && 'px-4')} key={section.key}>
                                 <ActivationSectionComponent sectionKey={section.key} section={section} />
                             </div>
                         ))}
@@ -86,7 +90,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                         </div>
                     </div>
                 )}
-            </div>
+            </SidePanelContentContainer>
         </>
     )
 }

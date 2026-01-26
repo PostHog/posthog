@@ -780,6 +780,13 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
 
 class ExperimentStatus(str, Enum):
+    """
+    Note: The frontend also uses a "ProgressStatus.Paused" status, but this is purely a
+    virtual status to have better UX for the user. Technically, paused experiments have
+    feature flags disabled while the experiment is still "running" in the backend, i.e.
+    they have start_date but no end_date).
+    """
+
     DRAFT = "draft"
     RUNNING = "running"
     COMPLETE = "complete"

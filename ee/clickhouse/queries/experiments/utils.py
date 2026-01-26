@@ -36,6 +36,7 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
     entity_query = f"AND event IN %(events_list)s"
     entity_params = {"events_list": sorted(events)}
 
+    # nosemgrep: clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
     events_result = sync_execute(
         f"""
         SELECT

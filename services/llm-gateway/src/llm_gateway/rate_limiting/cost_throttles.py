@@ -125,14 +125,24 @@ class ProductCostThrottle(CostThrottle):
 
 
 class UserCostThrottle(CostThrottle):
+    """Rate limit by end_user_id.
+
+    - OAuth: end_user_id is the token holder (set at context creation)
+    - Personal API key: end_user_id is the 'user' param from the request (set in callback)
+
+    If no end_user_id is set, user rate limiting is skipped.
+    """
+
     scope = "user_cost"
 
     def _get_limit_exceeded_detail(self) -> str:
         return "User rate limit exceeded"
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
+        if not context.end_user_id:
+            return ""
         team_mult = self._get_team_multiplier(context)
-        base = f"cost:user:{context.user.user_id}"
+        base = f"cost:user:{context.end_user_id}"
         if team_mult == 1:
             return base
         return f"{base}:tm{team_mult}"
@@ -145,8 +155,15 @@ class UserCostThrottle(CostThrottle):
         return base_limit * team_mult, window
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
-        result = await super().allow_request(context)
+        if not context.end_user_id:
+            return ThrottleResult.allow()
         settings = get_settings()
         if settings.user_cost_limits_disabled:
+            await super().allow_request(context)
             return ThrottleResult.allow()
-        return result
+        return await super().allow_request(context)
+
+    async def record_cost(self, context: ThrottleContext, cost: float) -> None:
+        if not context.end_user_id:
+            return
+        await super().record_cost(context, cost)
