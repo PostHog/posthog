@@ -36,7 +36,7 @@ import {
     WebPropertyFilters,
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
-import { ProductTab } from './common'
+import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -184,6 +184,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
     const { validatedDomainFilter, hasHostFilter, authorizedDomains, showProposedURLForm } =
         useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <LemonSelect
@@ -208,7 +209,23 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                                   },
                               ]
                             : []),
-                        ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
+                        ...authorizedDomains.map((domain) => ({
+                            label: domain,
+                            value: domain,
+                            ...(featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
+                                ? {
+                                      icon: (
+                                          <img
+                                              src={faviconUrl(domain)}
+                                              width={16}
+                                              height={16}
+                                              alt={`${domain} favicon`}
+                                              onError={(e) => (e.currentTarget.style.display = 'none')}
+                                          />
+                                      ),
+                                  }
+                                : {}),
+                        })),
                     ],
                     footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggestedAuthorizedUrlList />,
                 },

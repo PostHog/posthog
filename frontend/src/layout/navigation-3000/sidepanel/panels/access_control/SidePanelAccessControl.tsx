@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { resourceTypeToString } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
 
 import { AccessControlResourceType } from '~/types'
 
@@ -8,13 +9,13 @@ import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import { AccessControlObject } from './AccessControlObject'
 
-export const SidePanelAccessControl = (): JSX.Element => {
+export const SidePanelAccessControl = ({ isScenePanel }: { isScenePanel?: boolean }): JSX.Element => {
     const { sceneSidePanelContext } = useValues(sidePanelContextLogic)
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <SidePanelPaneHeader title="Access control" />
-            <div className="flex-1 p-4 overflow-y-auto">
+            {isScenePanel ? null : <SidePanelPaneHeader title="Access control" />}
+            <div className={cn('flex-1 overflow-y-auto', isScenePanel ? 'px-1' : 'p-4')}>
                 {sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id ? (
                     <AccessControlObject
                         resource={sceneSidePanelContext.access_control_resource}

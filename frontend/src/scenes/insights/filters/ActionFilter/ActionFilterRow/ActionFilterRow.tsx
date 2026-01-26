@@ -946,7 +946,7 @@ function useMathSelectorOptions({
 
             return {
                 value: mathTypeKey,
-                icon: warning !== null ? <IconWarning /> : undefined,
+                icon: warning !== null ? <IconWarning className="text-warning" /> : undefined,
                 label: definition.name,
                 'data-attr': `math-${key}-${index}`,
                 tooltip:
@@ -1122,29 +1122,38 @@ function useMathSelectorOptions({
             days: '30' | '7',
             optionIndex: number
         ): LemonSelectOption<string> => {
-            const actor = activeActorShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
+            const baseOption = options[optionIndex] as LemonSelectOption<string>
+            const isUsers = activeActorShown === 'users'
+            const actor = isUsers ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
             const capitalizedActor = capitalizeFirstLetter(actor)
             const label = `${capitalizeFirstLetter(period)}ly active ${actor}`
-            const tooltip =
-                actor === 'user' ? (
-                    options[optionIndex].tooltip
-                ) : (
-                    <>
-                        <b>
-                            {capitalizedActor} active in the past {period} ({days} days).
-                        </b>
-                        <br />
-                        <br />
-                        This is a trailing count that aggregates distinct {actor} in the past {days} days for each day
-                        in the time series.
-                        <br />
-                        <br />
-                        If the group by interval is a {period} or longer, this is the same as "Unique {capitalizedActor}
-                        " math.
-                    </>
-                )
+            const tooltip = isUsers ? (
+                baseOption.tooltip
+            ) : (
+                <>
+                    {baseOption.tooltip ? (
+                        <>
+                            {baseOption.tooltip}
+                            <br />
+                            <br />
+                        </>
+                    ) : null}
+                    <b>
+                        {capitalizedActor} active in the past {period} ({days} days).
+                    </b>
+                    <br />
+                    <br />
+                    This is a trailing count that aggregates distinct {actor} in the past {days} days for each day in
+                    the time series.
+                    <br />
+                    <br />
+                    If the group by interval is a {period} or longer, this is the same as "Unique {capitalizedActor} "
+                    math.
+                </>
+            )
 
             return {
+                ...baseOption,
                 value: mathType,
                 label,
                 tooltip,

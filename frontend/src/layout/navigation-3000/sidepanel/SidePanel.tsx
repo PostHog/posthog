@@ -255,7 +255,9 @@ export function SidePanel({
                     {...resizerLogicProps}
                     className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
                         'left-0': sidePanelOpenAndAvailable,
-                        '-left-[.5px]': sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
+                        // Hide handle line, make it as thick as the gap between scene and sidepanel (looking like split-screen, nice.)
+                        '-left-[3.5px] [&_*:before]:hidden [&_*:after]:w-[2px] [--resizer-thickness:12px]':
+                            sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
                     })}
                 />
             )}

@@ -1,9 +1,11 @@
 import base64
 
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from unittest.mock import patch
 
 from django.core import exceptions
 
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models import Plugin, PluginSourceFile
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_FRONTEND_TSX,
@@ -181,8 +183,9 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_FRONTEND_TSX)
         self.assertFalse(self.team.inject_web_apps)
 
+    @patch("posthog.models.plugin.transpile", side_effect=mock_transpile)
     @snapshot_postgres_queries
-    def test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works(self):
+    def test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works(self, mock_transpile_fn):
         self.assertFalse(self.team.inject_web_apps)
         test_plugin: Plugin = Plugin.objects.create(
             organization=self.organization,
@@ -222,8 +225,11 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             f"Could not find main file index.js or index.ts in plugin Contoso",
         )
 
+    @patch("posthog.models.plugin.transpile", side_effect=mock_transpile)
     @snapshot_postgres_queries
-    def test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works(self):
+    def test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works(
+        self, mock_transpile_fn
+    ):
         test_plugin: Plugin = Plugin.objects.create(
             organization=self.organization,
             name="Contoso",

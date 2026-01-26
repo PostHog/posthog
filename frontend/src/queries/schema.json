@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -15323,7 +15323,8 @@
                 "RedditAds",
                 "TikTokAds",
                 "BingAds",
-                "Shopify"
+                "Shopify",
+                "SnapchatAds"
             ],
             "type": "string"
         },

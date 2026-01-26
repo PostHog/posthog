@@ -155,6 +155,21 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
     reducers({
         model: ['', { setModel: (_, { model }) => model }],
+        modelOptionsErrorStatus: [
+            null as number | null,
+            {
+                loadModelOptions: () => null,
+                loadModelOptionsSuccess: () => null,
+                loadModelOptionsFailure: (_, { error }) => {
+                    const err = error as unknown
+                    if (err instanceof ApiError) {
+                        return err.status ?? null
+                    }
+
+                    return null
+                },
+            },
+        ],
         systemPrompt: ['You are a helpful AI assistant.', { setSystemPrompt: (_, { systemPrompt }) => systemPrompt }],
         maxTokens: [null as number | null, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
         thinking: [false, { setThinking: (_, { thinking }) => thinking }],
