@@ -24,7 +24,7 @@ export function DiscussionMentionNotifications(): JSX.Element {
             <LinkedHogFunctions
                 type="internal_destination"
                 subTemplateIds={['discussion-mention']}
-                emptyState="No notifications configured"
+                emptyText="No notifications configured"
             />
         </div>
     )

@@ -44,12 +44,12 @@ const urlForHogFunction = (hogFunction: HogFunctionType): string => {
 export function HogFunctionList({
     extraControls,
     hideFeedback = false,
-    emptyState,
+    emptyText,
     ...props
 }: HogFunctionListLogicProps & {
     extraControls?: JSX.Element
     hideFeedback?: boolean
-    emptyState?: string
+    emptyText?: string
 }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
@@ -272,7 +272,7 @@ export function HogFunctionList({
                     columns={columns}
                     emptyState={
                         hogFunctions.length === 0 && !loading ? (
-                            (emptyState ?? `No ${humanizedType}s found`)
+                            (emptyText ?? `No ${humanizedType}s found`)
                         ) : (
                             <>
                                 No {humanizedType}s matching filters.{' '}

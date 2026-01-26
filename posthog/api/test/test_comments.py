@@ -179,8 +179,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                 [
                     {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
                     {"content": "another comment", "scope": "Notebook", "item_id": "1"},
-                    {"content": "thumbs_up", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
-                    {"content": "heart", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
                     {
                         "content": "comment with context",
                         "scope": "Notebook",
@@ -196,8 +196,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                 [
                     {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
                     {"content": "another comment", "scope": "Notebook", "item_id": "1"},
-                    {"content": "thumbs_up", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
-                    {"content": "heart", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "❤️", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
                     {
                         "content": "comment with context",
                         "scope": "Notebook",
@@ -214,8 +214,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                     {"content": "regular comment", "scope": "Notebook", "item_id": "1"},
                     {"content": "another comment", "scope": "Notebook", "item_id": "1"},
                     {"content": "dashboard comment", "scope": "Dashboard", "item_id": "2"},
-                    {"content": "thumbs_up", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
-                    {"content": "heart", "scope": "Dashboard", "item_id": "2", "item_context": {"is_emoji": True}},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "❤️", "scope": "Dashboard", "item_id": "2", "item_context": {"is_emoji": True}},
                 ],
                 "?scope=Notebook&exclude_emoji_reactions=true",
                 2,
@@ -230,7 +230,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                         "item_id": "1",
                         "item_context": {"is_emoji": False},
                     },
-                    {"content": "thumbs_up", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
+                    {"content": "👍", "scope": "Notebook", "item_id": "1", "item_context": {"is_emoji": True}},
                 ],
                 "?exclude_emoji_reactions=true",
                 2,
