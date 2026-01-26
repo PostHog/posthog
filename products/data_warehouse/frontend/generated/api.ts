@@ -17,6 +17,9 @@ import type {
     EnvironmentsExternalDataSourcesListParams,
     EnvironmentsWarehouseSavedQueriesListParams,
     EnvironmentsWarehouseSavedQueryDraftsListParams,
+    EnvironmentsWarehouseTablesListParams,
+    EnvironmentsWarehouseViewLinkListParams,
+    EnvironmentsWarehouseViewLinksListParams,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
@@ -24,13 +27,23 @@ import type {
     PaginatedDataWarehouseSavedQueryMinimalListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedQueryTabStateListApi,
+    PaginatedTableListApi,
+    PaginatedViewLinkListApi,
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedExternalDataSourceSerializersApi,
     PatchedQueryTabStateApi,
+    PatchedTableApi,
+    PatchedViewLinkApi,
     QueryTabStateApi,
     QueryTabStateListParams,
+    TableApi,
+    ViewLinkApi,
+    ViewLinkValidationApi,
     WarehouseSavedQueriesListParams,
+    WarehouseTablesListParams,
+    WarehouseViewLinkListParams,
+    WarehouseViewLinksListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -120,6 +133,202 @@ export const environmentsDataModelingJobsRetrieve = async (
 ): Promise<environmentsDataModelingJobsRetrieveResponse> => {
     return apiMutator<environmentsDataModelingJobsRetrieveResponse>(
         getEnvironmentsDataModelingJobsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns completed/non-running activities (jobs with status 'Completed').
+Supports pagination and cutoff time filtering.
+ */
+export type environmentsDataWarehouseCompletedActivityRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsDataWarehouseCompletedActivityRetrieveResponseSuccess =
+    environmentsDataWarehouseCompletedActivityRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsDataWarehouseCompletedActivityRetrieveResponse =
+    environmentsDataWarehouseCompletedActivityRetrieveResponseSuccess
+
+export const getEnvironmentsDataWarehouseCompletedActivityRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_warehouse/completed_activity/`
+}
+
+export const environmentsDataWarehouseCompletedActivityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsDataWarehouseCompletedActivityRetrieveResponse> => {
+    return apiMutator<environmentsDataWarehouseCompletedActivityRetrieveResponse>(
+        getEnvironmentsDataWarehouseCompletedActivityRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns failed/disabled data pipeline items for the Pipeline status side panel.
+Includes: materializations, syncs, sources, destinations, and transformations.
+ */
+export type environmentsDataWarehouseDataHealthIssuesRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsDataWarehouseDataHealthIssuesRetrieveResponseSuccess =
+    environmentsDataWarehouseDataHealthIssuesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsDataWarehouseDataHealthIssuesRetrieveResponse =
+    environmentsDataWarehouseDataHealthIssuesRetrieveResponseSuccess
+
+export const getEnvironmentsDataWarehouseDataHealthIssuesRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_warehouse/data_health_issues/`
+}
+
+export const environmentsDataWarehouseDataHealthIssuesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsDataWarehouseDataHealthIssuesRetrieveResponse> => {
+    return apiMutator<environmentsDataWarehouseDataHealthIssuesRetrieveResponse>(
+        getEnvironmentsDataWarehouseDataHealthIssuesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns success and failed job statistics for the last 1, 7, or 30 days.
+Query parameter 'days' can be 1, 7, or 30 (default: 7).
+ */
+export type environmentsDataWarehouseJobStatsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsDataWarehouseJobStatsRetrieveResponseSuccess =
+    environmentsDataWarehouseJobStatsRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsDataWarehouseJobStatsRetrieveResponse = environmentsDataWarehouseJobStatsRetrieveResponseSuccess
+
+export const getEnvironmentsDataWarehouseJobStatsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_warehouse/job_stats/`
+}
+
+export const environmentsDataWarehouseJobStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsDataWarehouseJobStatsRetrieveResponse> => {
+    return apiMutator<environmentsDataWarehouseJobStatsRetrieveResponse>(
+        getEnvironmentsDataWarehouseJobStatsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * API endpoints for data warehouse aggregate statistics and operations.
+ */
+export type environmentsDataWarehousePropertyValuesRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsDataWarehousePropertyValuesRetrieveResponseSuccess =
+    environmentsDataWarehousePropertyValuesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsDataWarehousePropertyValuesRetrieveResponse =
+    environmentsDataWarehousePropertyValuesRetrieveResponseSuccess
+
+export const getEnvironmentsDataWarehousePropertyValuesRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_warehouse/property_values/`
+}
+
+export const environmentsDataWarehousePropertyValuesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsDataWarehousePropertyValuesRetrieveResponse> => {
+    return apiMutator<environmentsDataWarehousePropertyValuesRetrieveResponse>(
+        getEnvironmentsDataWarehousePropertyValuesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns currently running activities (jobs with status 'Running').
+Supports pagination and cutoff time filtering.
+ */
+export type environmentsDataWarehouseRunningActivityRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsDataWarehouseRunningActivityRetrieveResponseSuccess =
+    environmentsDataWarehouseRunningActivityRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsDataWarehouseRunningActivityRetrieveResponse =
+    environmentsDataWarehouseRunningActivityRetrieveResponseSuccess
+
+export const getEnvironmentsDataWarehouseRunningActivityRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_warehouse/running_activity/`
+}
+
+export const environmentsDataWarehouseRunningActivityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsDataWarehouseRunningActivityRetrieveResponse> => {
+    return apiMutator<environmentsDataWarehouseRunningActivityRetrieveResponse>(
+        getEnvironmentsDataWarehouseRunningActivityRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
+Used by the frontend data warehouse scene to display usage information.
+ */
+export type environmentsDataWarehouseTotalRowsStatsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsDataWarehouseTotalRowsStatsRetrieveResponseSuccess =
+    environmentsDataWarehouseTotalRowsStatsRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsDataWarehouseTotalRowsStatsRetrieveResponse =
+    environmentsDataWarehouseTotalRowsStatsRetrieveResponseSuccess
+
+export const getEnvironmentsDataWarehouseTotalRowsStatsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_warehouse/total_rows_stats/`
+}
+
+export const environmentsDataWarehouseTotalRowsStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsDataWarehouseTotalRowsStatsRetrieveResponse> => {
+    return apiMutator<environmentsDataWarehouseTotalRowsStatsRetrieveResponse>(
+        getEnvironmentsDataWarehouseTotalRowsStatsRetrieveUrl(projectId),
         {
             ...options,
             method: 'GET',
@@ -543,6 +752,34 @@ export const environmentsExternalDataSourcesWizardRetrieve = async (
 ): Promise<environmentsExternalDataSourcesWizardRetrieveResponse> => {
     return apiMutator<environmentsExternalDataSourcesWizardRetrieveResponse>(
         getEnvironmentsExternalDataSourcesWizardRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsLineageGetUpstreamRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsLineageGetUpstreamRetrieveResponseSuccess =
+    environmentsLineageGetUpstreamRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsLineageGetUpstreamRetrieveResponse = environmentsLineageGetUpstreamRetrieveResponseSuccess
+
+export const getEnvironmentsLineageGetUpstreamRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/lineage/get_upstream/`
+}
+
+export const environmentsLineageGetUpstreamRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsLineageGetUpstreamRetrieveResponse> => {
+    return apiMutator<environmentsLineageGetUpstreamRetrieveResponse>(
+        getEnvironmentsLineageGetUpstreamRetrieveUrl(projectId),
         {
             ...options,
             method: 'GET',
@@ -1330,6 +1567,819 @@ export const environmentsWarehouseSavedQueryDraftsDestroy = async (
 }
 
 /**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesListResponse200 = {
+    data: PaginatedTableListApi
+    status: 200
+}
+
+export type environmentsWarehouseTablesListResponseSuccess = environmentsWarehouseTablesListResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseTablesListResponse = environmentsWarehouseTablesListResponseSuccess
+
+export const getEnvironmentsWarehouseTablesListUrl = (
+    projectId: string,
+    params?: EnvironmentsWarehouseTablesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/warehouse_tables/?${stringifiedParams}`
+        : `/api/environments/${projectId}/warehouse_tables/`
+}
+
+export const environmentsWarehouseTablesList = async (
+    projectId: string,
+    params?: EnvironmentsWarehouseTablesListParams,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesListResponse> => {
+    return apiMutator<environmentsWarehouseTablesListResponse>(
+        getEnvironmentsWarehouseTablesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesCreateResponse201 = {
+    data: TableApi
+    status: 201
+}
+
+export type environmentsWarehouseTablesCreateResponseSuccess = environmentsWarehouseTablesCreateResponse201 & {
+    headers: Headers
+}
+export type environmentsWarehouseTablesCreateResponse = environmentsWarehouseTablesCreateResponseSuccess
+
+export const getEnvironmentsWarehouseTablesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/`
+}
+
+export const environmentsWarehouseTablesCreate = async (
+    projectId: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesCreateResponse> => {
+    return apiMutator<environmentsWarehouseTablesCreateResponse>(getEnvironmentsWarehouseTablesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tableApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesRetrieveResponse200 = {
+    data: TableApi
+    status: 200
+}
+
+export type environmentsWarehouseTablesRetrieveResponseSuccess = environmentsWarehouseTablesRetrieveResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseTablesRetrieveResponse = environmentsWarehouseTablesRetrieveResponseSuccess
+
+export const getEnvironmentsWarehouseTablesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/${id}/`
+}
+
+export const environmentsWarehouseTablesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesRetrieveResponse> => {
+    return apiMutator<environmentsWarehouseTablesRetrieveResponse>(
+        getEnvironmentsWarehouseTablesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesUpdateResponse200 = {
+    data: TableApi
+    status: 200
+}
+
+export type environmentsWarehouseTablesUpdateResponseSuccess = environmentsWarehouseTablesUpdateResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseTablesUpdateResponse = environmentsWarehouseTablesUpdateResponseSuccess
+
+export const getEnvironmentsWarehouseTablesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/${id}/`
+}
+
+export const environmentsWarehouseTablesUpdate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesUpdateResponse> => {
+    return apiMutator<environmentsWarehouseTablesUpdateResponse>(
+        getEnvironmentsWarehouseTablesUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(tableApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesPartialUpdateResponse200 = {
+    data: TableApi
+    status: 200
+}
+
+export type environmentsWarehouseTablesPartialUpdateResponseSuccess =
+    environmentsWarehouseTablesPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseTablesPartialUpdateResponse = environmentsWarehouseTablesPartialUpdateResponseSuccess
+
+export const getEnvironmentsWarehouseTablesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/${id}/`
+}
+
+export const environmentsWarehouseTablesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTableApi: NonReadonly<PatchedTableApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesPartialUpdateResponse> => {
+    return apiMutator<environmentsWarehouseTablesPartialUpdateResponse>(
+        getEnvironmentsWarehouseTablesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedTableApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsWarehouseTablesDestroyResponseSuccess = environmentsWarehouseTablesDestroyResponse204 & {
+    headers: Headers
+}
+export type environmentsWarehouseTablesDestroyResponse = environmentsWarehouseTablesDestroyResponseSuccess
+
+export const getEnvironmentsWarehouseTablesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/${id}/`
+}
+
+export const environmentsWarehouseTablesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesDestroyResponse> => {
+    return apiMutator<environmentsWarehouseTablesDestroyResponse>(
+        getEnvironmentsWarehouseTablesDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesRefreshSchemaCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsWarehouseTablesRefreshSchemaCreateResponseSuccess =
+    environmentsWarehouseTablesRefreshSchemaCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseTablesRefreshSchemaCreateResponse =
+    environmentsWarehouseTablesRefreshSchemaCreateResponseSuccess
+
+export const getEnvironmentsWarehouseTablesRefreshSchemaCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/${id}/refresh_schema/`
+}
+
+export const environmentsWarehouseTablesRefreshSchemaCreate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesRefreshSchemaCreateResponse> => {
+    return apiMutator<environmentsWarehouseTablesRefreshSchemaCreateResponse>(
+        getEnvironmentsWarehouseTablesRefreshSchemaCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(tableApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesUpdateSchemaCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsWarehouseTablesUpdateSchemaCreateResponseSuccess =
+    environmentsWarehouseTablesUpdateSchemaCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseTablesUpdateSchemaCreateResponse =
+    environmentsWarehouseTablesUpdateSchemaCreateResponseSuccess
+
+export const getEnvironmentsWarehouseTablesUpdateSchemaCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/${id}/update_schema/`
+}
+
+export const environmentsWarehouseTablesUpdateSchemaCreate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesUpdateSchemaCreateResponse> => {
+    return apiMutator<environmentsWarehouseTablesUpdateSchemaCreateResponse>(
+        getEnvironmentsWarehouseTablesUpdateSchemaCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(tableApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type environmentsWarehouseTablesFileCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsWarehouseTablesFileCreateResponseSuccess = environmentsWarehouseTablesFileCreateResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseTablesFileCreateResponse = environmentsWarehouseTablesFileCreateResponseSuccess
+
+export const getEnvironmentsWarehouseTablesFileCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/file/`
+}
+
+export const environmentsWarehouseTablesFileCreate = async (
+    projectId: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseTablesFileCreateResponse> => {
+    const formData = new FormData()
+    if (tableApi.deleted !== undefined && tableApi.deleted !== null) {
+        formData.append(`deleted`, tableApi.deleted.toString())
+    }
+    formData.append(`name`, tableApi.name)
+    formData.append(`format`, tableApi.format)
+    formData.append(`url_pattern`, tableApi.url_pattern)
+    formData.append(`credential`, JSON.stringify(tableApi.credential))
+
+    return apiMutator<environmentsWarehouseTablesFileCreateResponse>(
+        getEnvironmentsWarehouseTablesFileCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            body: formData,
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinkListResponse200 = {
+    data: PaginatedViewLinkListApi
+    status: 200
+}
+
+export type environmentsWarehouseViewLinkListResponseSuccess = environmentsWarehouseViewLinkListResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinkListResponse = environmentsWarehouseViewLinkListResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinkListUrl = (
+    projectId: string,
+    params?: EnvironmentsWarehouseViewLinkListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/warehouse_view_link/?${stringifiedParams}`
+        : `/api/environments/${projectId}/warehouse_view_link/`
+}
+
+export const environmentsWarehouseViewLinkList = async (
+    projectId: string,
+    params?: EnvironmentsWarehouseViewLinkListParams,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinkListResponse> => {
+    return apiMutator<environmentsWarehouseViewLinkListResponse>(
+        getEnvironmentsWarehouseViewLinkListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinkCreateResponse201 = {
+    data: ViewLinkApi
+    status: 201
+}
+
+export type environmentsWarehouseViewLinkCreateResponseSuccess = environmentsWarehouseViewLinkCreateResponse201 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinkCreateResponse = environmentsWarehouseViewLinkCreateResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinkCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_view_link/`
+}
+
+export const environmentsWarehouseViewLinkCreate = async (
+    projectId: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinkCreateResponse> => {
+    return apiMutator<environmentsWarehouseViewLinkCreateResponse>(
+        getEnvironmentsWarehouseViewLinkCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(viewLinkApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinkRetrieveResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type environmentsWarehouseViewLinkRetrieveResponseSuccess = environmentsWarehouseViewLinkRetrieveResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinkRetrieveResponse = environmentsWarehouseViewLinkRetrieveResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinkRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_view_link/${id}/`
+}
+
+export const environmentsWarehouseViewLinkRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinkRetrieveResponse> => {
+    return apiMutator<environmentsWarehouseViewLinkRetrieveResponse>(
+        getEnvironmentsWarehouseViewLinkRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinkUpdateResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type environmentsWarehouseViewLinkUpdateResponseSuccess = environmentsWarehouseViewLinkUpdateResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinkUpdateResponse = environmentsWarehouseViewLinkUpdateResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinkUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_view_link/${id}/`
+}
+
+export const environmentsWarehouseViewLinkUpdate = async (
+    projectId: string,
+    id: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinkUpdateResponse> => {
+    return apiMutator<environmentsWarehouseViewLinkUpdateResponse>(
+        getEnvironmentsWarehouseViewLinkUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(viewLinkApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinkPartialUpdateResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type environmentsWarehouseViewLinkPartialUpdateResponseSuccess =
+    environmentsWarehouseViewLinkPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseViewLinkPartialUpdateResponse =
+    environmentsWarehouseViewLinkPartialUpdateResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinkPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_view_link/${id}/`
+}
+
+export const environmentsWarehouseViewLinkPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedViewLinkApi: NonReadonly<PatchedViewLinkApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinkPartialUpdateResponse> => {
+    return apiMutator<environmentsWarehouseViewLinkPartialUpdateResponse>(
+        getEnvironmentsWarehouseViewLinkPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedViewLinkApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinkDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsWarehouseViewLinkDestroyResponseSuccess = environmentsWarehouseViewLinkDestroyResponse204 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinkDestroyResponse = environmentsWarehouseViewLinkDestroyResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinkDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_view_link/${id}/`
+}
+
+export const environmentsWarehouseViewLinkDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinkDestroyResponse> => {
+    return apiMutator<environmentsWarehouseViewLinkDestroyResponse>(
+        getEnvironmentsWarehouseViewLinkDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinkValidateCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsWarehouseViewLinkValidateCreateResponseSuccess =
+    environmentsWarehouseViewLinkValidateCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseViewLinkValidateCreateResponse =
+    environmentsWarehouseViewLinkValidateCreateResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinkValidateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_view_link/validate/`
+}
+
+export const environmentsWarehouseViewLinkValidateCreate = async (
+    projectId: string,
+    viewLinkValidationApi: ViewLinkValidationApi,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinkValidateCreateResponse> => {
+    return apiMutator<environmentsWarehouseViewLinkValidateCreateResponse>(
+        getEnvironmentsWarehouseViewLinkValidateCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(viewLinkValidationApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinksListResponse200 = {
+    data: PaginatedViewLinkListApi
+    status: 200
+}
+
+export type environmentsWarehouseViewLinksListResponseSuccess = environmentsWarehouseViewLinksListResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinksListResponse = environmentsWarehouseViewLinksListResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinksListUrl = (
+    projectId: string,
+    params?: EnvironmentsWarehouseViewLinksListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/warehouse_view_links/?${stringifiedParams}`
+        : `/api/environments/${projectId}/warehouse_view_links/`
+}
+
+export const environmentsWarehouseViewLinksList = async (
+    projectId: string,
+    params?: EnvironmentsWarehouseViewLinksListParams,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinksListResponse> => {
+    return apiMutator<environmentsWarehouseViewLinksListResponse>(
+        getEnvironmentsWarehouseViewLinksListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinksCreateResponse201 = {
+    data: ViewLinkApi
+    status: 201
+}
+
+export type environmentsWarehouseViewLinksCreateResponseSuccess = environmentsWarehouseViewLinksCreateResponse201 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinksCreateResponse = environmentsWarehouseViewLinksCreateResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinksCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_view_links/`
+}
+
+export const environmentsWarehouseViewLinksCreate = async (
+    projectId: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinksCreateResponse> => {
+    return apiMutator<environmentsWarehouseViewLinksCreateResponse>(
+        getEnvironmentsWarehouseViewLinksCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(viewLinkApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinksRetrieveResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type environmentsWarehouseViewLinksRetrieveResponseSuccess =
+    environmentsWarehouseViewLinksRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseViewLinksRetrieveResponse = environmentsWarehouseViewLinksRetrieveResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinksRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_view_links/${id}/`
+}
+
+export const environmentsWarehouseViewLinksRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinksRetrieveResponse> => {
+    return apiMutator<environmentsWarehouseViewLinksRetrieveResponse>(
+        getEnvironmentsWarehouseViewLinksRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinksUpdateResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type environmentsWarehouseViewLinksUpdateResponseSuccess = environmentsWarehouseViewLinksUpdateResponse200 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinksUpdateResponse = environmentsWarehouseViewLinksUpdateResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinksUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_view_links/${id}/`
+}
+
+export const environmentsWarehouseViewLinksUpdate = async (
+    projectId: string,
+    id: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinksUpdateResponse> => {
+    return apiMutator<environmentsWarehouseViewLinksUpdateResponse>(
+        getEnvironmentsWarehouseViewLinksUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(viewLinkApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinksPartialUpdateResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type environmentsWarehouseViewLinksPartialUpdateResponseSuccess =
+    environmentsWarehouseViewLinksPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseViewLinksPartialUpdateResponse =
+    environmentsWarehouseViewLinksPartialUpdateResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinksPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_view_links/${id}/`
+}
+
+export const environmentsWarehouseViewLinksPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedViewLinkApi: NonReadonly<PatchedViewLinkApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinksPartialUpdateResponse> => {
+    return apiMutator<environmentsWarehouseViewLinksPartialUpdateResponse>(
+        getEnvironmentsWarehouseViewLinksPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedViewLinkApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinksDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsWarehouseViewLinksDestroyResponseSuccess = environmentsWarehouseViewLinksDestroyResponse204 & {
+    headers: Headers
+}
+export type environmentsWarehouseViewLinksDestroyResponse = environmentsWarehouseViewLinksDestroyResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinksDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_view_links/${id}/`
+}
+
+export const environmentsWarehouseViewLinksDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinksDestroyResponse> => {
+    return apiMutator<environmentsWarehouseViewLinksDestroyResponse>(
+        getEnvironmentsWarehouseViewLinksDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type environmentsWarehouseViewLinksValidateCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsWarehouseViewLinksValidateCreateResponseSuccess =
+    environmentsWarehouseViewLinksValidateCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseViewLinksValidateCreateResponse =
+    environmentsWarehouseViewLinksValidateCreateResponseSuccess
+
+export const getEnvironmentsWarehouseViewLinksValidateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_view_links/validate/`
+}
+
+export const environmentsWarehouseViewLinksValidateCreate = async (
+    projectId: string,
+    viewLinkValidationApi: ViewLinkValidationApi,
+    options?: RequestInit
+): Promise<environmentsWarehouseViewLinksValidateCreateResponse> => {
+    return apiMutator<environmentsWarehouseViewLinksValidateCreateResponse>(
+        getEnvironmentsWarehouseViewLinksValidateCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(viewLinkValidationApi),
+        }
+    )
+}
+
+/**
  * List data modeling jobs which are "runs" for our saved queries.
  */
 export type dataModelingJobsListResponse200 = {
@@ -1395,6 +2445,189 @@ export const dataModelingJobsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Returns completed/non-running activities (jobs with status 'Completed').
+Supports pagination and cutoff time filtering.
+ */
+export type dataWarehouseCompletedActivityRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseCompletedActivityRetrieveResponseSuccess =
+    dataWarehouseCompletedActivityRetrieveResponse200 & {
+        headers: Headers
+    }
+export type dataWarehouseCompletedActivityRetrieveResponse = dataWarehouseCompletedActivityRetrieveResponseSuccess
+
+export const getDataWarehouseCompletedActivityRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/completed_activity/`
+}
+
+export const dataWarehouseCompletedActivityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseCompletedActivityRetrieveResponse> => {
+    return apiMutator<dataWarehouseCompletedActivityRetrieveResponse>(
+        getDataWarehouseCompletedActivityRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns failed/disabled data pipeline items for the Pipeline status side panel.
+Includes: materializations, syncs, sources, destinations, and transformations.
+ */
+export type dataWarehouseDataHealthIssuesRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseDataHealthIssuesRetrieveResponseSuccess = dataWarehouseDataHealthIssuesRetrieveResponse200 & {
+    headers: Headers
+}
+export type dataWarehouseDataHealthIssuesRetrieveResponse = dataWarehouseDataHealthIssuesRetrieveResponseSuccess
+
+export const getDataWarehouseDataHealthIssuesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/data_health_issues/`
+}
+
+export const dataWarehouseDataHealthIssuesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseDataHealthIssuesRetrieveResponse> => {
+    return apiMutator<dataWarehouseDataHealthIssuesRetrieveResponse>(
+        getDataWarehouseDataHealthIssuesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns success and failed job statistics for the last 1, 7, or 30 days.
+Query parameter 'days' can be 1, 7, or 30 (default: 7).
+ */
+export type dataWarehouseJobStatsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseJobStatsRetrieveResponseSuccess = dataWarehouseJobStatsRetrieveResponse200 & {
+    headers: Headers
+}
+export type dataWarehouseJobStatsRetrieveResponse = dataWarehouseJobStatsRetrieveResponseSuccess
+
+export const getDataWarehouseJobStatsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/job_stats/`
+}
+
+export const dataWarehouseJobStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseJobStatsRetrieveResponse> => {
+    return apiMutator<dataWarehouseJobStatsRetrieveResponse>(getDataWarehouseJobStatsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * API endpoints for data warehouse aggregate statistics and operations.
+ */
+export type dataWarehousePropertyValuesRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehousePropertyValuesRetrieveResponseSuccess = dataWarehousePropertyValuesRetrieveResponse200 & {
+    headers: Headers
+}
+export type dataWarehousePropertyValuesRetrieveResponse = dataWarehousePropertyValuesRetrieveResponseSuccess
+
+export const getDataWarehousePropertyValuesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/property_values/`
+}
+
+export const dataWarehousePropertyValuesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehousePropertyValuesRetrieveResponse> => {
+    return apiMutator<dataWarehousePropertyValuesRetrieveResponse>(
+        getDataWarehousePropertyValuesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns currently running activities (jobs with status 'Running').
+Supports pagination and cutoff time filtering.
+ */
+export type dataWarehouseRunningActivityRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseRunningActivityRetrieveResponseSuccess = dataWarehouseRunningActivityRetrieveResponse200 & {
+    headers: Headers
+}
+export type dataWarehouseRunningActivityRetrieveResponse = dataWarehouseRunningActivityRetrieveResponseSuccess
+
+export const getDataWarehouseRunningActivityRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/running_activity/`
+}
+
+export const dataWarehouseRunningActivityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseRunningActivityRetrieveResponse> => {
+    return apiMutator<dataWarehouseRunningActivityRetrieveResponse>(
+        getDataWarehouseRunningActivityRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
+Used by the frontend data warehouse scene to display usage information.
+ */
+export type dataWarehouseTotalRowsStatsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseTotalRowsStatsRetrieveResponseSuccess = dataWarehouseTotalRowsStatsRetrieveResponse200 & {
+    headers: Headers
+}
+export type dataWarehouseTotalRowsStatsRetrieveResponse = dataWarehouseTotalRowsStatsRetrieveResponseSuccess
+
+export const getDataWarehouseTotalRowsStatsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/total_rows_stats/`
+}
+
+export const dataWarehouseTotalRowsStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseTotalRowsStatsRetrieveResponse> => {
+    return apiMutator<dataWarehouseTotalRowsStatsRetrieveResponse>(
+        getDataWarehouseTotalRowsStatsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
@@ -2525,4 +3758,734 @@ export const warehouseSavedQueriesResumeSchedulesCreate = async (
             body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesListResponse200 = {
+    data: PaginatedTableListApi
+    status: 200
+}
+
+export type warehouseTablesListResponseSuccess = warehouseTablesListResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesListResponse = warehouseTablesListResponseSuccess
+
+export const getWarehouseTablesListUrl = (projectId: string, params?: WarehouseTablesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_tables/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_tables/`
+}
+
+export const warehouseTablesList = async (
+    projectId: string,
+    params?: WarehouseTablesListParams,
+    options?: RequestInit
+): Promise<warehouseTablesListResponse> => {
+    return apiMutator<warehouseTablesListResponse>(getWarehouseTablesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesCreateResponse201 = {
+    data: TableApi
+    status: 201
+}
+
+export type warehouseTablesCreateResponseSuccess = warehouseTablesCreateResponse201 & {
+    headers: Headers
+}
+export type warehouseTablesCreateResponse = warehouseTablesCreateResponseSuccess
+
+export const getWarehouseTablesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/`
+}
+
+export const warehouseTablesCreate = async (
+    projectId: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<warehouseTablesCreateResponse> => {
+    return apiMutator<warehouseTablesCreateResponse>(getWarehouseTablesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tableApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesRetrieveResponse200 = {
+    data: TableApi
+    status: 200
+}
+
+export type warehouseTablesRetrieveResponseSuccess = warehouseTablesRetrieveResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesRetrieveResponse = warehouseTablesRetrieveResponseSuccess
+
+export const getWarehouseTablesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+}
+
+export const warehouseTablesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseTablesRetrieveResponse> => {
+    return apiMutator<warehouseTablesRetrieveResponse>(getWarehouseTablesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesUpdateResponse200 = {
+    data: TableApi
+    status: 200
+}
+
+export type warehouseTablesUpdateResponseSuccess = warehouseTablesUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesUpdateResponse = warehouseTablesUpdateResponseSuccess
+
+export const getWarehouseTablesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+}
+
+export const warehouseTablesUpdate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<warehouseTablesUpdateResponse> => {
+    return apiMutator<warehouseTablesUpdateResponse>(getWarehouseTablesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tableApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesPartialUpdateResponse200 = {
+    data: TableApi
+    status: 200
+}
+
+export type warehouseTablesPartialUpdateResponseSuccess = warehouseTablesPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesPartialUpdateResponse = warehouseTablesPartialUpdateResponseSuccess
+
+export const getWarehouseTablesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+}
+
+export const warehouseTablesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTableApi: NonReadonly<PatchedTableApi>,
+    options?: RequestInit
+): Promise<warehouseTablesPartialUpdateResponse> => {
+    return apiMutator<warehouseTablesPartialUpdateResponse>(getWarehouseTablesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTableApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type warehouseTablesDestroyResponseSuccess = warehouseTablesDestroyResponse204 & {
+    headers: Headers
+}
+export type warehouseTablesDestroyResponse = warehouseTablesDestroyResponseSuccess
+
+export const getWarehouseTablesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+}
+
+export const warehouseTablesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseTablesDestroyResponse> => {
+    return apiMutator<warehouseTablesDestroyResponse>(getWarehouseTablesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesRefreshSchemaCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type warehouseTablesRefreshSchemaCreateResponseSuccess = warehouseTablesRefreshSchemaCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesRefreshSchemaCreateResponse = warehouseTablesRefreshSchemaCreateResponseSuccess
+
+export const getWarehouseTablesRefreshSchemaCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/refresh_schema/`
+}
+
+export const warehouseTablesRefreshSchemaCreate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<warehouseTablesRefreshSchemaCreateResponse> => {
+    return apiMutator<warehouseTablesRefreshSchemaCreateResponse>(
+        getWarehouseTablesRefreshSchemaCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(tableApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesUpdateSchemaCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type warehouseTablesUpdateSchemaCreateResponseSuccess = warehouseTablesUpdateSchemaCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesUpdateSchemaCreateResponse = warehouseTablesUpdateSchemaCreateResponseSuccess
+
+export const getWarehouseTablesUpdateSchemaCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/update_schema/`
+}
+
+export const warehouseTablesUpdateSchemaCreate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<warehouseTablesUpdateSchemaCreateResponse> => {
+    return apiMutator<warehouseTablesUpdateSchemaCreateResponse>(
+        getWarehouseTablesUpdateSchemaCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(tableApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesFileCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type warehouseTablesFileCreateResponseSuccess = warehouseTablesFileCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesFileCreateResponse = warehouseTablesFileCreateResponseSuccess
+
+export const getWarehouseTablesFileCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/file/`
+}
+
+export const warehouseTablesFileCreate = async (
+    projectId: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<warehouseTablesFileCreateResponse> => {
+    const formData = new FormData()
+    if (tableApi.deleted !== undefined && tableApi.deleted !== null) {
+        formData.append(`deleted`, tableApi.deleted.toString())
+    }
+    formData.append(`name`, tableApi.name)
+    formData.append(`format`, tableApi.format)
+    formData.append(`url_pattern`, tableApi.url_pattern)
+    formData.append(`credential`, JSON.stringify(tableApi.credential))
+
+    return apiMutator<warehouseTablesFileCreateResponse>(getWarehouseTablesFileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkListResponse200 = {
+    data: PaginatedViewLinkListApi
+    status: 200
+}
+
+export type warehouseViewLinkListResponseSuccess = warehouseViewLinkListResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinkListResponse = warehouseViewLinkListResponseSuccess
+
+export const getWarehouseViewLinkListUrl = (projectId: string, params?: WarehouseViewLinkListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_view_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_view_link/`
+}
+
+export const warehouseViewLinkList = async (
+    projectId: string,
+    params?: WarehouseViewLinkListParams,
+    options?: RequestInit
+): Promise<warehouseViewLinkListResponse> => {
+    return apiMutator<warehouseViewLinkListResponse>(getWarehouseViewLinkListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkCreateResponse201 = {
+    data: ViewLinkApi
+    status: 201
+}
+
+export type warehouseViewLinkCreateResponseSuccess = warehouseViewLinkCreateResponse201 & {
+    headers: Headers
+}
+export type warehouseViewLinkCreateResponse = warehouseViewLinkCreateResponseSuccess
+
+export const getWarehouseViewLinkCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/`
+}
+
+export const warehouseViewLinkCreate = async (
+    projectId: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<warehouseViewLinkCreateResponse> => {
+    return apiMutator<warehouseViewLinkCreateResponse>(getWarehouseViewLinkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkRetrieveResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type warehouseViewLinkRetrieveResponseSuccess = warehouseViewLinkRetrieveResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinkRetrieveResponse = warehouseViewLinkRetrieveResponseSuccess
+
+export const getWarehouseViewLinkRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/${id}/`
+}
+
+export const warehouseViewLinkRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseViewLinkRetrieveResponse> => {
+    return apiMutator<warehouseViewLinkRetrieveResponse>(getWarehouseViewLinkRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkUpdateResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type warehouseViewLinkUpdateResponseSuccess = warehouseViewLinkUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinkUpdateResponse = warehouseViewLinkUpdateResponseSuccess
+
+export const getWarehouseViewLinkUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/${id}/`
+}
+
+export const warehouseViewLinkUpdate = async (
+    projectId: string,
+    id: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<warehouseViewLinkUpdateResponse> => {
+    return apiMutator<warehouseViewLinkUpdateResponse>(getWarehouseViewLinkUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkPartialUpdateResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type warehouseViewLinkPartialUpdateResponseSuccess = warehouseViewLinkPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinkPartialUpdateResponse = warehouseViewLinkPartialUpdateResponseSuccess
+
+export const getWarehouseViewLinkPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/${id}/`
+}
+
+export const warehouseViewLinkPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedViewLinkApi: NonReadonly<PatchedViewLinkApi>,
+    options?: RequestInit
+): Promise<warehouseViewLinkPartialUpdateResponse> => {
+    return apiMutator<warehouseViewLinkPartialUpdateResponse>(getWarehouseViewLinkPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedViewLinkApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type warehouseViewLinkDestroyResponseSuccess = warehouseViewLinkDestroyResponse204 & {
+    headers: Headers
+}
+export type warehouseViewLinkDestroyResponse = warehouseViewLinkDestroyResponseSuccess
+
+export const getWarehouseViewLinkDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/${id}/`
+}
+
+export const warehouseViewLinkDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseViewLinkDestroyResponse> => {
+    return apiMutator<warehouseViewLinkDestroyResponse>(getWarehouseViewLinkDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkValidateCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type warehouseViewLinkValidateCreateResponseSuccess = warehouseViewLinkValidateCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinkValidateCreateResponse = warehouseViewLinkValidateCreateResponseSuccess
+
+export const getWarehouseViewLinkValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/validate/`
+}
+
+export const warehouseViewLinkValidateCreate = async (
+    projectId: string,
+    viewLinkValidationApi: ViewLinkValidationApi,
+    options?: RequestInit
+): Promise<warehouseViewLinkValidateCreateResponse> => {
+    return apiMutator<warehouseViewLinkValidateCreateResponse>(getWarehouseViewLinkValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkValidationApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksListResponse200 = {
+    data: PaginatedViewLinkListApi
+    status: 200
+}
+
+export type warehouseViewLinksListResponseSuccess = warehouseViewLinksListResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinksListResponse = warehouseViewLinksListResponseSuccess
+
+export const getWarehouseViewLinksListUrl = (projectId: string, params?: WarehouseViewLinksListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_view_links/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_view_links/`
+}
+
+export const warehouseViewLinksList = async (
+    projectId: string,
+    params?: WarehouseViewLinksListParams,
+    options?: RequestInit
+): Promise<warehouseViewLinksListResponse> => {
+    return apiMutator<warehouseViewLinksListResponse>(getWarehouseViewLinksListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksCreateResponse201 = {
+    data: ViewLinkApi
+    status: 201
+}
+
+export type warehouseViewLinksCreateResponseSuccess = warehouseViewLinksCreateResponse201 & {
+    headers: Headers
+}
+export type warehouseViewLinksCreateResponse = warehouseViewLinksCreateResponseSuccess
+
+export const getWarehouseViewLinksCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/`
+}
+
+export const warehouseViewLinksCreate = async (
+    projectId: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<warehouseViewLinksCreateResponse> => {
+    return apiMutator<warehouseViewLinksCreateResponse>(getWarehouseViewLinksCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksRetrieveResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type warehouseViewLinksRetrieveResponseSuccess = warehouseViewLinksRetrieveResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinksRetrieveResponse = warehouseViewLinksRetrieveResponseSuccess
+
+export const getWarehouseViewLinksRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/${id}/`
+}
+
+export const warehouseViewLinksRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseViewLinksRetrieveResponse> => {
+    return apiMutator<warehouseViewLinksRetrieveResponse>(getWarehouseViewLinksRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksUpdateResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type warehouseViewLinksUpdateResponseSuccess = warehouseViewLinksUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinksUpdateResponse = warehouseViewLinksUpdateResponseSuccess
+
+export const getWarehouseViewLinksUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/${id}/`
+}
+
+export const warehouseViewLinksUpdate = async (
+    projectId: string,
+    id: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<warehouseViewLinksUpdateResponse> => {
+    return apiMutator<warehouseViewLinksUpdateResponse>(getWarehouseViewLinksUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksPartialUpdateResponse200 = {
+    data: ViewLinkApi
+    status: 200
+}
+
+export type warehouseViewLinksPartialUpdateResponseSuccess = warehouseViewLinksPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinksPartialUpdateResponse = warehouseViewLinksPartialUpdateResponseSuccess
+
+export const getWarehouseViewLinksPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/${id}/`
+}
+
+export const warehouseViewLinksPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedViewLinkApi: NonReadonly<PatchedViewLinkApi>,
+    options?: RequestInit
+): Promise<warehouseViewLinksPartialUpdateResponse> => {
+    return apiMutator<warehouseViewLinksPartialUpdateResponse>(getWarehouseViewLinksPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedViewLinkApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type warehouseViewLinksDestroyResponseSuccess = warehouseViewLinksDestroyResponse204 & {
+    headers: Headers
+}
+export type warehouseViewLinksDestroyResponse = warehouseViewLinksDestroyResponseSuccess
+
+export const getWarehouseViewLinksDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/${id}/`
+}
+
+export const warehouseViewLinksDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseViewLinksDestroyResponse> => {
+    return apiMutator<warehouseViewLinksDestroyResponse>(getWarehouseViewLinksDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksValidateCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type warehouseViewLinksValidateCreateResponseSuccess = warehouseViewLinksValidateCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinksValidateCreateResponse = warehouseViewLinksValidateCreateResponseSuccess
+
+export const getWarehouseViewLinksValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/validate/`
+}
+
+export const warehouseViewLinksValidateCreate = async (
+    projectId: string,
+    viewLinkValidationApi: ViewLinkValidationApi,
+    options?: RequestInit
+): Promise<warehouseViewLinksValidateCreateResponse> => {
+    return apiMutator<warehouseViewLinksValidateCreateResponse>(getWarehouseViewLinksValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkValidationApi),
+    })
 }

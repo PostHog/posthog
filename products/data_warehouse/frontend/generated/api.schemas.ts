@@ -473,6 +473,145 @@ export interface PatchedDataWarehouseSavedQueryDraftApi {
     edited_history_id?: string | null
 }
 
+/**
+ * * `CSV` - CSV
+ * `CSVWithNames` - CSVWithNames
+ * `Parquet` - Parquet
+ * `JSONEachRow` - JSON
+ * `Delta` - Delta
+ * `DeltaS3Wrapper` - DeltaS3Wrapper
+ */
+export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
+
+export const TableFormatEnumApi = {
+    CSV: 'CSV',
+    CSVWithNames: 'CSVWithNames',
+    Parquet: 'Parquet',
+    JSONEachRow: 'JSONEachRow',
+    Delta: 'Delta',
+    DeltaS3Wrapper: 'DeltaS3Wrapper',
+} as const
+
+export interface CredentialApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @maxLength 500 */
+    access_key: string
+    /** @maxLength 500 */
+    access_secret: string
+}
+
+export interface SimpleExternalDataSourceSerializersApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    readonly status: string
+    readonly source_type: SourceTypeEnumApi
+}
+
+export interface TableApi {
+    readonly id: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name: string
+    format: TableFormatEnumApi
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @maxLength 500 */
+    url_pattern: string
+    credential: CredentialApi
+    readonly columns: string
+    readonly external_data_source: SimpleExternalDataSourceSerializersApi
+    readonly external_schema: string
+}
+
+export interface PaginatedTableListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TableApi[]
+}
+
+export interface PatchedTableApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name?: string
+    format?: TableFormatEnumApi
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 500 */
+    url_pattern?: string
+    credential?: CredentialApi
+    readonly columns?: string
+    readonly external_data_source?: SimpleExternalDataSourceSerializersApi
+    readonly external_schema?: string
+}
+
+export interface ViewLinkApi {
+    readonly id: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @maxLength 400 */
+    source_table_name: string
+    /** @maxLength 400 */
+    source_table_key: string
+    /** @maxLength 400 */
+    joining_table_name: string
+    /** @maxLength 400 */
+    joining_table_key: string
+    /** @maxLength 400 */
+    field_name: string
+    configuration?: unknown | null
+}
+
+export interface PaginatedViewLinkListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ViewLinkApi[]
+}
+
+export interface PatchedViewLinkApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 400 */
+    source_table_name?: string
+    /** @maxLength 400 */
+    source_table_key?: string
+    /** @maxLength 400 */
+    joining_table_name?: string
+    /** @maxLength 400 */
+    joining_table_key?: string
+    /** @maxLength 400 */
+    field_name?: string
+    configuration?: unknown | null
+}
+
+export interface ViewLinkValidationApi {
+    /** @maxLength 255 */
+    joining_table_name: string
+    /** @maxLength 255 */
+    joining_table_key: string
+    /** @maxLength 255 */
+    source_table_name: string
+    /** @maxLength 255 */
+    source_table_key: string
+}
+
 export interface QueryTabStateApi {
     readonly id: string
     /** 
@@ -556,6 +695,51 @@ export type EnvironmentsWarehouseSavedQueryDraftsListParams = {
     offset?: number
 }
 
+export type EnvironmentsWarehouseTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type EnvironmentsWarehouseViewLinkListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type EnvironmentsWarehouseViewLinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
 export type DataModelingJobsListParams = {
     /**
      * The pagination cursor value.
@@ -602,6 +786,51 @@ export type WarehouseSavedQueriesListParams = {
      * A page number within the paginated result set.
      */
     page?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinkListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
     /**
      * A search term.
      */

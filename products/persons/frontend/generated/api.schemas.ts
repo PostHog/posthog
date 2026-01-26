@@ -396,18 +396,6 @@ export const EnvironmentsPersonsBulkDeleteCreateFormat = {
     json: 'json',
 } as const
 
-export type EnvironmentsPersonsCohortsRetrieveParams = {
-    format?: EnvironmentsPersonsCohortsRetrieveFormat
-}
-
-export type EnvironmentsPersonsCohortsRetrieveFormat =
-    (typeof EnvironmentsPersonsCohortsRetrieveFormat)[keyof typeof EnvironmentsPersonsCohortsRetrieveFormat]
-
-export const EnvironmentsPersonsCohortsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
 export type EnvironmentsPersonsFunnelRetrieveParams = {
     format?: EnvironmentsPersonsFunnelRetrieveFormat
 }
@@ -695,18 +683,6 @@ export type PersonsBulkDeleteCreateFormat =
     (typeof PersonsBulkDeleteCreateFormat)[keyof typeof PersonsBulkDeleteCreateFormat]
 
 export const PersonsBulkDeleteCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsCohortsRetrieveParams = {
-    format?: PersonsCohortsRetrieveFormat
-}
-
-export type PersonsCohortsRetrieveFormat =
-    (typeof PersonsCohortsRetrieveFormat)[keyof typeof PersonsCohortsRetrieveFormat]
-
-export const PersonsCohortsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
 } as const

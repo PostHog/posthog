@@ -9,16 +9,45 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    BatchCheckRequestApi,
+    BatchCheckResponseApi,
+    ClusteringRunRequestApi,
     DatasetApi,
     DatasetItemApi,
     DatasetItemsListParams,
     DatasetsListParams,
     EnvironmentsDatasetItemsListParams,
     EnvironmentsDatasetsListParams,
+    EnvironmentsEvaluationsListParams,
+    EnvironmentsLlmAnalyticsProviderKeysListParams,
+    EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate400,
+    EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate403,
+    EnvironmentsLlmAnalyticsSummarizationCreate400,
+    EnvironmentsLlmAnalyticsSummarizationCreate403,
+    EnvironmentsLlmAnalyticsSummarizationCreate500,
+    EnvironmentsLlmAnalyticsTextReprCreate400,
+    EnvironmentsLlmAnalyticsTextReprCreate500,
+    EnvironmentsLlmAnalyticsTextReprCreate503,
+    EvaluationApi,
+    FeatureFlagsEvaluationReasonsRetrieveParams,
+    FeatureFlagsLocalEvaluationRetrieve402,
+    FeatureFlagsLocalEvaluationRetrieve500,
+    FeatureFlagsLocalEvaluationRetrieveParams,
+    LLMProviderKeyApi,
+    LocalEvaluationResponseApi,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
+    PaginatedEvaluationListApi,
+    PaginatedLLMProviderKeyListApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
+    PatchedEvaluationApi,
+    PatchedLLMProviderKeyApi,
+    SummarizeRequestApi,
+    SummarizeResponseApi,
+    TeamApi,
+    TextReprRequestApi,
+    TextReprResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -390,6 +419,845 @@ export const environmentsDatasetsDestroy = async (
     })
 }
 
+/**
+ * Create a new evaluation run.
+
+This endpoint validates the request and enqueues a Temporal workflow
+to asynchronously execute the evaluation.
+ */
+export type environmentsEvaluationRunsCreateResponse201 = {
+    data: void
+    status: 201
+}
+
+export type environmentsEvaluationRunsCreateResponseSuccess = environmentsEvaluationRunsCreateResponse201 & {
+    headers: Headers
+}
+export type environmentsEvaluationRunsCreateResponse = environmentsEvaluationRunsCreateResponseSuccess
+
+export const getEnvironmentsEvaluationRunsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/evaluation_runs/`
+}
+
+export const environmentsEvaluationRunsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsEvaluationRunsCreateResponse> => {
+    return apiMutator<environmentsEvaluationRunsCreateResponse>(getEnvironmentsEvaluationRunsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export type environmentsEvaluationsListResponse200 = {
+    data: PaginatedEvaluationListApi
+    status: 200
+}
+
+export type environmentsEvaluationsListResponseSuccess = environmentsEvaluationsListResponse200 & {
+    headers: Headers
+}
+export type environmentsEvaluationsListResponse = environmentsEvaluationsListResponseSuccess
+
+export const getEnvironmentsEvaluationsListUrl = (projectId: string, params?: EnvironmentsEvaluationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/evaluations/?${stringifiedParams}`
+        : `/api/environments/${projectId}/evaluations/`
+}
+
+export const environmentsEvaluationsList = async (
+    projectId: string,
+    params?: EnvironmentsEvaluationsListParams,
+    options?: RequestInit
+): Promise<environmentsEvaluationsListResponse> => {
+    return apiMutator<environmentsEvaluationsListResponse>(getEnvironmentsEvaluationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type environmentsEvaluationsCreateResponse201 = {
+    data: EvaluationApi
+    status: 201
+}
+
+export type environmentsEvaluationsCreateResponseSuccess = environmentsEvaluationsCreateResponse201 & {
+    headers: Headers
+}
+export type environmentsEvaluationsCreateResponse = environmentsEvaluationsCreateResponseSuccess
+
+export const getEnvironmentsEvaluationsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/evaluations/`
+}
+
+export const environmentsEvaluationsCreate = async (
+    projectId: string,
+    evaluationApi: NonReadonly<EvaluationApi>,
+    options?: RequestInit
+): Promise<environmentsEvaluationsCreateResponse> => {
+    return apiMutator<environmentsEvaluationsCreateResponse>(getEnvironmentsEvaluationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationApi),
+    })
+}
+
+export type environmentsEvaluationsRetrieveResponse200 = {
+    data: EvaluationApi
+    status: 200
+}
+
+export type environmentsEvaluationsRetrieveResponseSuccess = environmentsEvaluationsRetrieveResponse200 & {
+    headers: Headers
+}
+export type environmentsEvaluationsRetrieveResponse = environmentsEvaluationsRetrieveResponseSuccess
+
+export const getEnvironmentsEvaluationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/evaluations/${id}/`
+}
+
+export const environmentsEvaluationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsEvaluationsRetrieveResponse> => {
+    return apiMutator<environmentsEvaluationsRetrieveResponse>(getEnvironmentsEvaluationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type environmentsEvaluationsUpdateResponse200 = {
+    data: EvaluationApi
+    status: 200
+}
+
+export type environmentsEvaluationsUpdateResponseSuccess = environmentsEvaluationsUpdateResponse200 & {
+    headers: Headers
+}
+export type environmentsEvaluationsUpdateResponse = environmentsEvaluationsUpdateResponseSuccess
+
+export const getEnvironmentsEvaluationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/evaluations/${id}/`
+}
+
+export const environmentsEvaluationsUpdate = async (
+    projectId: string,
+    id: string,
+    evaluationApi: NonReadonly<EvaluationApi>,
+    options?: RequestInit
+): Promise<environmentsEvaluationsUpdateResponse> => {
+    return apiMutator<environmentsEvaluationsUpdateResponse>(getEnvironmentsEvaluationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationApi),
+    })
+}
+
+export type environmentsEvaluationsPartialUpdateResponse200 = {
+    data: EvaluationApi
+    status: 200
+}
+
+export type environmentsEvaluationsPartialUpdateResponseSuccess = environmentsEvaluationsPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type environmentsEvaluationsPartialUpdateResponse = environmentsEvaluationsPartialUpdateResponseSuccess
+
+export const getEnvironmentsEvaluationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/evaluations/${id}/`
+}
+
+export const environmentsEvaluationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedEvaluationApi: NonReadonly<PatchedEvaluationApi>,
+    options?: RequestInit
+): Promise<environmentsEvaluationsPartialUpdateResponse> => {
+    return apiMutator<environmentsEvaluationsPartialUpdateResponse>(
+        getEnvironmentsEvaluationsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedEvaluationApi),
+        }
+    )
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export type environmentsEvaluationsDestroyResponse405 = {
+    data: void
+    status: 405
+}
+export type environmentsEvaluationsDestroyResponseError = environmentsEvaluationsDestroyResponse405 & {
+    headers: Headers
+}
+
+export type environmentsEvaluationsDestroyResponse = environmentsEvaluationsDestroyResponseError
+
+export const getEnvironmentsEvaluationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/evaluations/${id}/`
+}
+
+export const environmentsEvaluationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsEvaluationsDestroyResponse> => {
+    return apiMutator<environmentsEvaluationsDestroyResponse>(getEnvironmentsEvaluationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Trigger a new clustering workflow run.
+
+This endpoint validates the request parameters and starts a Temporal workflow
+to perform trace clustering with the specified configuration.
+ */
+export type environmentsLlmAnalyticsClusteringRunsCreateResponse201 = {
+    data: ClusteringRunRequestApi
+    status: 201
+}
+
+export type environmentsLlmAnalyticsClusteringRunsCreateResponseSuccess =
+    environmentsLlmAnalyticsClusteringRunsCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsClusteringRunsCreateResponse =
+    environmentsLlmAnalyticsClusteringRunsCreateResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsClusteringRunsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_runs/`
+}
+
+export const environmentsLlmAnalyticsClusteringRunsCreate = async (
+    projectId: string,
+    clusteringRunRequestApi: ClusteringRunRequestApi,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsClusteringRunsCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsClusteringRunsCreateResponse>(
+        getEnvironmentsLlmAnalyticsClusteringRunsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(clusteringRunRequestApi),
+        }
+    )
+}
+
+/**
+ * Get the evaluation config for this team
+ */
+export type environmentsLlmAnalyticsEvaluationConfigRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsLlmAnalyticsEvaluationConfigRetrieveResponseSuccess =
+    environmentsLlmAnalyticsEvaluationConfigRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsEvaluationConfigRetrieveResponse =
+    environmentsLlmAnalyticsEvaluationConfigRetrieveResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsEvaluationConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_config/`
+}
+
+export const environmentsLlmAnalyticsEvaluationConfigRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsEvaluationConfigRetrieveResponse> => {
+    return apiMutator<environmentsLlmAnalyticsEvaluationConfigRetrieveResponse>(
+        getEnvironmentsLlmAnalyticsEvaluationConfigRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Set the active provider key for evaluations
+ */
+export type environmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateResponseSuccess =
+    environmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateResponse =
+    environmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_config/set_active_key/`
+}
+
+export const environmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateResponse>(
+        getEnvironmentsLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+/**
+ * Validate LLM provider API keys without persisting them
+ */
+export type environmentsLlmAnalyticsProviderKeyValidationsCreateResponse201 = {
+    data: void
+    status: 201
+}
+
+export type environmentsLlmAnalyticsProviderKeyValidationsCreateResponseSuccess =
+    environmentsLlmAnalyticsProviderKeyValidationsCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsProviderKeyValidationsCreateResponse =
+    environmentsLlmAnalyticsProviderKeyValidationsCreateResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsProviderKeyValidationsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_key_validations/`
+}
+
+export const environmentsLlmAnalyticsProviderKeyValidationsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsProviderKeyValidationsCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsProviderKeyValidationsCreateResponse>(
+        getEnvironmentsLlmAnalyticsProviderKeyValidationsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export type environmentsLlmAnalyticsProviderKeysListResponse200 = {
+    data: PaginatedLLMProviderKeyListApi
+    status: 200
+}
+
+export type environmentsLlmAnalyticsProviderKeysListResponseSuccess =
+    environmentsLlmAnalyticsProviderKeysListResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsProviderKeysListResponse = environmentsLlmAnalyticsProviderKeysListResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsProviderKeysListUrl = (
+    projectId: string,
+    params?: EnvironmentsLlmAnalyticsProviderKeysListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/provider_keys/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/provider_keys/`
+}
+
+export const environmentsLlmAnalyticsProviderKeysList = async (
+    projectId: string,
+    params?: EnvironmentsLlmAnalyticsProviderKeysListParams,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsProviderKeysListResponse> => {
+    return apiMutator<environmentsLlmAnalyticsProviderKeysListResponse>(
+        getEnvironmentsLlmAnalyticsProviderKeysListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsLlmAnalyticsProviderKeysCreateResponse201 = {
+    data: LLMProviderKeyApi
+    status: 201
+}
+
+export type environmentsLlmAnalyticsProviderKeysCreateResponseSuccess =
+    environmentsLlmAnalyticsProviderKeysCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsProviderKeysCreateResponse =
+    environmentsLlmAnalyticsProviderKeysCreateResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsProviderKeysCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/`
+}
+
+export const environmentsLlmAnalyticsProviderKeysCreate = async (
+    projectId: string,
+    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsProviderKeysCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsProviderKeysCreateResponse>(
+        getEnvironmentsLlmAnalyticsProviderKeysCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(lLMProviderKeyApi),
+        }
+    )
+}
+
+export type environmentsLlmAnalyticsProviderKeysRetrieveResponse200 = {
+    data: LLMProviderKeyApi
+    status: 200
+}
+
+export type environmentsLlmAnalyticsProviderKeysRetrieveResponseSuccess =
+    environmentsLlmAnalyticsProviderKeysRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsProviderKeysRetrieveResponse =
+    environmentsLlmAnalyticsProviderKeysRetrieveResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsProviderKeysRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/`
+}
+
+export const environmentsLlmAnalyticsProviderKeysRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsProviderKeysRetrieveResponse> => {
+    return apiMutator<environmentsLlmAnalyticsProviderKeysRetrieveResponse>(
+        getEnvironmentsLlmAnalyticsProviderKeysRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsLlmAnalyticsProviderKeysUpdateResponse200 = {
+    data: LLMProviderKeyApi
+    status: 200
+}
+
+export type environmentsLlmAnalyticsProviderKeysUpdateResponseSuccess =
+    environmentsLlmAnalyticsProviderKeysUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsProviderKeysUpdateResponse =
+    environmentsLlmAnalyticsProviderKeysUpdateResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsProviderKeysUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/`
+}
+
+export const environmentsLlmAnalyticsProviderKeysUpdate = async (
+    projectId: string,
+    id: string,
+    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsProviderKeysUpdateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsProviderKeysUpdateResponse>(
+        getEnvironmentsLlmAnalyticsProviderKeysUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(lLMProviderKeyApi),
+        }
+    )
+}
+
+export type environmentsLlmAnalyticsProviderKeysPartialUpdateResponse200 = {
+    data: LLMProviderKeyApi
+    status: 200
+}
+
+export type environmentsLlmAnalyticsProviderKeysPartialUpdateResponseSuccess =
+    environmentsLlmAnalyticsProviderKeysPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsProviderKeysPartialUpdateResponse =
+    environmentsLlmAnalyticsProviderKeysPartialUpdateResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsProviderKeysPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/`
+}
+
+export const environmentsLlmAnalyticsProviderKeysPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLLMProviderKeyApi: NonReadonly<PatchedLLMProviderKeyApi>,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsProviderKeysPartialUpdateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsProviderKeysPartialUpdateResponse>(
+        getEnvironmentsLlmAnalyticsProviderKeysPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedLLMProviderKeyApi),
+        }
+    )
+}
+
+export type environmentsLlmAnalyticsProviderKeysDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsLlmAnalyticsProviderKeysDestroyResponseSuccess =
+    environmentsLlmAnalyticsProviderKeysDestroyResponse204 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsProviderKeysDestroyResponse =
+    environmentsLlmAnalyticsProviderKeysDestroyResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsProviderKeysDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/`
+}
+
+export const environmentsLlmAnalyticsProviderKeysDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsProviderKeysDestroyResponse> => {
+    return apiMutator<environmentsLlmAnalyticsProviderKeysDestroyResponse>(
+        getEnvironmentsLlmAnalyticsProviderKeysDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export type environmentsLlmAnalyticsProviderKeysValidateCreateResponse200 = {
+    data: LLMProviderKeyApi
+    status: 200
+}
+
+export type environmentsLlmAnalyticsProviderKeysValidateCreateResponseSuccess =
+    environmentsLlmAnalyticsProviderKeysValidateCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsProviderKeysValidateCreateResponse =
+    environmentsLlmAnalyticsProviderKeysValidateCreateResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsProviderKeysValidateCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/validate/`
+}
+
+export const environmentsLlmAnalyticsProviderKeysValidateCreate = async (
+    projectId: string,
+    id: string,
+    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsProviderKeysValidateCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsProviderKeysValidateCreateResponse>(
+        getEnvironmentsLlmAnalyticsProviderKeysValidateCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(lLMProviderKeyApi),
+        }
+    )
+}
+
+/**
+ * 
+Generate an AI-powered summary of an LLM trace or event.
+
+This endpoint analyzes the provided trace/event, generates a line-numbered text
+representation, and uses an LLM to create a concise summary with line references.
+
+**Summary Format:**
+- 5-10 bullet points covering main flow and key decisions
+- "Interesting Notes" section for failures, successes, or unusual patterns
+- Line references in [L45] or [L45-52] format pointing to relevant sections
+
+**Use Cases:**
+- Quick understanding of complex traces
+- Identifying key events and patterns
+- Debugging with AI-assisted analysis
+- Documentation and reporting
+
+The response includes the summary text and optional metadata.
+        
+ */
+export type environmentsLlmAnalyticsSummarizationCreateResponse200 = {
+    data: SummarizeResponseApi
+    status: 200
+}
+
+export type environmentsLlmAnalyticsSummarizationCreateResponse400 = {
+    data: EnvironmentsLlmAnalyticsSummarizationCreate400
+    status: 400
+}
+
+export type environmentsLlmAnalyticsSummarizationCreateResponse403 = {
+    data: EnvironmentsLlmAnalyticsSummarizationCreate403
+    status: 403
+}
+
+export type environmentsLlmAnalyticsSummarizationCreateResponse500 = {
+    data: EnvironmentsLlmAnalyticsSummarizationCreate500
+    status: 500
+}
+
+export type environmentsLlmAnalyticsSummarizationCreateResponseSuccess =
+    environmentsLlmAnalyticsSummarizationCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsSummarizationCreateResponseError = (
+    | environmentsLlmAnalyticsSummarizationCreateResponse400
+    | environmentsLlmAnalyticsSummarizationCreateResponse403
+    | environmentsLlmAnalyticsSummarizationCreateResponse500
+) & {
+    headers: Headers
+}
+
+export type environmentsLlmAnalyticsSummarizationCreateResponse =
+    | environmentsLlmAnalyticsSummarizationCreateResponseSuccess
+    | environmentsLlmAnalyticsSummarizationCreateResponseError
+
+export const getEnvironmentsLlmAnalyticsSummarizationCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/summarization/`
+}
+
+export const environmentsLlmAnalyticsSummarizationCreate = async (
+    projectId: string,
+    summarizeRequestApi: SummarizeRequestApi,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsSummarizationCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsSummarizationCreateResponse>(
+        getEnvironmentsLlmAnalyticsSummarizationCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(summarizeRequestApi),
+        }
+    )
+}
+
+/**
+ * 
+Check which traces have cached summaries available.
+
+This endpoint allows batch checking of multiple trace IDs to see which ones
+have cached summaries. Returns only the traces that have cached summaries
+with their titles.
+
+**Use Cases:**
+- Load cached summaries on session view load
+- Avoid unnecessary LLM calls for already-summarized traces
+- Display summary previews without generating new summaries
+        
+ */
+export type environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse200 = {
+    data: BatchCheckResponseApi
+    status: 200
+}
+
+export type environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse400 = {
+    data: EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate400
+    status: 400
+}
+
+export type environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse403 = {
+    data: EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate403
+    status: 403
+}
+
+export type environmentsLlmAnalyticsSummarizationBatchCheckCreateResponseSuccess =
+    environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsSummarizationBatchCheckCreateResponseError = (
+    | environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse400
+    | environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse403
+) & {
+    headers: Headers
+}
+
+export type environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse =
+    | environmentsLlmAnalyticsSummarizationBatchCheckCreateResponseSuccess
+    | environmentsLlmAnalyticsSummarizationBatchCheckCreateResponseError
+
+export const getEnvironmentsLlmAnalyticsSummarizationBatchCheckCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/summarization/batch_check/`
+}
+
+export const environmentsLlmAnalyticsSummarizationBatchCheckCreate = async (
+    projectId: string,
+    batchCheckRequestApi: BatchCheckRequestApi,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsSummarizationBatchCheckCreateResponse>(
+        getEnvironmentsLlmAnalyticsSummarizationBatchCheckCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(batchCheckRequestApi),
+        }
+    )
+}
+
+/**
+ * 
+Generate a human-readable text representation of an LLM trace event.
+
+This endpoint converts LLM analytics events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
+into formatted text representations suitable for display, logging, or analysis.
+
+**Supported Event Types:**
+- `$ai_generation`: Individual LLM API calls with input/output messages
+- `$ai_span`: Logical spans with state transitions
+- `$ai_embedding`: Embedding generation events (text input → vector)
+- `$ai_trace`: Full traces with hierarchical structure
+
+**Options:**
+- `max_length`: Maximum character count (default: 2000000)
+- `truncated`: Enable middle-content truncation within events (default: true)
+- `truncate_buffer`: Characters at start/end when truncating (default: 1000)
+- `include_markers`: Use interactive markers vs plain text indicators (default: true)
+  - Frontend: set true for `<<<TRUNCATED|base64|...>>>` markers
+  - Backend/LLM: set false for `... (X chars truncated) ...` text
+- `collapsed`: Show summary vs full trace tree (default: false)
+- `include_hierarchy`: Include tree structure for traces (default: true)
+- `max_depth`: Maximum depth for hierarchical rendering (default: unlimited)
+- `tools_collapse_threshold`: Number of tools before auto-collapsing list (default: 5)
+  - Tool lists >5 items show `<<<TOOLS_EXPANDABLE|...>>>` marker for frontend
+  - Or `[+] AVAILABLE TOOLS: N` for backend when `include_markers: false`
+- `include_line_numbers`: Prefix each line with line number like L001:, L010: (default: false)
+
+**Use Cases:**
+- Frontend display: `truncated: true, include_markers: true, include_line_numbers: true`
+- Backend LLM context (summary): `truncated: true, include_markers: false, collapsed: true`
+- Backend LLM context (full): `truncated: false`
+
+The response includes the formatted text and metadata about the rendering.
+        
+ */
+export type environmentsLlmAnalyticsTextReprCreateResponse200 = {
+    data: TextReprResponseApi
+    status: 200
+}
+
+export type environmentsLlmAnalyticsTextReprCreateResponse400 = {
+    data: EnvironmentsLlmAnalyticsTextReprCreate400
+    status: 400
+}
+
+export type environmentsLlmAnalyticsTextReprCreateResponse500 = {
+    data: EnvironmentsLlmAnalyticsTextReprCreate500
+    status: 500
+}
+
+export type environmentsLlmAnalyticsTextReprCreateResponse503 = {
+    data: EnvironmentsLlmAnalyticsTextReprCreate503
+    status: 503
+}
+
+export type environmentsLlmAnalyticsTextReprCreateResponseSuccess =
+    environmentsLlmAnalyticsTextReprCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsTextReprCreateResponseError = (
+    | environmentsLlmAnalyticsTextReprCreateResponse400
+    | environmentsLlmAnalyticsTextReprCreateResponse500
+    | environmentsLlmAnalyticsTextReprCreateResponse503
+) & {
+    headers: Headers
+}
+
+export type environmentsLlmAnalyticsTextReprCreateResponse =
+    | environmentsLlmAnalyticsTextReprCreateResponseSuccess
+    | environmentsLlmAnalyticsTextReprCreateResponseError
+
+export const getEnvironmentsLlmAnalyticsTextReprCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/text_repr/`
+}
+
+export const environmentsLlmAnalyticsTextReprCreate = async (
+    projectId: string,
+    textReprRequestApi: TextReprRequestApi,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsTextReprCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsTextReprCreateResponse>(
+        getEnvironmentsLlmAnalyticsTextReprCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(textReprRequestApi),
+        }
+    )
+}
+
+/**
+ * Translate text to target language.
+ */
+export type environmentsLlmAnalyticsTranslateCreateResponse201 = {
+    data: void
+    status: 201
+}
+
+export type environmentsLlmAnalyticsTranslateCreateResponseSuccess =
+    environmentsLlmAnalyticsTranslateCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsLlmAnalyticsTranslateCreateResponse = environmentsLlmAnalyticsTranslateCreateResponseSuccess
+
+export const getEnvironmentsLlmAnalyticsTranslateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/translate/`
+}
+
+export const environmentsLlmAnalyticsTranslateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsLlmAnalyticsTranslateCreateResponse> => {
+    return apiMutator<environmentsLlmAnalyticsTranslateCreateResponse>(
+        getEnvironmentsLlmAnalyticsTranslateCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export type datasetItemsListResponse200 = {
     data: PaginatedDatasetItemListApi
     status: 200
@@ -734,4 +1602,218 @@ export const datasetsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+/**
+ * Manage default evaluation tags for a team
+ */
+export type environmentsDefaultEvaluationTagsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsDefaultEvaluationTagsRetrieveResponseSuccess =
+    environmentsDefaultEvaluationTagsRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsDefaultEvaluationTagsRetrieveResponse = environmentsDefaultEvaluationTagsRetrieveResponseSuccess
+
+export const getEnvironmentsDefaultEvaluationTagsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/default_evaluation_tags/`
+}
+
+export const environmentsDefaultEvaluationTagsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<environmentsDefaultEvaluationTagsRetrieveResponse> => {
+    return apiMutator<environmentsDefaultEvaluationTagsRetrieveResponse>(
+        getEnvironmentsDefaultEvaluationTagsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Manage default evaluation tags for a team
+ */
+export type environmentsDefaultEvaluationTagsCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsDefaultEvaluationTagsCreateResponseSuccess =
+    environmentsDefaultEvaluationTagsCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsDefaultEvaluationTagsCreateResponse = environmentsDefaultEvaluationTagsCreateResponseSuccess
+
+export const getEnvironmentsDefaultEvaluationTagsCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/default_evaluation_tags/`
+}
+
+export const environmentsDefaultEvaluationTagsCreate = async (
+    projectId: string,
+    id: number,
+    teamApi: NonReadonly<TeamApi>,
+    options?: RequestInit
+): Promise<environmentsDefaultEvaluationTagsCreateResponse> => {
+    return apiMutator<environmentsDefaultEvaluationTagsCreateResponse>(
+        getEnvironmentsDefaultEvaluationTagsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(teamApi),
+        }
+    )
+}
+
+/**
+ * Manage default evaluation tags for a team
+ */
+export type environmentsDefaultEvaluationTagsDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsDefaultEvaluationTagsDestroyResponseSuccess =
+    environmentsDefaultEvaluationTagsDestroyResponse204 & {
+        headers: Headers
+    }
+export type environmentsDefaultEvaluationTagsDestroyResponse = environmentsDefaultEvaluationTagsDestroyResponseSuccess
+
+export const getEnvironmentsDefaultEvaluationTagsDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/default_evaluation_tags/`
+}
+
+export const environmentsDefaultEvaluationTagsDestroy = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<environmentsDefaultEvaluationTagsDestroyResponse> => {
+    return apiMutator<environmentsDefaultEvaluationTagsDestroyResponse>(
+        getEnvironmentsDefaultEvaluationTagsDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export type featureFlagsEvaluationReasonsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type featureFlagsEvaluationReasonsRetrieveResponseSuccess = featureFlagsEvaluationReasonsRetrieveResponse200 & {
+    headers: Headers
+}
+export type featureFlagsEvaluationReasonsRetrieveResponse = featureFlagsEvaluationReasonsRetrieveResponseSuccess
+
+export const getFeatureFlagsEvaluationReasonsRetrieveUrl = (
+    projectId: string,
+    params: FeatureFlagsEvaluationReasonsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flags/evaluation_reasons/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flags/evaluation_reasons/`
+}
+
+export const featureFlagsEvaluationReasonsRetrieve = async (
+    projectId: string,
+    params: FeatureFlagsEvaluationReasonsRetrieveParams,
+    options?: RequestInit
+): Promise<featureFlagsEvaluationReasonsRetrieveResponse> => {
+    return apiMutator<featureFlagsEvaluationReasonsRetrieveResponse>(
+        getFeatureFlagsEvaluationReasonsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export type featureFlagsLocalEvaluationRetrieveResponse200 = {
+    data: LocalEvaluationResponseApi
+    status: 200
+}
+
+export type featureFlagsLocalEvaluationRetrieveResponse402 = {
+    data: FeatureFlagsLocalEvaluationRetrieve402
+    status: 402
+}
+
+export type featureFlagsLocalEvaluationRetrieveResponse500 = {
+    data: FeatureFlagsLocalEvaluationRetrieve500
+    status: 500
+}
+
+export type featureFlagsLocalEvaluationRetrieveResponseSuccess = featureFlagsLocalEvaluationRetrieveResponse200 & {
+    headers: Headers
+}
+export type featureFlagsLocalEvaluationRetrieveResponseError = (
+    | featureFlagsLocalEvaluationRetrieveResponse402
+    | featureFlagsLocalEvaluationRetrieveResponse500
+) & {
+    headers: Headers
+}
+
+export type featureFlagsLocalEvaluationRetrieveResponse =
+    | featureFlagsLocalEvaluationRetrieveResponseSuccess
+    | featureFlagsLocalEvaluationRetrieveResponseError
+
+export const getFeatureFlagsLocalEvaluationRetrieveUrl = (
+    projectId: string,
+    params?: FeatureFlagsLocalEvaluationRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flags/local_evaluation/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flags/local_evaluation/`
+}
+
+export const featureFlagsLocalEvaluationRetrieve = async (
+    projectId: string,
+    params?: FeatureFlagsLocalEvaluationRetrieveParams,
+    options?: RequestInit
+): Promise<featureFlagsLocalEvaluationRetrieveResponse> => {
+    return apiMutator<featureFlagsLocalEvaluationRetrieveResponse>(
+        getFeatureFlagsLocalEvaluationRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

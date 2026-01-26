@@ -9,25 +9,41 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    EnvironmentsErrorTrackingAssignmentRulesListParams,
+    EnvironmentsErrorTrackingExternalReferencesListParams,
     EnvironmentsErrorTrackingFingerprintsListParams,
+    EnvironmentsErrorTrackingGroupingRulesListParams,
     EnvironmentsErrorTrackingIssuesListParams,
     EnvironmentsErrorTrackingReleasesListParams,
     EnvironmentsErrorTrackingStackFramesListParams,
+    EnvironmentsErrorTrackingSuppressionRulesListParams,
     EnvironmentsErrorTrackingSymbolSetsListParams,
+    ErrorTrackingAssignmentRuleApi,
+    ErrorTrackingExternalReferenceApi,
     ErrorTrackingFingerprintApi,
+    ErrorTrackingGroupingRuleApi,
     ErrorTrackingIssueFullApi,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingStackFrameApi,
+    ErrorTrackingSuppressionRuleApi,
     ErrorTrackingSymbolSetApi,
     ErrorTrackingSymbolSetsListParams,
+    PaginatedErrorTrackingAssignmentRuleListApi,
+    PaginatedErrorTrackingExternalReferenceListApi,
     PaginatedErrorTrackingFingerprintListApi,
+    PaginatedErrorTrackingGroupingRuleListApi,
     PaginatedErrorTrackingIssueFullListApi,
     PaginatedErrorTrackingReleaseListApi,
     PaginatedErrorTrackingStackFrameListApi,
+    PaginatedErrorTrackingSuppressionRuleListApi,
     PaginatedErrorTrackingSymbolSetListApi,
+    PatchedErrorTrackingAssignmentRuleApi,
+    PatchedErrorTrackingExternalReferenceApi,
+    PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingIssueFullApi,
     PatchedErrorTrackingReleaseApi,
+    PatchedErrorTrackingSuppressionRuleApi,
     PatchedErrorTrackingSymbolSetApi,
 } from './api.schemas'
 
@@ -47,6 +63,447 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export type environmentsErrorTrackingAssignmentRulesListResponse200 = {
+    data: PaginatedErrorTrackingAssignmentRuleListApi
+    status: 200
+}
+
+export type environmentsErrorTrackingAssignmentRulesListResponseSuccess =
+    environmentsErrorTrackingAssignmentRulesListResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingAssignmentRulesListResponse =
+    environmentsErrorTrackingAssignmentRulesListResponseSuccess
+
+export const getEnvironmentsErrorTrackingAssignmentRulesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingAssignmentRulesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/assignment_rules/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/assignment_rules/`
+}
+
+export const environmentsErrorTrackingAssignmentRulesList = async (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingAssignmentRulesListParams,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingAssignmentRulesListResponse> => {
+    return apiMutator<environmentsErrorTrackingAssignmentRulesListResponse>(
+        getEnvironmentsErrorTrackingAssignmentRulesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingAssignmentRulesCreateResponse201 = {
+    data: ErrorTrackingAssignmentRuleApi
+    status: 201
+}
+
+export type environmentsErrorTrackingAssignmentRulesCreateResponseSuccess =
+    environmentsErrorTrackingAssignmentRulesCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingAssignmentRulesCreateResponse =
+    environmentsErrorTrackingAssignmentRulesCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingAssignmentRulesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/assignment_rules/`
+}
+
+export const environmentsErrorTrackingAssignmentRulesCreate = async (
+    projectId: string,
+    errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingAssignmentRulesCreateResponse> => {
+    return apiMutator<environmentsErrorTrackingAssignmentRulesCreateResponse>(
+        getEnvironmentsErrorTrackingAssignmentRulesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingAssignmentRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingAssignmentRulesRetrieveResponse200 = {
+    data: ErrorTrackingAssignmentRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingAssignmentRulesRetrieveResponseSuccess =
+    environmentsErrorTrackingAssignmentRulesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingAssignmentRulesRetrieveResponse =
+    environmentsErrorTrackingAssignmentRulesRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingAssignmentRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/assignment_rules/${id}/`
+}
+
+export const environmentsErrorTrackingAssignmentRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingAssignmentRulesRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingAssignmentRulesRetrieveResponse>(
+        getEnvironmentsErrorTrackingAssignmentRulesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingAssignmentRulesUpdateResponse200 = {
+    data: ErrorTrackingAssignmentRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingAssignmentRulesUpdateResponseSuccess =
+    environmentsErrorTrackingAssignmentRulesUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingAssignmentRulesUpdateResponse =
+    environmentsErrorTrackingAssignmentRulesUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingAssignmentRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/assignment_rules/${id}/`
+}
+
+export const environmentsErrorTrackingAssignmentRulesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingAssignmentRulesUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingAssignmentRulesUpdateResponse>(
+        getEnvironmentsErrorTrackingAssignmentRulesUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingAssignmentRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingAssignmentRulesPartialUpdateResponse200 = {
+    data: ErrorTrackingAssignmentRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingAssignmentRulesPartialUpdateResponseSuccess =
+    environmentsErrorTrackingAssignmentRulesPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingAssignmentRulesPartialUpdateResponse =
+    environmentsErrorTrackingAssignmentRulesPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingAssignmentRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/assignment_rules/${id}/`
+}
+
+export const environmentsErrorTrackingAssignmentRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingAssignmentRuleApi: NonReadonly<PatchedErrorTrackingAssignmentRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingAssignmentRulesPartialUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingAssignmentRulesPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingAssignmentRulesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingAssignmentRulesDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsErrorTrackingAssignmentRulesDestroyResponseSuccess =
+    environmentsErrorTrackingAssignmentRulesDestroyResponse204 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingAssignmentRulesDestroyResponse =
+    environmentsErrorTrackingAssignmentRulesDestroyResponseSuccess
+
+export const getEnvironmentsErrorTrackingAssignmentRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/assignment_rules/${id}/`
+}
+
+export const environmentsErrorTrackingAssignmentRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingAssignmentRulesDestroyResponse> => {
+    return apiMutator<environmentsErrorTrackingAssignmentRulesDestroyResponse>(
+        getEnvironmentsErrorTrackingAssignmentRulesDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export type environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponseSuccess =
+    environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponse =
+    environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingAssignmentRulesReorderPartialUpdateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/assignment_rules/reorder/`
+}
+
+export const environmentsErrorTrackingAssignmentRulesReorderPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingAssignmentRuleApi: NonReadonly<PatchedErrorTrackingAssignmentRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingAssignmentRulesReorderPartialUpdateUrl(projectId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingExternalReferencesListResponse200 = {
+    data: PaginatedErrorTrackingExternalReferenceListApi
+    status: 200
+}
+
+export type environmentsErrorTrackingExternalReferencesListResponseSuccess =
+    environmentsErrorTrackingExternalReferencesListResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingExternalReferencesListResponse =
+    environmentsErrorTrackingExternalReferencesListResponseSuccess
+
+export const getEnvironmentsErrorTrackingExternalReferencesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingExternalReferencesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/external_references/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/external_references/`
+}
+
+export const environmentsErrorTrackingExternalReferencesList = async (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingExternalReferencesListParams,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingExternalReferencesListResponse> => {
+    return apiMutator<environmentsErrorTrackingExternalReferencesListResponse>(
+        getEnvironmentsErrorTrackingExternalReferencesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingExternalReferencesCreateResponse201 = {
+    data: ErrorTrackingExternalReferenceApi
+    status: 201
+}
+
+export type environmentsErrorTrackingExternalReferencesCreateResponseSuccess =
+    environmentsErrorTrackingExternalReferencesCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingExternalReferencesCreateResponse =
+    environmentsErrorTrackingExternalReferencesCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingExternalReferencesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/external_references/`
+}
+
+export const environmentsErrorTrackingExternalReferencesCreate = async (
+    projectId: string,
+    errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingExternalReferencesCreateResponse> => {
+    return apiMutator<environmentsErrorTrackingExternalReferencesCreateResponse>(
+        getEnvironmentsErrorTrackingExternalReferencesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingExternalReferenceApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingExternalReferencesRetrieveResponse200 = {
+    data: ErrorTrackingExternalReferenceApi
+    status: 200
+}
+
+export type environmentsErrorTrackingExternalReferencesRetrieveResponseSuccess =
+    environmentsErrorTrackingExternalReferencesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingExternalReferencesRetrieveResponse =
+    environmentsErrorTrackingExternalReferencesRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingExternalReferencesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
+}
+
+export const environmentsErrorTrackingExternalReferencesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingExternalReferencesRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingExternalReferencesRetrieveResponse>(
+        getEnvironmentsErrorTrackingExternalReferencesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingExternalReferencesUpdateResponse200 = {
+    data: ErrorTrackingExternalReferenceApi
+    status: 200
+}
+
+export type environmentsErrorTrackingExternalReferencesUpdateResponseSuccess =
+    environmentsErrorTrackingExternalReferencesUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingExternalReferencesUpdateResponse =
+    environmentsErrorTrackingExternalReferencesUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingExternalReferencesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
+}
+
+export const environmentsErrorTrackingExternalReferencesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingExternalReferencesUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingExternalReferencesUpdateResponse>(
+        getEnvironmentsErrorTrackingExternalReferencesUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingExternalReferenceApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingExternalReferencesPartialUpdateResponse200 = {
+    data: ErrorTrackingExternalReferenceApi
+    status: 200
+}
+
+export type environmentsErrorTrackingExternalReferencesPartialUpdateResponseSuccess =
+    environmentsErrorTrackingExternalReferencesPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingExternalReferencesPartialUpdateResponse =
+    environmentsErrorTrackingExternalReferencesPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingExternalReferencesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
+}
+
+export const environmentsErrorTrackingExternalReferencesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingExternalReferenceApi: NonReadonly<PatchedErrorTrackingExternalReferenceApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingExternalReferencesPartialUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingExternalReferencesPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingExternalReferencesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingExternalReferenceApi),
+        }
+    )
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export type environmentsErrorTrackingExternalReferencesDestroyResponse405 = {
+    data: void
+    status: 405
+}
+export type environmentsErrorTrackingExternalReferencesDestroyResponseError =
+    environmentsErrorTrackingExternalReferencesDestroyResponse405 & {
+        headers: Headers
+    }
+
+export type environmentsErrorTrackingExternalReferencesDestroyResponse =
+    environmentsErrorTrackingExternalReferencesDestroyResponseError
+
+export const getEnvironmentsErrorTrackingExternalReferencesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
+}
+
+export const environmentsErrorTrackingExternalReferencesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingExternalReferencesDestroyResponse> => {
+    return apiMutator<environmentsErrorTrackingExternalReferencesDestroyResponse>(
+        getEnvironmentsErrorTrackingExternalReferencesDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
 
 export type environmentsErrorTrackingFingerprintsListResponse200 = {
     data: PaginatedErrorTrackingFingerprintListApi
@@ -151,6 +608,299 @@ export const environmentsErrorTrackingFingerprintsDestroy = async (
         {
             ...options,
             method: 'DELETE',
+        }
+    )
+}
+
+export type environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveResponseSuccess =
+    environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveResponse =
+    environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_github/`
+}
+
+export const environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveResponse>(
+        getEnvironmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveResponseSuccess =
+    environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse =
+    environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_gitlab/`
+}
+
+export const environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse>(
+        getEnvironmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingGroupingRulesListResponse200 = {
+    data: PaginatedErrorTrackingGroupingRuleListApi
+    status: 200
+}
+
+export type environmentsErrorTrackingGroupingRulesListResponseSuccess =
+    environmentsErrorTrackingGroupingRulesListResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGroupingRulesListResponse =
+    environmentsErrorTrackingGroupingRulesListResponseSuccess
+
+export const getEnvironmentsErrorTrackingGroupingRulesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingGroupingRulesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/grouping_rules/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/grouping_rules/`
+}
+
+export const environmentsErrorTrackingGroupingRulesList = async (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingGroupingRulesListParams,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGroupingRulesListResponse> => {
+    return apiMutator<environmentsErrorTrackingGroupingRulesListResponse>(
+        getEnvironmentsErrorTrackingGroupingRulesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingGroupingRulesCreateResponse201 = {
+    data: ErrorTrackingGroupingRuleApi
+    status: 201
+}
+
+export type environmentsErrorTrackingGroupingRulesCreateResponseSuccess =
+    environmentsErrorTrackingGroupingRulesCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGroupingRulesCreateResponse =
+    environmentsErrorTrackingGroupingRulesCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/`
+}
+
+export const environmentsErrorTrackingGroupingRulesCreate = async (
+    projectId: string,
+    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGroupingRulesCreateResponse> => {
+    return apiMutator<environmentsErrorTrackingGroupingRulesCreateResponse>(
+        getEnvironmentsErrorTrackingGroupingRulesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingGroupingRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingGroupingRulesRetrieveResponse200 = {
+    data: ErrorTrackingGroupingRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingGroupingRulesRetrieveResponseSuccess =
+    environmentsErrorTrackingGroupingRulesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGroupingRulesRetrieveResponse =
+    environmentsErrorTrackingGroupingRulesRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingGroupingRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
+}
+
+export const environmentsErrorTrackingGroupingRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGroupingRulesRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingGroupingRulesRetrieveResponse>(
+        getEnvironmentsErrorTrackingGroupingRulesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingGroupingRulesUpdateResponse200 = {
+    data: ErrorTrackingGroupingRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingGroupingRulesUpdateResponseSuccess =
+    environmentsErrorTrackingGroupingRulesUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGroupingRulesUpdateResponse =
+    environmentsErrorTrackingGroupingRulesUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingGroupingRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
+}
+
+export const environmentsErrorTrackingGroupingRulesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGroupingRulesUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingGroupingRulesUpdateResponse>(
+        getEnvironmentsErrorTrackingGroupingRulesUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingGroupingRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingGroupingRulesPartialUpdateResponse200 = {
+    data: ErrorTrackingGroupingRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingGroupingRulesPartialUpdateResponseSuccess =
+    environmentsErrorTrackingGroupingRulesPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGroupingRulesPartialUpdateResponse =
+    environmentsErrorTrackingGroupingRulesPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingGroupingRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
+}
+
+export const environmentsErrorTrackingGroupingRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingGroupingRuleApi: NonReadonly<PatchedErrorTrackingGroupingRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGroupingRulesPartialUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingGroupingRulesPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingGroupingRulesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingGroupingRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingGroupingRulesDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsErrorTrackingGroupingRulesDestroyResponseSuccess =
+    environmentsErrorTrackingGroupingRulesDestroyResponse204 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGroupingRulesDestroyResponse =
+    environmentsErrorTrackingGroupingRulesDestroyResponseSuccess
+
+export const getEnvironmentsErrorTrackingGroupingRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
+}
+
+export const environmentsErrorTrackingGroupingRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGroupingRulesDestroyResponse> => {
+    return apiMutator<environmentsErrorTrackingGroupingRulesDestroyResponse>(
+        getEnvironmentsErrorTrackingGroupingRulesDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export type environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponseSuccess =
+    environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponse =
+    environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingGroupingRulesReorderPartialUpdateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/reorder/`
+}
+
+export const environmentsErrorTrackingGroupingRulesReorderPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingGroupingRuleApi: NonReadonly<PatchedErrorTrackingGroupingRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingGroupingRulesReorderPartialUpdateUrl(projectId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingGroupingRuleApi),
         }
     )
 }
@@ -965,6 +1715,241 @@ export const environmentsErrorTrackingStackFramesBatchGetCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(errorTrackingStackFrameApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingSuppressionRulesListResponse200 = {
+    data: PaginatedErrorTrackingSuppressionRuleListApi
+    status: 200
+}
+
+export type environmentsErrorTrackingSuppressionRulesListResponseSuccess =
+    environmentsErrorTrackingSuppressionRulesListResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSuppressionRulesListResponse =
+    environmentsErrorTrackingSuppressionRulesListResponseSuccess
+
+export const getEnvironmentsErrorTrackingSuppressionRulesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingSuppressionRulesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/suppression_rules/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/suppression_rules/`
+}
+
+export const environmentsErrorTrackingSuppressionRulesList = async (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingSuppressionRulesListParams,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSuppressionRulesListResponse> => {
+    return apiMutator<environmentsErrorTrackingSuppressionRulesListResponse>(
+        getEnvironmentsErrorTrackingSuppressionRulesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingSuppressionRulesCreateResponse201 = {
+    data: ErrorTrackingSuppressionRuleApi
+    status: 201
+}
+
+export type environmentsErrorTrackingSuppressionRulesCreateResponseSuccess =
+    environmentsErrorTrackingSuppressionRulesCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSuppressionRulesCreateResponse =
+    environmentsErrorTrackingSuppressionRulesCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSuppressionRulesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/suppression_rules/`
+}
+
+export const environmentsErrorTrackingSuppressionRulesCreate = async (
+    projectId: string,
+    errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSuppressionRulesCreateResponse> => {
+    return apiMutator<environmentsErrorTrackingSuppressionRulesCreateResponse>(
+        getEnvironmentsErrorTrackingSuppressionRulesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSuppressionRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingSuppressionRulesRetrieveResponse200 = {
+    data: ErrorTrackingSuppressionRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingSuppressionRulesRetrieveResponseSuccess =
+    environmentsErrorTrackingSuppressionRulesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSuppressionRulesRetrieveResponse =
+    environmentsErrorTrackingSuppressionRulesRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingSuppressionRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/suppression_rules/${id}/`
+}
+
+export const environmentsErrorTrackingSuppressionRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSuppressionRulesRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingSuppressionRulesRetrieveResponse>(
+        getEnvironmentsErrorTrackingSuppressionRulesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingSuppressionRulesUpdateResponse200 = {
+    data: ErrorTrackingSuppressionRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingSuppressionRulesUpdateResponseSuccess =
+    environmentsErrorTrackingSuppressionRulesUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSuppressionRulesUpdateResponse =
+    environmentsErrorTrackingSuppressionRulesUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSuppressionRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/suppression_rules/${id}/`
+}
+
+export const environmentsErrorTrackingSuppressionRulesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSuppressionRulesUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingSuppressionRulesUpdateResponse>(
+        getEnvironmentsErrorTrackingSuppressionRulesUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSuppressionRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingSuppressionRulesPartialUpdateResponse200 = {
+    data: ErrorTrackingSuppressionRuleApi
+    status: 200
+}
+
+export type environmentsErrorTrackingSuppressionRulesPartialUpdateResponseSuccess =
+    environmentsErrorTrackingSuppressionRulesPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSuppressionRulesPartialUpdateResponse =
+    environmentsErrorTrackingSuppressionRulesPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSuppressionRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/suppression_rules/${id}/`
+}
+
+export const environmentsErrorTrackingSuppressionRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingSuppressionRuleApi: NonReadonly<PatchedErrorTrackingSuppressionRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSuppressionRulesPartialUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingSuppressionRulesPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingSuppressionRulesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingSuppressionRuleApi),
+        }
+    )
+}
+
+export type environmentsErrorTrackingSuppressionRulesDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsErrorTrackingSuppressionRulesDestroyResponseSuccess =
+    environmentsErrorTrackingSuppressionRulesDestroyResponse204 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSuppressionRulesDestroyResponse =
+    environmentsErrorTrackingSuppressionRulesDestroyResponseSuccess
+
+export const getEnvironmentsErrorTrackingSuppressionRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/suppression_rules/${id}/`
+}
+
+export const environmentsErrorTrackingSuppressionRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSuppressionRulesDestroyResponse> => {
+    return apiMutator<environmentsErrorTrackingSuppressionRulesDestroyResponse>(
+        getEnvironmentsErrorTrackingSuppressionRulesDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export type environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponseSuccess =
+    environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponse =
+    environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSuppressionRulesReorderPartialUpdateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/suppression_rules/reorder/`
+}
+
+export const environmentsErrorTrackingSuppressionRulesReorderPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingSuppressionRuleApi: NonReadonly<PatchedErrorTrackingSuppressionRuleApi>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingSuppressionRulesReorderPartialUpdateUrl(projectId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingSuppressionRuleApi),
         }
     )
 }

@@ -28,24 +28,21 @@ if (!fs.existsSync(schemaPath)) {
 const generateAll = process.argv.includes('--all')
 
 /**
- * Load products.json and build mappings for tag → product routing.
+ * Load product mappings for routing endpoints to output directories.
  *
  * Returns:
- * - knownProducts: Set of all valid product names from products.json (whitelist)
- * - intentToProduct: Map of intent (tag) → product name
  * - productFoldersOnDisk: Set of product folder names that exist in products/
+ * - viewSetMapping: Map of ViewSet snake_case name to product folder
  */
 function loadProductMappings() {
     const productFoldersOnDisk = discoverProductFolders()
+    const viewSetMapping = buildViewSetToProductMapping()
 
-    // Tags should match folder names directly (e.g., @extend_schema(tags=["replay"]))
-    // No need for complex intent mapping - just use folder names as the source of truth
-    return { productFoldersOnDisk }
+    return { productFoldersOnDisk, viewSetMapping }
 }
 
 /**
  * Discover product folders that are ready for TypeScript types.
- * A product is ready if it has a package.json (indicating it's a proper TS package).
  */
 function discoverProductFolders() {
     const products = new Set()
@@ -55,6 +52,86 @@ function discoverProductFolders() {
         }
     }
     return products
+}
+
+/**
+ * Scan products/{product}/backend/ for ViewSet classes and build a mapping.
+ * Returns: Map of viewSetSnakeCase to productFolderName
+ */
+function buildViewSetToProductMapping() {
+    const mapping = new Map()
+
+    for (const entry of fs.readdirSync(productsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name.startsWith('_')) {
+            continue
+        }
+
+        const backendDir = path.join(productsDir, entry.name, 'backend')
+        if (!fs.existsSync(backendDir)) {
+            continue
+        }
+
+        const pyFiles = findPythonFiles(backendDir)
+
+        for (const pyFile of pyFiles) {
+            try {
+                const content = fs.readFileSync(pyFile, 'utf-8')
+                const viewSetRegex = /class\s+(\w+ViewSet)[\s(]/g
+                let match
+                while ((match = viewSetRegex.exec(content)) !== null) {
+                    const viewSetName = match[1]
+                    const snakeCase = viewSetName
+                        .replace(/ViewSet$/, '')
+                        .replace(/([a-z])([A-Z])/g, '$1_$2')
+                        .toLowerCase()
+                    mapping.set(snakeCase, entry.name)
+                }
+            } catch {
+                // Skip unreadable files
+            }
+        }
+    }
+
+    return mapping
+}
+
+/**
+ * Recursively find all .py files in a directory
+ */
+function findPythonFiles(dir) {
+    const files = []
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory() && !entry.name.startsWith('__')) {
+            files.push(...findPythonFiles(fullPath))
+        } else if (entry.isFile() && entry.name.endsWith('.py')) {
+            files.push(fullPath)
+        }
+    }
+    return files
+}
+
+/**
+ * Match an operationId or URL path to a product.
+ * Priority: 1) ViewSet name in operationId, 2) Product folder name in URL
+ */
+function matchOperationIdToProduct(operationId, urlPath, viewSetMapping, productFolders) {
+    // Strategy 1: ViewSet snake_case name in operationId
+    for (const [snakeCase, product] of viewSetMapping) {
+        if (operationId.includes(snakeCase)) {
+            return product
+        }
+    }
+
+    // Strategy 2: Product folder name in URL path
+    const urlLower = urlPath.toLowerCase().replace(/-/g, '_')
+    for (const product of productFolders) {
+        if (urlLower.includes(`/${product}/`)) {
+            return product
+        }
+    }
+
+    return null
 }
 
 /**
@@ -138,17 +215,21 @@ function resolveNestedRefs(schemas, refs) {
 
 /**
  * Group endpoints by output directory.
- * Simple logic:
- * - tag matches product folder → goes there
- * - tag is explicitly "core" → goes to core
- * - no tag or unrecognized tag → skipped (tracked for reporting)
+ *
+ * Routing priority:
+ * 1. ViewSet in products/X/backend/ or URL contains /X/ -> products/X/frontend/generated/
+ * 2. @extend_schema(tags=["product"]) matches product folder -> that product
+ * 3. @extend_schema(tags=["core"]) -> frontend/src/generated/core/
+ * 4. Otherwise -> skipped
  */
 function buildGroupedSchemasByOutput(schema, mappings) {
-    const grouped = new Map() // outputDir → { paths, _refs }
+    const grouped = new Map()
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const allSchemas = schema.components?.schemas ?? {}
-    const skippedTags = new Map() // tag → count (for unrecognized tags)
+    const skippedTags = new Map()
     let skippedNoTags = 0
+    let routedByViewSet = 0
+    let routedByTag = 0
 
     for (const [pathKey, operations] of Object.entries(schema.paths ?? {})) {
         for (const [method, operation] of Object.entries(operations ?? {})) {
@@ -156,20 +237,42 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                 continue
             }
 
-            // Use x-explicit-tags (from @extend_schema decorator)
+            const operationId = operation.operationId || ''
             const explicitTags = operation['x-explicit-tags']
             const tags = Array.isArray(explicitTags) && explicitTags.length ? explicitTags : []
 
-            // Find first tag that matches a product folder
-            const productTag = tags.find((t) => resolveTagToProduct(t, mappings) !== null)
+            let outputDir = null
+            let routingMethod = null
 
-            let outputDir
-            if (productTag) {
-                outputDir = resolveProductToOutputDir(productTag, mappings.productFoldersOnDisk)
-            } else if (tags.includes('core')) {
-                outputDir = resolveProductToOutputDir('core', mappings.productFoldersOnDisk)
-            } else {
-                // Track skipped endpoints
+            // Priority 1: Match operationId/URL to ViewSet or product folder in URL
+            const viewSetProduct = matchOperationIdToProduct(
+                operationId,
+                pathKey,
+                mappings.viewSetMapping,
+                mappings.productFoldersOnDisk
+            )
+            if (viewSetProduct && mappings.productFoldersOnDisk.has(viewSetProduct)) {
+                outputDir = resolveProductToOutputDir(viewSetProduct, mappings.productFoldersOnDisk)
+                routingMethod = 'viewset'
+            }
+
+            // Priority 2: Tag matches product folder
+            if (!outputDir) {
+                const productTag = tags.find((t) => resolveTagToProduct(t, mappings) !== null)
+                if (productTag) {
+                    outputDir = resolveProductToOutputDir(productTag, mappings.productFoldersOnDisk)
+                    routingMethod = 'tag'
+                }
+            }
+
+            // Priority 3: Explicit "core" tag
+            if (!outputDir && tags.includes('core')) {
+                outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
+                routingMethod = 'tag'
+            }
+
+            // No match - skip
+            if (!outputDir) {
                 if (tags.length === 0) {
                     skippedNoTags++
                 } else {
@@ -178,6 +281,12 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                     }
                 }
                 continue
+            }
+
+            if (routingMethod === 'viewset') {
+                routedByViewSet++
+            } else {
+                routedByTag++
             }
 
             if (!grouped.has(outputDir)) {
@@ -196,9 +305,15 @@ function buildGroupedSchemasByOutput(schema, mappings) {
         }
     }
 
+    // Report routing stats
+    console.log(`📊 Routing stats:`)
+    console.log(`   ${routedByViewSet} endpoints routed by ViewSet/URL (auto-discovery)`)
+    console.log(`   ${routedByTag} endpoints routed by @extend_schema tags`)
+    console.log('')
+
     // Report skipped endpoints
     if (skippedNoTags > 0 || skippedTags.size > 0) {
-        console.log('⚠️  Skipped endpoints (no matching product folder):')
+        console.log('⚠️  Skipped endpoints (no product match or core tag):')
         if (skippedNoTags > 0) {
             console.log(`   ${skippedNoTags} endpoints with no @extend_schema tags`)
         }
