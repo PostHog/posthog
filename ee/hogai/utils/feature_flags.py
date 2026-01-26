@@ -13,17 +13,6 @@ def has_web_search_feature_flag(team: Team, user: User) -> bool:
     )
 
 
-def has_onboarding_mode_feature_flag(team: Team, user: User) -> bool:
-    variant = posthoganalytics.get_feature_flag(
-        "onboarding-ai-product-recommendations",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    )
-    return variant == "chat"
-
-
 def is_privacy_mode_enabled(team: Team) -> bool:
     """
     Check if privacy mode is enabled for a team's organization.

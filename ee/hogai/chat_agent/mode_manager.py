@@ -103,8 +103,10 @@ class ChatAgentModeManager(AgentModeManager):
                 registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
         if has_survey_mode_feature_flag(self._team, self._user):
             registry[AgentMode.SURVEY] = survey_agent
-        # Onboarding mode is always available - billing/rate limiting handled in conversation.py
-        registry[AgentMode.ONBOARDING] = onboarding_agent
+        # Only include onboarding mode in registry when already in onboarding mode
+        # This prevents it from showing in the mode picker in the main UI
+        if self._mode == AgentMode.ONBOARDING:
+            registry[AgentMode.ONBOARDING] = onboarding_agent
         return registry
 
     @property

@@ -1,3 +1,4 @@
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -7,9 +8,21 @@ from posthog.schema import AssistantTool
 from ee.hogai.tool import MaxTool
 
 
+class PostHogProduct(StrEnum):
+    PRODUCT_ANALYTICS = "product_analytics"
+    SESSION_REPLAY = "session_replay"
+    FEATURE_FLAGS = "feature_flags"
+    EXPERIMENTS = "experiments"
+    SURVEYS = "surveys"
+    WEB_ANALYTICS = "web_analytics"
+    ERROR_TRACKING = "error_tracking"
+    DATA_WAREHOUSE = "data_warehouse"
+    LLM_OBSERVABILITY = "llm_observability"
+
+
 class RecommendProductsArgs(BaseModel):
-    products: list[str] = Field(
-        description="List of PostHog product keys to recommend. Valid values: product_analytics, session_replay, feature_flags, experiments, surveys, web_analytics, error_tracking, data_warehouse, llm_observability"
+    products: list[PostHogProduct] = Field(
+        description="List of PostHog products to recommend based on the user's needs"
     )
     reasoning: str = Field(
         description="Brief explanation of why these products are recommended based on the user's needs"
@@ -30,27 +43,13 @@ class RecommendProductsTool(MaxTool):
     )
     args_schema: type[BaseModel] = RecommendProductsArgs
 
-    async def _arun_impl(self, products: list[str], reasoning: str) -> tuple[str, dict]:
-        valid_products = {
-            "product_analytics",
-            "session_replay",
-            "feature_flags",
-            "experiments",
-            "surveys",
-            "web_analytics",
-            "error_tracking",
-            "data_warehouse",
-            "llm_observability",
-        }
-
-        validated_products = [p for p in products if p in valid_products]
-
+    async def _arun_impl(self, products: list[PostHogProduct], reasoning: str) -> tuple[str, dict]:
         artifact = {
-            "products": validated_products,
+            "products": [p.value for p in products],
             "reasoning": reasoning,
         }
 
         return (
-            f"Recommended products: {', '.join(validated_products)}. {reasoning}",
+            f"Recommended products: {', '.join(p.value for p in products)}. {reasoning}",
             artifact,
         )
