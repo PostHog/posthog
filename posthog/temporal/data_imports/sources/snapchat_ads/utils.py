@@ -97,11 +97,11 @@ class SnapchatDateRangeManager:
         chunks = []
         current_start = start_dt
 
-        while current_start <= end_dt:
+        while current_start < end_dt:
             chunk_end = current_start + timedelta(days=chunk_days - 1)
 
-            if chunk_end > end_dt:
-                chunk_end = end_dt
+            if chunk_end >= end_dt:
+                chunk_end = end_dt - timedelta(days=1)
 
             # Snapchat requires end_time to be at the beginning of an hour
             # So we use the next day at 00:00:00 instead of 23:59:59
