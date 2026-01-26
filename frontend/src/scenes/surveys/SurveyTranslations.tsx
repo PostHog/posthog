@@ -3,9 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInputSelect } from '@posthog/lemon-ui'
 
+import { SurveyQuestionType } from '~/types'
+
 import { surveyLogic } from './surveyLogic'
 
-const COMMON_LANGUAGES = [
+export const COMMON_LANGUAGES = [
     { value: 'en', label: 'English (en)' },
     { value: 'en-US', label: 'English - US (en-US)' },
     { value: 'en-GB', label: 'English - UK (en-GB)' },
@@ -49,9 +51,25 @@ export function SurveyTranslations(): JSX.Element {
             return
         }
 
+        // Initialize translation with empty choices arrays for multiple choice questions
+        const initialTranslation: Record<string, any> = {}
+        survey.questions?.forEach((question, index) => {
+            if (
+                question.type === SurveyQuestionType.SingleChoice ||
+                question.type === SurveyQuestionType.MultipleChoice
+            ) {
+                if (!initialTranslation.questions) {
+                    initialTranslation.questions = []
+                }
+                initialTranslation.questions[index] = {
+                    choices: question.choices || [],
+                }
+            }
+        })
+
         setSurveyValue('translations', {
             ...currentTranslations,
-            [lang]: {},
+            [lang]: initialTranslation,
         })
         setEditingLanguage(lang)
     }
@@ -66,7 +84,7 @@ export function SurveyTranslations(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className={`flex flex-col ${addedLanguages.length > 0 ? 'gap-4' : ''}`}>
             <div className="flex gap-2">
                 <LemonInputSelect
                     mode="single"
@@ -83,32 +101,34 @@ export function SurveyTranslations(): JSX.Element {
                     placeholder="Add a language (e.g., 'fr', 'French', 'fr-CA')"
                     className="grow"
                     allowCustomValues
+                    autoFocus={addedLanguages.length === 0}
                     value={[]}
                 />
             </div>
 
             <div className="space-y-2">
-                <div
-                    className={`flex items-center justify-between p-2 border rounded cursor-pointer ${editingLanguage === null ? 'border-primary-500 bg-primary-highlight' : 'border-border'}`}
-                    onClick={() => setEditingLanguage(null)}
-                >
-                    <span className="font-semibold">Default (Original)</span>
-                </div>
+                {addedLanguages.length > 0 && (
+                    <div
+                        className={`flex items-center justify-between px-2 py-1 border rounded cursor-pointer ${editingLanguage === null ? 'border-warning bg-warning-highlight' : 'border-border'}`}
+                        onClick={() => setEditingLanguage(null)}
+                    >
+                        <span>Default (Original)</span>
+                    </div>
+                )}
 
                 {addedLanguages.map((lang) => (
                     <div
                         key={lang}
-                        className={`flex items-center justify-between p-2 border rounded cursor-pointer ${editingLanguage === lang ? 'border-primary-500 bg-primary-highlight' : 'border-border'}`}
+                        className={`flex items-center justify-between px-2 py-1 border rounded cursor-pointer ${editingLanguage === lang ? 'border-warning bg-warning-highlight' : 'border-border'}`}
                         onClick={() => setEditingLanguage(lang)}
                     >
                         <div className="flex items-center gap-2">
                             <span>{COMMON_LANGUAGES.find((l) => l.value === lang)?.label || lang}</span>
-                            <span className="text-muted-alt text-xs">({lang})</span>
                         </div>
                         <LemonButton
                             icon={<IconTrash />}
                             status="danger"
-                            size="small"
+                            size="xsmall"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 removeLanguage(lang)
@@ -116,15 +136,6 @@ export function SurveyTranslations(): JSX.Element {
                         />
                     </div>
                 ))}
-            </div>
-
-            <div className="mt-4 border-t pt-4 text-muted-alt text-sm">
-                Editing:{' '}
-                <b>
-                    {editingLanguage
-                        ? COMMON_LANGUAGES.find((l) => l.value === editingLanguage)?.label || editingLanguage
-                        : 'Default'}
-                </b>
             </div>
         </div>
     )
