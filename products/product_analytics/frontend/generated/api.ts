@@ -80,9 +80,6 @@ export const environmentsColumnConfigurationsList = async (
     )
 }
 
-/**
- * POST to create column configuration for a context_key. Returns 409 if already exists.
- */
 export type environmentsColumnConfigurationsCreateResponse201 = {
     data: ColumnConfigurationApi
     status: 201
