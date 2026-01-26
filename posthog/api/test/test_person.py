@@ -986,8 +986,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         data = response.json()
 
         self.assertEqual(len(data["results"]), 1)
-        # CohortMinimalSerializer only returns id, name, count
-        self.assertEqual(set(data["results"][0].keys()), {"id", "name", "count"})
+        # CohortMinimalSerializer only returns id, name, count, system_type
+        self.assertEqual(set(data["results"][0].keys()), {"id", "name", "count", "system_type"})
 
     def test_split_person_clickhouse(self):
         person = _create_person(
