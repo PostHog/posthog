@@ -167,8 +167,6 @@ ee/tasks/subscriptions/slack_subscriptions.py:0: error: Item "None" of "datetime
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "name"  [union-attr]
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "pk"  [union-attr]
 posthog/admin/admins/plugin_config_admin.py:0: error: Item "None" of "Team | None" has no attribute "name"  [union-attr]
-posthog/admin/admins/user_admin.py:0: error: Item "None" of "Any | None" has no attribute "pk"  [union-attr]
-posthog/admin/admins/user_admin.py:0: error: Item "None" of "Any | None" has no attribute "pk"  [union-attr]
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_add_permission" incompatible with supertype "django.contrib.admin.options.BaseModelAdmin"  [override]
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_change_permission" incompatible with supertype "django.contrib.admin.options.BaseModelAdmin"  [override]
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_change_permission" incompatible with supertype "django.contrib.admin.options.InlineModelAdmin"  [override]
