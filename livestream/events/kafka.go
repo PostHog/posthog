@@ -253,12 +253,14 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 	}
 
 	if ipStr != "" {
-		var err error
-		phEvent.Lat, phEvent.Lng, phEvent.CountryCode, err = geolocator.Lookup(ipStr)
+		geoResult, err := geolocator.Lookup(ipStr)
 		if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
 			// TODO capture error to PostHog
 			_ = err
 		}
+		phEvent.Lat = geoResult.Latitude
+		phEvent.Lng = geoResult.Longitude
+		phEvent.CountryCode = geoResult.CountryCode
 	}
 
 	return phEvent
