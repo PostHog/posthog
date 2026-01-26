@@ -13,6 +13,7 @@ interface ScatterPoint {
     x: number
     y: number
     traceId?: string
+    generationId?: string
     clusterId?: number
     timestamp?: string
 }
@@ -22,7 +23,8 @@ interface ClusterScatterPlotProps {
 }
 
 export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps): JSX.Element {
-    const { scatterPlotDatasets, traceToClusterTitle, sortedClusters, effectiveRunId } = useValues(clustersLogic)
+    const { scatterPlotDatasets, traceToClusterTitle, sortedClusters, effectiveRunId, clusteringLevel } =
+        useValues(clustersLogic)
 
     const handleClick = (
         _event: MouseEvent,
@@ -49,11 +51,14 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
             return
         }
 
-        // Navigate to trace page for trace clicks
+        // Navigate to trace page for trace/generation clicks
         if (point?.traceId) {
             router.actions.push(
                 urls.llmAnalyticsTrace(point.traceId, {
                     tab: 'summary',
+                    // For generation-level, highlight the specific generation
+                    ...(clusteringLevel === 'generation' && point.generationId ? { event: point.generationId } : {}),
+                    // timestamp is now the trace's first_timestamp for both levels
                     ...(point.timestamp ? { timestamp: point.timestamp } : {}),
                 })
             )
@@ -133,7 +138,9 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
 
                                     const point = context[0]?.raw as ScatterPoint
                                     if (point?.traceId) {
-                                        return 'click to view trace'
+                                        return clusteringLevel === 'generation'
+                                            ? 'click to view generation'
+                                            : 'click to view trace'
                                     }
                                     return ''
                                 },

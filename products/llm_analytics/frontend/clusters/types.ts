@@ -1,22 +1,31 @@
 import { dayjs } from 'lib/dayjs'
 
+// Whether clustering is at trace level or individual generation level
+export type ClusteringLevel = 'trace' | 'generation'
+
 /**
  * Extract day bounds from a clustering run ID for efficient timestamp filtering.
- * Run IDs are formatted as `<team_id>_<YYYYMMDD>_<HHMMSS>`.
+ * Run IDs are formatted as `<team_id>_<level>_<YYYYMMDD>_<HHMMSS>` where level is "trace" or "generation".
  * Returns start and end of the day to ensure we capture the event.
  * Falls back to last 7 days if parsing fails.
  */
+export function getLevelFromRunId(runId: string): ClusteringLevel {
+    const parts = runId.split('_')
+    // Run ID format: <team_id>_<level>_<YYYYMMDD>_<HHMMSS>
+    if (parts.length >= 2 && (parts[1] === 'trace' || parts[1] === 'generation')) {
+        return parts[1]
+    }
+    return 'trace' // Default to trace for backwards compatibility
+}
+
 export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; dayEnd: string } {
     const parts = runId.split('_')
-    // Use format compatible with ClickHouse DateTime64 comparisons
     const dateFormat = 'YYYY-MM-DD HH:mm:ss'
 
-    if (parts.length >= 3) {
-        // Parts: [team_id, YYYYMMDD, HHMMSS]
-        const dateStr = parts[1]
-        const timeStr = parts[2]
+    if (parts.length >= 4) {
+        const dateStr = parts[2]
+        const timeStr = parts[3]
 
-        // Parse YYYYMMDD_HHMMSS format as UTC (backend generates run_id using workflow.now() which is UTC)
         const parsed = dayjs.utc(`${dateStr}_${timeStr}`, 'YYYYMMDD_HHmmss')
         if (parsed.isValid()) {
             return {
@@ -26,20 +35,22 @@ export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; 
         }
     }
 
-    // Fallback to last 7 days
     return {
         dayStart: dayjs().subtract(7, 'day').startOf('day').utc().format(dateFormat),
         dayEnd: dayjs().endOf('day').utc().format(dateFormat),
     }
 }
 
-// Cluster trace info from the $ai_trace_clusters event
+// Cluster item info from the $ai_trace_clusters or $ai_generation_clusters event
+// Named ClusterTraceInfo for backwards compatibility, but used for both traces and generations
 export interface ClusterTraceInfo {
     distance_to_centroid: number
     rank: number
     x: number // UMAP 2D x coordinate for scatter plot
     y: number // UMAP 2D y coordinate for scatter plot
     timestamp: string // First event timestamp of the trace (ISO format) for efficient linking
+    trace_id: string // Always set - the trace ID (or parent trace for generations)
+    generation_id?: string // Only set for generation-level clustering
 }
 
 // Cluster data structure from the $ai_clusters property
@@ -70,10 +81,11 @@ export interface ClusteringRun {
     runId: string // $ai_clustering_run_id
     windowStart: string // $ai_window_start
     windowEnd: string // $ai_window_end
-    totalTracesAnalyzed: number
+    totalItemsAnalyzed: number // Traces or generations depending on level
     clusters: Cluster[]
     timestamp: string // Event timestamp
     clusteringParams?: ClusteringParams // Parameters used for this run
+    level?: ClusteringLevel // $ai_clustering_level - "trace" or "generation"
 }
 
 // Run option for the dropdown selector
@@ -83,9 +95,11 @@ export interface ClusteringRunOption {
     label: string // Formatted date for display
 }
 
-// Trace summary from $ai_trace_summary events
+// Summary from $ai_trace_summary or $ai_generation_summary events
+// Named TraceSummary for backwards compatibility
 export interface TraceSummary {
-    traceId: string
+    traceId: string // Always set - the trace ID (or parent trace for generations)
+    generationId?: string // Only set for generation-level summaries
     title: string
     flowDiagram: string
     bullets: string
