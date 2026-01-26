@@ -292,5 +292,4 @@ export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX
 export const scene: SceneExport = {
     component: SessionsRecordings,
     logic: sessionReplaySceneLogic,
-    settingSectionId: 'environment-replay',
 }

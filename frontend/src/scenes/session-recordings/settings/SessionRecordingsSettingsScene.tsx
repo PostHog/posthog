@@ -40,7 +40,6 @@ export const sessionRecordingsSettingsSceneLogic = kea<sessionRecordingsSettings
 export const scene: SceneExport = {
     component: SessionRecordingsSettingsScene,
     logic: sessionRecordingsSettingsSceneLogic,
-    settingSectionId: 'environment-replay',
 }
 
 export interface SessionRecordingsSettingsSceneProps {

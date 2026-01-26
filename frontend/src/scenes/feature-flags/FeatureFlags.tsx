@@ -255,7 +255,6 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
-    settingSectionId: 'environment-feature-flags',
 }
 
 export function OverViewTab({
