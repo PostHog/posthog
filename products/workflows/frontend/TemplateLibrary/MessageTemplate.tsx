@@ -13,10 +13,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
-import { messageTemplateSceneLogic } from './messageTemplateSceneLogic'
+import { messageTemplateLogic } from './messageTemplateLogic'
+import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 
-export const scene: SceneExport<MessageTemplateLogicProps> = {
+export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
     logic: messageTemplateSceneLogic,
     paramsToProps: ({ params: { id }, searchParams: { messageId } }) => ({
@@ -25,7 +25,7 @@ export const scene: SceneExport<MessageTemplateLogicProps> = {
     }),
 }
 
-export function MessageTemplate(props: MessageTemplateLogicProps): JSX.Element {
+export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Element {
     const sceneLogic = messageTemplateSceneLogic(props)
     const logic = messageTemplateLogic(props)
     const { submitTemplate, resetTemplate, setTemplateValue, duplicateTemplate, deleteTemplate } = useActions(logic)
