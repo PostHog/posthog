@@ -79,6 +79,7 @@ export function Settings({
                       active={selectedSettingId === s.id}
                       handleLocally={handleLocally}
                       onClick={() => selectSetting(s.id)}
+                      data-attr={`settings-menu-item-${s.id}`}
                   >
                       {s.title}
                   </OptionButton>
@@ -102,7 +103,13 @@ export function Settings({
                                   selectLevel(level)
                               }
                           }}
-                          sideIcon={hasItems ? isCollapsed ? <IconChevronRight /> : <IconChevronDown /> : undefined}
+                          sideIcon={
+                              hasItems ? (
+                                  <IconChevronDown
+                                      className={clsx('w-4 h-4 transition-transform', isCollapsed && '-rotate-90')}
+                                  />
+                              ) : undefined
+                          }
                       >
                           <span className="text-secondary">{SettingLevelNames[level]}</span>
                       </OptionButton>
@@ -135,6 +142,7 @@ export function Settings({
                                                   )
                                                 : undefined
                                         }
+                                        data-attr={`settings-menu-item-${id}`}
                                     >
                                         {section.title}
                                     </OptionButton>
@@ -155,7 +163,7 @@ export function Settings({
     )
 
     return (
-        <div className={clsx('Settings flex', isCompact && 'Settings--compact')} ref={ref}>
+        <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')} ref={ref}>
             {hideSections ? null : (
                 <>
                     {showOptions ? (
@@ -183,7 +191,7 @@ export function Settings({
             )}
 
             <AuthenticationAreaComponent>
-                <div className="flex-1 w-full min-w-0 space-y-2">
+                <div className="flex-1 w-full min-w-0 space-y-2 self-start mt-2">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}
@@ -212,7 +220,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
     return (
-        <div className="flex flex-col gap-y-8">
+        <div className="flex flex-col gap-y-8 pb-[80vh]">
             {settings.length ? (
                 settings.map((x) => (
                     <div key={x.id} className="relative last:mb-4">
@@ -253,7 +261,7 @@ const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?:
         <ul className="gap-y-px">
             {options.map((option) => (
                 <React.Fragment key={option.key}>
-                    <li className={depthMap[depth]}>{option.content}</li>
+                    <li className={clsx(depthMap[depth])}>{option.content}</li>
                     {option.items ? <OptionGroup options={option.items} depth={depth + 1} /> : null}
                 </React.Fragment>
             ))}
@@ -270,11 +278,13 @@ const OptionButton = ({
     isLink = false,
     sideIcon,
     disabledReason,
+    'data-attr': dataAttr,
 }: Pick<LemonButtonProps, 'to' | 'children' | 'active' | 'disabledReason'> & {
     handleLocally: boolean
     onClick: () => void
     isLink?: boolean
     sideIcon?: JSX.Element
+    'data-attr'?: string
 }): JSX.Element => {
     return (
         <LemonButton
@@ -292,6 +302,7 @@ const OptionButton = ({
             fullWidth
             active={active}
             disabledReason={disabledReason}
+            data-attr={dataAttr}
         >
             {children}
         </LemonButton>

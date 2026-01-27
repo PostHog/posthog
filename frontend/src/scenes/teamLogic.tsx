@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
@@ -17,7 +18,6 @@ import {
     addProductIntentForCrossSell,
 } from 'lib/utils/product-intents'
 
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '~/queries/schema/schema-general'
 import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
@@ -178,6 +178,27 @@ export const teamLogic = kea<teamLogicType>([
                         lemonToast.success(message)
                     }
 
+                    const setupLogic = globalSetupLogic.findMounted()
+                    if (setupLogic) {
+                        if (payload.autocapture_web_vitals_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.SetUpWebVitals)
+                        }
+                        if (payload.session_recording_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.SetupSessionRecordings)
+                        }
+                        if (payload.capture_console_log_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.EnableConsoleLogs)
+                        }
+                        if (
+                            payload.session_recording_sample_rate ||
+                            payload.session_recording_minimum_duration_milliseconds ||
+                            payload.session_recording_linked_flag ||
+                            payload.session_recording_network_payload_capture_config
+                        ) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.ConfigureRecordingSettings)
+                        }
+                    }
+
                     return patchedTeam
                 },
                 createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }) => {
@@ -315,11 +336,13 @@ export const teamLogic = kea<teamLogicType>([
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
             }
-        },
-        updateCurrentTeamSuccess: ({ currentTeam, payload }) => {
-            if (currentTeam && !payload?.onboarding_tasks) {
-                activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
+
+            // Detect managed viewsets to mark them as completed in the product setup
+            if (currentTeam?.managed_viewsets?.['revenue_analytics']) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.EnableRevenueAnalyticsViewset)
             }
+        },
+        updateCurrentTeamSuccess: () => {
             // Reload user after team update to keep user object in sync
             actions.loadUser()
         },

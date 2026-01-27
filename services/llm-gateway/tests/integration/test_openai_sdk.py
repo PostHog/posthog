@@ -1,7 +1,7 @@
 """
 Integration tests using the official OpenAI Python SDK through the gateway.
 
-Skipped unless OPENAI_API_KEY is set.
+Most tests skipped unless OPENAI_API_KEY is set.
 Run with: pytest tests/integration/test_openai_sdk.py -v
 """
 
@@ -11,15 +11,49 @@ from typing import Any
 
 import pytest
 from openai import BadRequestError, OpenAI
+from openai.types import Model
 from openai.types.chat import ChatCompletionToolChoiceOptionParam, ChatCompletionToolParam
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-pytestmark = pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set")
+skip_without_openai_key = pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set")
 
 TEST_IMAGE_URL = "https://posthog.com/brand/posthog-logo.png"
 
 
+class TestOpenAIModelsEndpoint:
+    def test_sdk_models_list_returns_models(self, openai_client_all_providers: OpenAI):
+        models = list(openai_client_all_providers.models.list())
+        assert len(models) > 0
+
+    def test_sdk_model_objects_are_valid_type(self, openai_client_all_providers: OpenAI):
+        models = list(openai_client_all_providers.models.list())
+        for model in models:
+            assert isinstance(model, Model)
+
+    @pytest.mark.parametrize(
+        "field,expected_type",
+        [
+            ("id", str),
+            ("created", int),
+            ("owned_by", str),
+        ],
+    )
+    def test_model_has_required_openai_fields(
+        self, openai_client_all_providers: OpenAI, field: str, expected_type: type
+    ):
+        models = list(openai_client_all_providers.models.list())
+        model = models[0]
+        assert hasattr(model, field)
+        assert isinstance(getattr(model, field), expected_type)
+
+    def test_model_object_field_is_model(self, openai_client_all_providers: OpenAI):
+        models = list(openai_client_all_providers.models.list())
+        model = models[0]
+        assert model.object == "model"
+
+
+@skip_without_openai_key
 class TestOpenAIChatCompletions:
     def test_non_streaming_request(self, openai_client: OpenAI):
         response = openai_client.chat.completions.create(
@@ -74,6 +108,7 @@ class TestOpenAIChatCompletions:
         assert response.choices[0].message.content is not None
 
 
+@skip_without_openai_key
 class TestOpenAIMultipleModels:
     def test_gpt4o_mini_request(self, openai_client: OpenAI):
         response = openai_client.chat.completions.create(
@@ -119,6 +154,7 @@ class TestOpenAIMultipleModels:
         assert response.choices[0].message.content is not None
 
 
+@skip_without_openai_key
 class TestOpenAIToolCalling:
     def test_tool_definition_and_response(self, openai_client: OpenAI):
         tools: list[ChatCompletionToolParam] = [
@@ -193,6 +229,7 @@ class TestOpenAIToolCalling:
         assert tool_call.function.name == "calculate"
 
 
+@skip_without_openai_key
 class TestOpenAIVision:
     def test_image_url_input(self, openai_client: OpenAI):
         response = openai_client.chat.completions.create(
@@ -231,6 +268,7 @@ class TestOpenAIVision:
         assert response.choices[0].message.content is not None
 
 
+@skip_without_openai_key
 class TestOpenAIMultiTurn:
     def test_conversation_history(self, openai_client: OpenAI):
         response = openai_client.chat.completions.create(
@@ -250,6 +288,7 @@ class TestOpenAIMultiTurn:
         assert "alice" in content.lower()
 
 
+@skip_without_openai_key
 class TestOpenAIJSONMode:
     def test_json_response_format(self, openai_client: OpenAI):
         response = openai_client.chat.completions.create(
@@ -272,6 +311,7 @@ class TestOpenAIJSONMode:
         assert "greeting" in parsed
 
 
+@skip_without_openai_key
 class TestOpenAIValidationErrors:
     @pytest.mark.parametrize(
         "invalid_param,value,expected_error",

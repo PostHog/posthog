@@ -1,21 +1,15 @@
-import { getNextJSSteps as getNextJSStepsPA } from '../product-analytics/nextjs'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getNextJSSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    Tab: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getNextJSSteps as getNextJSStepsPA } from '../product-analytics/nextjs'
+import { StepDefinition } from '../steps'
+
+export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { Markdown, Tab, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
     // Get installation steps from product-analytics (not feature-flags)
     // Filter to only keep installation-related steps, not usage steps
-    const installationSteps = getNextJSStepsPA(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets).filter(
+    const installationSteps = getNextJSStepsPA(ctx).filter(
         (step: StepDefinition) =>
             step.title === 'Install the package' ||
             step.title === 'Add environment variables' ||
@@ -75,21 +69,7 @@ export const getNextJSSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...experimentSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...experimentSteps]
 }
 
-export const NextJSInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-    const steps = getNextJSSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const NextJSInstallation = createInstallation(getNextJSSteps)

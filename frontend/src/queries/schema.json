@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1951,6 +1951,7 @@
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
+                "edit_survey",
                 "analyze_survey_responses",
                 "create_dashboard",
                 "edit_current_dashboard",
@@ -10550,6 +10551,10 @@
                     "description": "Show actors query options and back to source",
                     "type": "boolean"
                 },
+                "showTableViews": {
+                    "description": "Show table views feature for this table (requires uniqueKey)",
+                    "type": "boolean"
+                },
                 "showTestAccountFilters": {
                     "description": "Show filter to exclude test accounts",
                     "type": "boolean"
@@ -15323,7 +15328,8 @@
                 "RedditAds",
                 "TikTokAds",
                 "BingAds",
-                "Shopify"
+                "Shopify",
+                "SnapchatAds"
             ],
             "type": "string"
         },
@@ -15577,7 +15583,8 @@
                 "folder",
                 "folder_open",
                 "conversations",
-                "toolbar"
+                "toolbar",
+                "settings"
             ],
             "type": "string"
         },
@@ -22398,6 +22405,7 @@
                 "early_access_feature_view_recordings",
                 "data_warehouse_stripe_source_created",
                 "surveys_viewed",
+                "survey_add_new",
                 "survey_created",
                 "survey_launched",
                 "survey_viewed",
@@ -22429,11 +22437,15 @@
                 "feature_preview_enabled",
                 "workflow_created",
                 "data_pipeline_created",
+                "batch_export_created",
                 "notebook_created",
                 "product_tour_created",
                 "task_created",
                 "toolbar_launched",
-                "vercel_integration"
+                "vercel_integration",
+                "endpoint_created",
+                "endpoint_created_from_insight",
+                "endpoint_created_from_sql_editor"
             ],
             "type": "string"
         },
@@ -22493,8 +22505,9 @@
                 "mobile_replay",
                 "notebooks",
                 "persons",
-                "pipeline_transformations",
+                "pipeline_batch_exports",
                 "pipeline_destinations",
+                "pipeline_transformations",
                 "platform_and_support",
                 "product_analytics",
                 "product_tours",
@@ -29281,6 +29294,10 @@
                     "type": "boolean"
                 },
                 "showTable": {
+                    "type": "boolean"
+                },
+                "showTableViews": {
+                    "description": "Show table views feature for this table (requires uniqueKey)",
                     "type": "boolean"
                 },
                 "showTestAccountFilters": {

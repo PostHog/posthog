@@ -5,9 +5,9 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import OPENAI_CONFIG, OPENAI_RESPONSES_CONFIG, handle_llm_request
-from llm_gateway.api.products import validate_product
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest
+from llm_gateway.products.config import validate_product
 
 openai_router = APIRouter()
 
