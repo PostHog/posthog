@@ -56,12 +56,12 @@ export const Generating: Story = {
     },
 }
 
-const iframeSaved = {
+const makeIframeSaved = (): Record<string, unknown> => ({
     id: 101,
     short_id: 'hm_iframe',
     name: 'Iframe example.com',
-    url: 'https://example.com',
-    data_url: 'https://example.com',
+    url: `${window.location.origin}/mock-heatmap-page.html`,
+    data_url: `${window.location.origin}/mock-heatmap-page.html`,
     target_widths: [],
     type: 'iframe',
     status: 'completed',
@@ -72,72 +72,38 @@ const iframeSaved = {
     created_at: '2024-01-03T00:00:00Z',
     updated_at: '2024-01-03T00:00:00Z',
     exception: null,
-}
+})
 
 export const IframeExample: Story = {
     parameters: {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
-            waitForSelector: '[data-attr=heatmap-canvas] canvas',
+            waitForSelector: '.heatmaps-ready',
             waitForLoadersToDisappear: true,
-            skipIframeWait: true,
         },
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/saved/hm_iframe/': iframeSaved,
+                '/api/environments/:team_id/saved/hm_iframe/': (_req, res, ctx) =>
+                    res(ctx.status(200), ctx.json(makeIframeSaved())),
                 '/api/heatmap/': (_req, res, ctx) =>
                     res(
                         ctx.status(200),
                         ctx.json({
                             results: [
                                 { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 150, count: 25 },
+                                { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 250, count: 20 },
                                 { pointer_relative_x: 0.52, pointer_target_fixed: false, pointer_y: 350, count: 12 },
-                                { pointer_relative_x: 0.25, pointer_target_fixed: false, pointer_y: 700, count: 8 },
+                                { pointer_relative_x: 0.3, pointer_target_fixed: false, pointer_y: 500, count: 8 },
+                                { pointer_relative_x: 0.25, pointer_target_fixed: false, pointer_y: 700, count: 5 },
+                                { pointer_relative_x: 0.6, pointer_target_fixed: false, pointer_y: 900, count: 10 },
+                                { pointer_relative_x: 0.45, pointer_target_fixed: false, pointer_y: 1200, count: 6 },
                             ],
-                            count: 3,
+                            count: 7,
                             next: null,
                             previous: null,
                         })
-                    ),
-                'https://example.com': (_req, res, ctx) =>
-                    res(
-                        ctx.status(200),
-                        ctx.set('Content-Type', 'text/html'),
-                        ctx.body(`
-                            <!DOCTYPE html>
-                            <html>
-                            <head>
-                                <title>Example Domain</title>
-                                <style>
-                                    body { 
-                                        font-family: sans-serif; 
-                                        max-width: 800px; 
-                                        margin: 50px auto; 
-                                        padding: 20px;
-                                    }
-                                    h1 { color: #333; }
-                                    button { 
-                                        padding: 10px 20px; 
-                                        margin: 10px 5px; 
-                                        cursor: pointer;
-                                        background: #007bff;
-                                        color: white;
-                                        border: none;
-                                        border-radius: 4px;
-                                    }
-                                </style>
-                            </head>
-                            <body>
-                                <h1>Example Domain</h1>
-                                <p>This domain is for use in illustrative examples in documents.</p>
-                                <button id="cta-button">Click me</button>
-                                <button id="secondary-button">Learn more</button>
-                                <p>You may use this domain in literature without prior coordination or asking for permission.</p>
-                            </body>
-                            </html>
-                        `)
                     ),
             },
         }),
