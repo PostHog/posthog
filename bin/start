@@ -13,6 +13,20 @@ if ! flock -n 9; then
     exit 1
 fi
 
+# 1Password: auto-resolve op:// references in .env.local
+if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.env.local" 2>/dev/null; then
+    if [ -z "$_POSTHOG_OP_RESOLVED" ]; then
+        if command -v op &>/dev/null; then
+            echo "🔐 Resolving secrets from .env.local via 1Password"
+            export _POSTHOG_OP_RESOLVED=1
+            exec op run --env-file="$REPOSITORY_ROOT/.env.local" -- "$0" "$@"
+        else
+            echo "⚠️  .env.local contains 1Password refs (op://) but 'op' CLI not found"
+            echo "   Install: brew install 1password-cli"
+        fi
+    fi
+fi
+
 # Source development defaults, then user overrides
 set -o allexport
 source "$REPOSITORY_ROOT/.env.development"
