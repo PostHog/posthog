@@ -347,14 +347,8 @@ export function SidePanel({
                     <div className="h-[50px] flex items-center justify-between gap-2 pl-2 pr-1.5 py-2 border-b border-primary shrink-0">
                         {/* Tab buttons */}
                         <Tabs.List className="relative z-0 flex gap-1 grow">
-                            {visibleTabs
-                                .filter((tab) =>
-                                    [
-                                        SidePanelTab.Discussion,
-                                        SidePanelTab.AccessControl,
-                                        SidePanelTab.Notebooks,
-                                    ].includes(tab)
-                                )
+                            {[SidePanelTab.Discussion, SidePanelTab.AccessControl, SidePanelTab.Notebooks]
+                                .filter((tab) => visibleTabs.includes(tab))
                                 .map((tab) => {
                                     const { Icon, label } = SIDE_PANEL_TABS[tab]!
                                     return (
