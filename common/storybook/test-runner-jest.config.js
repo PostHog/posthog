@@ -14,5 +14,5 @@ module.exports = {
     reporters: ['default', 'jest-image-snapshot/src/outdated-snapshot-reporter.js'],
     testEnvironment: './test-runner-jest-environment.js',
     snapshotResolver: './test-snapshot-resolver.js',
-    testPathIgnorePatterns: ['node_modules', '<rootDir>/rust/'],
+    testPathIgnorePatterns: ['/node_modules/', '/rust/cymbal/tests/snapshots/'],
 }

@@ -6,9 +6,18 @@ const path = require('path')
 // e.g. process.env.TEST_ROOT = process.cwd()
 
 module.exports = {
-    resolveSnapshotPath: (testPath, snapshotExtension) =>
-        path.join(process.cwd(), '__snapshots__', path.basename(testPath) + snapshotExtension),
-    resolveTestPath: (snapshotFilePath, snapshotExtension) =>
-        path.join(process.env.TEST_ROOT, path.basename(snapshotFilePath, snapshotExtension)),
-    testPathForConsistencyCheck: path.join(process.env.TEST_ROOT, 'example.test.js'),
+    resolveSnapshotPath: (testPath, snapshotExtension) => {
+        // Save inside __snapshots__ folder at same level as test file
+        const testDirectory = path.dirname(testPath)
+        const testName = path.basename(testPath)
+        return path.join(testDirectory, '__snapshots__', testName + snapshotExtension)
+    },
+
+    resolveTestPath: (snapshotFilePath, snapshotExtension) => {
+        const testPath = snapshotFilePath.replace('__snapshots__/', '').replace(/\.snap$/, '')
+        console.log('resolveTestPath called: ', snapshotFilePath, snapshotExtension, testPath)
+        return testPath
+    },
+
+    testPathForConsistencyCheck: path.join(process.cwd(), 'example.test.js'),
 }
