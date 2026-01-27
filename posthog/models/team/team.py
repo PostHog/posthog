@@ -128,7 +128,7 @@ class TeamManager(models.Manager):
                 raise ValueError("initiating_user must be provided when creating a demo team")
 
             team.save()
-            team.kick_off_demo_data_generation(initiating_user)
+            transaction.on_commit(lambda: team.kick_off_demo_data_generation(initiating_user))
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
         # Get organization to apply defaults
