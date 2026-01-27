@@ -178,7 +178,7 @@ if [[ -t 0 ]]; then
 
 \033[3m💡 Pro tips:\033[0m
 • Use \033[32mhogli dev:setup\033[0m to customize which products/services run based on what you're working on
-• Run \033[32mhogli dev:presets\033[0m to see available presets (minimal, full)
+• Run \033[32mhogli dev:intents\033[0m to see available products you can select
 • Most processes include hot-reloading on file changes (except migrations)
 • You can run follow-up migrations with \033[32mhogli migrations:run\033[0m
 • Press 'q' in mprocs to quit, 'r' to restart a process

@@ -270,14 +270,14 @@ DEBUG=1 ./bin/migrate
 Now start all of PostHog (backend, worker, nodejs services, and frontend – simultaneously):
 
 ```bash
-./bin/start
+hogli start
 ```
 
-To customize which services to run, use `hogli dev:setup` to configure your dev environment interactively. This creates a profile that `./bin/start` will use automatically.
+To customize which services to run, use `hogli dev:setup` to configure your dev environment interactively. This creates a profile that `hogli start` will use automatically.
 
 > **Note:** This command uses [mprocs](https://github.com/pvolok/mprocs) to run all development processes in a single terminal window. It will be installed automatically for macOS, while for Linux you can install it manually (`cargo` or `npm`) using the official repo guide.
 
-> **Friendly tip:** If you get the error `Configuration property "enable.ssl.certificate.verification" not supported in this build: OpenSSL not available at build time`, make sure your environment is using the right `openssl` version by setting [those](https://github.com/xmlsec/python-xmlsec/issues/261#issuecomment-1630889826) environment variables, and then run `./bin/start` again.
+> **Friendly tip:** If you get the error `Configuration property "enable.ssl.certificate.verification" not supported in this build: OpenSSL not available at build time`, make sure your environment is using the right `openssl` version by setting [those](https://github.com/xmlsec/python-xmlsec/issues/261#issuecomment-1630889826) environment variables, and then run `hogli start` again.
 
 Open [http://localhost:8010](http://localhost:8010) to see the app.
 

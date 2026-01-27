@@ -9,7 +9,7 @@ import pytest
 
 from hogli.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
 from hogli.devenv.registry import ProcessRegistry, create_mprocs_registry
-from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, Preset, load_intent_map
+from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 from parameterized import parameterized
 
 
@@ -98,18 +98,6 @@ def create_test_intent_map() -> IntentMap:
                 name="product_analytics",
                 description="Product analytics",
                 capabilities=["event_ingestion"],
-            ),
-        },
-        presets={
-            "minimal": Preset(
-                name="minimal",
-                description="Minimal stack",
-                intents=["product_analytics"],
-            ),
-            "full": Preset(
-                name="full",
-                description="Full stack",
-                all_intents=True,
             ),
         },
         always_required=["backend", "frontend", "docker-compose"],
@@ -232,41 +220,6 @@ class TestIntentResolver:
         with pytest.raises(ValueError, match="Unknown intent"):
             resolver.resolve(["nonexistent"])
 
-    def test_resolve_preset_full(self) -> None:
-        """Full preset includes all intents."""
-        intent_map = create_test_intent_map()
-        registry = create_test_registry()
-        resolver = IntentResolver(intent_map, registry)
-
-        result = resolver.resolve_preset("full")
-
-        # Should include units from all intents
-        assert "cymbal" in result.units  # error_tracking
-        assert "capture-replay" in result.units  # session_replay
-        assert "feature-flags" in result.units  # feature_flags
-
-    def test_resolve_preset_minimal(self) -> None:
-        """Minimal preset includes only product_analytics."""
-        intent_map = create_test_intent_map()
-        registry = create_test_registry()
-        resolver = IntentResolver(intent_map, registry)
-
-        result = resolver.resolve_preset("minimal")
-
-        # Should have event pipeline but not specialized services
-        assert "nodejs" in result.units
-        assert "cymbal" not in result.units
-        assert "capture-replay" not in result.units
-
-    def test_resolve_unknown_preset_raises(self) -> None:
-        """Unknown preset raises ValueError."""
-        intent_map = create_test_intent_map()
-        registry = create_test_registry()
-        resolver = IntentResolver(intent_map, registry)
-
-        with pytest.raises(ValueError, match="Unknown preset"):
-            resolver.resolve_preset("nonexistent")
-
     def test_explain_resolution_includes_all_sections(self) -> None:
         """Explanation includes intents, capabilities, and units."""
         intent_map = create_test_intent_map()
@@ -308,7 +261,6 @@ class TestDockerProfiles:
                     capabilities=["temporal_workflows"],
                 ),
             },
-            presets={},
             always_required=[],
         )
         registry = MockRegistry(
@@ -353,7 +305,6 @@ class TestDockerProfiles:
                     capabilities=["replay_storage"],
                 ),
             },
-            presets={},
             always_required=[],
         )
         registry = MockRegistry(
@@ -369,52 +320,6 @@ class TestDockerProfiles:
 
         assert "replay" in result.docker_profiles
         assert "observability" in result.docker_profiles
-
-    def test_preset_include_capabilities_adds_profiles(self) -> None:
-        """Preset with include_capabilities adds their docker profiles."""
-        intent_map = IntentMap(
-            version="1.0",
-            capabilities={
-                "core_infra": Capability(
-                    name="core_infra",
-                    description="Core",
-                    docker_profiles=[],
-                ),
-                "dev_tools": Capability(
-                    name="dev_tools",
-                    description="Dev tools",
-                    requires=["core_infra"],
-                    docker_profiles=["dev_tools"],
-                ),
-            },
-            intents={
-                "product_analytics": Intent(
-                    name="product_analytics",
-                    description="Analytics",
-                    capabilities=["core_infra"],
-                ),
-            },
-            presets={
-                "backend": Preset(
-                    name="backend",
-                    description="Backend dev",
-                    intents=["product_analytics"],
-                    include_capabilities=["dev_tools"],
-                ),
-            },
-            always_required=[],
-        )
-        registry = MockRegistry(
-            {
-                "core_infra": [],
-                "dev_tools": [],
-            }
-        )
-        resolver = IntentResolver(intent_map, registry)
-
-        result = resolver.resolve_preset("backend")
-
-        assert "dev_tools" in result.docker_profiles
 
     def test_no_profiles_returns_empty_set(self) -> None:
         """Resolution without docker profiles returns empty set."""
@@ -451,7 +356,6 @@ class TestIntentMapLoading:
         assert intent_map.version == "1.0"
         assert len(intent_map.intents) > 0
         assert len(intent_map.capabilities) > 0
-        assert len(intent_map.presets) > 0
 
     def test_real_intent_map_has_key_intents(self) -> None:
         """Real intent map includes key product intents."""
@@ -538,27 +442,18 @@ class TestDevenvConfig:
         assert data["intents"] == ["error_tracking"]
         assert data["exclude_units"] == ["typegen"]
 
-    def test_config_from_dict_roundtrip(self) -> None:
-        """Config survives dict roundtrip."""
+    def test_config_model_validate_roundtrip(self) -> None:
+        """Config survives dict roundtrip via Pydantic."""
         original = DevenvConfig(
             intents=["error_tracking", "session_replay"],
             exclude_units=["dagster", "typegen"],
         )
 
-        data = original.to_dict()
-        restored = DevenvConfig.from_dict(data)
+        data = original.model_dump()
+        restored = DevenvConfig.model_validate(data)
 
         assert restored.intents == original.intents
         assert restored.exclude_units == original.exclude_units
-
-    def test_config_with_preset(self) -> None:
-        """Config can use preset instead of intents."""
-        config = DevenvConfig(preset="minimal")
-
-        data = config.to_dict()
-
-        assert data["preset"] == "minimal"
-        assert "intents" not in data
 
 
 class TestConfigPersistence:

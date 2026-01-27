@@ -157,10 +157,6 @@ intents:
         description: 'AI features'
         capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions, temporal_workflows]
 
-    dashboards:
-        description: 'Dashboard management and exports'
-        capabilities: [event_ingestion, property_definitions, celery_workers]
-
     logs:
         description: 'Log aggregation and viewing'
         capabilities: [event_ingestion, property_definitions]
@@ -169,16 +165,13 @@ intents:
         description: 'Workflow automation and orchestration'
         capabilities: [event_ingestion, property_definitions, temporal_workflows]
 
-# Presets for common development scenarios
-presets:
-    minimal:
-        intents: [product_analytics, feature_flags]
-        description: 'Core stack - analytics and feature flags'
+    tracing:
+        description: 'OpenTelemetry tracing with Jaeger UI'
+        capabilities: [observability]
 
-    full:
-        all_intents: true
-        description: 'All products - maximum resource usage'
-        include_capabilities: [observability, dev_tools]
+    debug_tools:
+        description: 'Kafka UI, Flower (Celery), maildev, webhook tester'
+        capabilities: [dev_tools]
 
 # Always-required processes regardless of intent
 # This is the "core" stack - what minimal preset provides

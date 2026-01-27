@@ -46,28 +46,16 @@ class Intent:
 
 
 @dataclass
-class Preset:
-    """A preset is a predefined combination of intents."""
-
-    name: str
-    description: str
-    intents: list[str] = field(default_factory=list)
-    all_intents: bool = False
-    include_capabilities: list[str] = field(default_factory=list)
-
-
-@dataclass
 class IntentMap:
     """Domain model loaded from intent-map.yaml.
 
-    Contains capabilities (abstractions), intents (products), and presets.
+    Contains capabilities (abstractions) and intents (products).
     Does NOT contain unit/process information - that's in the ProcessRegistry.
     """
 
     version: str
     capabilities: dict[str, Capability]
     intents: dict[str, Intent]
-    presets: dict[str, Preset]
     always_required: list[str]
 
     @classmethod
@@ -98,21 +86,10 @@ class IntentMap:
                 capabilities=intent_data.get("capabilities", []),
             )
 
-        presets = {}
-        for name, preset_data in data.get("presets", {}).items():
-            presets[name] = Preset(
-                name=name,
-                description=preset_data.get("description", ""),
-                intents=preset_data.get("intents", []),
-                all_intents=preset_data.get("all_intents", False),
-                include_capabilities=preset_data.get("include_capabilities", []),
-            )
-
         return cls(
             version=data.get("version", "1.0"),
             capabilities=capabilities,
             intents=intents,
-            presets=presets,
             always_required=data.get("always_required", []),
         )
 
@@ -248,51 +225,6 @@ class IntentResolver:
             enable_autostart=set(enable_autostart),
         )
 
-    def resolve_preset(
-        self,
-        preset_name: str,
-        include_units: list[str] | None = None,
-        exclude_units: list[str] | None = None,
-        include_capabilities: list[str] | None = None,
-        skip_autostart: list[str] | None = None,
-        enable_autostart: list[str] | None = None,
-    ) -> ResolvedEnvironment:
-        """Resolve a preset to units.
-
-        Args:
-            preset_name: Name of the preset to resolve
-            include_units: Additional units to include
-            exclude_units: Units to exclude
-            include_capabilities: Additional capabilities to include
-            skip_autostart: Units to include but not auto-start
-            enable_autostart: Units to enable autostart (override source autostart: false)
-
-        Returns:
-            ResolvedEnvironment with the resolved units
-
-        Raises:
-            ValueError: If preset not found
-        """
-        if preset_name not in self.intent_map.presets:
-            available = ", ".join(sorted(self.intent_map.presets.keys()))
-            raise ValueError(f"Unknown preset '{preset_name}'. Available: {available}")
-
-        preset = self.intent_map.presets[preset_name]
-
-        if preset.all_intents:
-            intents = list(self.intent_map.intents.keys())
-        else:
-            intents = preset.intents
-
-        # Merge preset's include_capabilities with any additional ones
-        all_include_capabilities = list(preset.include_capabilities)
-        if include_capabilities:
-            all_include_capabilities.extend(include_capabilities)
-
-        return self.resolve(
-            intents, include_units, exclude_units, all_include_capabilities or None, skip_autostart, enable_autostart
-        )
-
     def _intents_to_capabilities(self, intents: list[str]) -> set[str]:
         """Map intents to their required capabilities."""
         capabilities: set[str] = set()
@@ -382,10 +314,6 @@ class IntentResolver:
     def get_available_intents(self) -> list[tuple[str, str]]:
         """Get list of available intents with descriptions."""
         return [(name, intent.description) for name, intent in sorted(self.intent_map.intents.items())]
-
-    def get_available_presets(self) -> list[tuple[str, str]]:
-        """Get list of available presets with descriptions."""
-        return [(name, preset.description) for name, preset in sorted(self.intent_map.presets.items())]
 
     def get_all_units(self) -> set[str]:
         """Get all units defined in the registry."""

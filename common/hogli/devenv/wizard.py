@@ -41,19 +41,8 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
         if not click.confirm("Replace it?", default=True):
             return None
 
-    # Ask whether to use preset or custom selection
-    click.echo("")
-    click.echo("How would you like to configure?")
-    click.echo("  1. Use a preset (recommended)")
-    click.echo("  2. Select specific products")
-    click.echo("")
-
-    choice = click.prompt("Choice", type=click.Choice(["1", "2"]), default="1")
-
-    if choice == "1":
-        config = _setup_from_preset(intent_map)
-    else:
-        config = _setup_from_intents(intent_map)
+    # Select products/intents
+    config = _setup_from_intents(intent_map)
 
     # Ask about overrides
     config = _configure_overrides(config, registry)
@@ -68,22 +57,13 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     _show_config_summary(config)
 
     # Show what would be started
-    if config.preset:
-        resolved = resolver.resolve_preset(
-            config.preset,
-            include_units=config.include_units,
-            exclude_units=config.exclude_units,
-            skip_autostart=config.skip_autostart,
-            enable_autostart=config.enable_autostart,
-        )
-    else:
-        resolved = resolver.resolve(
-            config.intents,
-            include_units=config.include_units,
-            exclude_units=config.exclude_units,
-            skip_autostart=config.skip_autostart,
-            enable_autostart=config.enable_autostart,
-        )
+    resolved = resolver.resolve(
+        config.intents,
+        include_units=config.include_units,
+        exclude_units=config.exclude_units,
+        skip_autostart=config.skip_autostart,
+        enable_autostart=config.enable_autostart,
+    )
     click.echo("")
     click.echo(f"This will start {len(resolved.units)} processes.")
     click.echo("")
@@ -108,10 +88,8 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
 
 def _show_config_summary(config: DevenvConfig) -> None:
     """Show config summary."""
-    if config.preset:
-        click.echo(f"  Preset: {config.preset}")
-    elif config.intents:
-        click.echo(f"  Intents: {', '.join(config.intents)}")
+    if config.intents:
+        click.echo(f"  Products: {', '.join(config.intents)}")
 
     if config.include_units:
         click.echo(f"  Include: {', '.join(config.include_units)}")
@@ -123,26 +101,6 @@ def _show_config_summary(config: DevenvConfig) -> None:
         click.echo(f"  Auto-start: {', '.join(config.enable_autostart)}")
     if config.log_to_files:
         click.echo("  Log mode: /tmp/posthog-*.log")
-
-
-def _setup_from_preset(intent_map: IntentMap) -> DevenvConfig:
-    """Set up using a preset."""
-    click.echo("")
-    click.echo(click.style("Presets", fg="cyan"))
-    click.echo("")
-
-    presets = list(intent_map.presets.items())
-    for i, (name, preset) in enumerate(presets, 1):
-        intents_str = "all" if preset.all_intents else ", ".join(preset.intents)
-        click.echo(f"  {i}. {name} - {preset.description}")
-        click.echo(f"     Intents: {intents_str}")
-        click.echo("")
-
-    choices = [str(i) for i in range(1, len(presets) + 1)]
-    choice = click.prompt("Select preset", type=click.Choice(choices), default="1")
-
-    selected_name = presets[int(choice) - 1][0]
-    return DevenvConfig(preset=selected_name)
 
 
 def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:

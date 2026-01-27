@@ -7,41 +7,37 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
+from pydantic import BaseModel, model_serializer
 
 if TYPE_CHECKING:
     from .registry import ProcessRegistry
     from .resolver import ResolvedEnvironment
 
 
-@dataclass
-class DevenvConfig:
+class DevenvConfig(BaseModel):
     """Source configuration for dev environment (what the user selected).
 
     This gets embedded in the generated mprocs.yaml under _posthog key,
     allowing re-resolution when intent-map changes.
     """
 
-    intents: list[str] = field(default_factory=list)
-    preset: str | None = None
-    include_units: list[str] = field(default_factory=list)
-    exclude_units: list[str] = field(default_factory=list)
-    skip_autostart: list[str] = field(default_factory=list)
-    enable_autostart: list[str] = field(default_factory=list)
+    intents: list[str] = []
+    include_units: list[str] = []
+    exclude_units: list[str] = []
+    skip_autostart: list[str] = []
+    enable_autostart: list[str] = []
     log_to_files: bool = False
 
+    @model_serializer
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for YAML serialization."""
+        """Serialize to dict, excluding empty/default values."""
         data: dict[str, Any] = {}
-        if self.preset:
-            data["preset"] = self.preset
-        elif self.intents:
+        if self.intents:
             data["intents"] = self.intents
-
         if self.include_units:
             data["include_units"] = self.include_units
         if self.exclude_units:
@@ -54,19 +50,6 @@ class DevenvConfig:
             data["log_to_files"] = self.log_to_files
 
         return data
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> DevenvConfig:
-        """Create from dictionary."""
-        return cls(
-            intents=data.get("intents", []),
-            preset=data.get("preset"),
-            include_units=data.get("include_units", []),
-            exclude_units=data.get("exclude_units", []),
-            skip_autostart=data.get("skip_autostart", []),
-            enable_autostart=data.get("enable_autostart", []),
-            log_to_files=data.get("log_to_files", False),
-        )
 
 
 class ConfigGenerator(ABC):
@@ -90,8 +73,7 @@ class ConfigGenerator(ABC):
         return self.save(config, output_path)
 
 
-@dataclass
-class MprocsConfig:
+class MprocsConfig(BaseModel):
     """Represents an mprocs.yaml configuration."""
 
     procs: dict[str, dict[str, Any]]
@@ -99,13 +81,13 @@ class MprocsConfig:
     scrollback: int = 10000
     posthog_config: DevenvConfig | None = None  # embedded source config
 
+    @model_serializer
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for YAML serialization."""
+        """Serialize to dict with _posthog first for visibility."""
         result: dict[str, Any] = {}
 
-        # Put _posthog first for visibility
         if self.posthog_config:
-            result["_posthog"] = self.posthog_config.to_dict()
+            result["_posthog"] = self.posthog_config.model_dump()
 
         result["procs"] = self.procs
         result["mouse_scroll_speed"] = self.mouse_scroll_speed
@@ -289,7 +271,7 @@ def load_devenv_config(mprocs_path: Path) -> DevenvConfig | None:
     if not posthog_data:
         return None
 
-    return DevenvConfig.from_dict(posthog_data)
+    return DevenvConfig.model_validate(posthog_data)
 
 
 def get_generated_mprocs_path() -> Path:
