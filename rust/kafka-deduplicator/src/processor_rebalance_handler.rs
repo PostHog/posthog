@@ -264,27 +264,18 @@ where
         }
 
         // Create the store (will use imported checkpoint files if present)
-        match self
+        if let Err(e) = self
             .store_manager
             .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
             .await
         {
-            Ok(_) => {
-                info!(
-                    "Pre-created store for partition {}:{}",
-                    partition.topic(),
-                    partition.partition_number()
-                );
-            }
-            Err(e) => {
-                error!(
-                    "Failed to pre-create store for partition {}:{}: {}",
-                    partition.topic(),
-                    partition.partition_number(),
-                    e
-                );
-                // Don't fail - the processor will retry on first message
-            }
+            error!(
+                "Failed to pre-create store for partition {}:{}: {}",
+                partition.topic(),
+                partition.partition_number(),
+                e
+            );
+            // Don't fail - the processor will retry on first message
         }
     }
 }
@@ -317,7 +308,7 @@ where
         {
             let mut token = self.current_rebalance_token.lock().unwrap();
             token.cancel();
-            info!("Cancelled previous rebalance's async work (if any)");
+            info!("Cancelling any in-flight async rebalance work");
             // Create a new token for this rebalance
             *token = CancellationToken::new();
         }
@@ -565,7 +556,6 @@ where
     }
 
     async fn on_pre_rebalance(&self) -> Result<()> {
-        info!("Pre-rebalance: Preparing for partition changes");
         // Note: rebalance_coordinator.start_rebalancing() is called in setup_assigned_partitions()
         // (sync callback) to ensure no gap before async work is queued.
         // The rebalance_coordinator's counter is the single source of truth.
@@ -573,10 +563,10 @@ where
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
-        info!("Post-rebalance: Partition changes complete");
+        info!("Post-rebalance: Sync callbacks complete, async cleanup may continue");
         // Note: rebalance_coordinator counter is decremented via RebalancingGuard
         // at the end of async_setup_assigned_partitions (ensures panic safety).
-        // The store_manager's rebalancing counter is the single source of truth.
+        // The rebalance_coordinator's rebalancing counter is the single source of truth.
 
         // Log current stats
         let store_count = self.store_manager.stores().len();

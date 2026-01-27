@@ -330,8 +330,8 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                         <div className="flex items-center gap-2">
                             <img
                                 src={faviconUrl(value)}
-                                width={24}
-                                height={24}
+                                width={14}
+                                height={14}
                                 alt={`${value} favicon`}
                                 onError={(e) => (e.currentTarget.style.display = 'none')}
                             />
