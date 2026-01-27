@@ -982,31 +982,20 @@ class ExperimentQueryBuilder:
                 if exposure_query.group_by:
                     exposure_query.group_by.append(ast.Field(chain=denom_join_key_parts))
 
-        # Build join condition for combined_events based on source_type
-        # For DW sources, we need to handle different join keys for numerator and denominator
-        if num_is_dw and denom_is_dw:
-            # Both are DW with potentially different join keys
-            join_cond = """(
-                (combined_events.source_type = 'numerator' AND toString(exposures.exposure_identifier_num) = toString(combined_events.entity_id))
-                OR
-                (combined_events.source_type = 'denominator' AND toString(exposures.exposure_identifier_denom) = toString(combined_events.entity_id))
-            )"""
-        elif num_is_dw:
-            join_cond = """(
-                (combined_events.source_type = 'numerator' AND toString(exposures.exposure_identifier_num) = toString(combined_events.entity_id))
-                OR
-                (combined_events.source_type = 'denominator' AND exposures.entity_id = combined_events.entity_id)
-            )"""
-        elif denom_is_dw:
-            join_cond = """(
-                (combined_events.source_type = 'numerator' AND exposures.entity_id = combined_events.entity_id)
-                OR
-                (combined_events.source_type = 'denominator' AND toString(exposures.exposure_identifier_denom) = toString(combined_events.entity_id))
-            )"""
+        # Build join conditions for pre-aggregation CTEs based on DW scenario
+        if num_is_dw:
+            num_preagg_join = "toString(exposures.exposure_identifier_num) = toString(numerator_events.entity_id)"
         else:
-            # Simple case: both use the same entity key, no need for source_type check
-            join_cond = "exposures.entity_id = combined_events.entity_id"
+            num_preagg_join = "exposures.entity_id = numerator_events.entity_id"
 
+        if denom_is_dw:
+            denom_preagg_join = "toString(exposures.exposure_identifier_denom) = toString(denominator_events.entity_id)"
+        else:
+            denom_preagg_join = "exposures.entity_id = denominator_events.entity_id"
+
+        # Pre-aggregation approach: aggregate events per entity_id FIRST, then join
+        # This dramatically reduces memory usage by avoiding large intermediate result sets
+        # Memory impact: 471M rows → ~2M rows in joins
         common_ctes = f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -1030,35 +1019,36 @@ class ExperimentQueryBuilder:
                 WHERE {{denominator_predicate}}
             ),
 
-            combined_events AS (
+            numerator_agg AS (
                 SELECT
-                    entity_id,
-                    timestamp,
-                    value AS numerator_value,
-                    NULL AS denominator_value,
-                    'numerator' AS source_type
+                    exposures.entity_id AS entity_id,
+                    {{numerator_agg}} AS value
                 FROM numerator_events
-                UNION ALL
+                JOIN exposures ON {num_preagg_join}
+                WHERE {{numerator_conversion_window}}
+                GROUP BY exposures.entity_id
+            ),
+
+            denominator_agg AS (
                 SELECT
-                    entity_id,
-                    timestamp,
-                    NULL AS numerator_value,
-                    value AS denominator_value,
-                    'denominator' AS source_type
+                    exposures.entity_id AS entity_id,
+                    {{denominator_agg}} AS value
                 FROM denominator_events
+                JOIN exposures ON {denom_preagg_join}
+                WHERE {{denominator_conversion_window}}
+                GROUP BY exposures.entity_id
             ),
 
             entity_metrics AS (
                 SELECT
                     exposures.variant AS variant,
                     exposures.entity_id AS entity_id,
-                    {{numerator_agg}} AS numerator_value,
-                    {{denominator_agg}} AS denominator_value
+                    any(coalesce(numerator_agg.value, 0)) AS numerator_value,
+                    any(coalesce(denominator_agg.value, 0)) AS denominator_value
                     -- breakdown columns added programmatically below
                 FROM exposures
-                LEFT JOIN combined_events
-                    ON {join_cond}
-                    AND {{conversion_window_predicate}}
+                LEFT JOIN numerator_agg ON exposures.entity_id = numerator_agg.entity_id
+                LEFT JOIN denominator_agg ON exposures.entity_id = denominator_agg.entity_id
                 GROUP BY exposures.variant, exposures.entity_id
                 -- breakdown columns added programmatically below
             )
@@ -1090,16 +1080,19 @@ class ExperimentQueryBuilder:
                 ),
                 "numerator_value_expr": self._build_value_expr(source=self.metric.numerator),
                 "numerator_agg": self._build_value_aggregation_expr(
-                    source=self.metric.numerator, events_alias="combined_events", column_name="numerator_value"
+                    source=self.metric.numerator, events_alias="numerator_events", column_name="value"
                 ),
+                "numerator_conversion_window": self._build_conversion_window_predicate_for_events("numerator_events"),
                 "denominator_predicate": self._build_metric_predicate(
                     source=self.metric.denominator, table_alias=denom_table
                 ),
                 "denominator_value_expr": self._build_value_expr(source=self.metric.denominator),
                 "denominator_agg": self._build_value_aggregation_expr(
-                    source=self.metric.denominator, events_alias="combined_events", column_name="denominator_value"
+                    source=self.metric.denominator, events_alias="denominator_events", column_name="value"
                 ),
-                "conversion_window_predicate": self._build_conversion_window_predicate_for_events("combined_events"),
+                "denominator_conversion_window": self._build_conversion_window_predicate_for_events(
+                    "denominator_events"
+                ),
             },
         )
 

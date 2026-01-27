@@ -5,8 +5,10 @@ import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { BillingPlan } from '~/types'
 
 import { InsightSuggestions } from './InsightSuggestions'
 import { insightAIAnalysisLogic } from './insightAIAnalysisLogic'
@@ -20,12 +22,19 @@ export interface InsightAIAnalysisProps {
 export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
+    const { currentPlatformAddon, billingLoading } = useValues(billingLogic)
     const { analysis, isAnalyzing, hasClickedAnalyze, analysisFeedbackGiven } = useValues(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
     const { startAnalysis, resetAnalysis, reportAnalysisFeedback } = useActions(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
+
+    // Check for at least Boost add-on (Boost, Scale, or Enterprise)
+    const hasBoostOrHigher =
+        currentPlatformAddon?.type === BillingPlan.Boost ||
+        currentPlatformAddon?.type === BillingPlan.Scale ||
+        currentPlatformAddon?.type === BillingPlan.Enterprise
 
     useEffect(() => {
         // Reset analysis when insight changes
@@ -51,7 +60,13 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                         onClick={startAnalysis}
                         loading={isAnalyzing}
                         disabledReason={
-                            insightDataLoading ? 'Please wait for the insight to finish loading' : undefined
+                            billingLoading
+                                ? 'Loading billing information...'
+                                : !hasBoostOrHigher
+                                  ? 'Upgrade to at least the Boost add-on to use AI analysis'
+                                  : insightDataLoading
+                                    ? 'Please wait for the insight to finish loading'
+                                    : undefined
                         }
                     >
                         Analyze with AI
