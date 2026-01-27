@@ -172,7 +172,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             toolCall: EnhancedToolCall,
             context: DisplayFormatterContext
         ) {
-            if (this.subtools && 'kind' in toolCall.args && typeof toolCall.args.kind === 'string') {
+            if (
+                this.subtools &&
+                'kind' in toolCall.args &&
+                typeof toolCall.args.kind === 'string' &&
+                toolCall.args.kind in this.subtools
+            ) {
                 const { displayFormatter } = this.subtools[toolCall.args.kind]
                 if (displayFormatter) {
                     return displayFormatter(toolCall, context)
@@ -615,6 +620,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Created surveys'
             }
             return 'Creating surveys...'
+        },
+    },
+    edit_survey: {
+        name: 'Edit survey',
+        description: 'Edit survey',
+        product: Scene.Surveys,
+        icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited survey'
+            }
+            return 'Editing survey...'
         },
     },
     analyze_survey_responses: {
