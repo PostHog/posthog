@@ -23,7 +23,7 @@ function useInsightTypeShortcut(
     useAppShortcut({
         name: `NewInsight${type}`,
         keybind: [keybind],
-        intent: `New ${metadata.name}`,
+        intent: `New ${metadata?.name}`,
         interaction: 'function',
         callback: () => {
             eventUsageLogic.actions.reportSavedInsightNewInsightClicked(type)
@@ -31,7 +31,7 @@ function useInsightTypeShortcut(
         },
         scope: Scene.SavedInsights,
         priority: priority,
-        disabled: disabled || !metadata.inMenu,
+        disabled: disabled || !metadata?.inMenu,
     })
 }
 

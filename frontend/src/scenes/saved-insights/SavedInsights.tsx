@@ -569,7 +569,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
 }
 
-export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
+export const INSIGHT_TYPES_METADATA: Partial<Record<InsightType, InsightTypeMetadata>> = {
     [InsightType.TRENDS]: QUERY_TYPES_METADATA[NodeKind.TrendsQuery],
     [InsightType.FUNNELS]: QUERY_TYPES_METADATA[NodeKind.FunnelsQuery],
     [InsightType.RETENTION]: QUERY_TYPES_METADATA[NodeKind.RetentionQuery],
@@ -580,12 +580,6 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         name: 'SQL',
         description: 'Use SQL to query your data.',
         icon: IconHogQL,
-        inMenu: true,
-    },
-    [InsightType.JSON]: {
-        name: 'Custom',
-        description: 'Save components powered by our JSON query language.',
-        icon: IconBrackets,
         inMenu: true,
     },
     [InsightType.HOG]: {
