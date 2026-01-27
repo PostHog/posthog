@@ -16,7 +16,7 @@ export type WorkflowTab = (typeof WorkflowTabs)[number]
 export interface WorkflowSceneLogicProps {
     id?: string
     tab?: WorkflowTab
-    tabId: string
+    tabId?: string
 }
 
 export const workflowSceneLogic = kea<workflowSceneLogicType>([

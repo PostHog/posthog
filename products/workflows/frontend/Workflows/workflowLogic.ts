@@ -27,7 +27,7 @@ import { workflowsLogic } from './workflowsLogic'
 
 export interface WorkflowLogicProps {
     id?: string
-    tabId: string
+    tabId?: string
     templateId?: string
     editTemplateId?: string
 }

@@ -29,7 +29,6 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
     paramsToProps: ({ params: { id, tab } }) => ({
         id: id || 'new',
         tab: tab || 'workflow',
-        tabId: router.values.searchParams.tabId || 'default',
     }),
 }
 

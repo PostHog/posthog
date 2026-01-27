@@ -138,7 +138,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         {
             label: 'Workflows',
             key: 'workflows',
-            content: <WorkflowsTable />,
+            content: <WorkflowsTable {...props} />,
             link: urls.workflows(),
         },
         {
