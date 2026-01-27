@@ -106,7 +106,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
         # for SelectSetQuery, CTEs defined on the first query are accessible
         # to all queries in the union. we pre-collect these CTE names before processing
         # to ensure they're not mistakenly added as parents.
-        first_query = next(extract_select_queries(hogql_query))
+        first_query = queries[0]
         if first_query.ctes is not None:
             for name in first_query.ctes.keys():
                 ctes.add(name)
