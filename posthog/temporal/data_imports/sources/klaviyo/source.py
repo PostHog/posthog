@@ -64,10 +64,14 @@ Make sure to grant the following read permissions:
         )
 
     def get_schemas(self, config: KlaviyoSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+        # Events are immutable - append-only is the only sync mode
+        append_only_endpoints = {"events"}
+
         return [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
+                and endpoint not in append_only_endpoints,
                 supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
