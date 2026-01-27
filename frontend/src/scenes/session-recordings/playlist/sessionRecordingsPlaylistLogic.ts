@@ -251,6 +251,54 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     return true
 }
 
+/**
+ * Normalizes filter values from URL to ensure multi-select operators have array values.
+ * This fixes issues with saved/bookmarked URLs that may have string values instead of arrays.
+ */
+function normalizeFiltersFromUrl(filters: Partial<RecordingUniversalFilters>): Partial<RecordingUniversalFilters> {
+    if (!filters.filter_group?.values) {
+        return filters
+    }
+
+    const normalizedFilterGroup: UniversalFiltersGroup = {
+        ...filters.filter_group,
+        values: filters.filter_group.values.map((group): UniversalFiltersGroup => {
+            if (!('values' in group) || !Array.isArray(group.values)) {
+                return group as UniversalFiltersGroup
+            }
+            return {
+                ...group,
+                values: group.values.map((filter): UniversalFilterValue => {
+                    // Only normalize property filters that have both operator and value properties
+                    // Skip cohort filters (value is number) and action/event filters (no value property)
+                    if (
+                        !filter ||
+                        typeof filter !== 'object' ||
+                        !('operator' in filter) ||
+                        !('value' in filter) ||
+                        ('type' in filter && filter.type === 'cohort')
+                    ) {
+                        return filter as UniversalFilterValue
+                    }
+                    const normalizedValue = normalizePropertyFilterValue(
+                        filter.value,
+                        filter.operator as PropertyOperator | null
+                    )
+                    if (normalizedValue !== filter.value) {
+                        return { ...filter, value: normalizedValue } as UniversalFilterValue
+                    }
+                    return filter as UniversalFilterValue
+                }),
+            }
+        }),
+    }
+
+    return {
+        ...filters,
+        filter_group: normalizedFilterGroup,
+    }
+}
+
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
     const filters = filtersFromUniversalFilterGroups(universalFilters)
 
@@ -1503,8 +1551,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
+                // Normalize filters from URL to fix string values that should be arrays
+                const normalizedUrlFilters = params.filters ? normalizeFiltersFromUrl(params.filters) : undefined
                 const updatedFilters = {
-                    ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
+                    ...(normalizedUrlFilters && !equal(normalizedUrlFilters, values.filters)
+                        ? normalizedUrlFilters
+                        : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
                         ? { order_direction: params.order_direction }
