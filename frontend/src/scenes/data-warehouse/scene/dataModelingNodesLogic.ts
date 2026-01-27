@@ -14,6 +14,7 @@ export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'dataModelingNodesLogic']),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setDebouncedSearchTerm: (debouncedSearchTerm: string) => ({ debouncedSearchTerm }),
         setCurrentPage: (page: number) => ({ page }),
     }),
     loaders({
@@ -32,6 +33,12 @@ export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
             '' as string,
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        debouncedSearchTerm: [
+            '' as string,
+            {
+                setDebouncedSearchTerm: (_, { debouncedSearchTerm }) => debouncedSearchTerm,
             },
         ],
         currentPage: [
@@ -67,11 +74,13 @@ export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
             },
         ],
     }),
-    listeners(() => ({
-        setSearchTerm: ({ searchTerm }) => {
+    listeners(({ actions }) => ({
+        setSearchTerm: async ({ searchTerm }, breakpoint) => {
             if (searchTerm.length > 0) {
                 dataModelingEditorLogic.actions.setHighlightedNodeType(null)
             }
+            await breakpoint(150)
+            actions.setDebouncedSearchTerm(searchTerm)
         },
     })),
     afterMount(({ actions }) => {

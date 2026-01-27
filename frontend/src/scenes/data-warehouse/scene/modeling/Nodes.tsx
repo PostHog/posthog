@@ -50,7 +50,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
         useValues(dataModelingEditorLogic)
     const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
     const { newTab } = useActions(sceneLogic)
-    const { searchTerm } = useValues(dataModelingNodesLogic)
+    const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
     const [isHovered, setIsHovered] = useState(false)
 
     useEffect(() => {
@@ -63,7 +63,8 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const isRunning = runningNodeIds.has(props.id)
     const lastJobStatus = lastJobStatusByNodeId[props.id]
 
-    const isSearchMatch = searchTerm.length > 0 && name.toLowerCase().includes(searchTerm.toLowerCase())
+    const isSearchMatch =
+        debouncedSearchTerm.length > 0 && name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
 
     const canRun = type !== 'table'
@@ -86,7 +87,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
     const handleNodeClick = (): void => {
         if (canOpenInEditor) {
-            newTab(urls.sqlEditor(undefined, savedQueryId))
+            newTab(urls.sqlEditor({ view_id: savedQueryId }))
         }
     }
 
@@ -167,7 +168,9 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                     )}
                 </div>
                 <div className="flex items-center justify-between gap-1">
-                    <span className="font-medium text-sm truncate">{name}</span>
+                    <Tooltip title={name}>
+                        <span className="font-medium text-sm truncate">{name}</span>
+                    </Tooltip>
                     {canRun && (
                         <Tooltip title={isRunning ? 'Running...' : 'Run this node'}>
                             <LemonButton

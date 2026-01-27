@@ -39,7 +39,7 @@ function DataModelingEditorContent(): JSX.Element {
         onNodesDelete,
         setReactFlowWrapper,
     } = useActions(dataModelingEditorLogic)
-    const { searchTerm } = useValues(dataModelingNodesLogic)
+    const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
     const reactFlowInstance = useReactFlow()
@@ -53,15 +53,17 @@ function DataModelingEditorContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     useEffect(() => {
-        if (searchTerm.length > 0 && nodes.length > 0) {
-            const matchingNode = nodes.find((node) => node.data.name.toLowerCase().includes(searchTerm.toLowerCase()))
+        if (debouncedSearchTerm.length > 0 && nodes.length > 0) {
+            const matchingNode = nodes.find((node) =>
+                node.data.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+            )
             if (matchingNode) {
                 const x = matchingNode.position.x + NODE_WIDTH / 2
                 const y = matchingNode.position.y + NODE_HEIGHT / 2
                 reactFlowInstance.setCenter(x, y, { duration: 300, zoom: 1 })
             }
         }
-    }, [searchTerm, nodes, reactFlowInstance])
+    }, [debouncedSearchTerm, nodes, reactFlowInstance])
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
