@@ -406,6 +406,7 @@ export type AssistantTool =
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
+    | 'edit_survey'
     | 'analyze_survey_responses'
     | 'create_dashboard'
     | 'edit_current_dashboard'
@@ -445,6 +446,7 @@ export enum AgentMode {
     ErrorTracking = 'error_tracking',
     Plan = 'plan',
     Execution = 'execution',
+    Survey = 'survey',
 }
 
 export enum SlashCommandName {

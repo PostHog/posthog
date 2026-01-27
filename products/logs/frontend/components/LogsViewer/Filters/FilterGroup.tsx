@@ -21,6 +21,8 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+
 import { logsSceneLogic } from '../../../logsSceneLogic'
 
 export const taxonomicFilterLogicKey = 'logs'
@@ -33,6 +35,7 @@ export const taxonomicGroupTypes = [
 export const LogsFilterGroup = (): JSX.Element => {
     const { filterGroup, tabId, utcDateRange, serviceNames } = useValues(logsSceneLogic)
     const { setFilterGroup } = useActions(logsSceneLogic)
+    const { setFilter } = useActions(logsViewerConfigLogic)
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
@@ -47,7 +50,9 @@ export const LogsFilterGroup = (): JSX.Element => {
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}
             onChange={(group) => {
-                return setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
+                const newFilterGroup = { type: FilterLogicalOperator.And, values: [group] }
+                setFilterGroup(newFilterGroup)
+                setFilter('filterGroup', newFilterGroup)
             }}
         >
             <UniversalSearch />

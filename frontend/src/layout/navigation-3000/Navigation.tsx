@@ -1,6 +1,6 @@
 import './Navigation.scss'
 
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
@@ -8,6 +8,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -35,6 +36,7 @@ export function Navigation({
     children: ReactNode
     sceneConfig: SceneConfig | null
 }): JSX.Element {
+    useMountedLogic(maxGlobalLogic)
     const { isDev } = useValues(preflightLogic)
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
@@ -129,7 +131,7 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 h-full flex-1 transition-[width] duration-300 rounded-t',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 transition-[width] duration-300 rounded-t',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||

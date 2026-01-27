@@ -60,7 +60,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -614,7 +614,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
-    settingSectionId: 'environment-product-analytics',
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function InsightIcon({

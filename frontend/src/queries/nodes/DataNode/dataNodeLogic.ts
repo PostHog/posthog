@@ -873,11 +873,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         backToSourceQuery: [
             (s) => [s.query],
             (query): InsightVizNode | null => {
-                if (isActorsQuery(query) && isInsightActorsQuery(query.source) && !!query.source.source) {
-                    const insightQuery = query.source.source
+                const insightSource =
+                    (isActorsQuery(query) && isInsightActorsQuery(query.source) ? query.source.source : null) ??
+                    (isEventsQuery(query) && isInsightActorsQuery(query.source) ? query.source.source : null)
+                if (insightSource) {
                     const insightVizNode: InsightVizNode = {
                         kind: NodeKind.InsightVizNode,
-                        source: insightQuery,
+                        source: insightSource,
                         full: true,
                     }
                     return insightVizNode

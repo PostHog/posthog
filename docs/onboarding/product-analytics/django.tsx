@@ -1,7 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getDjangoSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
+export const getDjangoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const PythonEventCapture = snippets?.PythonEventCapture
 
     return [
@@ -31,7 +34,8 @@ export const getDjangoSteps = (CodeBlock: any, Markdown: any, dedent: any, snipp
             content: (
                 <>
                     <Markdown>
-                        Set the PostHog API key and host in your `AppConfig` in `apps.py` so that it's available everywhere:
+                        Set the PostHog API key and host in your `AppConfig` in `apps.py` so that it's available
+                        everywhere:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -53,8 +57,8 @@ export const getDjangoSteps = (CodeBlock: any, Markdown: any, dedent: any, snipp
                         ]}
                     />
                     <Markdown>
-                        Next, if you haven't done so already, make sure you add your `AppConfig` to your `settings.py` under
-                        `INSTALLED_APPS`:
+                        Next, if you haven't done so already, make sure you add your `AppConfig` to your `settings.py`
+                        under `INSTALLED_APPS`:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -80,17 +84,4 @@ export const getDjangoSteps = (CodeBlock: any, Markdown: any, dedent: any, snipp
     ]
 }
 
-export const DjangoInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getDjangoSteps(CodeBlock, Markdown, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const DjangoInstallation = createInstallation(getDjangoSteps)

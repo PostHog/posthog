@@ -6,6 +6,7 @@ export const keyBinds: Record<string, string[]> = {
     openSidePanel: ['g', 'then', 'p'],
     helpMenu: ['?'],
     newAccountMenu: ['g', 'then', 'a'],
+    quickStart: ['g', 'then', 's'],
     recentItems: [...baseModifier, 'y'],
     newTab: [...baseModifier, 't'],
     closeActiveTab: [...baseModifier, 'w'],

@@ -10,6 +10,7 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -167,7 +168,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                                 type="primary"
                                 center
                                 fullWidth
-                                onClick={() => acceptInvite()}
+                                onClick={acceptInvite}
                                 loading={acceptedInviteLoading}
                             >
                                 Accept invite
@@ -196,7 +197,16 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 }
 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
-    const { isSignupSubmitting, validatedPassword, signupManualErrors } = useValues(inviteSignupLogic)
+    const {
+        isSignupSubmitting,
+        validatedPassword,
+        signupManualErrors,
+        passkeyRegistered,
+        isPasskeyRegistering,
+        passkeyError,
+        passkeySignupEnabled,
+    } = useValues(inviteSignupLogic)
+    const { registerPasskey } = useActions(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -253,12 +263,50 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     )}
                 </LemonBanner>
             )}
+            {passkeyError && (
+                <LemonBanner type="error" className="mb-4">
+                    {passkeyError}
+                </LemonBanner>
+            )}
             <Form logic={inviteSignupLogic} formKey="signup" className="deprecated-space-y-4" enableFormOnSubmit>
                 <LemonField.Pure label="Email">
                     <LemonInput type="email" disabled value={invite?.target_email} />
                 </LemonField.Pure>
                 {!areExtraFieldsHidden && (
                     <>
+                        {passkeySignupEnabled && (
+                            <>
+                                {passkeyRegistered ? (
+                                    <div className="border border-success-lighter rounded-lg p-4 bg-success-highlight text-center">
+                                        <img src={passkeyLogo} alt="Passkey" className="w-8 h-8 mx-auto mb-2" />
+                                        <p className="font-semibold text-success mb-1">
+                                            Passkey registered successfully!
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <LemonButton
+                                        fullWidth
+                                        type="secondary"
+                                        center
+                                        size="large"
+                                        icon={
+                                            <img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />
+                                        }
+                                        onClick={registerPasskey}
+                                        loading={isPasskeyRegistering}
+                                        disabled={isPasskeyRegistering}
+                                        data-attr="invite-signup-passkey"
+                                    >
+                                        Sign up with passkey
+                                    </LemonButton>
+                                )}
+                                <div className="flex items-center gap-3 my-4">
+                                    <div className="flex-1 border-t border-border" />
+                                    <span className="text-secondary text-sm">or use a password</span>
+                                    <div className="flex-1 border-t border-border" />
+                                </div>
+                            </>
+                        )}
                         <LemonField
                             name="password"
                             label={
@@ -275,7 +323,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                 placeholder="••••••••••"
                                 autoComplete="new-password"
                                 autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
-                                disabled={isSignupSubmitting}
+                                disabled={isSignupSubmitting || passkeyRegistered}
                             />
                         </LemonField>
 

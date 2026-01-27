@@ -1,13 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getRemixSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any
-): StepDefinition[] => {
+export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -138,7 +135,9 @@ export const getRemixSteps = (
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Import the `PHProvider` component in your `app/root.tsx` file and use it to wrap your app:</Markdown>
+                    <Markdown>
+                        Import the `PHProvider` component in your `app/root.tsx` file and use it to wrap your app:
+                    </Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -188,17 +187,4 @@ export const getRemixSteps = (
     ]
 }
 
-export const RemixInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getRemixSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const RemixInstallation = createInstallation(getRemixSteps)
