@@ -206,7 +206,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     }
                     const normalizedValue = normalizeValue(value)
                     if (normalizedValue === null) {
-                        return '1=0' // Always false
+                        return '1=0'
                     }
                     return `positionCaseInsensitive(JSONExtractString(properties, '${escapedKey}'), '${escapeClickHouseString(normalizedValue)}') > 0`
                 }
@@ -217,7 +217,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     }
                     const normalizedValue = normalizeValue(value)
                     if (normalizedValue === null) {
-                        return '1=1' // Always true
+                        return '1=1'
                     }
                     return `positionCaseInsensitive(JSONExtractString(properties, '${escapedKey}'), '${escapeClickHouseString(normalizedValue)}') = 0`
                 }
@@ -228,7 +228,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     }
                     const normalizedValue = normalizeValue(value)
                     if (normalizedValue === null) {
-                        return '1=0' // Always false
+                        return '1=0'
                     }
                     return `match(JSONExtractString(properties, '${escapedKey}'), '${escapeClickHouseString(normalizedValue)}')`
                 }
@@ -239,7 +239,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     }
                     const normalizedValue = normalizeValue(value)
                     if (normalizedValue === null) {
-                        return '1=1' // Always true
+                        return '1=1'
                     }
                     return `NOT match(JSONExtractString(properties, '${escapedKey}'), '${escapeClickHouseString(normalizedValue)}')`
                 }
@@ -250,7 +250,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     }
                     const normalizedValue = normalizeValue(value)
                     if (normalizedValue === null) {
-                        return '1=0' // Always false
+                        return '1=0'
                     }
                     // Try to parse as number for proper comparison
                     return `toFloat64OrNull(JSONExtractString(properties, '${escapedKey}')) > ${parseFloat(normalizedValue)}`
@@ -262,7 +262,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     }
                     const normalizedValue = normalizeValue(value)
                     if (normalizedValue === null) {
-                        return '1=0' // Always false
+                        return '1=0'
                     }
                     // Try to parse as number for proper comparison
                     return `toFloat64OrNull(JSONExtractString(properties, '${escapedKey}')) < ${parseFloat(normalizedValue)}`
@@ -280,9 +280,8 @@ export class ClickHousePersonRepository implements PersonRepository {
                     }
                     const normalizedValue = normalizeValue(value)
                     if (normalizedValue === null) {
-                        return '1=0' // Always false
+                        return '1=0'
                     }
-                    // Date values should already be normalized to 'YYYY-MM-DD HH:MM:SS' format by replace_proxy_properties
                     return `toDateTime(JSONExtractString(properties, '${escapedKey}')) < toDateTime('${escapeClickHouseString(normalizedValue)}')`
                 }
 
@@ -292,9 +291,8 @@ export class ClickHousePersonRepository implements PersonRepository {
                     }
                     const normalizedValue = normalizeValue(value)
                     if (normalizedValue === null) {
-                        return '1=0' // Always false
+                        return '1=0'
                     }
-                    // Date values should already be normalized to 'YYYY-MM-DD HH:MM:SS' format by replace_proxy_properties
                     return `toDateTime(JSONExtractString(properties, '${escapedKey}')) > toDateTime('${escapeClickHouseString(normalizedValue)}')`
                 }
 
@@ -324,9 +322,6 @@ export class ClickHousePersonRepository implements PersonRepository {
         }
     }
 
-    /**
-     * Execute a ClickHouse query and return results as JSON
-     */
     private async query<T>(query: string): Promise<T[]> {
         return await this.clickHouseRouter.query<T>(query)
     }
