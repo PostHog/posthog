@@ -26,6 +26,14 @@ export interface TraceWithSummary {
     summary?: TraceSummary
 }
 
+export interface ClusterData {
+    cluster: Cluster
+    runTimestamp: string
+    windowStart: string
+    windowEnd: string
+    clusteringLevel: ClusteringLevel
+}
+
 export interface ScatterDataset {
     label: string
     data: Array<{ x: number; y: number; traceId?: string; generationId?: string; timestamp?: string }>
@@ -74,13 +82,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
     loaders(({ props }) => ({
         clusterData: [
-            null as {
-                cluster: Cluster
-                runTimestamp: string
-                windowStart: string
-                windowEnd: string
-                clusteringLevel: ClusteringLevel
-            } | null,
+            null as ClusterData | null,
             {
                 loadClusterData: async () => {
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(props.runId)
@@ -144,67 +146,24 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
     selectors({
         cluster: [
             (s) => [s.clusterData],
-            (
-                clusterData: {
-                    cluster: Cluster
-                    runTimestamp: string
-                    windowStart: string
-                    windowEnd: string
-                    clusteringLevel: ClusteringLevel
-                } | null
-            ): Cluster | null => clusterData?.cluster || null,
+            (clusterData: ClusterData | null): Cluster | null => clusterData?.cluster || null,
         ],
 
         runTimestamp: [
             (s) => [s.clusterData],
-            (
-                clusterData: {
-                    cluster: Cluster
-                    runTimestamp: string
-                    windowStart: string
-                    windowEnd: string
-                    clusteringLevel: ClusteringLevel
-                } | null
-            ): string => clusterData?.runTimestamp || '',
+            (clusterData: ClusterData | null): string => clusterData?.runTimestamp || '',
         ],
 
         windowStart: [
             (s) => [s.clusterData],
-            (
-                clusterData: {
-                    cluster: Cluster
-                    runTimestamp: string
-                    windowStart: string
-                    windowEnd: string
-                    clusteringLevel: ClusteringLevel
-                } | null
-            ): string => clusterData?.windowStart || '',
+            (clusterData: ClusterData | null): string => clusterData?.windowStart || '',
         ],
 
-        windowEnd: [
-            (s) => [s.clusterData],
-            (
-                clusterData: {
-                    cluster: Cluster
-                    runTimestamp: string
-                    windowStart: string
-                    windowEnd: string
-                    clusteringLevel: ClusteringLevel
-                } | null
-            ): string => clusterData?.windowEnd || '',
-        ],
+        windowEnd: [(s) => [s.clusterData], (clusterData: ClusterData | null): string => clusterData?.windowEnd || ''],
 
         clusteringLevel: [
             (s) => [s.clusterData],
-            (
-                clusterData: {
-                    cluster: Cluster
-                    runTimestamp: string
-                    windowStart: string
-                    windowEnd: string
-                    clusteringLevel: ClusteringLevel
-                } | null
-            ): ClusteringLevel => clusterData?.clusteringLevel || 'trace',
+            (clusterData: ClusterData | null): ClusteringLevel => clusterData?.clusteringLevel || 'trace',
         ],
 
         isOutlierCluster: [
