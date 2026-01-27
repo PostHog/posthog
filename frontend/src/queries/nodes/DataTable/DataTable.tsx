@@ -47,7 +47,7 @@ import {
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
-import { EventsFilter } from '~/queries/nodes/EventsNode/EventsFilter'
+import { UnifiedEventsFilter } from '~/queries/nodes/EventsNode/UnifiedEventsFilter'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
@@ -683,7 +683,7 @@ export function DataTable({
             <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
         ) : null,
         showEventsFilter && isEventsQuery(query.source) ? (
-            <EventsFilter key="events-filter" query={query.source} setQuery={setQuerySource} />
+            <UnifiedEventsFilter key="unified-events-filter" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
