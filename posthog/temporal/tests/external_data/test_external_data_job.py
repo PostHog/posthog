@@ -161,11 +161,12 @@ def _create_external_data_job(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_create_external_job_activity(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_create_external_job_activity(activity_environment, team, **kwargs):
     """
     Test that the create external job activity creates a new job
     """
-    new_source = ExternalDataSource.objects.create(
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -174,21 +175,22 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
         source_type="Stripe",
     )
 
-    test_1_schema = _create_schema("test-1", new_source, team)
+    test_1_schema = await sync_to_async(_create_schema)("test-1", new_source, team)
 
     inputs = CreateExternalDataJobModelActivityInputs(
         team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
-    run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
+    run_id, _, __ = await activity_environment.run(create_external_data_job_model_activity, inputs)
 
-    runs = ExternalDataJob.objects.filter(id=run_id)
-    assert runs.exists()
+    runs = await sync_to_async(ExternalDataJob.objects.filter(id=run_id).exists)()
+    assert runs
 
 
 @pytest.mark.django_db(transaction=True)
-def test_create_external_job_activity_schemas_exist(activity_environment, team, **kwargs):
-    new_source = ExternalDataSource.objects.create(
+@pytest.mark.asyncio
+async def test_create_external_job_activity_schemas_exist(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -197,7 +199,7 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         source_type="Stripe",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
@@ -207,15 +209,16 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
 
-    run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
+    run_id, _, __ = await activity_environment.run(create_external_data_job_model_activity, inputs)
 
-    runs = ExternalDataJob.objects.filter(id=run_id)
-    assert runs.exists()
+    runs = await sync_to_async(ExternalDataJob.objects.filter(id=run_id).exists)()
+    assert runs
 
 
 @pytest.mark.django_db(transaction=True)
-def test_create_external_job_activity_update_schemas(activity_environment, team, **kwargs):
-    new_source = ExternalDataSource.objects.create(
+@pytest.mark.asyncio
+async def test_create_external_job_activity_update_schemas(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -225,7 +228,7 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
     )
 
-    ExternalDataSchema.objects.create(
+    await sync_to_async(ExternalDataSchema.objects.create)(
         name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
@@ -234,19 +237,20 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
 
     inputs = SyncNewSchemasActivityInputs(source_id=str(new_source.pk), team_id=team.id)
 
-    activity_environment.run(sync_new_schemas_activity, inputs)
+    await activity_environment.run(sync_new_schemas_activity, inputs)
 
-    all_schemas = get_all_schemas_for_source_id(str(new_source.pk), team.id)
+    all_schemas = await sync_to_async(get_all_schemas_for_source_id)(str(new_source.pk), team.id)
 
     assert len(all_schemas) == len(STRIPE_ENDPOINTS)
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_external_job_activity(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_update_external_job_activity(activity_environment, team, **kwargs):
     """
     Test that the update external job activity updates the job status
     """
-    new_source = ExternalDataSource.objects.create(
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -255,14 +259,14 @@ def test_update_external_job_activity(activity_environment, team, **kwargs):
         source_type="Stripe",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = _create_external_data_job(
+    new_job = await sync_to_async(_create_external_data_job)(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -280,17 +284,18 @@ def test_update_external_job_activity(activity_environment, team, **kwargs):
         team_id=team.id,
     )
 
-    activity_environment.run(update_external_data_job_model, inputs)
-    new_job.refresh_from_db()
-    schema.refresh_from_db()
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_external_job_activity_with_retryable_error(activity_environment, team, **kwargs):
-    new_source = ExternalDataSource.objects.create(
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_retryable_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -299,14 +304,14 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
         source_type="Stripe",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = _create_external_data_job(
+    new_job = await sync_to_async(_create_external_data_job)(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -324,9 +329,9 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
         team_id=team.id,
     )
 
-    activity_environment.run(update_external_data_job_model, inputs)
-    new_job.refresh_from_db()
-    schema.refresh_from_db()
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
@@ -334,8 +339,9 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_external_job_activity_with_non_retryable_error(activity_environment, team, **kwargs):
-    new_source = ExternalDataSource.objects.create(
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_non_retryable_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -344,14 +350,14 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
         source_type="Postgres",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name="test_123",
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = _create_external_data_job(
+    new_job = await sync_to_async(_create_external_data_job)(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -371,10 +377,10 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
     with mock.patch(
         "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
     ):
-        activity_environment.run(update_external_data_job_model, inputs)
+        await activity_environment.run(update_external_data_job_model, inputs)
 
-    new_job.refresh_from_db()
-    schema.refresh_from_db()
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
@@ -382,10 +388,11 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_external_job_activity_with_not_source_sepecific_non_retryable_error(
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_not_source_sepecific_non_retryable_error(
     activity_environment, team, **kwargs
 ):
-    new_source = ExternalDataSource.objects.create(
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -394,14 +401,14 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
         source_type="Postgres",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name="test_123",
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = _create_external_data_job(
+    new_job = await sync_to_async(_create_external_data_job)(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -421,10 +428,10 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
     with mock.patch(
         "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
     ):
-        activity_environment.run(update_external_data_job_model, inputs)
+        await activity_environment.run(update_external_data_job_model, inputs)
 
-    new_job.refresh_from_db()
-    schema.refresh_from_db()
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
@@ -470,7 +477,8 @@ def mock_stripe_client():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
+@pytest.mark.asyncio
+async def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
     def setup_job_1():
         new_source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -537,8 +545,8 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
 
         return new_job, inputs
 
-    job_1, job_1_inputs = setup_job_1()
-    job_2, job_2_inputs = setup_job_2()
+    job_1, job_1_inputs = await sync_to_async(setup_job_1)()
+    job_2, job_2_inputs = await sync_to_async(setup_job_2)()
 
     with (
         override_settings(
@@ -556,9 +564,9 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
             },
         ),
     ):
-        activity_environment.run(import_data_activity_sync, job_1_inputs)
+        await activity_environment.run(import_data_activity_sync, job_1_inputs)
 
-        folder_path = job_1.folder_path()
+        folder_path = await sync_to_async(job_1.folder_path)()
         job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
 
         assert len(job_1_customer_objects["Contents"]) == 3
@@ -579,14 +587,16 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
             },
         ),
     ):
-        activity_environment.run(import_data_activity_sync, job_2_inputs)
+        await activity_environment.run(import_data_activity_sync, job_2_inputs)
 
-        job_2_charge_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path()}/charge/")
+        job_2_folder_path = await sync_to_async(job_2.folder_path)()
+        job_2_charge_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{job_2_folder_path}/charge/")
         assert len(job_2_charge_objects["Contents"]) == 3
 
 
 @pytest.mark.django_db(transaction=True)
-def test_run_stripe_job_row_count_update(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
+@pytest.mark.asyncio
+async def test_run_stripe_job_row_count_update(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
     def setup_job_1():
         new_source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -622,7 +632,7 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
 
         return new_job, inputs
 
-    job_1, job_1_inputs = setup_job_1()
+    job_1, job_1_inputs = await sync_to_async(setup_job_1)()
 
     with (
         override_settings(
@@ -640,14 +650,14 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
             },
         ),
     ):
-        activity_environment.run(import_data_activity_sync, job_1_inputs)
+        await activity_environment.run(import_data_activity_sync, job_1_inputs)
 
-        folder_path = job_1.folder_path()
+        folder_path = await sync_to_async(job_1.folder_path)()
         job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
 
         assert len(job_1_customer_objects["Contents"]) == 3
 
-        job_1.refresh_from_db()
+        await sync_to_async(job_1.refresh_from_db)()
         assert job_1.rows_synced == 1
 
 
