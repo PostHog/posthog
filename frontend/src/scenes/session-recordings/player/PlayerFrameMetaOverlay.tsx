@@ -108,7 +108,8 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
                 <span className="font-bold">REC_T:</span> {currentPlayerTimeSeconds}
             </span>
             {timePassedSinceFirstPlayback !== null && (
-                <span>
+                // TIP: Display for debugging
+                <span style={{ display: 'none' }}>
                     <span className="font-bold">VIDEO_T:</span> {timePassedSinceFirstPlayback.toFixed(0)}
                 </span>
             )}
