@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Gauge } from 'prom-client'
+import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
@@ -9,17 +9,12 @@ import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformat
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
-    EventHeaders,
     HealthCheckResult,
     HealthCheckResultError,
     Hub,
-    IncomingEvent,
-    IncomingEventWithTeam,
     IngestionConsumerConfig,
-    PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
-    Team,
 } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
@@ -32,15 +27,11 @@ import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineInput,
-    PerDistinctIdPipelineInput,
     createJoinedIngestionPipeline,
-    createPerDistinctIdPipeline,
-    createPreprocessingPipeline,
 } from './analytics'
-import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
+import { createContext } from './pipelines/helpers'
 import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
@@ -73,56 +64,11 @@ export type IngestionConsumerHub = HogTransformerHub &
         | 'groupTypeManager'
     >
 
-type EventWithHeaders = IncomingEventWithTeam & { headers: EventHeaders }
-
-type EventsForDistinctId = {
-    token: string
-    distinctId: string
-    events: EventWithHeaders[]
-}
-
-type IncomingEventsByDistinctId = {
-    [key: string]: EventsForDistinctId
-}
-
-type PreprocessedEvent = {
-    message: Message
-    headers: EventHeaders
-    event: IncomingEvent
-    eventWithTeam: IncomingEventWithTeam
-}
-
-// Re-export PerDistinctIdPipelineInput for backwards compatibility
-export type { PerDistinctIdPipelineInput }
-
-const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
-const KNOWN_SET_EVENTS = new Set([
-    '$feature_interaction',
-    '$feature_enrollment_update',
-    'survey dismissed',
-    'survey sent',
-])
-
-const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
-    if (
-        !PERSON_EVENTS.has(event.event) &&
-        !KNOWN_SET_EVENTS.has(event.event) &&
-        (event.properties?.$set || event.properties?.$set_once || event.properties?.$unset)
-    ) {
-        setUsageInNonPersonEventsCounter.inc()
-    }
-}
-
 const latestOffsetTimestampGauge = new Gauge({
     name: 'latest_processed_timestamp_ms',
     help: 'Timestamp of the latest offset that has been committed.',
     labelNames: ['topic', 'partition', 'groupId'],
     aggregator: 'max',
-})
-
-const setUsageInNonPersonEventsCounter = new Counter({
-    name: 'set_usage_in_non_person_events',
-    help: 'Count of events where $set usage was found in non-person events',
 })
 
 export class IngestionConsumer {
@@ -145,12 +91,6 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline!: BatchPipelineUnwrapper<
-        { message: Message },
-        PreprocessedEvent,
-        { message: Message }
-    >
-    private perDistinctIdPipeline!: BatchPipeline<PerDistinctIdPipelineInput, void, { message: Message; team: Team }>
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
         void,
@@ -237,53 +177,7 @@ export class IngestionConsumer {
             }),
         ])
 
-        // Initialize batch preprocessing pipeline after kafka producer is available
-        this.preprocessingPipeline = createUnwrapper(
-            createPreprocessingPipeline(newBatchPipelineBuilder<{ message: Message }, { message: Message }>(), {
-                hub: this.hub,
-                kafkaProducer: this.kafkaProducer!,
-                personsStore: this.personsStore,
-                hogTransformer: this.hogTransformer,
-                eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-                overflowRateLimiter: this.overflowRateLimiter,
-                overflowEnabled: this.overflowEnabled(),
-                overflowTopic: this.overflowTopic || '',
-                dlqTopic: this.dlqTopic,
-                promiseScheduler: this.promiseScheduler,
-            }).build()
-        )
-
-        const perDistinctIdOptions = {
-            CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-            TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
-            PIPELINE_STEP_STALLED_LOG_TIMEOUT: this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
-            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
-            PERSON_MERGE_ASYNC_ENABLED: this.hub.PERSON_MERGE_ASYNC_ENABLED,
-            PERSON_MERGE_ASYNC_TOPIC: this.hub.PERSON_MERGE_ASYNC_TOPIC,
-            PERSON_MERGE_SYNC_BATCH_SIZE: this.hub.PERSON_MERGE_SYNC_BATCH_SIZE,
-            PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-            PERSON_PROPERTIES_UPDATE_ALL: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
-        }
-
-        // Initialize main event pipeline
-        this.perDistinctIdPipeline = createPerDistinctIdPipeline(
-            newBatchPipelineBuilder<PerDistinctIdPipelineInput, { message: Message; team: Team }>(),
-            {
-                options: perDistinctIdOptions,
-                teamManager: this.hub.teamManager,
-                groupTypeManager: this.hub.groupTypeManager,
-                hogTransformer: this.hogTransformer,
-                personsStore: this.personsStore,
-                kafkaProducer: this.kafkaProducer!,
-                groupId: this.groupId,
-                dlqTopic: this.dlqTopic,
-                promiseScheduler: this.promiseScheduler,
-            }
-        ).build()
-
-        // Initialize joined pipeline (combines preprocessing and per-distinct-id pipelines)
+        // Initialize pipeline
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             hub: this.hub,
             kafkaProducer: this.kafkaProducer!,
@@ -295,7 +189,19 @@ export class IngestionConsumer {
             overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,
             promiseScheduler: this.promiseScheduler,
-            perDistinctIdOptions,
+            perDistinctIdOptions: {
+                CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
+                PIPELINE_STEP_STALLED_LOG_TIMEOUT: this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
+                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                PERSON_MERGE_ASYNC_ENABLED: this.hub.PERSON_MERGE_ASYNC_ENABLED,
+                PERSON_MERGE_ASYNC_TOPIC: this.hub.PERSON_MERGE_ASYNC_TOPIC,
+                PERSON_MERGE_SYNC_BATCH_SIZE: this.hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                PERSON_PROPERTIES_UPDATE_ALL: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
+            },
             teamManager: this.hub.teamManager,
             groupTypeManager: this.hub.groupTypeManager,
             groupId: this.groupId,
@@ -378,11 +284,7 @@ export class IngestionConsumer {
 
         const groupStoreForBatch = this.groupStore.forBatch()
 
-        if (this.hub.INGESTION_JOINED_PIPELINE) {
-            await this.runJoinedIngestionPipeline(messages, groupStoreForBatch)
-        } else {
-            await this.runLegacyIngestionPipeline(messages, groupStoreForBatch)
-        }
+        await this.runIngestionPipeline(messages, groupStoreForBatch)
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])
 
@@ -409,28 +311,7 @@ export class IngestionConsumer {
         }
     }
 
-    private async runLegacyIngestionPipeline(
-        messages: Message[],
-        groupStoreForBatch: GroupStoreForBatch
-    ): Promise<void> {
-        const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents)
-
-        await this.runInstrumented('processBatch', async () => {
-            await Promise.all(
-                Object.values(eventsPerDistinctId).map(async (events) => {
-                    return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(events, groupStoreForBatch)
-                    )
-                })
-            )
-        })
-    }
-
-    private async runJoinedIngestionPipeline(
-        messages: Message[],
-        groupStoreForBatch: GroupStoreForBatch
-    ): Promise<void> {
+    private async runIngestionPipeline(messages: Message[], groupStoreForBatch: GroupStoreForBatch): Promise<void> {
         const batch = messages.map((message) => createContext(ok({ message, groupStoreForBatch }), { message }))
 
         this.joinedPipeline.feed(batch)
@@ -478,73 +359,6 @@ export class IngestionConsumer {
             })
         )
         await this.kafkaProducer!.flush()
-    }
-
-    private async processEventsForDistinctId(
-        eventsForDistinctId: EventsForDistinctId,
-        groupStoreForBatch: GroupStoreForBatch
-    ): Promise<void> {
-        const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = eventsForDistinctId.events.map(
-            (incomingEvent) => {
-                // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-                trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
-                return {
-                    ...incomingEvent,
-                    groupStoreForBatch,
-                }
-            }
-        )
-
-        // Feed the batch to the main event pipeline
-        const eventsSequence = preprocessedEventsWithStores.map((event) =>
-            createContext(ok(event), { message: event.message, team: event.team })
-        )
-        this.perDistinctIdPipeline.feed(eventsSequence)
-        await this.perDistinctIdPipeline.next()
-    }
-
-    private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
-        // Create batch using the helper function
-        const batch = createBatch(messages.map((message) => ({ message })))
-
-        // Feed batch to the pipeline
-        this.preprocessingPipeline.feed(batch)
-
-        // Get all results from the gather pipeline (should return all results in one call)
-        const result = await this.preprocessingPipeline.next()
-
-        if (result === null) {
-            return []
-        }
-
-        // Return the results (already filtered to successful ones by ResultHandlingPipeline)
-        return result
-    }
-
-    private groupEventsByDistinctId(preprocessedEvents: PreprocessedEvent[]): IncomingEventsByDistinctId {
-        const groupedEvents: IncomingEventsByDistinctId = {}
-
-        for (const preprocessedEvent of preprocessedEvents) {
-            const { eventWithTeam, headers } = preprocessedEvent
-            const { message, event, team } = eventWithTeam
-            const token = event.token ?? ''
-            const distinctId = event.distinct_id ?? ''
-            const eventKey = `${token}:${distinctId}`
-
-            // We collect the events grouped by token and distinct_id so that we can process batches in parallel
-            // whilst keeping the order of events for a given distinct_id.
-            if (!groupedEvents[eventKey]) {
-                groupedEvents[eventKey] = {
-                    token: token,
-                    distinctId,
-                    events: [],
-                }
-            }
-
-            groupedEvents[eventKey].events.push({ message, event, team, headers })
-        }
-
-        return groupedEvents
     }
 
     private overflowEnabled(): boolean {

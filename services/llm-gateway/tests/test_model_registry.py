@@ -239,11 +239,11 @@ class TestIsModelAvailable:
         "model_id,product,expected",
         [
             ("gpt-4o", "llm_gateway", True),
-            ("gpt-4o", "array", False),
+            ("gpt-4o", "twig", False),
             ("o1", "llm_gateway", True),
             ("o1", "array", False),
             ("gpt-5.2", "array", True),
-            ("gpt-5-mini", "array", True),
+            ("gpt-5-mini", "twig", True),
             ("claude-opus-4-5", "array", True),
             ("claude-sonnet-4-5", "array", True),
             ("claude-haiku-4-5", "array", True),

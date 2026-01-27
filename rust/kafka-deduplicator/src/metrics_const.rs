@@ -123,6 +123,11 @@ pub const REBALANCE_RESUME_PARTITIONS_FILTERED: &str = "rebalance_resume_partiti
 /// Counter for Resume commands skipped entirely (all partitions were revoked)
 pub const REBALANCE_RESUME_SKIPPED_ALL_REVOKED: &str = "rebalance_resume_skipped_all_revoked_total";
 
+/// Counter for partitions resumed after rebalance was cancelled
+/// This happens when a new rebalance starts before async setup completes,
+/// but some partitions are still owned and need to be resumed
+pub const REBALANCE_RESUME_AFTER_CANCELLATION: &str = "rebalance_resume_after_cancellation_total";
+
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)
 pub const PARTITION_BATCH_PROCESSING_DURATION_MS: &str = "partition_batch_processing_duration_ms";
