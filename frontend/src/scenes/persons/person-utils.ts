@@ -1,6 +1,7 @@
 import './PersonDisplay.scss'
 
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { NUM_LETTERMARK_STYLES } from 'lib/lemon-ui/Lettermark/Lettermark'
 import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { isUUIDLike, midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -8,10 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
 
-const NUM_LETTERMARK_COLORS = 8
-
 /**
- * Generates a stable color index (0-7) from a string using djb2 hash.
+ * Generates a stable color index from a string using djb2 hash.
  * Used for consistent avatar colors based on person identifiers.
  */
 function hashStringToColorIndex(str: string): number {
@@ -19,7 +18,7 @@ function hashStringToColorIndex(str: string): number {
     for (let i = 0; i < str.length; i++) {
         hash = (hash * 33) ^ str.charCodeAt(i)
     }
-    return Math.abs(hash) % NUM_LETTERMARK_COLORS
+    return Math.abs(hash) % NUM_LETTERMARK_STYLES
 }
 
 /**
