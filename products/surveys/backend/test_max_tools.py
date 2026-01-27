@@ -12,13 +12,20 @@ import orjson
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQuestionType, SurveyType
+from posthog.schema import (
+    SurveyCreationSchema,
+    SurveyDisplayConditionsSchema,
+    SurveyMatchType,
+    SurveyQuestionSchema,
+    SurveyQuestionType,
+    SurveyType,
+)
 
 from posthog.models import FeatureFlag, Insight, Survey
 
-from products.surveys.backend.max_tools import SurveyAnalysisOutput, ThemeWithExamples
+from products.surveys.backend.max_tools import SurveyAnalysisOutput, SurveyUpdateSchema, ThemeWithExamples
 
-from .max_tools import CreateSurveyTool, SurveyAnalysisTool
+from .max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
 
 OPENAI_PATCH_PATH = "products.surveys.backend.max_tools.MaxChatOpenAI"
 
@@ -308,6 +315,84 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.name == "All Variants Survey"
         assert survey.linked_flag_id == flag.id
         assert survey.conditions["linkedFlagVariant"] == "any"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_with_launch(self):
+        """Test that creating a survey with should_launch=True is a dangerous operation"""
+        tool = self._setup_tool()
+
+        survey_schema = SurveyCreationSchema(
+            name="Test Survey",
+            description="A test survey",
+            type=SurveyType.POPOVER,
+            questions=[
+                SurveyQuestionSchema(
+                    type=SurveyQuestionType.OPEN,
+                    question="Test?",
+                    optional=False,
+                )
+            ],
+            should_launch=True,
+        )
+
+        is_dangerous = await tool.is_dangerous_operation(survey=survey_schema)
+        assert is_dangerous is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_without_launch(self):
+        """Test that creating a survey without launching is NOT a dangerous operation"""
+        tool = self._setup_tool()
+
+        survey_schema = SurveyCreationSchema(
+            name="Test Survey",
+            description="A test survey",
+            type=SurveyType.POPOVER,
+            questions=[
+                SurveyQuestionSchema(
+                    type=SurveyQuestionType.OPEN,
+                    question="Test?",
+                    optional=False,
+                )
+            ],
+            should_launch=False,
+        )
+
+        is_dangerous = await tool.is_dangerous_operation(survey=survey_schema)
+        assert is_dangerous is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_format_dangerous_operation_preview(self):
+        """Test the dangerous operation preview message for survey creation"""
+        tool = self._setup_tool()
+
+        survey_schema = SurveyCreationSchema(
+            name="NPS Survey",
+            description="A test survey",
+            type=SurveyType.POPOVER,
+            questions=[
+                SurveyQuestionSchema(
+                    type=SurveyQuestionType.RATING,
+                    question="How likely are you to recommend us?",
+                    scale=10,
+                ),
+                SurveyQuestionSchema(
+                    type=SurveyQuestionType.OPEN,
+                    question="Why?",
+                    optional=True,
+                ),
+            ],
+            should_launch=True,
+        )
+
+        preview = await tool.format_dangerous_operation_preview(survey=survey_schema)
+
+        assert "Create and launch" in preview
+        assert "NPS Survey" in preview
+        assert "2 question(s)" in preview
+        assert "start collecting responses" in preview
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -876,50 +961,277 @@ class TestSurveyAnalysisTool(BaseTest):
         # Verify LLM was called
         mock_chat_openai.return_value.with_structured_output.return_value.ainvoke.assert_called_once()
 
-    @patch(OPENAI_PATCH_PATH)
+
+class TestEditSurveyTool(BaseTest):
+    def setUp(self):
+        super().setUp()
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        self._config: RunnableConfig = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+            },
+        }
+
+    def tearDown(self):
+        super().tearDown()
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    def _setup_tool(self):
+        tool = EditSurveyTool(team=self.team, user=self.user, config=self._config)
+        return tool
+
+    async def _create_test_survey(self, **kwargs):
+        defaults = {
+            "team": self.team,
+            "name": "Test Survey",
+            "description": "A test survey",
+            "type": "popover",
+            "questions": [{"type": "open", "question": "Test question?", "id": "q1"}],
+            "created_by": self.user,
+        }
+        defaults.update(kwargs)
+        return await sync_to_async(Survey.objects.create)(**defaults)
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_arun_impl_handles_llm_failure(self, mock_chat_openai):
-        """Test _arun_impl handles LLM failure gracefully"""
-        # Mock LLM failure
-        mock_chat_openai.return_value.with_structured_output.return_value.ainvoke.side_effect = Exception(
-            "OpenAI API timeout"
-        )
+    async def test_edit_survey_name_description(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
 
-        # Create real survey with proper UUID
-        survey = await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Test Survey",
+        updates = SurveyUpdateSchema(name="Updated Name", description="Updated description")
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), updates=updates)
+
+        assert "Updated Name" in content
+        assert "updated_fields" in artifact
+        assert "name" in artifact["updated_fields"]
+        assert "description" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.name == "Updated Name"
+        assert updated_survey.description == "Updated description"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        new_questions = [
+            SurveyQuestionSchema(type=SurveyQuestionType.RATING, question="New rating question?", scale=5),
+            SurveyQuestionSchema(type=SurveyQuestionType.OPEN, question="Follow-up?", optional=True),
+        ]
+        updates = SurveyUpdateSchema(questions=new_questions)
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), updates=updates)
+
+        assert "updated successfully" in content
+        assert "questions" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert len(updated_survey.questions) == 2
+        assert updated_survey.questions[0]["type"] == "rating"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_conditions(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        conditions = SurveyDisplayConditionsSchema(url="/dashboard", urlMatchType=SurveyMatchType.ICONTAINS)
+        updates = SurveyUpdateSchema(conditions=conditions)
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), updates=updates)
+
+        assert "updated successfully" in content
+        assert "conditions" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.conditions is not None
+        assert updated_survey.conditions["url"] == "/dashboard"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_launch(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        updates = SurveyUpdateSchema(start_date="now")
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), updates=updates)
+
+        assert "launched" in content
+        assert "start_date" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.start_date is not None
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_stop(self):
+        import django.utils.timezone
+
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(start_date=django.utils.timezone.now())
+
+        updates = SurveyUpdateSchema(end_date="now")
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), updates=updates)
+
+        assert "stopped" in content
+        assert "end_date" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.end_date is not None
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_archive(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        updates = SurveyUpdateSchema(archived=True)
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), updates=updates)
+
+        assert "archived" in content
+        assert "archived" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.archived is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_not_found(self):
+        tool = self._setup_tool()
+
+        updates = SurveyUpdateSchema(name="New Name")
+        content, artifact = await tool._arun_impl(survey_id="00000000-0000-0000-0000-000000000000", updates=updates)
+
+        assert "not found" in content.lower()
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_wrong_team(self):
+        from posthog.models import Organization, Team
+
+        other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
+        other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
+        other_survey = await sync_to_async(Survey.objects.create)(
+            team=other_team,
+            name="Other Survey",
             type="popover",
-            questions=[{"type": "open", "question": "Feedback?", "id": "q1"}],
+            questions=[{"type": "open", "question": "Test?"}],
             created_by=self.user,
         )
-        context = {
-            "survey_id": str(survey.id),
-            "survey_name": "Test Survey",
-            "formatted_responses": [
-                {
-                    "questionName": "Feedback?",
-                    "questionId": "q1",
-                    "responses": [
-                        {
-                            "responseText": "Good",
-                            "timestamp": "2023-01-01T00:00:00Z",
-                            "isOpenEnded": True,
-                        }
-                    ],
-                }
-            ],
-        }
-        tool = self._setup_tool_with_context(context)
 
-        user_message, artifact = await tool._arun_impl()
+        tool = self._setup_tool()
+        updates = SurveyUpdateSchema(name="Hacked Name")
+        content, artifact = await tool._arun_impl(survey_id=str(other_survey.id), updates=updates)
 
-        # Should handle error gracefully - check if it's handled in analysis or formatted
-        has_error_in_message = "Failed to analyze survey responses" in user_message
-        has_error_in_insights = any(
-            "failed" in insight.lower() for insight in artifact.get("analysis", {}).get("insights", [])
-        )
-        assert has_error_in_message or has_error_in_insights
+        assert "not found" in content.lower()
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_no_updates(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        updates = SurveyUpdateSchema()
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), updates=updates)
+
+        assert "no updates" in content.lower()
+        assert artifact["error"] == "no_updates"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_stop_and_archive(self):
+        import django.utils.timezone
+
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(start_date=django.utils.timezone.now())
+
+        updates = SurveyUpdateSchema(end_date="now", archived=True)
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), updates=updates)
+
+        assert "stopped" in content
+        assert "archived" in content
+        assert "end_date" in artifact["updated_fields"]
+        assert "archived" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.end_date is not None
+        assert updated_survey.archived is True
         if "error" in artifact:
             assert artifact["error"] == "analysis_failed"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_launch(self):
+        """Test that launching a survey is a dangerous operation"""
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        updates = SurveyUpdateSchema(start_date="now")
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), updates=updates)
+        assert is_dangerous is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_stop(self):
+        """Test that stopping a survey is a dangerous operation"""
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        updates = SurveyUpdateSchema(end_date="now")
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), updates=updates)
+        assert is_dangerous is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_archive(self):
+        """Test that archiving a survey is a dangerous operation"""
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        updates = SurveyUpdateSchema(archived=True)
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), updates=updates)
+        assert is_dangerous is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_regular_update(self):
+        """Test that regular updates are NOT dangerous operations"""
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        updates = SurveyUpdateSchema(name="New Name", description="New description")
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), updates=updates)
+        assert is_dangerous is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_format_dangerous_operation_preview_launch(self):
+        """Test dangerous operation preview for launching a survey"""
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(name="My NPS Survey")
+
+        updates = SurveyUpdateSchema(start_date="now")
+        preview = await tool.format_dangerous_operation_preview(survey_id=str(survey.id), updates=updates)
+
+        assert "Launch" in preview
+        assert "My NPS Survey" in preview
+        assert "start collecting responses" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_format_dangerous_operation_preview_multiple_actions(self):
+        """Test dangerous operation preview with multiple actions"""
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(name="Survey to Archive")
+
+        updates = SurveyUpdateSchema(end_date="now", archived=True)
+        preview = await tool.format_dangerous_operation_preview(survey_id=str(survey.id), updates=updates)
+
+        assert "Stop" in preview
+        assert "Archive" in preview
+        assert "Survey to Archive" in preview

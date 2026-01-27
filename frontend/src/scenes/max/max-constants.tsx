@@ -617,6 +617,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating surveys...'
         },
     },
+    edit_survey: {
+        name: 'Edit survey',
+        description: 'Edit survey',
+        product: Scene.Surveys,
+        icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited survey'
+            }
+            return 'Editing survey...'
+        },
+    },
     analyze_survey_responses: {
         name: 'Analyze survey responses',
         description: 'Analyze survey responses to extract themes and actionable insights',

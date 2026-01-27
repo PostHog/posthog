@@ -7,9 +7,17 @@ from typing import Any, Literal
 
 import django.utils.timezone
 
-from pydantic import BaseModel, Field
+from asgiref.sync import sync_to_async
+from pydantic import BaseModel, ConfigDict, Field
 
-from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
+from posthog.schema import (
+    SurveyAnalysisQuestionGroup,
+    SurveyAppearanceSchema,
+    SurveyCreationSchema,
+    SurveyDisplayConditionsSchema,
+    SurveyQuestionSchema,
+    SurveyType,
+)
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
@@ -205,6 +213,16 @@ class CreateSurveyTool(MaxTool):
     def get_required_resource_access(self):
         return [("survey", "editor")]
 
+    async def is_dangerous_operation(self, survey: SurveyCreationSchema, **kwargs) -> bool:
+        """Launching a survey immediately is a dangerous operation."""
+        return survey.should_launch is True
+
+    async def format_dangerous_operation_preview(self, survey: SurveyCreationSchema, **kwargs) -> str:
+        """Format a human-readable preview of the dangerous operation."""
+        survey_name = survey.name or "Untitled Survey"
+        question_count = len(survey.questions) if survey.questions else 0
+        return f"**Create and launch** survey '{survey_name}' with {question_count} question(s). It will immediately start collecting responses."
+
     async def _arun_impl(self, survey: SurveyCreationSchema) -> tuple[str, dict[str, Any]]:
         """
         Create a survey from the structured configuration.
@@ -280,6 +298,179 @@ class CreateSurveyTool(MaxTool):
         survey_data["appearance"] = appearance
 
         return survey_data
+
+
+SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
+    Use this tool to edit an existing survey.
+
+    # When to use
+    - User wants to modify a survey's name, description, or questions
+    - User wants to launch or stop a survey
+    - User wants to archive a survey
+    - User wants to change survey targeting conditions
+
+    # Finding the Survey
+    First use the search tool with kind="surveys" to find the survey ID, then use this tool.
+
+    # Common Operations
+    - **Launch**: Set start_date to "now"
+    - **Stop**: Set end_date to "now"
+    - **Archive**: Set archived to true
+    - **Update questions**: Provide full questions array (replaces existing)
+    - **Update conditions**: Provide conditions object (replaces existing)
+
+    # Important Notes
+    - Only include fields you want to change in the updates
+    - When updating questions, you must provide the complete list (it replaces existing)
+    - You cannot edit a survey that doesn't belong to your team
+    """).strip()
+
+
+class SurveyUpdateSchema(BaseModel):
+    """Partial schema for survey updates - only include fields to change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    description: str | None = None
+    type: SurveyType | None = None
+    questions: list[SurveyQuestionSchema] | None = None
+    conditions: SurveyDisplayConditionsSchema | None = None
+    appearance: SurveyAppearanceSchema | None = None
+    linked_flag_id: int | None = None
+    start_date: str | None = Field(default=None, description='ISO date string or "now" to launch immediately')
+    end_date: str | None = Field(default=None, description='ISO date string or "now" to stop immediately')
+    archived: bool | None = None
+    responses_limit: int | None = None
+    enable_partial_responses: bool | None = None
+
+
+class EditSurveyToolArgs(BaseModel):
+    survey_id: str = Field(description="UUID of the survey to edit")
+    updates: SurveyUpdateSchema = Field(description="Fields to update on the survey")
+
+
+class EditSurveyTool(MaxTool):
+    name: str = "edit_survey"
+    description: str = SURVEY_EDIT_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = EditSurveyToolArgs
+
+    def get_required_resource_access(self):
+        return [("survey", "editor")]
+
+    async def is_dangerous_operation(self, survey_id: str, updates: SurveyUpdateSchema, **kwargs) -> bool:
+        """Launching, stopping, or archiving a survey are dangerous operations."""
+        return updates.start_date == "now" or updates.end_date == "now" or updates.archived is True
+
+    async def format_dangerous_operation_preview(self, survey_id: str, updates: SurveyUpdateSchema, **kwargs) -> str:
+        """Format a human-readable preview of the dangerous operation."""
+        # Try to get survey name for a better preview
+        survey_name = survey_id
+        try:
+            survey = await sync_to_async(Survey.objects.get)(id=survey_id, team=self._team)
+            survey_name = f"'{survey.name}'"
+        except Survey.DoesNotExist:
+            survey_name = f"(ID: {survey_id})"
+
+        actions = []
+        if updates.start_date == "now":
+            actions.append("**Launch** the survey (it will start collecting responses)")
+        if updates.end_date == "now":
+            actions.append("**Stop** the survey (it will stop collecting responses)")
+        if updates.archived is True:
+            actions.append("**Archive** the survey")
+
+        if len(actions) == 1:
+            return f"{actions[0]} {survey_name}"
+        else:
+            action_list = "\n".join(f"- {action}" for action in actions)
+            return f"Perform the following actions on survey {survey_name}:\n{action_list}"
+
+    async def _arun_impl(self, survey_id: str, updates: SurveyUpdateSchema) -> tuple[str, dict[str, Any]]:
+        """
+        Edit an existing survey with the provided updates.
+        """
+        try:
+            team = self._team
+
+            # Fetch the existing survey
+            try:
+                survey = await sync_to_async(Survey.objects.get)(id=survey_id, team=team)
+            except Survey.DoesNotExist:
+                return f"Survey with ID '{survey_id}' not found", {
+                    "error": "not_found",
+                    "error_message": f"No survey found with ID '{survey_id}' in your team.",
+                }
+
+            # Get the updates as a dict, excluding None values
+            update_data = updates.model_dump(exclude_unset=True)
+
+            if not update_data:
+                return "No updates provided", {
+                    "error": "no_updates",
+                    "error_message": "No fields were provided to update.",
+                }
+
+            # Handle special date values
+            if update_data.get("start_date") == "now":
+                update_data["start_date"] = django.utils.timezone.now()
+            if update_data.get("end_date") == "now":
+                update_data["end_date"] = django.utils.timezone.now()
+
+            # Handle nested objects that need conversion
+            if "questions" in update_data and update_data["questions"] is not None:
+                update_data["questions"] = [
+                    q.model_dump(exclude_unset=True) if hasattr(q, "model_dump") else q
+                    for q in update_data["questions"]
+                ]
+
+            if "conditions" in update_data and update_data["conditions"] is not None:
+                conditions = update_data["conditions"]
+                update_data["conditions"] = (
+                    conditions.model_dump(exclude_unset=True) if hasattr(conditions, "model_dump") else conditions
+                )
+
+            if "appearance" in update_data and update_data["appearance"] is not None:
+                appearance = update_data["appearance"]
+                # Merge with existing appearance
+                existing_appearance = survey.appearance or {}
+                new_appearance = (
+                    appearance.model_dump(exclude_unset=True) if hasattr(appearance, "model_dump") else appearance
+                )
+                update_data["appearance"] = {**existing_appearance, **new_appearance}
+
+            # Apply updates to survey
+            for field, value in update_data.items():
+                setattr(survey, field, value)
+
+            await sync_to_async(survey.save)()
+
+            # Build response message
+            updated_fields = list(update_data.keys())
+            actions = []
+            if "start_date" in updated_fields and updates.start_date == "now":
+                actions.append("launched")
+            if "end_date" in updated_fields and updates.end_date == "now":
+                actions.append("stopped")
+            if "archived" in updated_fields and updates.archived:
+                actions.append("archived")
+
+            if actions:
+                action_str = " and ".join(actions)
+                message = f"Survey '{survey.name}' has been {action_str} successfully!"
+            else:
+                fields_str = ", ".join(updated_fields)
+                message = f"Survey '{survey.name}' updated successfully! Modified fields: {fields_str}"
+
+            return message, {
+                "survey_id": str(survey.id),
+                "survey_name": survey.name,
+                "updated_fields": updated_fields,
+            }
+
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}
 
 
 class SurveyAnalysisArgs(BaseModel):
