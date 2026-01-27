@@ -66,7 +66,6 @@ NON_SHARDED_TABLES = [
     "cohortpeople",
     "error_tracking_issue_fingerprint_overrides",
     "events_dead_letter_queue",
-    "events_plugin_ingestion_partition_statistics_v2",
     "exchange_rate",
     "groups",
     "infi_clickhouse_orm_migrations",

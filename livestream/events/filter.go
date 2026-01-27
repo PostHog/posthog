@@ -20,7 +20,7 @@ type Subscription struct {
 	DistinctId string
 	EventTypes []string
 
-	Geo        bool
+	Geo     bool
 	Columns []string
 
 	// Channels
@@ -43,9 +43,11 @@ type ResponsePostHogEvent struct {
 
 //easyjson:json
 type ResponseGeoEvent struct {
-	Lat   float64 `json:"lat"`
-	Lng   float64 `json:"lng"`
-	Count uint    `json:"count"`
+	Lat         float64 `json:"lat"`
+	Lng         float64 `json:"lng"`
+	CountryCode string  `json:"country_code"`
+	DistinctId  string  `json:"distinct_id"`
+	Count       uint    `json:"count"`
 }
 
 type Filter struct {
@@ -61,9 +63,11 @@ func NewFilter(subChan chan Subscription, unSubChan chan Subscription, inboundCh
 
 func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 	return &ResponseGeoEvent{
-		Lat:   event.Lat,
-		Lng:   event.Lng,
-		Count: 1,
+		Lat:         event.Lat,
+		Lng:         event.Lng,
+		CountryCode: event.CountryCode,
+		DistinctId:  event.DistinctId,
+		Count:       1,
 	}
 }
 

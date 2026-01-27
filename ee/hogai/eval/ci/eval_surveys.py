@@ -1,737 +1,383 @@
+"""Evaluations for CreateSurveyTool."""
+
+import uuid
+
 import pytest
 
-from autoevals.llm import LLMClassifier
+from autoevals.partial import ScorerWithPartial
+from autoevals.ragas import AnswerSimilarity
 from braintrust import EvalCase, Score
-from braintrust_core.score import Scorer
 
-from posthog.schema import SurveyCreationSchema
+from posthog.schema import (
+    SurveyCreationSchema,
+    SurveyDisplayConditionsSchema,
+    SurveyQuestionSchema,
+    SurveyQuestionType,
+    SurveyType,
+)
 
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Survey
 
-from products.surveys.backend.max_tools import FeatureFlagLookupGraph
+from products.surveys.backend.max_tools import CreateSurveyTool
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.eval.base import MaxPublicEval
 from ee.models.assistant import Conversation
 
-from ..base import MaxPublicEval
+
+def unique_name(base_name: str) -> str:
+    """Generate a unique survey name to avoid duplicates in demo data."""
+    return f"{base_name} - {uuid.uuid4().hex[:8]}"
 
 
-def validate_survey_output(output, scorer_name):
-    """Common validation logic for survey scorers."""
-    if not output.get("success", False):
-        return Score(
-            name=scorer_name,
-            score=0,
-            metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-        )
+class SurveyOutputScorer(ScorerWithPartial):
+    """Custom scorer for survey tool output that combines semantic similarity for text and exact matching for other fields."""
 
-    survey_output = output.get("survey_creation_output")
-    if not survey_output:
-        return Score(name=scorer_name, score=0, metadata={"reason": "No survey output returned"})
+    def __init__(self, semantic_fields: set[str] | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.semantic_fields = semantic_fields or {"message"}
 
-    return survey_output
+    def _run_eval_sync(self, output: dict, expected: dict, **kwargs):
+        if not expected:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expected value provided"})
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output provided"})
 
+        total_fields = len(expected)
+        if total_fields == 0:
+            return Score(name=self._name(), score=1.0)
 
-async def create_test_feature_flags(team, user):
-    """Create test feature flags for evaluation scenarios."""
+        score_per_field = 1.0 / total_fields
+        total_score = 0.0
+        metadata = {}
 
-    test_flags = [
-        {
-            "key": "new-checkout-flow",
-            "name": "New Checkout Flow",
-            "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
-        },
-        {
-            "key": "ab-test-experiment",
-            "name": "A/B Test Experiment",
-            "filters": {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "treatment", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        },
-        {
-            "key": "homepage-redesign",
-            "name": "Homepage Redesign",
-            "filters": {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "variant-a", "rollout_percentage": 33},
-                        {"key": "variant-b", "rollout_percentage": 33},
-                        {"key": "variant-c", "rollout_percentage": 34},
-                    ]
-                },
-            },
-        },
-        {
-            "key": "pricing-page-test",
-            "name": "Pricing Page Test",
-            "filters": {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "treatment", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        },
-    ]
+        for field_name, expected_value in expected.items():
+            actual_value = output.get(field_name)
 
-    created_flags = []
-    for flag_data in test_flags:
-        flag, created = await FeatureFlag.objects.aget_or_create(
-            team=team,
-            key=flag_data["key"],
-            defaults={
-                "name": flag_data["name"],
-                "filters": flag_data["filters"],
-                "created_by": user,
-            },
-        )
-        created_flags.append(flag)
-
-    return created_flags
-
-
-@pytest.fixture
-async def create_feature_flags(demo_org_team_user):
-    """Create test feature flags for the test."""
-    _, team, user = demo_org_team_user
-    return await create_test_feature_flags(team, user)
-
-
-@pytest.fixture
-def call_surveys_max_tool(demo_org_team_user, create_feature_flags):
-    """
-    This fixture creates a properly configured SurveyCreatorTool for evaluation.
-    """
-    # Extract team and user from the demo fixture
-    _, team, user = demo_org_team_user
-
-    async def call_max_tool(instructions: str) -> dict:
-        """
-        Call the survey creation tool and return structured output.
-        """
-
-        try:
-            conversation = await Conversation.objects.acreate(team=team, user=user)
-
-            graph_context = {
-                "change": f"Create a survey based on these instructions: {instructions}",
-                "output": None,
-            }
-            graph = FeatureFlagLookupGraph(team=team, user=user).compile_full_graph(checkpointer=DjangoCheckpointer())
-            result = await graph.ainvoke(
-                graph_context,
-                config={
-                    "configurable": {
-                        "thread_id": conversation.id,
-                        "contextual_tools": {"create_survey": {"user_id": str(user.uuid)}},
-                    }
-                },
-            )
-
-            if "output" not in result or not isinstance(result["output"], SurveyCreationSchema):
-                message = "Survey creation failed"
-                if "intermediate_steps" in result and len(result["intermediate_steps"]) > 0:
-                    return {
-                        "success": False,
-                        "survey_creation_output": None,
-                        "message": result["intermediate_steps"][-1][0].tool_input or message,
-                        "error": result["intermediate_steps"][-1][0].tool_input or message,
-                    }
+            if field_name in self.semantic_fields:
+                # Use semantic similarity for text fields
+                if actual_value is not None and expected_value is not None:
+                    similarity_scorer = AnswerSimilarity(model="text-embedding-3-small")
+                    result = similarity_scorer.eval(output=str(actual_value), expected=str(expected_value))
+                    field_score = result.score * score_per_field
+                    total_score += field_score
+                    metadata[f"{field_name}_score"] = result.score
                 else:
-                    return {"success": False, "survey_creation_output": None, "message": message, "error": message}
-
-            # Return structured output that Braintrust can understand
-            return {
-                "success": True,
-                "survey_creation_output": result["output"] if result else None,
-                "message": "Survey created successfully",
-            }
-        except Exception as e:
-            return {"success": False, "survey_creation_output": None, "message": str(e), "error": str(e)}
-
-    return call_max_tool
-
-
-class SurveyRelevanceScorer(LLMClassifier):
-    """
-    Evaluate if the generated survey is relevant to the given instructions using LLM as a judge.
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="survey_relevance",
-            prompt_template="""
-Evaluate if the generated survey is relevant and appropriate for the given user instructions.
-
-User Instructions: {{input}}
-
-Generated Survey:
-Name: {{output.survey_creation_output.name}}
-Description: {{output.survey_creation_output.description}}
-Type: {{output.survey_creation_output.type}}
-Questions:
-{{#output.survey_creation_output.questions}}
-- {{type}}: {{question}}
-{{#choices}}  Choices: {{.}}{{/choices}}
-{{#scale}}  Scale: {{.}}{{/scale}}
-{{/output.survey_creation_output.questions}}
-
-Evaluation Criteria:
-1. Does the survey name and description match the user's intent?
-2. Are the question types appropriate for the user's request? (e.g., NPS should use rating, feedback should use open text)
-3. Do the questions address what the user asked for?
-4. Is the survey type (popover/widget/api) appropriate for the context?
-5. Are the questions logically connected to the user's goals?
-
-How would you rate the relevance of this survey to the user's instructions? Choose one:
-- perfect: The survey perfectly matches the user's intent and requirements
-- good: The survey is relevant but could be slightly better aligned
-- partial: The survey is somewhat relevant but misses some key aspects
-- irrelevant: The survey does not address the user's request at all
-""".strip(),
-            choice_scores={
-                "perfect": 1.0,
-                "good": 0.7,
-                "partial": 0.4,
-                "irrelevant": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
-
-        return await super()._run_eval_async(output, expected, **kwargs)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
-
-        return super()._run_eval_sync(output, expected, **kwargs)
-
-
-class SurveyQuestionQualityScorer(LLMClassifier):
-    """
-    Evaluate the quality of survey questions using LLM as a judge.
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="survey_question_quality",
-            prompt_template="""
-Evaluate the quality of the survey questions based on best practices for IN-APP survey design.
-
-IMPORTANT CONTEXT: These are in-app surveys that appear as overlays while users are actively using the product.
-Users are trying to accomplish tasks, not fill out long surveys.
-
-User Instructions: {{input}}
-
-Generated Survey Questions:
-{{#output.survey_creation_output.questions}}
-- {{type}}: {{question}}
-{{#description}}   Description: {{.}}{{/description}}
-{{#choices}}   Choices: {{.}}{{/choices}}
-{{#scale}}   Scale: {{.}}{{/scale}}
-{{/output.survey_creation_output.questions}}
-
-Evaluation Criteria for IN-APP Surveys:
-1. **Appropriate Length**: 1-3 questions maximum. More than 3 questions is unacceptable for in-app surveys.
-2. **Focused Purpose**: Does the survey focus on ONE key insight rather than trying to gather everything?
-3. **User Respect**: Are the questions respectful of user time and context (they're in the middle of using the product)?
-4. **No Duplicates**: Are all questions distinct and non-repetitive?
-5. **Clarity**: Are the questions clear, unambiguous, and easy to understand?
-6. **Logical Flow**: Do the questions follow a logical sequence?
-7. **Question Types**: Are the question types (rating, open, choice) well-suited to what they're asking?
-8. **Completion-Friendly**: Are the questions designed for high completion rates in an in-app context?
-
-CRITICAL: Surveys with more than 3 questions should be rated as "unacceptable" regardless of other quality factors.
-
-How would you rate the overall quality of these survey questions for IN-APP use? Choose one:
-- perfect: 1-2 focused, clear questions that respect user time and context
-- good: 1-3 good quality questions with minor issues but appropriate for in-app use
-- partial: Questions are adequate but may be slightly long or unfocused for in-app context
-- irrelevant: More than 3 questions, severely unfocused, or inappropriate for in-app context
-""".strip(),
-            choice_scores={
-                "perfect": 1.0,
-                "good": 0.7,
-                "partial": 0.4,
-                "irrelevant": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
-
-        if not survey_output.questions:
-            return Score(name=self._name(), score=0, metadata={"reason": "Survey has no questions"})
-
-        return await super()._run_eval_async(output, expected, **kwargs)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
-
-        if not survey_output.questions:
-            return Score(name=self._name(), score=0, metadata={"reason": "Survey has no questions"})
-
-        return super()._run_eval_sync(output, expected, **kwargs)
-
-
-class SurveyFirstQuestionTypeScorer(Scorer):
-    """
-    Evaluate if the first question type matches what we expect for the given instructions.
-    """
-
-    def _name(self):
-        return "first_question_type_correct"
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._run_eval_sync(output, expected, **kwargs)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        # Skip if no expected criteria provided
-        if not expected:
-            return None
-
-        # Check if the survey was created successfully
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
-
-        # Check if survey has questions
-        if not survey_output.questions:
-            return Score(name=self._name(), score=0, metadata={"reason": "Survey has no questions"})
-
-        # Check if first question type matches expected
-        first_question = survey_output.questions[0]
-        actual_type = first_question.type
-        expected_type = expected.get("first_question_type")
-
-        if actual_type == expected_type:
-            return Score(
-                name=self._name(),
-                score=1,
-                metadata={
-                    "reason": "First question type matches expected",
-                    "expected_type": expected_type,
-                    "actual_type": actual_type,
-                    "survey_name": survey_output.name,
-                    "total_questions": len(survey_output.questions),
-                },
-            )
-        else:
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={
-                    "reason": "First question type mismatch",
-                    "expected_type": expected_type,
-                    "actual_type": actual_type,
-                    "survey_name": survey_output.name,
-                    "total_questions": len(survey_output.questions),
-                },
-            )
-
-
-class SurveyCreationBasicsScorer(Scorer):
-    """
-    Evaluate basic survey creation requirements (has name, description, questions).
-    """
-
-    def _name(self):
-        return "survey_creation_basics"
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._run_eval_sync(output, expected, **kwargs)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        # Check if the survey was created successfully
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
-
-        # Check basic requirements and track successes/failures
-        checks = []
-        successes = []
-
-        # Check 1: Has name
-        checks.append("name")
-        if survey_output.name:
-            successes.append("name")
-
-        # Check 2: Has description
-        checks.append("description")
-        if survey_output.description:
-            successes.append("description")
-
-        # Check 3: Has questions
-        checks.append("questions")
-        if survey_output.questions:
-            successes.append("questions")
-
-        # Check 4: Meets minimum questions requirement
-        min_questions = expected.get("min_questions", 1) if expected else 1
-        checks.append("min_questions")
-        if len(survey_output.questions) >= min_questions:
-            successes.append("min_questions")
-
-        # Calculate proportional score
-        total_checks = len(checks)
-        successful_checks = len(successes)
-        score = successful_checks / total_checks if total_checks > 0 else 0
-
-        # Create list of failed checks for metadata
-        failed_checks = [check for check in checks if check not in successes]
-
-        return Score(
-            name=self._name(),
-            score=score,
-            metadata={
-                "reason": f"Survey passed {successful_checks}/{total_checks} basic requirements",
-                "successful_checks": successes,
-                "failed_checks": failed_checks,
-                "survey_name": survey_output.name,
-                "total_questions": len(survey_output.questions),
-                "min_questions_required": min_questions,
-            },
-        )
-
-
-class SurveyFeatureFlagIntegrationScorer(Scorer):
-    """
-    Evaluate feature flag integration in survey creation.
-    """
-
-    def _name(self):
-        return "feature_flag_integration"
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._run_eval_sync(output, expected, **kwargs)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        # Skip if no expected criteria provided
-        if not expected:
-            return None
-
-        # Use common validation logic
-        survey_output = validate_survey_output(output, self._name())
-        if isinstance(survey_output, Score):  # Validation failed, return the error score
-            return survey_output
-
-        # Check feature flag integration expectations
-        expected_flag_id = expected.get("expected_flag_id")
-        expected_variant = expected.get("expected_variant")
-        should_have_flag = expected.get("should_have_flag", False)
-        should_have_variant = expected.get("should_have_variant", False)
-
-        checks = []
-        successes = []
-
-        # Check 1: Feature flag should be linked if expected
-        if should_have_flag:
-            checks.append("has_flag")
-            if hasattr(survey_output, "linked_flag_id") and survey_output.linked_flag_id:
-                successes.append("has_flag")
-                # Check 2: Feature flag ID should match if specified
-                if expected_flag_id:
-                    checks.append("correct_flag_id")
-                    if survey_output.linked_flag_id == expected_flag_id:
-                        successes.append("correct_flag_id")
-
-        # Check 3: Variant should be set if expected
-        if should_have_variant:
-            checks.append("has_variant")
-            conditions = getattr(survey_output, "conditions", None)
-            if conditions and hasattr(conditions, "linkedFlagVariant") and conditions.linkedFlagVariant:
-                successes.append("has_variant")
-                # Check 4: Variant should match if specified
-                if expected_variant:
-                    checks.append("correct_variant")
-                    # Handle special case of "any" variant - should pass if any variant is set
-                    if expected_variant == "any" or conditions.linkedFlagVariant == expected_variant:
-                        successes.append("correct_variant")
-
-        # If no checks were added, it means no feature flag criteria were specified
-        if not checks:
-            return None
-
-        # Calculate proportional score
-        total_checks = len(checks)
-        successful_checks = len(successes)
-        score = successful_checks / total_checks if total_checks > 0 else 0
-
-        # Create list of failed checks for metadata
-        failed_checks = [check for check in checks if check not in successes]
-
-        return Score(
-            name=self._name(),
-            score=score,
-            metadata={
-                "reason": f"Feature flag integration passed {successful_checks}/{total_checks} checks",
-                "successful_checks": successes,
-                "failed_checks": failed_checks,
-                "survey_name": getattr(survey_output, "name", "Unknown"),
-                "linked_flag_id": getattr(survey_output, "linked_flag_id", None),
-                "variant_condition": getattr(getattr(survey_output, "conditions", None), "linkedFlagVariant", None),
-                "expected_flag_id": expected_flag_id,
-                "expected_variant": expected_variant,
-            },
-        )
-
-
-class SurveyFeatureFlagUnderstandingScorer(LLMClassifier):
-    """
-    Evaluate if the AI correctly understood feature flag targeting requirements using LLM as a judge.
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="feature_flag_understanding",
-            prompt_template="""
-Evaluate if the AI correctly understood and implemented feature flag targeting in the survey creation.
-
-User Instructions: {{input}}
-
-Generated Survey:
-Name: {{output.survey_creation_output.name}}
-Description: {{output.survey_creation_output.description}}
-Linked Feature Flag ID: {{output.survey_creation_output.linked_flag_id}}
-{{#output.survey_creation_output.conditions}}
-Conditions: {{.}}
-{{/output.survey_creation_output.conditions}}
-Questions:
-{{#output.survey_creation_output.questions}}
-- {{type}}: {{question}}
-{{/output.survey_creation_output.questions}}
-
-Evaluation Criteria:
-1. **Intent Recognition**: Did the AI correctly identify when the user wanted to target users based on feature flags?
-2. **Flag Targeting**: If the user mentioned specific feature flag names, did the AI attempt to link to those flags?
-3. **Variant Handling**: If the user mentioned specific variants (like "treatment", "control", "any"), did the AI set appropriate conditions?
-4. **Context Appropriateness**: Is the survey content relevant to the feature flag context mentioned?
-5. **No False Positives**: If the user mentioned feature flags conceptually but didn't want targeting, did the AI avoid linking flags?
-
-IMPORTANT: Rate based on whether the AI understood the targeting intent, not whether specific flag IDs match (since test flags may not exist).
-
-How would you rate the AI's understanding and implementation of feature flag targeting? Choose one:
-- perfect: Correctly identified targeting intent and implemented all aspects appropriately
-- good: Understood most aspects correctly with minor issues
-- partial: Understood some aspects but missed important targeting details
-- irrelevant: Completely misunderstood the feature flag targeting requirements
-""".strip(),
-            choice_scores={
-                "perfect": 1.0,
-                "good": 0.7,
-                "partial": 0.4,
-                "irrelevant": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        # Only run this scorer for test cases that involve feature flags
-        if not kwargs.get("metadata", {}).get("test_type", "").startswith("feature_flag") and not kwargs.get(
-            "metadata", {}
-        ).get("test_type", "").startswith("ab_test"):
-            return None
-
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
-
-        return await super()._run_eval_async(output, expected, **kwargs)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        # Only run this scorer for test cases that involve feature flags
-        if not kwargs.get("metadata", {}).get("test_type", "").startswith("feature_flag") and not kwargs.get(
-            "metadata", {}
-        ).get("test_type", "").startswith("ab_test"):
-            return None
-
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
-
-        return super()._run_eval_sync(output, expected, **kwargs)
+                    metadata[f"{field_name}_missing"] = True
+            else:
+                # Use exact match for numeric/boolean fields
+                if actual_value == expected_value:
+                    total_score += score_per_field
+                    metadata[f"{field_name}_match"] = True
+                else:
+                    metadata[f"{field_name}_mismatch"] = {
+                        "expected": expected_value,
+                        "actual": actual_value,
+                    }
+
+        return Score(name=self._name(), score=total_score, metadata=metadata)
 
 
 @pytest.mark.django_db
-async def eval_surveys(call_surveys_max_tool, pytestconfig):
-    """
-    Evaluation for survey creation functionality.
-    """
+async def eval_surveys(pytestconfig, demo_org_team_user):
+    """Test survey creation tool with various scenarios."""
+    _, team, user = demo_org_team_user
+
+    conversation = await Conversation.objects.acreate(team=team, user=user)
+
+    # Get or create feature flags for targeting tests
+    checkout_flag, _ = await FeatureFlag.objects.aget_or_create(
+        team=team,
+        key="new-checkout-flow",
+        defaults={
+            "name": "New Checkout Flow",
+            "created_by": user,
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+        },
+    )
+
+    ab_test_flag, _ = await FeatureFlag.objects.aget_or_create(
+        team=team,
+        key="ab-test-experiment",
+        defaults={
+            "name": "A/B Test Experiment",
+            "created_by": user,
+            "filters": {
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        },
+    )
+
+    async def task_create_survey(test_case: dict):
+        tool = CreateSurveyTool(
+            team=team,
+            user=user,
+            config={
+                "configurable": {
+                    "thread_id": conversation.id,
+                    "team": team,
+                    "user": user,
+                }
+            },
+        )
+
+        # Build the survey schema from test case with unique name to avoid duplicates
+        survey_schema = SurveyCreationSchema(
+            name=unique_name(test_case["name"]),
+            description=test_case.get("description", ""),
+            type=test_case.get("type", SurveyType.POPOVER),
+            questions=test_case["questions"],
+            should_launch=test_case.get("should_launch", False),
+            linked_flag_id=test_case.get("linked_flag_id"),
+            conditions=test_case.get("conditions"),
+        )
+
+        result_message, artifact = await tool._arun_impl(survey=survey_schema)
+
+        # Initialize result
+        result: dict = {
+            "message": result_message,
+        }
+
+        # Check if survey was created
+        if artifact and "survey_id" in artifact:
+            survey_exists = await Survey.objects.filter(id=artifact["survey_id"], archived=False).aexists()
+            result["survey_created"] = survey_exists
+            result["survey_id"] = artifact["survey_id"]
+            result["survey_name"] = artifact.get("survey_name")
+
+            # Fetch the created survey for detailed checks
+            if survey_exists:
+                survey = await Survey.objects.aget(id=artifact["survey_id"])
+                result["question_count"] = len(survey.questions) if survey.questions else 0
+                result["is_launched"] = survey.start_date is not None
+                result["linked_flag_id"] = survey.linked_flag_id
+                result["has_conditions"] = survey.conditions is not None and bool(survey.conditions)
+        else:
+            result["survey_created"] = False
+            result["error"] = artifact.get("error") if artifact else "Unknown error"
+
+        return result
+
     await MaxPublicEval(
         experiment_name="surveys",
-        task=call_surveys_max_tool,
+        task=task_create_survey,
         scores=[
-            SurveyFirstQuestionTypeScorer(),
-            SurveyCreationBasicsScorer(),
-            SurveyRelevanceScorer(),
-            SurveyQuestionQualityScorer(),
-            SurveyFeatureFlagIntegrationScorer(),
-            SurveyFeatureFlagUnderstandingScorer(),
+            SurveyOutputScorer(semantic_fields={"message"}),
         ],
         data=[
-            # Test case 1: NPS survey should have rating question first
+            # Test case 1: Basic NPS survey
             EvalCase(
-                input="Create a satisfaction survey (NPS) to measure customer loyalty, following the standard Net Promoter Score methodology and including follow-up questions for deeper insights.",
-                expected={"first_question_type": "rating", "min_questions": 1},
+                input={
+                    "name": "NPS Survey",
+                    "description": "Net Promoter Score survey",
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.RATING,
+                            question="How likely are you to recommend us to a friend or colleague?",
+                            scale=10,
+                            display="number",
+                            lowerBoundLabel="Not likely at all",
+                            upperBoundLabel="Extremely likely",
+                        )
+                    ],
+                },
+                expected={
+                    "survey_created": True,
+                    "question_count": 1,
+                    "is_launched": False,
+                },
                 metadata={"test_type": "nps_survey"},
             ),
-            # Test case 2: PMF survey should have single choice question first
+            # Test case 2: CSAT survey with launch
             EvalCase(
-                input="Make a product-market fit (PMF) survey that follows established best practices (e.g. asking how disappointed users would be if they could no longer use the product), and include additional questions to understand product value and improvement areas",
-                expected={"first_question_type": "single_choice", "min_questions": 1},
+                input={
+                    "name": "CSAT Survey",
+                    "description": "Customer satisfaction survey",
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.RATING,
+                            question="How satisfied are you with our product?",
+                            scale=5,
+                            display="number",
+                        )
+                    ],
+                    "should_launch": True,
+                },
+                expected={
+                    "survey_created": True,
+                    "question_count": 1,
+                    "is_launched": True,
+                },
+                metadata={"test_type": "csat_survey_launched"},
+            ),
+            # Test case 3: Multi-question survey (NPS + follow-up)
+            EvalCase(
+                input={
+                    "name": "NPS with Follow-up",
+                    "description": "NPS survey with optional follow-up question",
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.RATING,
+                            question="How likely are you to recommend us?",
+                            scale=10,
+                            display="number",
+                        ),
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.OPEN,
+                            question="What could we improve?",
+                            optional=True,
+                        ),
+                    ],
+                },
+                expected={
+                    "survey_created": True,
+                    "question_count": 2,
+                    "is_launched": False,
+                },
+                metadata={"test_type": "nps_with_followup"},
+            ),
+            # Test case 4: PMF survey with single choice
+            EvalCase(
+                input={
+                    "name": "PMF Survey",
+                    "description": "Product-market fit survey",
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.SINGLE_CHOICE,
+                            question="How would you feel if you could no longer use our product?",
+                            choices=["Very disappointed", "Somewhat disappointed", "Not disappointed"],
+                        )
+                    ],
+                },
+                expected={
+                    "survey_created": True,
+                    "question_count": 1,
+                    "is_launched": False,
+                },
                 metadata={"test_type": "pmf_survey"},
             ),
-            # Test case 3: Open feedback survey should have open text question first
+            # Test case 5: Survey with feature flag targeting
             EvalCase(
-                input="Make a general customer insights survey.",
-                expected={"first_question_type": "open", "min_questions": 1},
-                metadata={"test_type": "open_feedback_survey"},
-            ),
-            # Test case 4: Comprehensive survey should still be kept short for in-app use
-            EvalCase(
-                input="Make a survey on demographics, usage, satisfaction, features, and suggestions. First question = single choice.",
-                expected={"min_questions": 1, "first_question_type": "single_choice"},
-                metadata={"test_type": "comprehensive_survey_length_constraint"},
-            ),
-            # Test case 5: Survey with feature flag targeting - should detect and link feature flag
-            EvalCase(
-                input="Create a survey for users who have the 'new-checkout-flow' feature flag enabled to get feedback on the checkout experience",
+                input={
+                    "name": "Checkout Feedback",
+                    "description": "Feedback for new checkout flow users",
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.OPEN,
+                            question="How was your checkout experience?",
+                        )
+                    ],
+                    "linked_flag_id": checkout_flag.id,
+                },
                 expected={
-                    "min_questions": 1,
-                    "should_have_flag": True,
-                    "should_have_variant": False,  # General flag reference, not specific variant
+                    "survey_created": True,
+                    "question_count": 1,
+                    "linked_flag_id": checkout_flag.id,
                 },
                 metadata={"test_type": "feature_flag_targeting"},
             ),
-            # Test case 6: Survey with specific feature flag variant targeting
+            # Test case 6: Survey with feature flag variant targeting
             EvalCase(
-                input="Create a satisfaction survey for users in the 'treatment' variant of the 'ab-test-experiment' feature flag to measure the impact of the new design",
+                input={
+                    "name": "A/B Test Treatment Survey",
+                    "description": "Survey for users in treatment variant",
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.RATING,
+                            question="How do you like the new design?",
+                            scale=5,
+                        )
+                    ],
+                    "linked_flag_id": ab_test_flag.id,
+                    "conditions": SurveyDisplayConditionsSchema(linkedFlagVariant="treatment"),
+                },
                 expected={
-                    "min_questions": 1,
-                    "should_have_flag": True,
-                    "should_have_variant": True,
-                    "expected_variant": "treatment",
+                    "survey_created": True,
+                    "question_count": 1,
+                    "linked_flag_id": ab_test_flag.id,
+                    "has_conditions": True,
                 },
                 metadata={"test_type": "feature_flag_variant_targeting"},
             ),
-            # Test case 7: Survey targeting users with any variant of a multivariate flag
+            # Test case 7: Survey with URL conditions
             EvalCase(
-                input="Create a feedback survey for all users who have 'any' variant of the 'homepage-redesign' feature flag enabled",
-                expected={
-                    "min_questions": 1,
-                    "should_have_flag": True,
-                    "should_have_variant": True,
-                    "expected_variant": "any",
+                input={
+                    "name": "Pricing Page Feedback",
+                    "description": "Feedback from pricing page visitors",
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.SINGLE_CHOICE,
+                            question="Is our pricing clear?",
+                            choices=["Yes, very clear", "Somewhat clear", "Not clear at all"],
+                        )
+                    ],
+                    "conditions": SurveyDisplayConditionsSchema(
+                        url="/pricing",
+                        urlMatchType="icontains",
+                    ),
                 },
-                metadata={"test_type": "feature_flag_any_variant_targeting"},
+                expected={
+                    "survey_created": True,
+                    "question_count": 1,
+                    "has_conditions": True,
+                },
+                metadata={"test_type": "url_targeting"},
             ),
-            # Test case 8: Survey that mentions feature flag but isn't necessarily targeting by it
+            # Test case 8: Multiple choice survey
             EvalCase(
-                input="Create an open text survey asking users about their experience with feature flags in general and how they affect their workflow",
-                expected={
-                    "min_questions": 1,
-                    "should_have_flag": False,  # This is about feature flags as a concept, not targeting
+                input={
+                    "name": "Feature Usage Survey",
+                    "description": "Survey about feature usage",
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.MULTIPLE_CHOICE,
+                            question="Which features do you use most?",
+                            choices=["Dashboard", "Insights", "Session Replay", "Feature Flags", "Experiments"],
+                        )
+                    ],
                 },
-                metadata={"test_type": "feature_flag_concept_not_targeting"},
+                expected={
+                    "survey_created": True,
+                    "question_count": 1,
+                },
+                metadata={"test_type": "multiple_choice"},
             ),
-            # Test case 9: A/B test control group survey
+            # Test case 9: Widget type survey
             EvalCase(
-                input="Create an NPS survey specifically for users in the control group of our pricing-page-test feature flag to measure baseline satisfaction",
-                expected={
-                    "min_questions": 1,
-                    "should_have_flag": True,
-                    "should_have_variant": True,
-                    "expected_variant": "control",
+                input={
+                    "name": "Widget Feedback",
+                    "description": "Widget-based feedback survey",
+                    "type": SurveyType.WIDGET,
+                    "questions": [
+                        SurveyQuestionSchema(
+                            type=SurveyQuestionType.OPEN,
+                            question="What do you think of our product?",
+                        )
+                    ],
                 },
-                metadata={"test_type": "ab_test_control_group"},
+                expected={
+                    "survey_created": True,
+                    "question_count": 1,
+                },
+                metadata={"test_type": "widget_type"},
             ),
-            # Test case 10: Edge case - Invalid feature flag reference
+            # Test case 10: Empty questions (should fail validation)
             EvalCase(
-                input="Create a survey for users with the 'non-existent-flag' feature flag to get their feedback",
-                expected={
-                    "min_questions": 1,
-                    "should_have_flag": False,  # Should not link to non-existent flag
+                input={
+                    "name": "Invalid Survey",
+                    "description": "Survey with no questions",
+                    "questions": [],
                 },
-                metadata={"test_type": "feature_flag_invalid_reference"},
+                expected={
+                    "survey_created": False,
+                },
+                metadata={"test_type": "validation_no_questions"},
             ),
         ],
         pytestconfig=pytestconfig,

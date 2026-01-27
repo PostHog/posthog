@@ -106,7 +106,7 @@ DEFAULT_CLICKHOUSE_SETTINGS = {
 # Note: We use toInt64(team_id) as project_id since they're equivalent in PostHog.
 # Materialized columns (dmat_*) are ClickHouse-specific and not present in DuckLake.
 EVENTS_COLUMNS = """
-    uuid,
+    toString(uuid) as uuid,
     event,
     properties,
     timestamp,
@@ -115,7 +115,7 @@ EVENTS_COLUMNS = """
     distinct_id,
     elements_chain,
     created_at,
-    person_id,
+    toString(person_id) as person_id,
     person_created_at,
     person_properties,
     group0_properties,
@@ -129,7 +129,8 @@ EVENTS_COLUMNS = """
     group3_created_at,
     group4_created_at,
     person_mode,
-    historical_migration
+    historical_migration,
+    NOW() as _inserted_at
 """
 
 # Expected columns in the DuckLake events table (for schema validation)
@@ -158,6 +159,7 @@ EXPECTED_DUCKLAKE_COLUMNS = {
     "group4_created_at",
     "person_mode",
     "historical_migration",
+    "_inserted_at",
 }
 
 
@@ -370,7 +372,7 @@ def export_events_to_s3(
         {EVENTS_COLUMNS}
     FROM events
     WHERE {chunk_where}
-    SETTINGS s3_truncate_on_insert=1
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
     chunk_info = f"{team_id_chunk + 1}/{total_chunks}"
@@ -383,7 +385,7 @@ def export_events_to_s3(
         {EVENTS_COLUMNS}
     FROM events
     WHERE {chunk_where}
-    SETTINGS s3_truncate_on_insert=1
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
         context.log.info(f"[DRY RUN] Would export chunk {chunk_info} with SQL: {safe_sql[:800]}...")
         return []
@@ -622,7 +624,7 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
         return cluster.any_host_by_role(
             fn=do_export,
             workload=workload,
-            node_role=NodeRole.COORDINATOR,
+            node_role=NodeRole.DATA,
         ).result()
 
     if parallel_chunks > 1:
@@ -677,5 +679,9 @@ events_ducklake_backfill_job = define_asset_job(
     name="events_ducklake_backfill_job",
     selection=["events_ducklake_backfill"],
     config=events_backfill_partitioned_config,
-    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **CONCURRENCY_TAG},
+    tags={
+        "owner": JobOwners.TEAM_DATA_STACK.value,
+        "disable_slack_notifications": True,  # Squelch notifications until this job is fully in production
+        **CONCURRENCY_TAG,
+    },
 )
