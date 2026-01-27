@@ -49,6 +49,11 @@ class FormulaAST:
             left = self._evaluate(node.left, const_map)
             op = node.op
             right = self._evaluate(node.right, const_map)
+            # Handle None values that may come from empty query results
+            if left is None:
+                left = 0
+            if right is None:
+                right = 0
             try:
                 return self.op_map[type(op)](left, right)
             except ZeroDivisionError:
@@ -58,6 +63,9 @@ class FormulaAST:
 
         elif isinstance(node, ast.UnaryOp):
             operand = self._evaluate(node.operand, const_map)
+            # Handle None values that may come from empty query results
+            if operand is None:
+                operand = 0
             unary_op = node.op
             if isinstance(unary_op, ast.USub):
                 return -operand

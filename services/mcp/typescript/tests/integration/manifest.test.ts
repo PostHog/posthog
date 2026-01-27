@@ -1,14 +1,13 @@
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 
-import { loadManifest } from '@/resources/manifest-loader'
+import { SKILLS_RESOURCES_URL } from '@/resources/index'
+import { loadSkillsManifest } from '@/resources/manifest-loader'
 
-const EXAMPLES_MARKDOWN_URL = 'https://github.com/PostHog/examples/releases/latest/download/examples-mcp-resources.zip'
-
-describe('Manifest Integration', () => {
-    it('should fetch, unzip, and validate the manifest from GitHub releases', async () => {
-        // Fetch the examples ZIP
-        const response = await fetch(EXAMPLES_MARKDOWN_URL)
+describe('Skills Manifest Integration', () => {
+    it('should fetch, unzip, and validate the skills manifest from GitHub releases', async () => {
+        // Fetch the skills ZIP
+        const response = await fetch(SKILLS_RESOURCES_URL)
         expect(response.ok).toBe(true)
 
         // Unzip the archive
@@ -32,38 +31,22 @@ describe('Manifest Integration', () => {
         expect(manifest).toBeTruthy()
 
         // Validate manifest structure using our loader (throws if invalid)
-        const validatedManifest = loadManifest(archive)
+        const validatedManifest = loadSkillsManifest(manifest)
 
         // Verify expected structure
         expect(validatedManifest.version).toBe('1.0')
-        expect(Array.isArray(validatedManifest.resources.workflows)).toBe(true)
-        expect(Array.isArray(validatedManifest.resources.docs)).toBe(true)
-        expect(Array.isArray(validatedManifest.resources.prompts)).toBe(true)
+        expect(Array.isArray(validatedManifest.skills)).toBe(true)
 
-        // Verify we have actual content
-        expect(validatedManifest.resources.workflows.length).toBeGreaterThan(0)
-        expect(validatedManifest.resources.prompts.length).toBeGreaterThan(0)
+        // Verify we have actual skills
+        expect(validatedManifest.skills.length).toBeGreaterThan(0)
 
-        // Verify templates if present
-        if (validatedManifest.templates) {
-            expect(Array.isArray(validatedManifest.templates)).toBe(true)
-            expect(validatedManifest.templates.length).toBeGreaterThan(0)
-        }
-
-        // Verify workflow files exist in archive
-        for (const workflow of validatedManifest.resources.workflows) {
-            expect(archive[workflow.file]).toBeTruthy()
-        }
-
-        // Verify template files exist in archive (if templates use files)
-        if (validatedManifest.templates) {
-            for (const template of validatedManifest.templates) {
-                for (const item of template.items) {
-                    if (item.file) {
-                        expect(archive[item.file]).toBeTruthy()
-                    }
-                }
-            }
+        // Verify each skill has required fields and its file exists in archive
+        for (const skill of validatedManifest.skills) {
+            expect(skill.id).toBeTruthy()
+            expect(skill.name).toBeTruthy()
+            expect(skill.file).toBeTruthy()
+            expect(skill.downloadUrl).toBeTruthy()
+            expect(archive[skill.file]).toBeTruthy()
         }
     }, 30000) // 30 second timeout for network request
 })

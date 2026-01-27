@@ -408,6 +408,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'task',
     },
     TaskDetail: { name: 'Task', projectBased: true, activityScope: 'TaskDetail' },
+    Toolbar: {
+        name: 'Toolbar',
+        projectBased: true,
+        description: 'PostHog toolbar launches PostHog right in your app or website.',
+        iconType: 'toolbar',
+    },
     UserInterviews: {
         name: 'User interviews',
         projectBased: true,
@@ -420,7 +426,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Workflows',
         iconType: 'workflows',
         projectBased: true,
-        description: 'Create and manage your workflows',
+        description: 'Automate user communication and internal processes',
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
@@ -603,10 +609,10 @@ export const productUrls = {
         sceneSource?: InsightSceneSource
     } = {}): string => {
         if (isHogQLQuery(query)) {
-            return urls.sqlEditor(query.query)
+            return urls.sqlEditor({ query: query.query })
         }
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-            return urls.sqlEditor(query.source.query)
+            return urls.sqlEditor({ query: query.source.query })
         }
         return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
@@ -685,8 +691,10 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+    toolbarLaunch: (): string => '/toolbar',
     userInterviews: (): string => '/user_interviews',
     userInterview: (id: string): string => `/user_interviews/${id}`,
     webAnalytics: (): string => `/web`,
@@ -1025,6 +1033,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: `Data pipelines`,
+        intents: [
+            ProductKey.PIPELINE_BATCH_EXPORTS,
+            ProductKey.PIPELINE_DESTINATIONS,
+            ProductKey.PIPELINE_TRANSFORMATIONS,
+            ProductKey.SITE_APPS,
+        ],
         category: 'Tools',
         type: 'hog_function',
         iconType: 'data_pipeline',
@@ -1192,6 +1206,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Notebooks',
+        intents: [ProductKey.NOTEBOOKS],
         category: 'Tools',
         type: 'notebook',
         iconType: 'notebook',
@@ -1212,6 +1227,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Product tours',
+        intents: [ProductKey.PRODUCT_TOURS],
         category: 'Behavior',
         type: 'product_tour',
         href: urls.productTours(),
@@ -1279,6 +1295,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Tasks',
+        intents: [ProductKey.TASKS],
         category: 'Unreleased',
         type: 'task',
         href: urls.taskTracker(),
@@ -1288,6 +1305,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
         sceneKey: 'TaskTracker',
         sceneKeys: ['TaskTracker', 'TaskDetail'],
+    },
+    {
+        path: 'Toolbar',
+        intents: [ProductKey.TOOLBAR],
+        href: urls.toolbarLaunch(),
+        type: 'toolbar',
+        category: 'Tools',
+        iconType: 'toolbar',
+        sceneKey: 'Toolbar',
+        sceneKeys: ['Toolbar'],
     },
     {
         path: 'User interviews',
@@ -1318,8 +1345,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.workflows(),
         type: 'workflows',
         category: 'Tools',
-        tags: ['beta'],
-        flag: FEATURE_FLAGS.WORKFLOWS,
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',

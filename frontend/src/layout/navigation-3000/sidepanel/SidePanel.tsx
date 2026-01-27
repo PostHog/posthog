@@ -1,6 +1,5 @@
 import './SidePanel.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -19,6 +18,7 @@ import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lem
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
@@ -40,7 +40,6 @@ import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
-import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
@@ -84,11 +83,6 @@ export const SIDE_PANEL_TABS: Record<
         noModalSupport: true,
     },
 
-    [SidePanelTab.Activation]: {
-        label: 'Quick start',
-        Icon: SidePanelActivationIcon,
-        Content: SidePanelActivation,
-    },
     [SidePanelTab.Settings]: {
         label: 'Settings',
         Icon: IconGear,
@@ -148,6 +142,7 @@ export function SidePanel({
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -204,15 +199,17 @@ export function SidePanel({
         ? [
               {
                   title: 'Open in side panel',
-                  items: extraTabs.map((tab) => {
-                      const { Icon, label } = SIDE_PANEL_TABS[tab]
+                  items: extraTabs
+                      .filter((tab) => SIDE_PANEL_TABS[tab])
+                      .map((tab) => {
+                          const { Icon, label } = SIDE_PANEL_TABS[tab]!
 
-                      return {
-                          label: label,
-                          icon: <Icon />,
-                          onClick: () => openSidePanel(tab),
-                      }
-                  }),
+                          return {
+                              label: label,
+                              icon: <Icon />,
+                              onClick: () => openSidePanel(tab),
+                          }
+                      }),
               },
           ]
         : undefined
@@ -234,82 +231,101 @@ export function SidePanel({
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'SidePanel3000 h-screen',
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
+                isRemovingSidePanelFlag && 'bg-surface-tertiary',
                 className
             )}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelWidth,
+                width: isRemovingSidePanelFlag ? (sidePanelOpenAndAvailable ? sidePanelWidth : '0px') : sidePanelWidth,
                 ...theme?.sidebarStyle,
             }}
             id="side-panel"
         >
-            <Resizer
-                {...resizerLogicProps}
-                className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
-                    'left-0': sidePanelOpenAndAvailable,
-                })}
-            />
-            <div className="SidePanel3000__bar">
-                <div className="SidePanel3000__tabs">
-                    <div className="SidePanel3000__tabs-content">
-                        {visibleTabs.map((tab: SidePanelTab) => {
-                            const { Icon, label } = SIDE_PANEL_TABS[tab]
-                            const keybind = SIDE_PANEL_TAB_KEYBINDS[tab]
+            {sidePanelOpenAndAvailable && (
+                <Resizer
+                    {...resizerLogicProps}
+                    className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
+                        'left-0': sidePanelOpenAndAvailable,
+                        // Hide handle line, make it as thick as the gap between scene and sidepanel (looking like split-screen, nice.)
+                        '-left-[3.5px] [&_*:before]:hidden [&_*:after]:w-[2px] [--resizer-thickness:12px]':
+                            sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
+                    })}
+                />
+            )}
 
-                            const button = (
-                                <LemonButton
-                                    key={tab}
-                                    icon={<Icon className="size-5" />}
-                                    onClick={() =>
-                                        activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
+            {!isRemovingSidePanelFlag && (
+                <div className="SidePanel3000__bar">
+                    <div className="SidePanel3000__tabs">
+                        <div className="SidePanel3000__tabs-content">
+                            {visibleTabs
+                                .filter((tab) => SIDE_PANEL_TABS[tab])
+                                .map((tab: SidePanelTab) => {
+                                    const { Icon, label } = SIDE_PANEL_TABS[tab]!
+                                    const keybind = SIDE_PANEL_TAB_KEYBINDS[tab]
+
+                                    const button = (
+                                        <LemonButton
+                                            key={tab}
+                                            icon={<Icon className="size-5" />}
+                                            onClick={() =>
+                                                activeTab === tab
+                                                    ? closeSidePanel()
+                                                    : openSidePanel(tab as SidePanelTab)
+                                            }
+                                            data-attr={`sidepanel-tab-${tab}`}
+                                            data-ph-capture-attribute-state-before-click={
+                                                activeTab === tab ? 'open' : 'closed'
+                                            }
+                                            active={activeTab === tab}
+                                            type="secondary"
+                                            status="alt"
+                                            tooltip={label}
+                                            size="xsmall"
+                                        >
+                                            {label}
+                                        </LemonButton>
+                                    )
+
+                                    if (keybind) {
+                                        return (
+                                            <AppShortcut
+                                                key={tab}
+                                                name={`SidePanel-${tab}`}
+                                                keybind={keybind}
+                                                intent={`Open ${label}`}
+                                                priority={label === 'PostHog AI' ? 10 : 0}
+                                                interaction="click"
+                                            >
+                                                {button}
+                                            </AppShortcut>
+                                        )
                                     }
-                                    data-attr={`sidepanel-tab-${tab}`}
-                                    data-ph-capture-attribute-state-before-click={activeTab === tab ? 'open' : 'closed'}
-                                    active={activeTab === tab}
-                                    type="secondary"
-                                    status="alt"
-                                    tooltip={label}
-                                    size="xsmall"
-                                >
-                                    {label}
-                                </LemonButton>
-                            )
 
-                            if (keybind) {
-                                return (
-                                    <AppShortcut
-                                        key={tab}
-                                        name={`SidePanel-${tab}`}
-                                        keybind={keybind}
-                                        intent={`Open ${label}`}
-                                        priority={label === 'PostHog AI' ? 10 : 0}
-                                        interaction="click"
-                                    >
-                                        {button}
-                                    </AppShortcut>
-                                )
-                            }
-
-                            return button
-                        })}
+                                    return button
+                                })}
+                        </div>
                     </div>
+                    {menuOptions ? (
+                        <div className="shrink-0 flex items-center m-2">
+                            <LemonMenu items={menuOptions}>
+                                <LemonButton size="small" icon={<IconEllipsis />} />
+                            </LemonMenu>
+                        </div>
+                    ) : null}
                 </div>
-                {menuOptions ? (
-                    <div className="shrink-0 flex items-center m-2">
-                        <LemonMenu items={menuOptions}>
-                            <LemonButton size="small" icon={<IconEllipsis />} />
-                        </LemonMenu>
-                    </div>
-                ) : null}
-            </div>
+            )}
 
             {PanelContent ? (
-                <div className={cn('SidePanel3000__content', contentClassName)}>
+                <div
+                    className={cn('SidePanel3000__content', contentClassName, {
+                        'border-l-0': isRemovingSidePanelFlag,
+                    })}
+                >
                     <ErrorBoundary>
                         <PanelContent />
                     </ErrorBoundary>

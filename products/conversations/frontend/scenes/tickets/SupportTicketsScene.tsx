@@ -2,20 +2,26 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconChevronDown, IconRefresh } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
+import {
+    AssigneeDisplay,
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+    AssigneeSelect,
+} from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { type Ticket, type TicketPriority, type TicketStatus, priorityOptions, statusOptions } from '../../types'
@@ -24,6 +30,7 @@ import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 export const scene: SceneExport = {
     component: SupportTicketsScene,
     logic: supportTicketsSceneLogic,
+    productKey: ProductKey.CONVERSATIONS,
 }
 
 export function SupportTicketsScene(): JSX.Element {
@@ -64,10 +71,23 @@ export function SupportTicketsScene(): JSX.Element {
                         size="small"
                         placeholder="Priority"
                     />
-                    <MemberSelect
-                        value={typeof assigneeFilter === 'number' ? assigneeFilter : null}
-                        onChange={(user) => setAssigneeFilter(user?.id ?? 'all')}
-                    />
+                    <AssigneeSelect
+                        assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
+                        onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
+                    >
+                        {(resolvedAssignee, isOpen) => (
+                            <LemonButton size="small" type="secondary" active={isOpen} sideIcon={<IconChevronDown />}>
+                                <span className="flex items-center gap-1">
+                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                    <AssigneeLabelDisplay
+                                        assignee={resolvedAssignee}
+                                        size="small"
+                                        placeholder="All assignees"
+                                    />
+                                </span>
+                            </LemonButton>
+                        )}
+                    </AssigneeSelect>
                     <LemonCheckbox
                         checked={assigneeFilter === 'unassigned'}
                         onChange={(checked) => setAssigneeFilter(checked ? 'unassigned' : 'all')}
@@ -102,39 +122,40 @@ export function SupportTicketsScene(): JSX.Element {
                 columns={[
                     {
                         title: 'Ticket',
-                        key: 'ticket',
+                        key: 'key',
+                        width: 80,
                         render: (_, ticket) => (
-                            <div>
-                                <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono text-muted-alt">{ticket.ticket_number}</span>
+                        ),
+                    },
+                    {
+                        title: 'Person',
+                        key: 'customer',
+                        render: (_, ticket) => (
+                            <div className="flex items-center gap-2">
+                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                            </div>
+                        ),
+                    },
+                    {
+                        title: 'Last message',
+                        key: 'last_message',
+                        render: (_, ticket) => (
+                            <div className="flex items-center gap-2">
+                                {ticket.last_message_text ? (
                                     <span
-                                        className={clsx('font-medium', {
-                                            'font-bold': ticket.unread_team_count > 0,
-                                        })}
-                                    >
-                                        <PersonDisplay noLink noPopover person={{ distinct_id: ticket.distinct_id }} />
-                                    </span>
-                                    {ticket.unread_team_count > 0 && (
-                                        <LemonBadge.Number
-                                            count={ticket.unread_team_count}
-                                            size="small"
-                                            status="primary"
-                                        />
-                                    )}
-                                    {ticket.message_count > 0 && (
-                                        <LemonTag type="muted" size="small">
-                                            {ticket.message_count}
-                                        </LemonTag>
-                                    )}
-                                </div>
-                                {ticket.last_message_text && (
-                                    <div
                                         className={clsx('text-xs truncate max-w-md', {
                                             'text-muted-alt': ticket.unread_team_count === 0,
                                             'font-medium': ticket.unread_team_count > 0,
                                         })}
                                     >
                                         {ticket.last_message_text}
-                                    </div>
+                                    </span>
+                                ) : (
+                                    <span className="text-muted-alt text-xs">—</span>
+                                )}
+                                {ticket.unread_team_count > 0 && (
+                                    <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
                                 )}
                             </div>
                         ),
@@ -179,14 +200,11 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Assignee',
                         key: 'assignee',
-                        render: (_, ticket) =>
-                            ticket.assigned_to_user ? (
-                                <div className="flex flex-row items-center flex-nowrap">
-                                    <ProfilePicture user={ticket.assigned_to_user} size="md" showName />
-                                </div>
-                            ) : (
-                                <span className="text-muted-alt text-xs">Unassigned</span>
-                            ),
+                        render: (_, ticket) => (
+                            <AssigneeResolver assignee={ticket.assignee ?? null}>
+                                {({ assignee }) => <AssigneeDisplay assignee={assignee} size="small" />}
+                            </AssigneeResolver>
+                        ),
                     },
                     {
                         title: 'Channel',

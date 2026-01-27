@@ -183,8 +183,8 @@ TEAM_CONFIG_FIELDS = (
     "flags_persistence_default",
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",
-    "default_evaluation_environments_enabled",
-    "require_evaluation_environment_tags",
+    "default_evaluation_contexts_enabled",
+    "require_evaluation_contexts",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -194,6 +194,7 @@ TEAM_CONFIG_FIELDS = (
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
+    "default_experiment_confidence_level",
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
@@ -649,6 +650,38 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     )
             except OrganizationMembership.DoesNotExist:
                 raise exceptions.PermissionDenied("You must be a member of this organization.")
+
+        return value
+
+    def validate_logs_settings(self, value: dict | None) -> dict | None:
+        if value is None or not self.instance:
+            return value
+
+        # Only validate retention changes if we have an existing instance
+        logs_settings = (
+            self.instance.passthrough_team.logs_settings
+            if hasattr(self.instance, "passthrough_team")
+            else self.instance.logs_settings
+        )
+        if self.instance and logs_settings:
+            old_retention = logs_settings.get("retention_days")
+            new_retention = value.get("retention_days")
+            old_last_updated = logs_settings.get("retention_last_updated")
+
+            # Check if retention_days is being changed
+            if new_retention is not None and old_retention != new_retention:
+                value["retention_last_updated"] = timezone.now().isoformat()
+                # Check if retention_last_updated exists and is within 24 hours
+                if old_last_updated:
+                    last_updated = parse_datetime(old_last_updated)
+                    if last_updated:
+                        time_since_update = timezone.now() - last_updated
+                        if time_since_update < timedelta(hours=24):
+                            hours_remaining = 24 - (time_since_update.total_seconds() / 3600)
+                            raise exceptions.ValidationError(
+                                f"You can only update retention settings once per 24 hours. "
+                                f"Please wait {int(hours_remaining)} more hour(s)."
+                            )
 
         return value
 
@@ -1145,7 +1178,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             default_tags = TeamDefaultEvaluationTag.objects.filter(team=team).select_related("tag")
             tags_data = [{"id": dt.id, "name": dt.tag.name} for dt in default_tags]
             return response.Response(
-                {"default_evaluation_tags": tags_data, "enabled": team.default_evaluation_environments_enabled}
+                {"default_evaluation_tags": tags_data, "enabled": team.default_evaluation_contexts_enabled}
             )
 
         elif request.method == "POST":

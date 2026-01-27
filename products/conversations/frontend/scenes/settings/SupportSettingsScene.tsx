@@ -3,18 +3,21 @@ import { useActions, useValues } from 'kea'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonColorPicker, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
+import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export const scene: SceneExport = {
     component: SupportSettingsScene,
+    productKey: ProductKey.CONVERSATIONS,
 }
 
 function AuthorizedDomains(): JSX.Element {
@@ -112,10 +115,23 @@ function AuthorizedDomains(): JSX.Element {
 export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { generateNewToken, setIsAddingDomain, setConversationsEnabledLoading, setWidgetEnabledLoading } =
-        useActions(supportSettingsLogic)
-    const { isAddingDomain, editingDomainIndex, conversationsEnabledLoading, widgetEnabledLoading } =
-        useValues(supportSettingsLogic)
+    const {
+        generateNewToken,
+        setIsAddingDomain,
+        setConversationsEnabledLoading,
+        setWidgetEnabledLoading,
+        setGreetingInputValue,
+        saveGreetingText,
+        setNotificationRecipients,
+    } = useActions(supportSettingsLogic)
+    const {
+        isAddingDomain,
+        editingDomainIndex,
+        conversationsEnabledLoading,
+        widgetEnabledLoading,
+        greetingInputValue,
+        notificationRecipients,
+    } = useValues(supportSettingsLogic)
 
     return (
         <SceneContent>
@@ -154,6 +170,16 @@ export function SupportSettingsScene(): JSX.Element {
             <div>
                 {currentTeam?.conversations_enabled && (
                     <>
+                        <div className="mb-8 mt-2 max-w-[800px]">
+                            <h3>Email notifications</h3>
+                            <p>Team members who will receive email notifications when new tickets are created.</p>
+                            <MemberSelectMultiple
+                                idKey="id"
+                                value={notificationRecipients}
+                                onChange={setNotificationRecipients}
+                            />
+                        </div>
+
                         <div>
                             <h3>In-app widget</h3>
                             <p>Turn on the in-app support widget to start receiving messages from your users</p>
@@ -179,7 +205,7 @@ export function SupportSettingsScene(): JSX.Element {
                         </div>
 
                         {currentTeam?.conversations_settings?.widget_enabled && (
-                            <div className="mt-4 flex flex-col gap-y-2 border rounded py-2 px-4 mb-2 max-w-[800px]">
+                            <div className="mt-8 flex flex-col gap-y-2 border rounded py-2 px-4 mb-2 max-w-[800px]">
                                 <h3>Widget settings</h3>
                                 <div className="flex items-center gap-4 py-2">
                                     <label className="w-40 shrink-0">Button color</label>
@@ -209,22 +235,27 @@ export function SupportSettingsScene(): JSX.Element {
 
                                 <div className="flex items-center gap-4 py-2">
                                     <label className="w-40 shrink-0">Greeting message</label>
-                                    <LemonInput
-                                        value={
-                                            currentTeam?.conversations_settings?.widget_greeting_text ||
-                                            'Hey, how can I help you today?'
-                                        }
-                                        placeholder="Enter greeting message"
-                                        onChange={(value) => {
-                                            updateCurrentTeam({
-                                                conversations_settings: {
-                                                    ...currentTeam?.conversations_settings,
-                                                    widget_greeting_text: value,
-                                                },
-                                            })
-                                        }}
-                                        className="flex-1"
-                                    />
+                                    <div className="flex gap-2 flex-1">
+                                        <LemonInput
+                                            value={
+                                                greetingInputValue ??
+                                                currentTeam?.conversations_settings?.widget_greeting_text ??
+                                                'Hey, how can I help you today?'
+                                            }
+                                            placeholder="Enter greeting message"
+                                            onChange={setGreetingInputValue}
+                                            fullWidth
+                                        />
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={saveGreetingText}
+                                            disabledReason={
+                                                !greetingInputValue ? 'Enter a greeting message' : undefined
+                                            }
+                                        >
+                                            Save
+                                        </LemonButton>
+                                    </div>
                                 </div>
 
                                 <div className="pt-8">

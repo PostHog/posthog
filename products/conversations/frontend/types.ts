@@ -1,9 +1,13 @@
+import type { TicketAssignee } from './components/Assignee'
+
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
 export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
+export type SidePanelViewState = 'list' | 'ticket' | 'new'
+export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 export interface UserBasic {
     id: number
@@ -17,11 +21,11 @@ export interface UserBasic {
 
 export interface Ticket {
     id: string
+    ticket_number: number
     distinct_id: string
     status: TicketStatus
     priority?: TicketPriority
-    assigned_to?: number | null
-    assigned_to_user?: UserBasic | null
+    assignee?: TicketAssignee
     channel_source: TicketChannel
     anonymous_traits: Record<string, any>
     ai_resolved: boolean
@@ -32,6 +36,39 @@ export interface Ticket {
     last_message_at: string | null
     last_message_text: string | null
     unread_team_count: number
+    unread_customer_count: number
+    session_id?: string
+    session_context?: {
+        session_replay_url?: string
+        current_url?: string
+        [key: string]: any
+    }
+}
+
+export interface ConversationTicket {
+    id: string
+    ticket_number?: number
+    status: TicketStatus
+    last_message?: string
+    last_message_at?: string
+    message_count: number
+    created_at: string
+    unread_count?: number
+    session_id?: string
+    session_context?: {
+        session_replay_url?: string
+        current_url?: string
+        [key: string]: any
+    }
+}
+
+export interface ConversationMessage {
+    id: string
+    content: string
+    author_type: MessageAuthorType
+    author_name?: string
+    created_at: string
+    is_private: boolean
 }
 
 export interface MessageAuthor {
