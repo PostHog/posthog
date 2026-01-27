@@ -71,7 +71,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/flows",
                 "params": {
-                    "page[size]": 100,
+                    "page[size]": 50,  # Flows endpoint max is 50
                     "filter": f"greater-than(updated,{db_incremental_field_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
