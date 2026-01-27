@@ -107,6 +107,305 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestSessionsQueryRunner.test_orderby_person_display_name
+  '''
+  SELECT sessions.session_id AS session_id,
+         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___Email), toString(__person_lookup.`properties___$email`), toString(__person_lookup.properties___name), toString(__person_lookup.properties___Name), toString(__person_lookup.properties___username), toString(__person_lookup.properties___Username), toString(__person_lookup.properties___UserName), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+  FROM
+    (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+            min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  LEFT JOIN
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Email'), ''), 'null'), '^"|"$', '') AS properties___Email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$email'), ''), 'null'), '^"|"$', '') AS `properties___$email`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Name'), ''), 'null'), '^"|"$', '') AS properties___Name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Username'), ''), 'null'), '^"|"$', '') AS properties___Username,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'UserName'), ''), 'null'), '^"|"$', '') AS properties___UserName
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
+  ORDER BY tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___Email), toString(__person_lookup.`properties___$email`), toString(__person_lookup.properties___name), toString(__person_lookup.properties___Name), toString(__person_lookup.properties___username), toString(__person_lookup.properties___Username), toString(__person_lookup.properties___UserName), sessions.distinct_id), toString(__person_lookup.id)) DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestSessionsQueryRunner.test_person_display_name_combined_with_other_columns
+  '''
+  SELECT sessions.session_id AS session_id,
+         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___Email), toString(__person_lookup.`properties___$email`), toString(__person_lookup.properties___name), toString(__person_lookup.properties___Name), toString(__person_lookup.properties___username), toString(__person_lookup.properties___Username), toString(__person_lookup.properties___UserName), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id),
+         sessions.`$session_duration` AS `$session_duration`
+  FROM
+    (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+            dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+            min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  LEFT JOIN
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Email'), ''), 'null'), '^"|"$', '') AS properties___Email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$email'), ''), 'null'), '^"|"$', '') AS `properties___$email`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Name'), ''), 'null'), '^"|"$', '') AS properties___Name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Username'), ''), 'null'), '^"|"$', '') AS properties___Username,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'UserName'), ''), 'null'), '^"|"$', '') AS properties___UserName
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
+  ORDER BY sessions.session_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestSessionsQueryRunner.test_person_display_name_fallback_to_distinct_id
+  '''
+  SELECT sessions.session_id AS session_id,
+         tuple(coalesce(toString(__person_lookup.properties___nonexistent_property), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+  FROM
+    (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+            min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  LEFT JOIN
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'nonexistent_property'), ''), 'null'), '^"|"$', '') AS properties___nonexistent_property
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
+  ORDER BY sessions.session_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestSessionsQueryRunner.test_person_display_name_field
+  '''
+  SELECT sessions.session_id AS session_id,
+         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___Email), toString(__person_lookup.`properties___$email`), toString(__person_lookup.properties___name), toString(__person_lookup.properties___Name), toString(__person_lookup.properties___username), toString(__person_lookup.properties___Username), toString(__person_lookup.properties___UserName), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+  FROM
+    (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+            min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  LEFT JOIN
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Email'), ''), 'null'), '^"|"$', '') AS properties___Email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$email'), ''), 'null'), '^"|"$', '') AS `properties___$email`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Name'), ''), 'null'), '^"|"$', '') AS properties___Name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Username'), ''), 'null'), '^"|"$', '') AS properties___Username,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'UserName'), ''), 'null'), '^"|"$', '') AS properties___UserName
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
+  ORDER BY sessions.session_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestSessionsQueryRunner.test_person_display_name_with_custom_properties
+  '''
+  SELECT sessions.session_id AS session_id,
+         tuple(coalesce(toString(__person_lookup.properties___name), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+  FROM
+    (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+            min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  LEFT JOIN
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
+  ORDER BY sessions.session_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestSessionsQueryRunner.test_person_display_name_with_spaces_in_property_name
+  '''
+  SELECT sessions.session_id AS session_id,
+         tuple(coalesce(toString(__person_lookup.`properties___Property With Spaces`), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+  FROM
+    (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+            min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  LEFT JOIN
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Property With Spaces'), ''), 'null'), '^"|"$', '') AS `properties___Property With Spaces`
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
+  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
+  ORDER BY sessions.session_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestSessionsQueryRunner.test_sessions_date_range
   '''
   SELECT tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) AS `tuple(session_id, distinct_id, $start_timestamp, $end_timestamp, $session_duration, $entry_current_url, $end_current_url, $pageview_count, $autocapture_count, $screen_count, $is_bounce)`
