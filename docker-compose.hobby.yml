@@ -133,7 +133,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        image: ${REGISTRY_URL}-node:${POSTHOG_APP_TAG}
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
