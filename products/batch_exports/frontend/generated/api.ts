@@ -398,43 +398,6 @@ export const environmentsBatchExportsDestroy = async (
     })
 }
 
-/**
- * Trigger a backfill for a BatchExport.
-
-Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
- */
-export type environmentsBatchExportsBackfillCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsBatchExportsBackfillCreateResponseSuccess =
-    environmentsBatchExportsBackfillCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsBatchExportsBackfillCreateResponse = environmentsBatchExportsBackfillCreateResponseSuccess
-
-export const getEnvironmentsBatchExportsBackfillCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/batch_exports/${id}/backfill/`
-}
-
-export const environmentsBatchExportsBackfillCreate = async (
-    projectId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<environmentsBatchExportsBackfillCreateResponse> => {
-    return apiMutator<environmentsBatchExportsBackfillCreateResponse>(
-        getEnvironmentsBatchExportsBackfillCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExportApi),
-        }
-    )
-}
-
 export type environmentsBatchExportsLogsRetrieveResponse200 = {
     data: void
     status: 200
@@ -789,39 +752,6 @@ export const batchExportsDestroy = async (
     return apiMutator<batchExportsDestroyResponse>(getBatchExportsDestroyUrl(organizationId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-/**
- * Trigger a backfill for a BatchExport.
-
-Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
- */
-export type batchExportsBackfillCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type batchExportsBackfillCreateResponseSuccess = batchExportsBackfillCreateResponse200 & {
-    headers: Headers
-}
-export type batchExportsBackfillCreateResponse = batchExportsBackfillCreateResponseSuccess
-
-export const getBatchExportsBackfillCreateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/backfill/`
-}
-
-export const batchExportsBackfillCreate = async (
-    organizationId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<batchExportsBackfillCreateResponse> => {
-    return apiMutator<batchExportsBackfillCreateResponse>(getBatchExportsBackfillCreateUrl(organizationId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -1331,39 +1261,6 @@ export const batchExportsDestroy2 = async (
     return apiMutator<batchExportsDestroy2Response>(getBatchExportsDestroy2Url(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-/**
- * Trigger a backfill for a BatchExport.
-
-Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
- */
-export type batchExportsBackfillCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type batchExportsBackfillCreate2ResponseSuccess = batchExportsBackfillCreate2Response200 & {
-    headers: Headers
-}
-export type batchExportsBackfillCreate2Response = batchExportsBackfillCreate2ResponseSuccess
-
-export const getBatchExportsBackfillCreate2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${id}/backfill/`
-}
-
-export const batchExportsBackfillCreate2 = async (
-    projectId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<batchExportsBackfillCreate2Response> => {
-    return apiMutator<batchExportsBackfillCreate2Response>(getBatchExportsBackfillCreate2Url(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
     })
 }
 

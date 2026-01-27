@@ -21,7 +21,7 @@ describe('dataNodeLogic - query cancellation', () => {
                 '/api/environments/:team_id/insights/trend/': async (req) => {
                     if (req.url.searchParams.get('date_from') === '-180d') {
                         // delay for a second before response without pausing
-                        return new Promise((resolve) =>
+                        return new Promise<[number, { result: string[] }]>((resolve) =>
                             setTimeout(() => {
                                 resolve([200, { result: ['slow result from api'] }])
                             }, 1000)
@@ -33,7 +33,7 @@ describe('dataNodeLogic - query cancellation', () => {
             post: {
                 '/api/environments/997/insights/cancel/': [201],
                 '/api/environments/997/query/': async () => {
-                    return new Promise((resolve) =>
+                    return new Promise<[number, { result: string[] }]>((resolve) =>
                         setTimeout(() => {
                             resolve([200, { result: ['slow result from api'] }])
                         }, 1000)

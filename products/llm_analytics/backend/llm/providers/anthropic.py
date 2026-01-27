@@ -1,5 +1,6 @@
 """Anthropic provider for unified LLM client."""
 
+import json
 import uuid
 import logging
 from collections.abc import Generator
@@ -11,6 +12,7 @@ import anthropic
 import posthoganalytics
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
 from posthoganalytics.ai.anthropic import Anthropic
+from pydantic import BaseModel
 
 from products.llm_analytics.backend.llm.errors import AuthenticationError
 from products.llm_analytics.backend.llm.types import (
@@ -81,7 +83,7 @@ class AnthropicAdapter:
         api_key: str | None,
         analytics: AnalyticsContext,
     ) -> CompletionResponse:
-        """Non-streaming completion."""
+        """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
 
         posthog_client = posthoganalytics.default_client
@@ -95,10 +97,21 @@ class AnthropicAdapter:
 
         messages: Any = request.messages
 
+        # Handle structured output by appending JSON schema instructions
+        system_prompt = request.system or ""
+        if request.response_format and issubclass(request.response_format, BaseModel):
+            json_schema = request.response_format.model_json_schema()
+            system_prompt = f"""{system_prompt}
+
+You must respond with valid JSON that matches this schema:
+{json.dumps(json_schema, indent=2)}
+
+Return ONLY the JSON object, no other text or markdown formatting."""
+
         try:
             response = client.messages.create(
                 model=request.model,
-                system=request.system or "",
+                system=system_prompt,
                 messages=messages,
                 max_tokens=request.max_tokens or AnthropicConfig.MAX_TOKENS,
                 temperature=request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE,
@@ -113,10 +126,27 @@ class AnthropicAdapter:
                 output_tokens=response.usage.output_tokens,
                 total_tokens=response.usage.input_tokens + response.usage.output_tokens,
             )
+
+            # Parse structured output if response_format was specified
+            parsed: BaseModel | None = None
+            if request.response_format and issubclass(request.response_format, BaseModel):
+                try:
+                    # Clean up the content - remove markdown code blocks if present
+                    clean_content = content.strip()
+                    if clean_content.startswith("```"):
+                        lines = clean_content.split("\n")
+                        # Remove first and last lines (code block markers)
+                        clean_content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                    parsed = request.response_format.model_validate_json(clean_content)
+                except Exception as e:
+                    logger.warning(f"Failed to parse structured output from Anthropic: {e}")
+                    raise ValueError(f"Failed to parse structured output: {e}") from e
+
             return CompletionResponse(
                 content=content,
                 model=request.model,
                 usage=usage,
+                parsed=parsed,
             )
         except Exception as e:
             if "authentication" in str(e).lower() or "invalid api key" in str(e).lower():

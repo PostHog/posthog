@@ -9,11 +9,46 @@ from posthog.batch_exports.models import BatchExport, BatchExportBackfill, Batch
 from posthog.batch_exports.service import sync_batch_export
 
 
-def create_batch_export(team_id: int, interval: str, name: str, destination_data: dict, paused: bool) -> BatchExport:
+def create_batch_export(
+    team_id: int,
+    interval: str,
+    name: str,
+    destination_data: dict,
+    paused: bool,
+    timezone: str | None = None,
+    offset_day: int | None = None,
+    offset_hour: int | None = None,
+) -> BatchExport:
     """Create a BatchExport and its underlying Schedule."""
 
+    timezone = timezone or "UTC"
+
+    # Convert offset_day and offset_hour to interval_offset
+    if interval == "day":
+        if offset_hour is not None:
+            interval_offset = offset_hour * 3600
+        else:
+            interval_offset = None
+    elif interval == "week":
+        if offset_day is not None or offset_hour is not None:
+            day = offset_day if offset_day is not None else 0
+            hour = offset_hour if offset_hour is not None else 0
+            interval_offset = day * 86400 + hour * 3600
+        else:
+            interval_offset = None
+    else:
+        interval_offset = None
+
     destination = BatchExportDestination(**destination_data)
-    batch_export = BatchExport(team_id=team_id, destination=destination, interval=interval, name=name, paused=paused)
+    batch_export = BatchExport(
+        team_id=team_id,
+        destination=destination,
+        interval=interval,
+        name=name,
+        paused=paused,
+        timezone=timezone,
+        interval_offset=interval_offset,
+    )
 
     sync_batch_export(batch_export, created=True)
 
@@ -24,10 +59,19 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
 
 
 async def acreate_batch_export(
-    team_id: int, interval: str, name: str, destination_data: dict, paused: bool = False
+    team_id: int,
+    interval: str,
+    name: str,
+    destination_data: dict,
+    paused: bool = False,
+    timezone: str | None = None,
+    offset_day: int | None = None,
+    offset_hour: int | None = None,
 ) -> BatchExport:
     """Async create a BatchExport and its underlying Schedule."""
-    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data, paused)
+    return await sync_to_async(create_batch_export)(
+        team_id, interval, name, destination_data, paused, timezone, offset_day, offset_hour
+    )
 
 
 async def adelete_batch_export(batch_export: BatchExport, temporal_client: temporalio.client.Client) -> None:

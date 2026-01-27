@@ -687,6 +687,7 @@ export enum SURVEY_CREATED_SOURCE {
     FEATURE_FLAGS = 'feature_flags',
     MAX_AI = 'max_ai',
     SURVEY_FORM = 'survey_form',
+    SURVEY_WIZARD = 'survey_wizard',
     SURVEY_EMPTY_STATE = 'survey_empty_state',
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',

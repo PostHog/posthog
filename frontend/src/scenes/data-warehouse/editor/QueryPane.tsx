@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { IconCheck, IconX } from '@posthog/icons'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
@@ -45,33 +45,34 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
             >
                 <div className="relative flex flex-col w-full">
                     <div className="flex-1" data-attr="hogql-query-editor">
-                        <AutoSizer>
-                            {({ height, width }) => (
-                                <CodeEditor
-                                    language="hogQL"
-                                    value={props.queryInput}
-                                    sourceQuery={props.sourceQuery}
-                                    height={height}
-                                    width={width}
-                                    originalValue={props.originalValue}
-                                    {...props.codeEditorProps}
-                                    options={{
-                                        minimap: {
-                                            enabled: false,
-                                        },
-                                        wordWrap: 'on',
-                                        // Overscroll needed when Accept/Reject buttons are shown, so that they don't obscure the query
-                                        scrollBeyondLastLine: !!props.originalValue,
-                                        automaticLayout: true,
-                                        fixedOverflowWidgets: true,
-                                        suggest: {
-                                            showInlineDetails: true,
-                                        },
-                                        quickSuggestionsDelay: 300,
-                                    }}
-                                />
-                            )}
-                        </AutoSizer>
+                        <AutoSizer
+                            renderProp={({ height, width }) =>
+                                height && width ? (
+                                    <CodeEditor
+                                        language="hogQL"
+                                        value={props.queryInput}
+                                        sourceQuery={props.sourceQuery}
+                                        height={height}
+                                        width={width}
+                                        originalValue={props.originalValue}
+                                        {...props.codeEditorProps}
+                                        options={{
+                                            minimap: {
+                                                enabled: false,
+                                            },
+                                            wordWrap: 'on',
+                                            scrollBeyondLastLine: !!props.originalValue,
+                                            automaticLayout: true,
+                                            fixedOverflowWidgets: true,
+                                            suggest: {
+                                                showInlineDetails: true,
+                                            },
+                                            quickSuggestionsDelay: 300,
+                                        }}
+                                    />
+                                ) : null
+                            }
+                        />
                     </div>
                     <div className="absolute bottom-6 right-4">
                         <MaxTool

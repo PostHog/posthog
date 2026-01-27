@@ -173,11 +173,16 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     if (stopPropagation) {
                         e.stopPropagation()
                     }
-                    if (type === 'number') {
-                        onChange?.(0)
-                    } else {
-                        onChange?.('')
+                    if (onChange) {
+                        if (type === 'number') {
+                            // @ts-expect-error - onChange is typed as never, force it to match the right one
+                            onChange(0)
+                        } else {
+                            // @ts-expect-error - onChange is typed as never, force it to match the right one
+                            onChange('')
+                        }
                     }
+
                     focus()
                 }}
             />
@@ -220,10 +225,15 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (type === 'number') {
-                            onChange?.(event.currentTarget.valueAsNumber)
-                        } else {
-                            onChange?.(event.currentTarget.value ?? '')
+
+                        if (onChange) {
+                            if (type === 'number') {
+                                // @ts-expect-error - onChange is typed as never, force it to match the right one
+                                onChange(event.currentTarget.valueAsNumber)
+                            } else {
+                                // @ts-expect-error - onChange is typed as never, force it to match the right one
+                                onChange(event.currentTarget.value ?? '')
+                            }
                         }
                     }}
                     onFocus={(event) => {

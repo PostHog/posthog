@@ -106,7 +106,7 @@
         "snappy": "^7.2.2",
         "tail": "^2.2.6",
         "tldts": "^6.1.57",
-        "typescript": "5.2.2",
+        "typescript": "5.4.5",
         "ultimate-express": "^2.0.9",
         "undici": "^7.8.0",
         "undici-types": "^7.3.0",

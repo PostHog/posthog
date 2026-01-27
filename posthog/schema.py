@@ -2860,6 +2860,7 @@ class ProductIntentContext(StrEnum):
     EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = "early_access_feature_view_recordings"
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = "data_warehouse_stripe_source_created"
     SURVEYS_VIEWED = "surveys_viewed"
+    SURVEY_ADD_NEW = "survey_add_new"
     SURVEY_CREATED = "survey_created"
     SURVEY_LAUNCHED = "survey_launched"
     SURVEY_VIEWED = "survey_viewed"
@@ -2899,6 +2900,9 @@ class ProductIntentContext(StrEnum):
     TASK_CREATED = "task_created"
     TOOLBAR_LAUNCHED = "toolbar_launched"
     VERCEL_INTEGRATION = "vercel_integration"
+    ENDPOINT_CREATED = "endpoint_created"
+    ENDPOINT_CREATED_FROM_INSIGHT = "endpoint_created_from_insight"
+    ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
 
 
 class ProductKey(StrEnum):

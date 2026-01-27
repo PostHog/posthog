@@ -82,7 +82,7 @@ class TestRunEvaluationWorkflow:
             assert result["evaluation_type"] == "llm_judge"
             assert result["evaluation_config"] == {"prompt": "Is this response factually accurate?"}
             assert result["output_type"] == "boolean"
-            assert result["output_config"] == {}
+            assert result["output_config"] == {"allows_na": False}
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

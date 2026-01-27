@@ -39,7 +39,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_can_create_provider_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -60,9 +60,9 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
         self.assertEqual(response.data["api_key_masked"], "sk-t...2345")
         self.assertNotIn("api_key", response.data)
-        mock_validate.assert_called_once_with("sk-test-key-12345")
+        mock_validate.assert_called_once_with("openai", "sk-test-key-12345")
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_can_create_provider_key_with_set_as_active(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -94,7 +94,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("api_key", str(response.data))
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_validation_failure_rejects_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.INVALID, "Invalid API key")
 
@@ -106,7 +106,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertIn("Invalid API key", str(response.data))
         self.assertEqual(LLMProviderKey.objects.count(), 0)
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_can_list_provider_keys(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -170,7 +170,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         key.refresh_from_db()
         self.assertEqual(key.name, "Updated Name")
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_can_update_provider_key_api_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -191,7 +191,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
         key.refresh_from_db()
         self.assertEqual(key.encrypted_config["api_key"], "sk-new-key-12345")
-        mock_validate.assert_called_once_with("sk-new-key-12345")
+        mock_validate.assert_called_once_with("openai", "sk-new-key-12345")
 
     def test_can_delete_provider_key(self):
         key = LLMProviderKey.objects.create(
@@ -240,7 +240,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(LLMProviderKey.objects.filter(id=other_key.id).count(), 1)
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_can_validate_existing_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -260,7 +260,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         key.refresh_from_db()
         self.assertEqual(key.state, LLMProviderKey.State.OK)
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_validate_updates_state_on_failure(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.INVALID, "Invalid API key")
 
@@ -328,7 +328,7 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_can_pre_validate_api_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -339,9 +339,9 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
         self.assertIsNone(response.data["error_message"])
-        mock_validate.assert_called_once_with("sk-test-key")
+        mock_validate.assert_called_once_with("openai", "sk-test-key")
 
-    @patch("products.llm_analytics.backend.api.provider_keys.validate_openai_key")
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
     def test_pre_validate_returns_error_state(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.INVALID, "Invalid API key")
 

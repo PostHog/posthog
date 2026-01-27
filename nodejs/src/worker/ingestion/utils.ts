@@ -90,8 +90,7 @@ export async function captureIngestionWarning(
     ingestionWarningCounter.inc({ type, emitted: shouldEmit.toString() })
 
     if (shouldEmit) {
-        // TODO: Either here or in follow up change this to an await as we do care.
-        void kafkaProducer
+        return kafkaProducer
             .queueMessages({
                 topic: KAFKA_INGESTION_WARNINGS,
                 messages: [
@@ -106,6 +105,7 @@ export async function captureIngestionWarning(
                     },
                 ],
             })
+            .then(() => true)
             .catch((error) => {
                 logger.warn('⚠️', 'Failed to produce ingestion warning', {
                     error,
@@ -113,7 +113,8 @@ export async function captureIngestionWarning(
                     type,
                     details,
                 })
+                return false
             })
     }
-    return Promise.resolve(shouldEmit)
+    return Promise.resolve(false)
 }

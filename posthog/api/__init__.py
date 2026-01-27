@@ -59,6 +59,7 @@ from products.llm_analytics.backend.api import (
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
     LLMEvaluationSummaryViewSet,
+    LLMModelsViewSet,
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
@@ -1131,6 +1132,13 @@ environments_router.register(
     r"llm_analytics/provider_key_validations",
     LLMProviderKeyValidationViewSet,
     "environment_llm_analytics_provider_key_validations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/models",
+    LLMModelsViewSet,
+    "environment_llm_analytics_models",
     ["team_id"],
 )
 

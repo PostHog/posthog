@@ -1,5 +1,6 @@
 """OpenAI provider for unified LLM client."""
 
+import json
 import uuid
 import logging
 from collections.abc import Generator
@@ -92,21 +93,28 @@ class OpenAIAdapter:
 
         try:
             if request.response_format and issubclass(request.response_format, BaseModel):
-                response = client.beta.chat.completions.parse(
-                    model=request.model,
-                    messages=messages,
-                    response_format=request.response_format,
-                    **(self._build_analytics_kwargs(analytics, client)),
-                )
-                parsed = response.choices[0].message.parsed
-                content = parsed.model_dump_json() if parsed else ""
-                usage = self._extract_usage(response.usage)
-                return CompletionResponse(
-                    content=content,
-                    model=request.model,
-                    usage=usage,
-                    parsed=parsed,
-                )
+                try:
+                    # Try native structured output parsing first
+                    response = client.beta.chat.completions.parse(
+                        model=request.model,
+                        messages=messages,
+                        response_format=request.response_format,
+                        **(self._build_analytics_kwargs(analytics, client)),
+                    )
+                    parsed = response.choices[0].message.parsed
+                    content = parsed.model_dump_json() if parsed else ""
+                    usage = self._extract_usage(response.usage)
+                    return CompletionResponse(
+                        content=content,
+                        model=request.model,
+                        usage=usage,
+                        parsed=parsed,
+                    )
+                except openai.BadRequestError as e:
+                    # Fall back to manual JSON parsing for older models that don't support json_schema
+                    if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
+                        return self._complete_with_json_fallback(client, request, messages, analytics)
+                    raise
             else:
                 create_response = client.chat.completions.create(
                     model=request.model,
@@ -134,6 +142,56 @@ class OpenAIAdapter:
             if error_code == "insufficient_quota":
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
+
+    def _complete_with_json_fallback(
+        self,
+        client: Any,
+        request: CompletionRequest,
+        messages: list[dict],
+        analytics: AnalyticsContext,
+    ) -> CompletionResponse:
+        """Fallback for models that don't support json_schema response format."""
+        assert request.response_format is not None
+
+        json_schema = request.response_format.model_json_schema()
+        enhanced_system = f"""{request.system or ""}
+
+You must respond with valid JSON that matches this schema:
+{json.dumps(json_schema, indent=2)}
+
+Return ONLY the JSON object, no other text or markdown formatting."""
+
+        enhanced_messages = [{"role": "system", "content": enhanced_system}]
+        enhanced_messages.extend(request.messages)
+
+        create_response = client.chat.completions.create(
+            model=request.model,
+            messages=enhanced_messages,
+            temperature=request.temperature if request.temperature is not None else OpenAIConfig.TEMPERATURE,
+            max_completion_tokens=request.max_tokens,
+            **(self._build_analytics_kwargs(analytics, client)),
+        )
+
+        content = create_response.choices[0].message.content or ""
+        usage = self._extract_usage(create_response.usage)
+
+        # Parse the JSON response
+        try:
+            clean_content = content.strip()
+            if clean_content.startswith("```"):
+                lines = clean_content.split("\n")
+                clean_content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            parsed = request.response_format.model_validate_json(clean_content)
+        except Exception as e:
+            logger.warning(f"Failed to parse structured output from OpenAI fallback: {e}")
+            raise ValueError(f"Failed to parse structured output: {e}") from e
+
+        return CompletionResponse(
+            content=content,
+            model=request.model,
+            usage=usage,
+            parsed=parsed,
+        )
 
     def stream(
         self,

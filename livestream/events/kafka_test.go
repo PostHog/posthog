@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/posthog/posthog/livestream/geo"
 	"github.com/posthog/posthog/livestream/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -52,7 +53,7 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 	mockConsumer.On("ReadMessage", mock.AnythingOfType("time.Duration")).Return(testMessage, nil).Maybe()
 
 	// Mock GeoLocator Lookup
-	mockGeoLocator.On("Lookup", "192.0.2.1").Return(37.7749, -122.4194, nil)
+	mockGeoLocator.On("Lookup", "192.0.2.1").Return(geo.GeoLookupResult{Latitude: 37.7749, Longitude: -122.4194, CountryCode: "US"}, nil)
 
 	// Run Consume in a goroutine
 	go consumer.Consume()
@@ -104,7 +105,7 @@ func TestPostHogKafkaConsumer_Close(t *testing.T) {
 func TestParse(t *testing.T) {
 	mockGeoLocator := new(mocks.GeoLocator)
 	mockGeoLocator.On("Lookup", "127.0.0.1").
-		Return(10., 20., nil).Once()
+		Return(geo.GeoLookupResult{Latitude: 10., Longitude: 20., CountryCode: "US"}, nil).Once()
 	data, err := os.ReadFile("testdata/event.json")
 	assert.NoError(t, err)
 	got := parse(mockGeoLocator, data)
@@ -122,8 +123,9 @@ func TestParse(t *testing.T) {
 			"message_count": 0.,
 			"message_kind":  "event",
 		},
-		Lat: 10,
-		Lng: 20,
+		Lat:         10,
+		Lng:         20,
+		CountryCode: "US",
 	}, got)
 }
 
