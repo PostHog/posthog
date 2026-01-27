@@ -1,0 +1,1 @@
+"""Event capture acceptance tests."""
