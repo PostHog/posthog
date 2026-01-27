@@ -27,6 +27,7 @@ class Command(BaseCommand):
         )
         parser.add_argument("--dry-run", action="store_true", help="Preview changes without applying them")
         parser.add_argument("--batch-size", type=int, default=100, help="Number of teams per batch for DB updates")
+        parser.add_argument("--seed", type=int, help="Random seed for reproducible percentage-based selection")
 
     def handle(self, *args, **options):
         enable = options["enable"]
@@ -35,12 +36,16 @@ class Command(BaseCommand):
         percentage = options["percentage"]
         dry_run = options["dry_run"]
         batch_size = options["batch_size"]
+        seed = options["seed"]
 
         if not team_ids and not organization_ids and percentage is None:
             raise CommandError("At least one of --team-id, --organization-id, or --percentage must be provided")
 
         if percentage is not None and not (0 <= percentage <= 100):
             raise CommandError("--percentage must be between 0 and 100")
+
+        if batch_size <= 0:
+            raise CommandError("--batch-size must be a positive integer")
 
         target_value = True if enable else False
         action = "Enabling" if enable else "Disabling"
@@ -71,8 +76,10 @@ class Command(BaseCommand):
 
             if percentage is not None:
                 all_ids = list(queryset.values_list("id", flat=True))
-                sample_size = int(len(all_ids) * percentage / 100)
-                sampled_ids = random.sample(all_ids, min(sample_size, len(all_ids)))
+                sample_size = min(int(len(all_ids) * percentage / 100), len(all_ids))
+                if seed is not None:
+                    random.seed(seed)
+                sampled_ids = random.sample(all_ids, sample_size)
                 queryset = queryset.filter(id__in=sampled_ids)
 
             total_teams_migrated = 0
@@ -99,3 +106,4 @@ class Command(BaseCommand):
             raise
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Error occurred: {e}"))
+            raise
