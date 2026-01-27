@@ -104,8 +104,6 @@ procs:
         env:
             LLM_GATEWAY_DEBUG: 'true'
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
-            LLM_GATEWAY_POSTHOG_PROJECT_TOKEN: 'phc_localposthogprojecttoken'
-            LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
 
     mcp:
         shell: 'bin/start-mcp-server'
