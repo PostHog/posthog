@@ -62,21 +62,11 @@ export class HogInputsService {
 
         // Resolve push subscription inputs after we have newGlobals for template resolution
         if (hasPushSubscriptionInputs) {
-            logger.error('[HogInputsService]', 'Loading push subscription inputs', {
-                hogFunctionId: hogFunction.id,
-                eventUuid: globals.event?.uuid,
-            })
             const pushSubscriptionInputs = await this.loadPushSubscriptionInputs(
                 hogFunction,
                 newGlobals,
                 integrationInputs
             )
-
-            logger.error('[HogInputsService]', 'Loaded push subscription inputs', {
-                hogFunctionId: hogFunction.id,
-                eventUuid: globals.event?.uuid,
-                pushSubscriptionInputKeys: Object.keys(pushSubscriptionInputs),
-            })
 
             // Update the input values with resolved tokens
             for (const [key, resolvedInput] of Object.entries(pushSubscriptionInputs)) {
@@ -87,11 +77,6 @@ export class HogInputsService {
                     inputs[key] = resolvedInput
                 }
             }
-            logger.error('[HogInputsService]', 'Updated inputs with push subscription values', {
-                hogFunctionId: hogFunction.id,
-                eventUuid: globals.event?.uuid,
-                updatedKeys: Object.keys(pushSubscriptionInputs),
-            })
         }
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
@@ -259,10 +244,6 @@ export class HogInputsService {
                             availableKeys: Object.keys(firebaseAccountInput.value),
                         })
                     }
-                    logger.error('[HogInputsService]', 'Firebase app ID found', {
-                        firebaseAppId,
-                        projectId: firebaseAccountInput.value.key_info?.project_id,
-                    })
 
                     // For firebase-push-notifications destination, filter by provider="fcm"
                     provider = 'fcm'
@@ -278,20 +259,6 @@ export class HogInputsService {
                 provider,
             })
 
-            logger.error('[HogInputsService]', 'Push subscription query result', {
-                distinctId,
-                foundCount: subscriptions.length,
-                subscriptions: subscriptions.map((s) => ({
-                    id: s.id,
-                    distinct_id: s.distinct_id,
-                    platform: s.platform,
-                    provider: s.provider,
-                    is_active: s.is_active,
-                    team_id: s.team_id,
-                    tokenLength: s.token?.length,
-                })),
-            })
-
             let subscription = subscriptions.length > 0 ? subscriptions[0] : null
 
             // Step 2: If not found, try fallback to other distinct_ids for same person
@@ -302,15 +269,6 @@ export class HogInputsService {
                 )
 
                 if (relatedDistinctIds.length > 0) {
-                    logger.error('[HogInputsService]', 'Trying fallback lookup by related distinct IDs', {
-                        originalDistinctId: distinctId,
-                        relatedDistinctIds,
-                        platform: schema.platform,
-                        firebaseAppId,
-                        provider,
-                        teamId: hogFunction.team_id,
-                    })
-
                     subscription = await this.pushSubscriptionsManager.findSubscriptionByPersonDistinctIds(
                         hogFunction.team_id,
                         relatedDistinctIds,
@@ -318,14 +276,6 @@ export class HogInputsService {
                         firebaseAppId,
                         provider
                     )
-
-                    if (subscription) {
-                        logger.error('[HogInputsService]', 'Found subscription via fallback lookup', {
-                            originalDistinctId: distinctId,
-                            foundDistinctId: subscription.distinct_id,
-                            subscriptionId: subscription.id,
-                        })
-                    }
 
                     // Step 3: If found, update subscription to use new distinct_id
                     if (subscription) {
@@ -340,36 +290,13 @@ export class HogInputsService {
                             distinct_id: distinctId,
                         }
                     }
-                } else {
-                    logger.error('[HogInputsService]', 'No related distinct IDs found for fallback lookup', {
-                        distinctId,
-                        teamId: hogFunction.team_id,
-                    })
                 }
             }
 
             if (subscription && subscription.is_active && subscription.team_id === hogFunction.team_id) {
-                logger.error('[HogInputsService]', 'Retrieved push subscription token from database', {
-                    distinctId,
-                    resolvedToken: subscription.token,
-                    platform: schema.platform,
-                    firebaseAppId,
-                    provider,
-                    teamId: hogFunction.team_id,
-                    subscriptionId: subscription.id,
-                })
                 returnInputs[key] = {
                     value: subscription.token,
                 }
-            } else {
-                logger.error('[HogInputsService]', 'Push subscription not used - condition check failed', {
-                    distinctId,
-                    hasSubscription: !!subscription,
-                    subscriptionActive: subscription?.is_active,
-                    subscriptionTeamId: subscription?.team_id,
-                    expectedTeamId: hogFunction.team_id,
-                    teamIdMatch: subscription?.team_id === hogFunction.team_id,
-                })
             }
         }
 
