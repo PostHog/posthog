@@ -173,10 +173,10 @@ def timezone(request) -> ZoneInfo:
 
 
 @pytest.fixture
-async def temporal_schedule_every_5_minutes(temporal_client, team):
+async def temporal_schedule_every_5_minutes(temporal_client, ateam):
     """Manage a test Temporal Schedule with interval 'every 5 minutes'."""
     batch_export = await acreate_batch_export(
-        team_id=team.pk,
+        team_id=ateam.pk,
         name="no-op-export-every-5-minutes",
         destination_data={
             "type": "NoOp",
@@ -233,11 +233,11 @@ def schedule_interval_timezone_and_offset(request):
 
 
 @pytest.fixture
-async def temporal_schedule_with_tz_and_offset(temporal_client, team, schedule_interval_timezone_and_offset):
+async def temporal_schedule_with_tz_and_offset(temporal_client, ateam, schedule_interval_timezone_and_offset):
     """Manage a test Temporal Schedule with parametrized interval, timezone, and offset."""
     interval, timezone, offset_day, offset_hour = schedule_interval_timezone_and_offset
     batch_export = await acreate_batch_export(
-        team_id=team.pk,
+        team_id=ateam.pk,
         name=f"no-op-export-{interval}-{timezone}-{offset_day}-{offset_hour}",
         destination_data={
             "type": "NoOp",
@@ -593,7 +593,7 @@ async def test_backfill_batch_export_workflow(
 
 @mock.patch("products.batch_exports.backend.temporal.backfill_batch_export.get_utcnow")
 async def test_backfill_batch_export_workflow_no_end_at(
-    mock_utcnow, temporal_worker, temporal_schedule_every_5_minutes, temporal_client, team
+    mock_utcnow, temporal_worker, temporal_schedule_every_5_minutes, temporal_client, ateam
 ):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
 
@@ -606,7 +606,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
-        team_id=team.pk,
+        team_id=ateam.pk,
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at,
@@ -650,7 +650,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
 
 @pytest.mark.flaky(reruns=2)
 async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
-    temporal_worker, temporal_schedule_every_5_minutes, temporal_client, team
+    temporal_worker, temporal_schedule_every_5_minutes, temporal_client, ateam
 ):
     """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
@@ -660,7 +660,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
-        team_id=team.pk,
+        team_id=ateam.pk,
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
@@ -688,7 +688,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
 
 @pytest.mark.flaky(reruns=2)
 async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_running(
-    temporal_worker, temporal_schedule_every_5_minutes, temporal_client, team
+    temporal_worker, temporal_schedule_every_5_minutes, temporal_client, ateam
 ):
     """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted.
 
@@ -702,7 +702,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
-        team_id=team.pk,
+        team_id=ateam.pk,
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
@@ -821,7 +821,7 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
 
 
 async def test_backfill_batch_export_workflow_no_start_at(
-    temporal_worker, temporal_schedule_hourly, temporal_client, team
+    temporal_worker, temporal_schedule_hourly, temporal_client, ateam
 ):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
     start_at = None
@@ -830,7 +830,7 @@ async def test_backfill_batch_export_workflow_no_start_at(
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
-        team_id=team.pk,
+        team_id=ateam.pk,
         batch_export_id=desc.id,
         start_at=start_at,
         end_at=end_at.isoformat(),
