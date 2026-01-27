@@ -19,7 +19,7 @@ import {
 } from '~/types'
 
 import { ProductTourPreview } from '../components/ProductTourPreview'
-import { STEP_TYPE_ICONS, STEP_TYPE_LABELS, createDefaultStep } from '../stepUtils'
+import { STEP_TYPE_ICONS, STEP_TYPE_LABELS, createDefaultStep, getStepTitle } from '../stepUtils'
 import { StepButtonsEditor } from './StepButtonsEditor'
 import { StepContentEditor } from './StepContentEditor'
 import { StepLayoutSettings } from './StepLayoutSettings'
@@ -30,18 +30,6 @@ export interface ProductTourStepsEditorProps {
     steps: ProductTourStep[]
     appearance?: ProductTourAppearance
     onChange: (steps: ProductTourStep[]) => void
-}
-
-function getStepTitle(step: ProductTourStep, index: number): string {
-    if (step.content && typeof step.content === 'object') {
-        const doc = step.content as JSONContent
-        const firstContent = doc.content?.[0]
-        if (firstContent?.content?.[0]?.text) {
-            const text = firstContent.content[0].text
-            return text.length > 30 ? text.slice(0, 30) + '...' : text
-        }
-    }
-    return `Step ${index + 1}`
 }
 
 export function getWidthValue(maxWidth: ProductTourStep['maxWidth']): number {

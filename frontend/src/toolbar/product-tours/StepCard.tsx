@@ -4,12 +4,12 @@ import { IconChevronDown, IconCursorClick, IconTrash, IconWarning } from '@posth
 import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { IconDragHandle } from 'lib/lemon-ui/icons'
-import { STEP_TYPE_ICONS, STEP_TYPE_LABELS } from 'scenes/product-tours/stepUtils'
+import { STEP_TYPE_ICONS, getStepTitle } from 'scenes/product-tours/stepUtils'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ProductTourProgressionTriggerType } from '~/types'
 
-import { TourStep, getStepElement, productToursLogic } from './productToursLogic'
+import { TourStep, getStepElement, hasValidSelector, productToursLogic } from './productToursLogic'
 
 interface StepCardProps {
     step: TourStep
@@ -34,7 +34,7 @@ export function StepCard({
     isDragging,
     isDropTarget,
 }: StepCardProps): JSX.Element {
-    const { apiHost, temporaryToken } = useValues(toolbarConfigLogic)
+    const { uiHost, temporaryToken } = useValues(toolbarConfigLogic)
     const { selectingStepIndex } = useValues(productToursLogic)
     const { removeStep, setStepTargetingMode, updateStepSelector, updateStepProgressionTrigger, setEditorState } =
         useActions(productToursLogic)
@@ -42,7 +42,8 @@ export function StepCard({
     const isElementStep = step.type === 'element'
     const isSelecting = selectingStepIndex === index
     const element = isElementStep && isExpanded ? getStepElement(step) : null
-    const elementNotFound = isElementStep && isExpanded && step.selector && !element
+    const elementNotFound = isElementStep && isExpanded && hasValidSelector(step) && !element
+    const isMissingElement = !hasValidSelector(step)
 
     const handleReselectElement = (): void => {
         setEditorState({ mode: 'selecting', stepIndex: index })
@@ -52,7 +53,7 @@ export function StepCard({
         step.selector && step.selector.length > 25 ? step.selector.slice(0, 22) + '...' : step.selector
 
     const screenshotUrl = step.screenshotMediaId
-        ? `${apiHost}/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`
+        ? `${uiHost}/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`
         : null
 
     return (
@@ -62,8 +63,19 @@ export function StepCard({
             style={{
                 opacity: isDragging ? 0.4 : 1,
                 transform: isDragging ? 'scale(0.98)' : 'scale(1)',
-                border: `1px solid ${isDropTarget || isSelecting ? 'var(--primary-3000)' : 'var(--border-bold-3000)'}`,
-                boxShadow: isDropTarget || isSelecting ? '0 0 0 2px var(--primary-3000)' : 'none',
+                border: `1px solid ${
+                    isDropTarget || isSelecting
+                        ? 'var(--primary-3000)'
+                        : isMissingElement
+                          ? 'var(--danger)'
+                          : 'var(--border-bold-3000)'
+                }`,
+                boxShadow:
+                    isDropTarget || isSelecting
+                        ? '0 0 0 2px var(--primary-3000)'
+                        : isMissingElement
+                          ? '0 0 0 2px var(--danger)'
+                          : 'none',
                 backgroundColor: isExpanded ? 'var(--secondary-3000)' : 'var(--color-bg-light)',
             }}
             draggable
@@ -97,9 +109,15 @@ export function StepCard({
                             {STEP_TYPE_ICONS[step.type] ?? <IconCursorClick className="w-3.5 h-3.5" />}
                         </span>
                         <span className="text-[13px] font-medium overflow-hidden text-ellipsis whitespace-nowrap">
-                            {STEP_TYPE_LABELS[step.type] ?? step.type}
+                            {getStepTitle(step, index)}
                         </span>
                     </div>
+                    {isMissingElement && (
+                        <span className="text-[10px] text-danger flex items-center gap-1">
+                            <IconWarning className="w-3 h-3" />{' '}
+                            {step.useManualSelector ? 'Enter a selector' : 'Select an element'}
+                        </span>
+                    )}
                     {isElementStep && step.useManualSelector && step.selector && !isExpanded && (
                         <span
                             title={step.selector}
