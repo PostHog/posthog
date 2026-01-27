@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -209,13 +210,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
 
     listeners(({ actions, values, props }) => ({
         selectTemplate: ({ template }) => {
-            const timestamp = new Date().toLocaleString('sv-SE', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-            })
+            const timestamp = dayjs().format('YYYY-MM-DD HH:mm')
             actions.setSurveyValue('name', `${template.templateType} (${timestamp})`)
             actions.setSurveyValue('description', template.description || '')
             actions.setSurveyValue('type', template.type || SurveyType.Popover)
