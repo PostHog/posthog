@@ -1,6 +1,7 @@
 import { EventSchemaEnforcement, IncomingEventWithTeam } from '../../types'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
+import { isValidClickHouseDateTime } from './clickhouse-datetime-parser'
 
 /**
  * Checks if a value can be coerced to the given PostHog property type.
@@ -42,15 +43,7 @@ function canCoerceToType(value: unknown, propertyType: string): boolean {
             return false
 
         case 'DateTime':
-            // Accepts: numbers (unix timestamps), ISO date strings
-            if (typeof value === 'number') {
-                return true
-            }
-            if (typeof value === 'string') {
-                const date = new Date(value)
-                return !isNaN(date.getTime())
-            }
-            return false
+            return isValidClickHouseDateTime(value)
 
         case 'Object':
             // Accepts: objects and arrays
