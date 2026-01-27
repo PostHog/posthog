@@ -53,17 +53,15 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         verbose_name = "DuckLake catalog"
         verbose_name_plural = "DuckLake catalogs"
 
-    def to_config(self) -> dict[str, str]:
-        """Convert to a config dict compatible with get_config()."""
+    def to_public_config(self) -> dict[str, str]:
+        """Convert to a config dict without secrets (safe for logging/debugging)."""
         return {
             "DUCKLAKE_RDS_HOST": self.db_host,
             "DUCKLAKE_RDS_PORT": str(self.db_port),
             "DUCKLAKE_RDS_DATABASE": self.db_database,
             "DUCKLAKE_RDS_USERNAME": self.db_username,
-            "DUCKLAKE_RDS_PASSWORD": self.db_password,
             "DUCKLAKE_BUCKET": self.bucket,
             "DUCKLAKE_BUCKET_REGION": self.bucket_region,
-            # S3 credentials are not stored per-team; they come from environment or IRSA
             "DUCKLAKE_S3_ACCESS_KEY": "",
             "DUCKLAKE_S3_SECRET_KEY": "",
         }

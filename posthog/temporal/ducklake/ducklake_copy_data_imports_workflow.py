@@ -222,7 +222,7 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
                 non_retryable=True,
             )
 
-        config = catalog.to_config()
+        config = catalog.to_public_config()
         cross_account_dest = catalog.to_cross_account_destination()
         alias = "ducklake"
 
@@ -234,7 +234,7 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
             )
             configure_cross_account_connection(conn, destinations=[cross_account_dest])
             ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
-            _attach_ducklake_catalog(conn, config, alias=alias)
+            _attach_ducklake_catalog(conn, {**config, "DUCKLAKE_RDS_PASSWORD": catalog.db_password}, alias=alias)
 
             qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
             qualified_table = f"{qualified_schema}.{inputs.model.ducklake_table_name}"
@@ -322,14 +322,14 @@ def verify_data_imports_ducklake_copy_activity(
                 non_retryable=True,
             )
 
-        config = catalog.to_config()
+        config = catalog.to_public_config()
         cross_account_dest = catalog.to_cross_account_destination()
         alias = "ducklake"
         results: list[DuckLakeCopyDataImportsVerificationResult] = []
 
         with duckdb.connect() as conn:
             configure_cross_account_connection(conn, destinations=[cross_account_dest])
-            _attach_ducklake_catalog(conn, config, alias=alias)
+            _attach_ducklake_catalog(conn, {**config, "DUCKLAKE_RDS_PASSWORD": catalog.db_password}, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.ducklake_schema_name}.{inputs.model.ducklake_table_name}"
             format_values = {

@@ -46,7 +46,9 @@ def get_config(*, team_id: int | None = None, allow_env_fallback: bool = False) 
     if team_id is not None:
         catalog = get_ducklake_catalog_for_team(team_id)
         if catalog is not None:
-            return catalog.to_config()
+            config = catalog.to_public_config()
+            config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+            return config
         raise ValueError(f"No DuckLakeCatalog configured for team {team_id}")
 
     # In prod mode without team_id, require explicit allow_env_fallback
