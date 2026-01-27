@@ -1,4 +1,4 @@
-import { Team } from '../../src/types'
+import { ProjectId, Team } from '../../src/types'
 
 /**
  * Helper function to create a Team object for tests with sensible defaults.
@@ -25,7 +25,7 @@ export function createTestTeam(overrides: Partial<Team> = {}): Team {
         timezone: 'UTC',
         available_features: [],
         drop_events_older_than_seconds: null,
-        project_id: 1 as any,
+        project_id: 1 as unknown as ProjectId,
         ...overrides,
     }
 }
