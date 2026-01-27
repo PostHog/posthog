@@ -95,20 +95,6 @@ export class ClickHouseRouter {
         })
     }
 
-    public async ping(): Promise<boolean> {
-        if (!this.client) {
-            throw new Error('ClickHouse client not initialized. Call initialize() first.')
-        }
-
-        try {
-            const response = await this.client.ping()
-            return response.success
-        } catch (error) {
-            logger.error('🔴', 'ClickHouse ping error', { error })
-            return false
-        }
-    }
-
     async close(): Promise<void> {
         if (this.client) {
             await this.client.close()
