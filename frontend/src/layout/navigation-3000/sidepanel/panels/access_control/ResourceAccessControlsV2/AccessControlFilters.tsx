@@ -1,4 +1,3 @@
-import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils'
@@ -19,11 +18,13 @@ export interface AccessControlFiltersProps {
     resources: { key: APIScopeObject; label: string }[]
     ruleOptions: { key: string; label: string }[]
     canUseRoles: boolean
-    canEditAny: boolean
-    onAdd: () => void
 }
 
-export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Element {
+export function AccessControlFilters(props: AccessControlFiltersProps): React.ReactNode {
+    if (props.activeTab === 'defaults') {
+        return null
+    }
+
     return (
         <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
@@ -65,13 +66,6 @@ export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Elem
                     ruleOptions={props.ruleOptions}
                 />
             </div>
-
-            <AddRuleButton
-                activeTab={props.activeTab}
-                canEditAny={props.canEditAny}
-                canUseRoles={props.canUseRoles}
-                onAddClick={props.onAdd}
-            />
         </div>
     )
 }
@@ -188,37 +182,5 @@ function AccessLevelFilter(props: {
                 Access{props.selectedRuleLevels.length ? ` (${props.selectedRuleLevels.length})` : ''}
             </LemonButton>
         </LemonDropdown>
-    )
-}
-
-function AddRuleButton(props: {
-    onAddClick: () => void
-    canEditAny: boolean
-    activeTab: AccessControlsTab
-    canUseRoles: boolean
-}): JSX.Element {
-    function getDisabledReason(): string | undefined {
-        if (!props.canEditAny) {
-            return 'You cannot edit this'
-        }
-
-        if (props.activeTab === 'roles' && !props.canUseRoles) {
-            return 'You must upgrade your plan to use roles'
-        }
-        return undefined
-    }
-
-    const disabledReason = getDisabledReason()
-
-    return (
-        <LemonButton
-            type="primary"
-            size="small"
-            icon={<IconPlus />}
-            onClick={props.onAddClick}
-            disabledReason={disabledReason}
-        >
-            Add
-        </LemonButton>
     )
 }

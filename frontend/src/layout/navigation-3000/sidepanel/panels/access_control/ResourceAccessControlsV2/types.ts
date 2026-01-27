@@ -1,27 +1,19 @@
-import { APIScopeObject, AccessControlLevel } from '~/types'
+import { APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
+
+import { AccessControlLevelMapping } from '../accessControlLogic'
 
 export type ScopeType = 'default' | 'role' | 'member'
 
 export type AccessControlRow = {
     id: string
-    scopeType: ScopeType
-    scopeId: string | null
-    scopeLabel: string
-    resourceKey: APIScopeObject
-    resourceLabel: string
-    level: AccessControlLevel | null
-    isException: boolean
+    levels: AccessControlLevelMapping[]
+    member?: OrganizationMemberType
+    role: Pick<RoleType, 'id' | 'name'>
 }
 
-export type RuleModalState =
-    | {
-          mode: 'add'
-          initialScopeType?: ScopeType
-      }
-    | {
-          mode: 'edit'
-          row: AccessControlRow
-      }
+export type RuleModalState = {
+    row: AccessControlRow
+}
 
 export type AccessControlsTab = 'defaults' | 'roles' | 'members'
 

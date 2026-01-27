@@ -10,16 +10,14 @@ import {
     APIScopeObject,
     AccessControlLevel,
     AccessControlType,
-    AccessControlTypeMember,
     AvailableFeature,
     OrganizationMemberType,
 } from '~/types'
 
-import { accessControlLogic } from '../accessControlLogic'
+import { AccessControlLevelMapping, accessControlLogic } from '../accessControlLogic'
 import { resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import type { accessControlsLogicType } from './accessControlsLogicType'
-import { humanizeAccessControlLevel, scopeTypeForAccessControlsTab, sortAccessControlRows } from './helpers'
 import { AccessControlFilters, AccessControlRow, AccessControlsTab, RuleModalState, ScopeType } from './types'
 
 export interface AccessControlsLogicProps {
@@ -73,7 +71,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 description: '',
             }),
             [
-                'ruleForm',
                 'accessControlDefault',
                 'accessControlRoles',
                 'accessControlMembers',
@@ -101,12 +98,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         setSearchText: (searchText: string) => ({ searchText }),
         openRuleModal: (state: RuleModalState) => ({ state }),
         closeRuleModal: true,
-        deleteRule: (row: AccessControlRow) => ({ row }),
-        saveRule: (params: {
+        saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string | null
-            resourceKey: APIScopeObject
-            level: AccessControlLevel
+            levels: AccessControlLevelMapping[]
         }) => params,
     }),
 
@@ -132,9 +127,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ruleModalState: [
             null as RuleModalState | null,
             {
-                openRuleModal: (_: RuleModalState | null, { state }: { state: RuleModalState }) =>
-                    state as RuleModalState,
-                closeRuleModal: () => null as null,
+                openRuleModal: (_: RuleModalState | null, { state }: { state: RuleModalState }) => state,
+                closeRuleModal: () => null,
             },
         ],
     }),
@@ -143,18 +137,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         canUseRoles: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
-        ],
-
-        canEditRow: [
-            (s) => [s.canEditAccessControls, s.canEditRoleBasedAccessControls],
-            (canEditAccessControls, canEditRoleBasedAccessControls) =>
-                (row: AccessControlRow): boolean => {
-                    const isProjectRule = row.resourceKey === 'project'
-
-                    return (
-                        row.isException && (isProjectRule ? !!canEditAccessControls : !!canEditRoleBasedAccessControls)
-                    )
-                },
         ],
 
         allMembers: [(s) => [s.sortedMembers], (sortedMembers): OrganizationMemberType[] => sortedMembers ?? []],
@@ -176,75 +158,16 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (accessControlDefault): AccessControlLevel => accessControlDefault?.access_level ?? AccessControlLevel.None,
         ],
 
-        projectRoleOverrideByRoleId: [
-            (s) => [s.accessControlRoles],
-            (accessControlRoles): Map<string, AccessControlLevel> =>
-                new Map(accessControlRoles.map((ac) => [ac.role, ac.access_level ?? AccessControlLevel.None])),
-        ],
-
-        projectMemberOverrideByMemberId: [
-            (s) => [s.accessControlMembers],
-            (accessControlMembers): Map<string, AccessControlLevel> =>
-                new Map(
-                    accessControlMembers
-                        .filter(
-                            (ac): ac is AccessControlTypeMember => !!(ac as AccessControlTypeMember).organization_member
-                        )
-                        .map((ac) => [ac.organization_member, ac.access_level ?? AccessControlLevel.None])
-                ),
-        ],
-
-        resourceRoleOverrideByRoleIdAndResourceKey: [
-            (s) => [s.roleResourceAccessControls],
-            (roleResourceAccessControls): Map<string, Map<string, AccessControlLevel>> => {
-                const out = new Map<string, Map<string, AccessControlLevel>>()
-                for (const entry of roleResourceAccessControls) {
-                    if (!entry.role) {
-                        continue
-                    }
-                    const mapForRole = new Map<string, AccessControlLevel>()
-                    for (const [resourceKey, control] of Object.entries(entry.accessControlByResource)) {
-                        if (control?.access_level !== null && control?.access_level !== undefined) {
-                            mapForRole.set(resourceKey, control.access_level as AccessControlLevel)
-                        }
-                    }
-                    out.set(entry.role.id, mapForRole)
-                }
-                return out
-            },
-        ],
-
-        resourceMemberOverrideByMemberIdAndResourceKey: [
-            (s) => [s.memberResourceAccessControls],
-            (memberResourceAccessControls): Map<string, Map<string, AccessControlLevel>> => {
-                const out = new Map<string, Map<string, AccessControlLevel>>()
-                for (const entry of memberResourceAccessControls) {
-                    if (!entry.organization_member) {
-                        continue
-                    }
-                    const mapForMember = new Map<string, AccessControlLevel>()
-                    for (const [resourceKey, control] of Object.entries(entry.accessControlByResource)) {
-                        if (control?.access_level !== null && control?.access_level !== undefined) {
-                            mapForMember.set(resourceKey, control.access_level as AccessControlLevel)
-                        }
-                    }
-                    out.set(entry.organization_member.id, mapForMember)
-                }
-                return out
-            },
-        ],
-
         allRows: [
             (s) => [
                 s.canUseRoles,
                 s.defaultResourceAccessControls,
                 s.allMembers,
                 s.projectDefaultLevel,
-                s.projectMemberOverrideByMemberId,
-                s.projectRoleOverrideByRoleId,
-                s.resourceMemberOverrideByMemberIdAndResourceKey,
-                s.resourceRoleOverrideByRoleIdAndResourceKey,
-                s.resources,
+                s.accessControlMembers,
+                s.accessControlRoles,
+                s.memberResourceAccessControls,
+                s.roleResourceAccessControls,
                 s.roles,
             ],
             (
@@ -252,139 +175,97 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 defaultResourceAccessControls,
                 allMembers,
                 projectDefaultLevel,
-                projectMemberOverrideByMemberId,
-                projectRoleOverrideByRoleId,
-                resourceMemberOverrideByMemberIdAndResourceKey,
-                resourceRoleOverrideByRoleIdAndResourceKey,
-                resources,
+                accessControlMembers,
+                accessControlRoles,
+                memberResourceAccessControls,
+                roleResourceAccessControls,
                 roles
             ): AccessControlRow[] => {
-                const resourcesList = resources as unknown as AccessControlType['resource'][]
+                const resourcesList = defaultResourceAccessControls.accessControlByResource
                 const rows: AccessControlRow[] = []
 
-                const addRow = (row: Omit<AccessControlRow, 'id'>): void => {
-                    rows.push({
-                        ...row,
-                        id: `${row.scopeType}:${row.scopeId ?? 'default'}:${row.resourceKey}`,
-                    })
-                }
-
-                // Default scope rows
-                addRow({
-                    scopeType: 'default',
-                    scopeId: null,
-                    scopeLabel: 'Default',
-                    resourceKey: 'project',
-                    resourceLabel: 'Project',
-                    level: projectDefaultLevel,
-                    isException: true,
-                })
-
-                for (const resourceKey of resourcesList) {
-                    const explicitLevel =
-                        defaultResourceAccessControls.accessControlByResource[resourceKey]?.access_level
-                    if (explicitLevel === null || explicitLevel === undefined) {
-                        continue
+                // Default scope row
+                const defaultLevels: AccessControlLevelMapping[] = [
+                    { resourceKey: 'project', level: projectDefaultLevel as AccessControlLevel },
+                ]
+                for (const [resourceKey, control] of Object.entries(resourcesList)) {
+                    if (control?.access_level !== null && control?.access_level !== undefined) {
+                        defaultLevels.push({
+                            resourceKey: resourceKey as APIScopeObject,
+                            level: control.access_level as AccessControlLevel,
+                        })
                     }
-                    addRow({
-                        scopeType: 'default',
-                        scopeId: null,
-                        scopeLabel: 'Default',
-                        resourceKey,
-                        resourceLabel: toSentenceCase(pluralizeResource(resourceKey)),
-                        level: explicitLevel,
-                        isException: true,
-                    })
                 }
+                rows.push({
+                    id: 'default',
+                    role: { id: 'default', name: 'Default' },
+                    levels: defaultLevels,
+                })
 
                 // Role scope rows
                 if (canUseRoles) {
                     for (const role of roles ?? []) {
-                        const roleProjectOverride = projectRoleOverrideByRoleId.get(role.id)
-                        if (roleProjectOverride !== undefined) {
-                            addRow({
-                                scopeType: 'role',
-                                scopeId: role.id,
-                                scopeLabel: role.name,
-                                resourceKey: 'project',
-                                resourceLabel: 'Project',
-                                level: roleProjectOverride,
-                                isException: true,
-                            })
-                        }
+                        const levels: AccessControlLevelMapping[] = []
+                        const projectOverride = accessControlRoles.find((o) => o.role === role.id)
+                        levels.push({
+                            resourceKey: 'project',
+                            level: (projectOverride?.access_level ?? projectDefaultLevel) as AccessControlLevel,
+                        })
 
-                        const overrides = resourceRoleOverrideByRoleIdAndResourceKey.get(role.id)
-                        if (overrides) {
-                            for (const [resourceKey, level] of overrides.entries()) {
-                                addRow({
-                                    scopeType: 'role',
-                                    scopeId: role.id,
-                                    scopeLabel: role.name,
-                                    resourceKey: resourceKey as APIScopeObject,
-                                    resourceLabel: toSentenceCase(pluralizeResource(resourceKey as APIScopeObject)),
-                                    level: level,
-                                    isException: true,
-                                })
+                        const roleResourceEntry = roleResourceAccessControls.find((r) => r.role?.id === role.id)
+                        if (roleResourceEntry) {
+                            for (const [resourceKey, control] of Object.entries(
+                                roleResourceEntry.accessControlByResource
+                            )) {
+                                if (control?.access_level !== null && control?.access_level !== undefined) {
+                                    levels.push({
+                                        resourceKey: resourceKey as APIScopeObject,
+                                        level: control.access_level as AccessControlLevel,
+                                    })
+                                }
                             }
                         }
+                        rows.push({
+                            id: `role:${role.id}`,
+                            role: { id: role.id, name: role.name },
+                            levels,
+                        })
                     }
                 }
 
                 // Member scope rows
                 for (const member of allMembers) {
-                    const memberProjectOverride = projectMemberOverrideByMemberId.get(member.id)
-                    addRow({
-                        scopeType: 'member',
-                        scopeId: member.id,
-                        scopeLabel: fullName(member.user),
+                    const levels: AccessControlLevelMapping[] = []
+                    const projectOverride = accessControlMembers.find((o) => o.organization_member === member.id)
+                    levels.push({
                         resourceKey: 'project',
-                        resourceLabel: 'Project',
-                        level: memberProjectOverride ?? projectDefaultLevel,
-                        isException: memberProjectOverride !== undefined,
+                        level: (projectOverride?.access_level ?? projectDefaultLevel) as AccessControlLevel,
                     })
 
-                    const overrides = resourceMemberOverrideByMemberIdAndResourceKey.get(member.id)
-                    if (overrides) {
-                        for (const [resourceKey, level] of overrides.entries()) {
-                            addRow({
-                                scopeType: 'member',
-                                scopeId: member.id,
-                                scopeLabel: fullName(member.user),
-                                resourceKey: resourceKey as APIScopeObject,
-                                resourceLabel: toSentenceCase(pluralizeResource(resourceKey as APIScopeObject)),
-                                level: level,
-                                isException: true,
-                            })
+                    const memberResourceEntry = memberResourceAccessControls.find(
+                        (m) => m.organization_member?.id === member.id
+                    )
+                    if (memberResourceEntry) {
+                        for (const [resourceKey, control] of Object.entries(
+                            memberResourceEntry.accessControlByResource
+                        )) {
+                            if (control?.access_level !== null && control?.access_level !== undefined) {
+                                levels.push({
+                                    resourceKey: resourceKey as APIScopeObject,
+                                    level: control.access_level as AccessControlLevel,
+                                })
+                            }
                         }
                     }
+                    rows.push({
+                        id: `member:${member.id}`,
+                        role: { id: member.id, name: fullName(member.user) },
+                        member,
+                        levels,
+                    })
                 }
 
                 return rows
-            },
-        ],
-
-        hasRuleConflict: [
-            (s) => [s.ruleModalState, s.ruleForm, s.allRows],
-            (ruleModalState, ruleForm, allRows): boolean => {
-                if (!ruleModalState || ruleModalState.mode !== 'add') {
-                    return false
-                }
-
-                const scopeType = ruleModalState.initialScopeType ?? 'default'
-                const scopeId = scopeType === 'default' ? null : ruleForm.scopeId
-                const resourceKey = ruleForm.resourceKey
-                const isScopeValid = scopeType === 'default' || !!scopeId
-
-                if (!isScopeValid) {
-                    return false
-                }
-
-                return allRows.some(
-                    (row) =>
-                        row.scopeType === scopeType &&
-                        row.resourceKey === resourceKey &&
-                        (row.scopeId ?? null) === scopeId
-                )
             },
         ],
 
@@ -402,108 +283,90 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
                 return [...levelSet]
                     .sort((a, b) => a.localeCompare(b))
-                    .map((level) => ({ key: level, label: humanizeAccessControlLevel(level as AccessControlLevel) }))
+                    .map((level) => ({
+                        key: level,
+                        label: level === AccessControlLevel.None ? 'None' : toSentenceCase(level),
+                    }))
             },
         ],
 
-        availableLevelsForResource: [
-            (s) => [s.ruleForm, s.projectAvailableLevels, s.resourceAvailableLevels],
-            (ruleForm, projectAvailableLevels, resourceAvailableLevels): AccessControlLevel[] => {
-                const resourceKey = ruleForm.resourceKey
-                const availableLevels = resourceKey === 'project' ? projectAvailableLevels : resourceAvailableLevels
-                const uniqueLevels = Array.from(new Set(availableLevels))
-                const minimumLevel = resourceKey === 'project' ? null : getMinimumAccessLevel(resourceKey)
-                const maximumLevel = resourceKey === 'project' ? null : getMaximumAccessLevel(resourceKey)
-                const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
-                const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
-
-                return uniqueLevels.filter((_, index) => {
-                    if (minimumIndex !== null && minimumIndex !== -1 && index < minimumIndex) {
-                        return false
-                    }
-                    if (maximumIndex !== null && maximumIndex !== -1 && index > maximumIndex) {
-                        return false
-                    }
-                    return true
-                })
-            },
-        ],
-
-        levelOptionsForResource: [
-            (s) => [s.ruleForm, s.projectAvailableLevels, s.resourceAvailableLevels],
+        getLevelOptionsForResource: [
+            (s) => [s.projectAvailableLevels, s.resourceAvailableLevels],
             (
-                ruleForm,
                 projectAvailableLevels,
                 resourceAvailableLevels
-            ): { value: AccessControlLevel; label: string; disabledReason?: string }[] => {
-                const resourceKey = ruleForm.resourceKey
-                const availableLevels = resourceKey === 'project' ? projectAvailableLevels : resourceAvailableLevels
-                const uniqueLevels = Array.from(new Set(availableLevels))
-                const minimumLevel = resourceKey === 'project' ? null : getMinimumAccessLevel(resourceKey)
-                const maximumLevel = resourceKey === 'project' ? null : getMaximumAccessLevel(resourceKey)
-                const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
-                const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
+            ): ((
+                resourceKey: APIScopeObject
+            ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]) => {
+                return (
+                    resourceKey: APIScopeObject
+                ): { value: AccessControlLevel; label: string; disabledReason?: string }[] => {
+                    const availableLevels = resourceKey === 'project' ? projectAvailableLevels : resourceAvailableLevels
+                    const uniqueLevels = Array.from(new Set(availableLevels))
+                    const minimumLevel = resourceKey === 'project' ? null : getMinimumAccessLevel(resourceKey)
+                    const maximumLevel = resourceKey === 'project' ? null : getMaximumAccessLevel(resourceKey)
+                    const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
+                    const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
 
-                return uniqueLevels.map((level, index) => {
-                    const isBelowMinimum = minimumIndex !== null && minimumIndex !== -1 ? index < minimumIndex : false
-                    const isAboveMaximum = maximumIndex !== null && maximumIndex !== -1 ? index > maximumIndex : false
-                    const isDisabled = isBelowMinimum || isAboveMaximum
+                    return uniqueLevels.map((level, index) => {
+                        const isBelowMinimum =
+                            minimumIndex !== null && minimumIndex !== -1 ? index < minimumIndex : false
+                        const isAboveMaximum =
+                            maximumIndex !== null && maximumIndex !== -1 ? index > maximumIndex : false
+                        const isDisabled = isBelowMinimum || isAboveMaximum
 
-                    return {
-                        value: level,
-                        label: humanizeAccessControlLevel(level),
-                        disabledReason: isDisabled ? 'Not available for this feature' : undefined,
-                    }
-                })
-            },
-        ],
-
-        scopedRows: [
-            (s) => [s.activeTab, s.allRows, s.canUseRoles, s.filters],
-            (activeTab, allRows, canUseRoles, filters: AccessControlFilters): AccessControlRow[] => {
-                const scopeType: ScopeType = scopeTypeForAccessControlsTab(activeTab as AccessControlsTab)
-                let rows = allRows.filter((row) => row.scopeType === scopeType)
-
-                if (scopeType === 'role') {
-                    if (!canUseRoles) {
-                        return []
-                    }
-                    if (filters.roleIds.length > 0) {
-                        rows = rows.filter((row) => (row.scopeId ? filters.roleIds.includes(row.scopeId) : false))
-                    }
+                        return {
+                            value: level,
+                            label: level === AccessControlLevel.None ? 'None' : toSentenceCase(level),
+                            disabledReason: isDisabled ? 'Not available for this feature' : undefined,
+                        }
+                    })
                 }
-
-                if (scopeType === 'member') {
-                    if (filters.memberIds.length > 0) {
-                        rows = rows.filter((row) => (row.scopeId ? filters.memberIds.includes(row.scopeId) : false))
-                    }
-                }
-
-                return rows
             },
         ],
 
         filteredSortedRows: [
-            (s) => [s.scopedRows, s.searchText, s.filters],
-            (scopedRows, searchText, filters: AccessControlFilters): AccessControlRow[] => {
+            (s) => [s.activeTab, s.allRows, s.searchText, s.filters, s.canUseRoles],
+            (activeTab, allRows, searchText, filters, canUseRoles): AccessControlRow[] => {
                 const search = searchText.trim().toLowerCase()
 
-                const filtered = scopedRows.filter((row) => {
-                    if (filters.resourceKeys.length > 0 && !filters.resourceKeys.includes(row.resourceKey)) {
-                        return false
+                const rows = allRows.filter((row) => {
+                    if (activeTab === 'defaults') {
+                        return row.id === 'default'
                     }
-
-                    if (filters.ruleLevels.length > 0) {
-                        if (!filters.ruleLevels.includes(row.level ?? AccessControlLevel.None)) {
+                    if (activeTab === 'roles') {
+                        if (!canUseRoles || !row.id.startsWith('role:')) {
+                            return false
+                        }
+                        if (filters.roleIds.length > 0 && !filters.roleIds.includes(row.role.id)) {
+                            return false
+                        }
+                    }
+                    if (activeTab === 'members') {
+                        if (!row.id.startsWith('member:')) {
+                            return false
+                        }
+                        if (filters.memberIds.length > 0 && !filters.memberIds.includes(row.role.id)) {
                             return false
                         }
                     }
 
-                    if (search.length > 0) {
-                        const levelText = humanizeAccessControlLevel(row.level)
-                        const haystack = `${row.scopeLabel} ${row.resourceLabel} ${levelText}`.toLowerCase()
+                    if (
+                        filters.resourceKeys.length > 0 &&
+                        !row.levels.some((l) => filters.resourceKeys.includes(l.resourceKey))
+                    ) {
+                        return false
+                    }
 
-                        if (!haystack.includes(search)) {
+                    if (
+                        filters.ruleLevels.length > 0 &&
+                        !row.levels.some((l) => filters.ruleLevels.includes(l.level))
+                    ) {
+                        return false
+                    }
+
+                    if (search.length > 0) {
+                        if (!row.role.name.toLowerCase().includes(search)) {
                             return false
                         }
                     }
@@ -511,7 +374,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     return true
                 })
 
-                return [...filtered].sort(sortAccessControlRows)
+                return rows
             },
         ],
 
@@ -528,66 +391,54 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
-        deleteRule: async ({ row }) => {
-            const isProjectRule = row.resourceKey === 'project'
+    listeners(({ actions, values }) => ({
+        saveGroupedRules: async ({ scopeType, scopeId, levels }) => {
+            const currentRow = values.allRows.find((row) => row.role.id === (scopeId ?? 'default'))
 
-            if (isProjectRule) {
-                if (row.scopeType === 'role' && row.scopeId) {
-                    actions.updateAccessControlRoles([{ role: row.scopeId, level: null }])
-                } else if (row.scopeType === 'member' && row.scopeId) {
-                    actions.updateAccessControlMembers([{ member: row.scopeId, level: null }])
+            const currentLevelsMap = new Map(currentRow?.levels.map((l) => [l.resourceKey, l.level]) || [])
+            const newLevelsMap = new Map(levels.map((l) => [l.resourceKey, l.level]))
+
+            const updates: { resource: APIScopeObject; level: AccessControlLevel | null }[] = []
+
+            // Check existing rules that might need to be deleted
+            for (const resourceKey of currentLevelsMap.keys()) {
+                if (!newLevelsMap.has(resourceKey)) {
+                    updates.push({ resource: resourceKey, level: null })
                 }
-
-                return
             }
 
-            actions.updateResourceAccessControls(
-                [
-                    {
-                        resource: row.resourceKey as APIScopeObject,
-                        access_level: null,
-                        role: row.scopeType === 'role' ? row.scopeId : null,
-                        organization_member: row.scopeType === 'member' ? row.scopeId : null,
-                    },
-                ],
-                row.scopeType
-            )
-        },
+            // Add new or updated rules
+            for (const [resourceKey, level] of newLevelsMap.entries()) {
+                if (currentLevelsMap.get(resourceKey) !== level) {
+                    updates.push({ resource: resourceKey, level: level as AccessControlLevel | null })
+                }
+            }
 
-        saveRule: async ({ scopeType, scopeId, resourceKey, level }) => {
-            const isProjectRule = resourceKey === 'project'
+            const projectUpdate = updates.find((u) => u.resource === 'project')
+            const otherUpdates = updates.filter((u) => u.resource !== 'project')
 
-            if (isProjectRule) {
+            if (projectUpdate) {
                 if (scopeType === 'default') {
-                    actions.updateAccessControlDefault(level)
-                    actions.closeRuleModal()
-                    return
+                    actions.updateAccessControlDefault(projectUpdate.level ?? AccessControlLevel.None)
+                } else if (scopeType === 'role' && scopeId) {
+                    actions.updateAccessControlRoles([{ role: scopeId, level: projectUpdate.level }])
+                } else if (scopeType === 'member' && scopeId) {
+                    actions.updateAccessControlMembers([{ member: scopeId, level: projectUpdate.level }])
                 }
-                if (scopeType === 'role' && scopeId) {
-                    actions.updateAccessControlRoles([{ role: scopeId, level }])
-                    actions.closeRuleModal()
-                    return
-                }
-                if (scopeType === 'member' && scopeId) {
-                    actions.updateAccessControlMembers([{ member: scopeId, level }])
-                    actions.closeRuleModal()
-                    return
-                }
-                return
             }
 
-            actions.updateResourceAccessControls(
-                [
-                    {
-                        resource: resourceKey,
-                        access_level: level,
+            if (otherUpdates.length > 0) {
+                actions.updateResourceAccessControls(
+                    otherUpdates.map((u) => ({
+                        resource: u.resource,
+                        access_level: u.level,
                         role: scopeType === 'role' ? scopeId : null,
                         organization_member: scopeType === 'member' ? scopeId : null,
-                    },
-                ],
-                scopeType
-            )
+                    })),
+                    scopeType
+                )
+            }
+
             actions.closeRuleModal()
         },
     })),

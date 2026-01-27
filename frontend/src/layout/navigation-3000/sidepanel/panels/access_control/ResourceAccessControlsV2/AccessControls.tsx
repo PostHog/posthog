@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonDialog, LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -9,12 +9,12 @@ import { AvailableFeature } from '~/types'
 
 import { resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
+import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
 import { AccessControlFilters } from './AccessControlFilters'
-import { AccessControlRuleModal } from './AccessControlRuleModal'
 import { AccessControlTable } from './AccessControlTable'
+import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { accessControlsLogic } from './accessControlsLogic'
-import { scopeTypeForAccessControlsTab } from './helpers'
-import { AccessControlRow, AccessControlsTab } from './types'
+import type { AccessControlsTab } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
     useMountedLogic(membersLogic)
@@ -33,34 +33,16 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         resourcesWithProject,
         ruleOptions,
         filteredSortedRows,
-        hasRuleConflict,
-        availableLevelsForResource,
-        levelOptionsForResource,
+        getLevelOptionsForResource,
         canEditAny,
         loading,
         roles,
-        canEditRow,
         canEditAccessControls,
         canEditRoleBasedAccessControls,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal, deleteRule, saveRule } =
+    const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal, saveGroupedRules } =
         useActions(logic)
-
-    function confirmDelete(row: AccessControlRow): void {
-        LemonDialog.open({
-            title: 'Delete rule',
-            description: `Remove this rule for ${row.scopeLabel} → ${row.resourceLabel}?`,
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: () => deleteRule(row),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
 
     const showRolesError = activeTab === 'roles' && !canUseRoles
 
@@ -97,44 +79,36 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 resources={resourcesWithProject}
                                 ruleOptions={ruleOptions}
                                 canUseRoles={canUseRoles}
-                                canEditAny={canEditAny}
-                                onAdd={() =>
-                                    openRuleModal({
-                                        mode: 'add',
-                                        initialScopeType: scopeTypeForAccessControlsTab(activeTab),
-                                    })
-                                }
                             />
 
-                            <AccessControlTable
-                                activeTab={activeTab}
-                                rows={filteredSortedRows}
-                                loading={loading}
-                                canEditRow={canEditRow}
-                                onEdit={(row) => openRuleModal({ mode: 'edit', row })}
-                                onDelete={confirmDelete}
-                            />
+                            {activeTab === 'defaults' ? (
+                                <AccessControlDefaultSettings projectId={projectId} />
+                            ) : (
+                                <AccessControlTable
+                                    activeTab={activeTab}
+                                    rows={filteredSortedRows}
+                                    loading={loading}
+                                    canEditAny={canEditAny}
+                                    onEdit={(row) => openRuleModal({ row })}
+                                />
+                            )}
                         </>
                     )}
                 </div>
             </PayGateMini>
 
             {ruleModalState && (
-                <AccessControlRuleModal
+                <GroupedAccessControlRuleModal
                     state={ruleModalState}
                     close={closeRuleModal}
-                    canUseRoles={canUseRoles}
-                    roles={roles ?? []}
-                    members={allMembers}
                     resources={resourcesWithProject}
-                    availableLevelsForResource={availableLevelsForResource}
-                    levelOptionsForResource={levelOptionsForResource}
-                    canEditAccessControls={canEditAccessControls ?? false}
-                    canEditRoleBasedAccessControls={canEditRoleBasedAccessControls ?? false}
-                    onSave={saveRule}
                     loading={loading}
                     projectId={projectId}
-                    hasRuleConflict={hasRuleConflict}
+                    getLevelOptionsForResource={getLevelOptionsForResource}
+                    canEdit={
+                        ruleModalState.row.id === 'default' ? !!canEditAccessControls : !!canEditRoleBasedAccessControls
+                    }
+                    onSave={saveGroupedRules}
                 />
             )}
         </>

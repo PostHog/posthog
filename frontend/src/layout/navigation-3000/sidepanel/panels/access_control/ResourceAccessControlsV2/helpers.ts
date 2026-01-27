@@ -56,19 +56,7 @@ export function humanizeAccessControlLevel(level: AccessControlLevel | null | un
 }
 
 export function sortAccessControlRows(a: AccessControlRow, b: AccessControlRow): number {
-    const scopeOrder: Record<ScopeType, number> = { default: 0, role: 1, member: 2 }
-
-    const scopeCmp = scopeOrder[a.scopeType] - scopeOrder[b.scopeType]
-    if (scopeCmp !== 0) {
-        return scopeCmp
-    }
-
-    const labelCmp = a.scopeLabel.localeCompare(b.scopeLabel)
-    if (labelCmp !== 0) {
-        return labelCmp
-    }
-
-    return a.resourceLabel.localeCompare(b.resourceLabel)
+    return a.role.name.localeCompare(b.role.name)
 }
 
 export function getScopeTypeNoun(scopeType: ScopeType): string {

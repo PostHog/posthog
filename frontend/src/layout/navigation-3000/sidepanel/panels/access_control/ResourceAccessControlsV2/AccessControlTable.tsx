@@ -1,9 +1,7 @@
-import { IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconPencil } from '@posthog/icons'
+import { LemonButton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
-import { AccessControlLevel } from '~/types'
-
-import { describeAccessControlLevel, humanizeAccessControlLevel } from './helpers'
+import { SummarizeAccessLevels } from '../SummarizeAccessLevels'
 import { AccessControlRow, AccessControlsTab } from './types'
 
 function getScopeColumnsForTab(activeTab: AccessControlsTab): any[] {
@@ -14,7 +12,7 @@ function getScopeColumnsForTab(activeTab: AccessControlsTab): any[] {
                     title: 'Role',
                     key: 'role',
                     render: function RenderRole(_: any, row: AccessControlRow) {
-                        return <span>{row.scopeLabel}</span>
+                        return <span>{row.role.name}</span>
                     },
                 },
             ]
@@ -24,7 +22,19 @@ function getScopeColumnsForTab(activeTab: AccessControlsTab): any[] {
                     title: 'Member',
                     key: 'member',
                     render: function RenderMember(_: any, row: AccessControlRow) {
-                        return <span>{row.scopeLabel}</span>
+                        return (
+                            <div className="flex items-center gap-3">
+                                {row.member && <ProfilePicture user={row.member.user} />}
+                                <div className="overflow-hidden">
+                                    <p className="font-medium mb-0 truncate">{row.role.name}</p>
+                                    {row.member && (
+                                        <p className="text-secondary font-light mb-0 truncate text-xs">
+                                            {row.member.user.email}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        )
                     },
                 },
             ]
@@ -37,13 +47,12 @@ export interface AccessControlTableProps {
     activeTab: AccessControlsTab
     rows: AccessControlRow[]
     loading: boolean
-    canEditRow: (row: AccessControlRow) => boolean
+    canEditAny: boolean
     onEdit: (row: AccessControlRow) => void
-    onDelete: (row: AccessControlRow) => void
 }
 
 export function AccessControlTable(props: AccessControlTableProps): JSX.Element {
-    const columns = getColumns(props.activeTab, props.canEditRow, props.onEdit, props.onDelete)
+    const columns = getColumns(props.activeTab, props.canEditAny, props.onEdit)
 
     return (
         <LemonTable
@@ -52,30 +61,27 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
             loading={props.loading}
             emptyState="No access control rules match these filters"
             pagination={{ pageSize: 50, hideOnSinglePage: true }}
-            onRow={(row) => ({
-                className: props.canEditRow(row) ? 'cursor-pointer hover:bg-surface-secondary' : undefined,
-                onClick: (event) => {
-                    if (!props.canEditRow(row)) {
-                        return
-                    }
+            onRow={(row) => {
+                return {
+                    className: props.canEditAny ? 'cursor-pointer hover:bg-surface-secondary' : undefined,
+                    onClick: (event) => {
+                        if (!props.canEditAny) {
+                            return
+                        }
 
-                    if ((event.target as HTMLElement).closest('button, a, [role="button"]')) {
-                        return
-                    }
+                        if ((event.target as HTMLElement).closest('button, a, [role="button"]')) {
+                            return
+                        }
 
-                    props.onEdit(row)
-                },
-            })}
+                        props.onEdit(row)
+                    },
+                }
+            }}
         />
     )
 }
 
-function getColumns(
-    activeTab: AccessControlsTab,
-    canEditRow: (row: AccessControlRow) => boolean,
-    onEdit: (row: AccessControlRow) => void,
-    onDelete: (row: AccessControlRow) => void
-): any[] {
+function getColumns(activeTab: AccessControlsTab, canEditAny: boolean, onEdit: (row: AccessControlRow) => void): any[] {
     const scopeColumns = getScopeColumnsForTab(activeTab)
 
     return [
@@ -84,25 +90,15 @@ function getColumns(
             title: 'Feature',
             key: 'resource',
             render: function RenderResource(_: any, row: AccessControlRow) {
-                return <span>{row.resourceLabel}</span>
-            },
-        },
-        {
-            title: 'Access',
-            key: 'rules',
-            render: function RenderRules(_: any, row: AccessControlRow) {
-                const level = row.level ?? AccessControlLevel.None
-                const label = humanizeAccessControlLevel(row.level)
-
-                return (
-                    <div className="flex gap-2 flex-wrap">
-                        <Tooltip key={level as string} title={describeAccessControlLevel(row.level, row.resourceKey)}>
-                            <LemonTag type="default" size="medium" className="px-2">
-                                {label}
-                            </LemonTag>
-                        </Tooltip>
-                    </div>
+                const accessControlByResource = row.levels.reduce(
+                    (acc, child) => {
+                        acc[child.resourceKey] = { access_level: child.level }
+                        return acc
+                    },
+                    {} as Record<string, any>
                 )
+
+                return <SummarizeAccessLevels accessControlByResource={accessControlByResource} />
             },
         },
         {
@@ -111,46 +107,16 @@ function getColumns(
             width: 0,
             align: 'right' as const,
             render: function RenderActions(_: any, row: AccessControlRow) {
-                const canEditThisRow = canEditRow(row)
-                const disabledReason = !canEditThisRow ? 'You cannot edit this' : undefined
-                const canDelete = row.isException && !(row.scopeType === 'default' && row.resourceKey === 'project')
-
                 return (
-                    <LemonDropdown
-                        placement="bottom-end"
-                        closeOnClickInside={true}
-                        overlay={
-                            <div className="flex flex-col">
-                                <LemonButton
-                                    size="small"
-                                    fullWidth
-                                    icon={<IconPencil />}
-                                    disabledReason={disabledReason}
-                                    onClick={() => onEdit(row)}
-                                >
-                                    Edit
-                                </LemonButton>
-                                {canDelete ? (
-                                    <LemonButton
-                                        size="small"
-                                        fullWidth
-                                        status="danger"
-                                        icon={<IconTrash />}
-                                        onClick={() => onDelete(row)}
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                ) : null}
-                            </div>
-                        }
+                    <LemonButton
+                        size="small"
+                        fullWidth
+                        icon={<IconPencil />}
+                        disabledReason={!canEditAny ? 'You cannot edit this' : undefined}
+                        onClick={() => onEdit(row)}
                     >
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            icon={<IconEllipsis />}
-                            disabledReason={disabledReason}
-                        />
-                    </LemonDropdown>
+                        Edit
+                    </LemonButton>
                 )
             },
         },

@@ -36,10 +36,14 @@ export type AccessControlLogicProps = {
     description: string
 }
 
-export type AccessControlRuleForm = {
-    scopeId: string | null
+export type AccessControlLevelMapping = {
     resourceKey: APIScopeObject
     level: AccessControlLevel
+}
+
+export type GroupedAccessControlRulesForm = {
+    scopeId: string | null
+    levels: AccessControlLevelMapping[]
 }
 
 export const accessControlLogic = kea<accessControlLogicType>([
@@ -163,12 +167,11 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
     })),
     forms(() => ({
-        ruleForm: {
+        groupedRulesForm: {
             defaults: {
                 scopeId: null,
-                resourceKey: 'project' as APIScopeObject,
-                level: AccessControlLevel.Viewer,
-            } as AccessControlRuleForm,
+                levels: [] as AccessControlLevelMapping[],
+            } as GroupedAccessControlRulesForm,
         },
     })),
     listeners(({ actions }) => ({
