@@ -38,7 +38,8 @@ export const zoomDateRange = (
         : now.subtract(1, 'hour')
     const end = dateRange.date_to ? (dateStringToDayJs(dateRange.date_to) ?? now) : now
 
-    const diffMins = end.diff(start, 'minutes')
+    // Use a minimum of 1 minute when diff is 0 (same from/to timestamps) to allow zooming out
+    const diffMins = Math.max(end.diff(start, 'minutes'), 1)
     const centerDate = start.add(diffMins * 0.5, 'minutes')
 
     const newStart = centerDate.subtract(diffMins * 0.5 * multiplier, 'minutes')

@@ -8,10 +8,11 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { debounce, slugify } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
-import { EndpointRequest } from '~/queries/schema/schema-general'
+import { EndpointRequest, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
@@ -28,7 +29,14 @@ export const endpointLogic = kea<endpointLogicType>([
     props({} as EndpointLogicProps),
     key((props) => props.tabId),
     connect(() => ({
-        actions: [endpointsLogic, ['loadEndpoints'], sceneLayoutLogic, ['setScenePanelOpen']],
+        actions: [
+            endpointsLogic,
+            ['loadEndpoints'],
+            sceneLayoutLogic,
+            ['setScenePanelOpen'],
+            teamLogic,
+            ['addProductIntent'],
+        ],
     })),
     actions({
         setEndpointName: (endpointName: string) => ({ endpointName }),
@@ -174,6 +182,15 @@ export const endpointLogic = kea<endpointLogicType>([
 
                 // Mark endpoint creation task as completed
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
+
+                // Track product intent for sidebar visibility
+                const intentContext = response.derived_from_insight
+                    ? ProductIntentContext.ENDPOINT_CREATED_FROM_INSIGHT
+                    : ProductIntentContext.ENDPOINT_CREATED_FROM_SQL_EDITOR
+                actions.addProductIntent({
+                    product_type: ProductKey.ENDPOINTS,
+                    intent_context: intentContext,
+                })
             },
             createEndpointFailure: ({ isHogQLError }) => {
                 if (isHogQLError) {
