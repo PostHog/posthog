@@ -3858,7 +3858,7 @@ const api = {
             id: BatchExportConfiguration['id'],
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
-            return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+            return await new ApiRequest().batchExportBackfills(id).create({ data })
         },
         async listBackfills(
             id: BatchExportConfiguration['id'],
