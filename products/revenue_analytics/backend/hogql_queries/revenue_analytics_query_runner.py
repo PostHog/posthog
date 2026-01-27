@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     DatabaseSchemaManagedViewTableKind,
+    HogQLPropertyFilter,
     IntervalType,
     RevenueAnalyticsBreakdown,
     RevenueAnalyticsGrossRevenueQuery,
@@ -80,9 +81,10 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
     def where_property_exprs(self, join_from: RevenueAnalyticsBaseView) -> list[ast.Expr]:
         # Some filters are not namespaced and they should simply use the raw property
         # so let's map them to include the full property with the join_from alias
+        # HogQL filters are passed through unchanged since they're complete expressions
         mapped_properties = [
             property
-            if len(property.key.split(".")) != 1
+            if isinstance(property, HogQLPropertyFilter) or len(property.key.split(".")) != 1
             else property.model_copy(update={"key": f"{join_from.get_generic_view_alias()}.{property.key}"})
             for property in self.query.properties
         ]
@@ -115,8 +117,12 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         return valid_breakdowns[:2]
 
     def _can_access_property_from(
-        self, property: RevenueAnalyticsPropertyFilter, join_from: type[RevenueAnalyticsBaseView]
+        self, property: RevenueAnalyticsPropertyFilter | HogQLPropertyFilter, join_from: type[RevenueAnalyticsBaseView]
     ) -> bool:
+        # HogQL filters are arbitrary expressions, always allow them
+        if isinstance(property, HogQLPropertyFilter):
+            return True
+
         scopes = property.key.split(".")
         if len(scopes) == 1:
             return True  # Raw access, always allowed
@@ -149,6 +155,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
     def _joins_set_for_properties(self, join_from: type[RevenueAnalyticsBaseView]) -> set[str]:
         joins_set = set()
         for property in self.query.properties:
+            # HogQL filters are arbitrary expressions, skip them for join determination
+            if isinstance(property, HogQLPropertyFilter):
+                continue
             if self._can_access_property_from(property, join_from):
                 scope, *_ = property.key.split(".")
                 joins_set.add(scope)
