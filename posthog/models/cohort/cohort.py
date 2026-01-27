@@ -560,7 +560,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Use materialized email column for optimal performance
             query = """
             SELECT DISTINCT person.id
-            FROM person
+            FROM person FINAL
             WHERE person.team_id = %(team_id)s
               AND person.pmat_email IN %(emails)s
               AND person.is_deleted = 0
