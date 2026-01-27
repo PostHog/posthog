@@ -161,7 +161,7 @@ def compute_2d_coordinates(
             centroid_coords = combined_coords[n_samples:]
 
     else:  # default to umap
-        # Lazy import to avoid numba JIT compilation at Django startup
+        # Lazy import: top-level crashes on prod read-only filesystem (numba JIT cache). Must stay inside function.
         from umap import UMAP
 
         # Adjust n_neighbors if we have fewer samples
