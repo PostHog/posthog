@@ -5,12 +5,10 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -38,6 +36,8 @@ import {
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
 } from '~/types'
+
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 
 import { zoomDateRange } from './components/LogsViewer/Filters/zoom-utils'
 import type { logsSceneLogicType } from './logsSceneLogicType'
@@ -76,8 +76,28 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
     tabAwareScene(),
-    connect(() => ({
-        actions: [teamLogic, ['addProductIntent']],
+    connect((props: LogsLogicProps) => ({
+        actions: [
+            teamLogic,
+            ['addProductIntent'],
+            logsViewerDataLogic({ id: props.tabId }),
+            [
+                'fetchLogs',
+                'clearLogs',
+                'truncateLogs',
+                'setLogs',
+                'setNextCursor',
+                'fetchLogsSuccess',
+                'fetchLogsFailure',
+                'fetchNextPage as fetchNextLogsPage',
+                'fetchNextPageSuccess',
+                'fetchNextPageFailure',
+            ],
+        ],
+        values: [
+            logsViewerDataLogic({ id: props.tabId }),
+            ['logs', 'logsAbortController', 'hasMoreLogsToLoad', 'nextCursor', 'logsLoading'],
+        ],
     })),
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
@@ -183,13 +203,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     actions({
         syncUrlAndRunQuery: true,
         runQuery: (debounce?: integer) => ({ debounce }),
-        fetchNextLogsPage: (limit?: number) => ({ limit }),
-        truncateLogs: (limit: number) => ({ limit }),
-        clearLogs: true,
-        cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
         cancelInProgressLiveTail: (liveTailAbortController: AbortController | null) => ({ liveTailAbortController }),
-        setLogsAbortController: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         setSparklineAbortController: (sparklineAbortController: AbortController | null) => ({
             sparklineAbortController,
         }),
@@ -226,15 +241,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             operator,
             propertyType,
         }),
-        setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
         setInitialLogsLimit: (initialLogsLimit: number | null) => ({ initialLogsLimit }),
         toggleExpandLog: (logId: string) => ({ logId }),
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
         pollForNewLogs: true,
-        setLogs: (logs: LogMessage[]) => ({ logs }),
         setSparkline: (sparkline: any[]) => ({ sparkline }),
-        setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
@@ -327,12 +339,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 fetchLogsSuccess: () => false,
             },
         ],
-        logsAbortController: [
-            null as AbortController | null,
-            {
-                setLogsAbortController: (_, { logsAbortController }) => logsAbortController,
-            },
-        ],
         sparklineAbortController: [
             null as AbortController | null,
             {
@@ -350,17 +356,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             {
                 fetchLogsSuccess: () => true,
                 fetchLogsFailure: () => true,
-            },
-        ],
-        logsLoading: [
-            false as boolean,
-            {
-                fetchLogs: () => true,
-                fetchLogsSuccess: () => false,
-                fetchLogsFailure: () => true,
-                fetchNextLogsPage: () => true,
-                fetchNextLogsPageSuccess: () => false,
-                fetchNextLogsPageFailure: () => true,
             },
         ],
 
@@ -397,20 +392,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 setLiveTailInterval: (_, { interval }) => interval,
             },
         ],
-        hasMoreLogsToLoad: [
-            true as boolean,
-            {
-                setHasMoreLogsToLoad: (_, { hasMoreLogsToLoad }) => hasMoreLogsToLoad,
-                clearLogs: () => true,
-            },
-        ],
-        nextCursor: [
-            null as string | null,
-            {
-                setNextCursor: (_, { nextCursor }) => nextCursor,
-                clearLogs: () => null,
-            },
-        ],
         expandedLogIds: [
             new Set<string>(),
             {
@@ -436,64 +417,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     }),
 
     loaders(({ values, actions }) => ({
-        logs: [
-            [] as LogMessage[],
-            {
-                clearLogs: () => [],
-                truncateLogs: ({ limit }) => values.logs.slice(0, limit),
-                fetchLogs: async () => {
-                    const logsController = new AbortController()
-                    const signal = logsController.signal
-                    actions.cancelInProgressLogs(logsController)
-
-                    const response = await api.logs.query({
-                        query: {
-                            limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
-                            orderBy: values.orderBy,
-                            dateRange: values.utcDateRange,
-                            searchTerm: values.searchTerm,
-                            filterGroup: values.filterGroup as PropertyGroupFilter,
-                            severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
-                        },
-                        signal,
-                    })
-                    actions.setLogsAbortController(null)
-                    actions.setHasMoreLogsToLoad(!!response.hasMore)
-                    actions.setNextCursor(response.nextCursor ?? null)
-                    return response.results
-                },
-                fetchNextLogsPage: async ({ limit }, breakpoint) => {
-                    const logsController = new AbortController()
-                    const signal = logsController.signal
-                    actions.cancelInProgressLogs(logsController)
-
-                    if (!values.nextCursor) {
-                        return values.logs
-                    }
-
-                    await breakpoint(300)
-                    const response = await api.logs.query({
-                        query: {
-                            limit: limit ?? DEFAULT_LOGS_PAGE_SIZE,
-                            orderBy: values.orderBy,
-                            dateRange: values.utcDateRange,
-                            searchTerm: values.searchTerm,
-                            filterGroup: values.filterGroup as PropertyGroupFilter,
-                            severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
-                            after: values.nextCursor,
-                        },
-                        signal,
-                    })
-                    actions.setLogsAbortController(null)
-                    actions.setHasMoreLogsToLoad(!!response.hasMore)
-                    actions.setNextCursor(response.nextCursor ?? null)
-                    return [...values.logs, ...response.results]
-                },
-                setLogs: ({ logs }) => logs,
-            },
-        ],
         sparkline: [
             [] as any[],
             {
@@ -709,29 +632,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     }),
 
     listeners(({ values, actions, cache }) => ({
-        fetchLogsFailure: ({ error }) => {
-            const errorStr = String(error).toLowerCase()
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
-                lemonToast.error(`Failed to load logs: ${error}`)
-            }
-        },
-        fetchNextLogsPageFailure: ({ error }) => {
-            const errorStr = String(error).toLowerCase()
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
-                lemonToast.error(`Failed to load more logs: ${error}`)
-            }
-        },
-        fetchLogsSuccess: ({ logs }) => {
-            if (logs.length === 0) {
-                posthog.capture('logs no results returned')
-            } else {
-                posthog.capture('logs results returned', { count: logs.length })
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstLogs)
-            }
-        },
-        fetchNextLogsPage: () => {
-            posthog.capture('logs load more requested')
-        },
         setSearchTerm: ({ searchTerm }) => {
             if (values.hasRunQuery) {
                 posthog.capture('logs filter changed', {
@@ -870,7 +770,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 })
             }
             actions.clearLogs()
-            actions.fetchLogs()
+            actions.fetchLogs({
+                limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
+                orderBy: values.orderBy,
+                dateRange: values.utcDateRange,
+                searchTerm: values.searchTerm ?? '',
+                filterGroup: values.filterGroup as PropertyGroupFilter,
+                severityLevels: values.severityLevels,
+                serviceNames: values.serviceNames,
+            })
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
         },
@@ -891,12 +799,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             posthog.capture('logs filter history cleared', {
                 history_size: values.filterHistory.length,
             })
-        },
-        cancelInProgressLogs: ({ logsAbortController }) => {
-            if (values.logsAbortController !== null) {
-                values.logsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
-            }
-            actions.setLogsAbortController(logsAbortController)
         },
         cancelInProgressSparkline: ({ sparklineAbortController }) => {
             if (values.sparklineAbortController !== null) {
@@ -1086,9 +988,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         beforeUnmount: () => {
             actions.setLiveTailRunning(false)
             actions.cancelInProgressLiveTail(null)
-            if (values.logsAbortController) {
-                values.logsAbortController.abort('unmounting component')
-            }
             if (values.sparklineAbortController) {
                 values.sparklineAbortController.abort('unmounting component')
             }
