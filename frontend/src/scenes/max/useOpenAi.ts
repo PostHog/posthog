@@ -16,18 +16,18 @@ export interface UseOpenAiReturn {
 
 /**
  * Hook that abstracts opening PostHog AI.
- * When UX_REMOVE_SIDEPANEL_MAX flag is enabled, opens AI in a new tab.
+ * When UX_REMOVE_SIDEPANEL flag is enabled, opens AI in a new tab.
  * Otherwise, opens the Max side panel.
  */
 export function useOpenAi(): UseOpenAiReturn {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelStateLogic)
-    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
 
     const openAi = (initialPrompt?: string): void => {
-        if (isRemovingSidePanelMaxFlag) {
+        if (isRemovingSidePanelFlag) {
             newInternalTab(urls.ai(undefined, initialPrompt))
         } else {
             openSidePanel(SidePanelTab.Max, initialPrompt)

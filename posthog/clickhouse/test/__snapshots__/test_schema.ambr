@@ -2703,6 +2703,8 @@
       hostname                              LowCardinality(String),
       user                                  LowCardinality(String),
       query_id                              String,
+      initial_query_id                      String,
+      is_initial_query                      UInt8,
       type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
   
       event_date                            Date,
@@ -2750,6 +2752,8 @@
       ProfileEvents_S3GetObject Int64,
       ProfileEvents_ReadBufferFromS3Bytes Int64,
       ProfileEvents_WriteBufferFromS3Bytes Int64,
+  
+      ProfileEvents Map(String, UInt64),
   
       lc_workflow LowCardinality(String),
       lc_kind LowCardinality(String),
@@ -2818,6 +2822,8 @@
       hostname,
       user,
       query_id,
+      initial_query_id,
+      is_initial_query,
       type,
   
       event_date,
@@ -2865,6 +2871,8 @@
       ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
       ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
   
+      ProfileEvents,
+  
       JSONExtractString(log_comment, 'workflow') as lc_workflow,
       JSONExtractString(log_comment, 'kind') as lc_kind,
       JSONExtractString(log_comment, 'id') as lc_id,
@@ -2906,8 +2914,8 @@
       if(JSONHas(log_comment, 'query', 'source'),
           JSONExtractString(log_comment, 'query', 'source', 'kind'),
           JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
-      if(JSONHas(log_comment, 'query', 'source'),
-          JSONExtractString(log_comment, 'query', 'source', 'query'),
+      multiIf(not is_initial_query, '',
+          JSONHas(log_comment, 'query', 'source'), JSONExtractString(log_comment, 'query', 'source', 'query'),
           JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
   
       JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
@@ -2924,7 +2932,6 @@
   FROM system.query_log
   WHERE
       type != 'QueryStart'
-      AND is_initial_query
   
       
   '''
@@ -6390,6 +6397,8 @@
       hostname                              LowCardinality(String),
       user                                  LowCardinality(String),
       query_id                              String,
+      initial_query_id                      String,
+      is_initial_query                      UInt8,
       type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
   
       event_date                            Date,
@@ -6437,6 +6446,8 @@
       ProfileEvents_S3GetObject Int64,
       ProfileEvents_ReadBufferFromS3Bytes Int64,
       ProfileEvents_WriteBufferFromS3Bytes Int64,
+  
+      ProfileEvents Map(String, UInt64),
   
       lc_workflow LowCardinality(String),
       lc_kind LowCardinality(String),

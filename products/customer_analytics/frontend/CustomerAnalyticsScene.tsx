@@ -31,6 +31,7 @@ import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 export const scene: SceneExport = {
     component: CustomerAnalyticsScene,
     logic: customerAnalyticsSceneLogic,
+    productKey: ProductKey.CUSTOMER_ANALYTICS,
 }
 
 export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {

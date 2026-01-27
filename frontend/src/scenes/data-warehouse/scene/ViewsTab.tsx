@@ -47,8 +47,8 @@ function RunHistoryDisplay({
         return <span className="text-muted">-</span>
     }
 
-    // Show up to 5 most recent runs
-    const displayRuns = runHistory.slice(0, 5)
+    // Show up to 5 most recent runs, reversed so the most recent is on the right
+    const displayRuns = runHistory.slice(0, 5).reverse()
 
     return (
         <div className="flex gap-1">
@@ -156,7 +156,7 @@ export function ViewsTab(): JSX.Element {
                                         />
                                     ) : (
                                         <LemonTableLink
-                                            to={urls.sqlEditor(undefined, view.id)}
+                                            to={urls.sqlEditor({ view_id: view.id })}
                                             title={view.name}
                                             description="Materialized view"
                                         />
@@ -309,7 +309,7 @@ export function ViewsTab(): JSX.Element {
                                             </span>
                                         </>
                                     ) : (
-                                        <LemonTableLink to={urls.sqlEditor(undefined, view.id)} title={view.name} />
+                                        <LemonTableLink to={urls.sqlEditor({ view_id: view.id })} title={view.name} />
                                     ),
                             },
                             {

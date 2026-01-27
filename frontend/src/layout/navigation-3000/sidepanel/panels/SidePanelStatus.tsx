@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCloud } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadgeProps, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
@@ -16,7 +16,7 @@ import { SidePanelDocsSkeleton } from './SidePanelDocs'
 import { INCIDENT_IO_STATUS_PAGE_BASE, sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
 import { STATUS_PAGE_BASE, sidePanelStatusLogic } from './sidePanelStatusLogic'
 
-export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element => {
+export const SidePanelStatusIcon = (props: { className?: string; size?: LemonBadgeProps['size'] }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
 
@@ -36,6 +36,7 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
             <span {...props}>
                 <IconWithBadge
                     content={status !== 'operational' ? '!' : '✓'}
+                    size={props.size}
                     status={
                         status.includes('outage')
                             ? 'danger'
@@ -43,6 +44,7 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
                               ? 'warning'
                               : 'success'
                     }
+                    className={props.className}
                 >
                     <IconCloud />
                 </IconWithBadge>

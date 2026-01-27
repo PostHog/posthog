@@ -366,7 +366,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                         else None,
                     )
                 ):
-                    order_by = []
+                    order_by = [ast.OrderExpr(expr=ast.Field(chain=["id"]))]
                 else:
                     order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
             elif len(columns) > 0:

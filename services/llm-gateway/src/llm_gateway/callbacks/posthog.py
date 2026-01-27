@@ -2,9 +2,12 @@ from typing import Any
 from uuid import uuid4
 
 import posthoganalytics
+import structlog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.request_context import get_auth_user, get_product
+
+logger = structlog.get_logger(__name__)
 
 
 class PostHogCallback(InstrumentedCallback):
@@ -19,15 +22,28 @@ class PostHogCallback(InstrumentedCallback):
         posthoganalytics.api_key = api_key
         posthoganalytics.host = host
 
-    async def _on_success(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
+    async def _on_success(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
+    ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
         product = get_product()
 
-        trace_id = metadata.get("user_id") or str(uuid4())
-        distinct_id = auth_user.distinct_id if auth_user else str(uuid4())
+        trace_id = (
+            metadata.get("user_id") or str(uuid4())
+        )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
+        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+
+        logger.debug(
+            "PostHog callback _on_success",
+            end_user_id=end_user_id,
+            distinct_id=distinct_id,
+            team_id=team_id,
+            product=product,
+            model=standard_logging_object.get("model", ""),
+        )
 
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
@@ -60,18 +76,37 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             capture_kwargs["groups"] = {"project": team_id}
 
+        logger.debug(
+            "PostHog capturing event",
+            distinct_id=distinct_id,
+            posthog_event="$ai_generation",
+            properties=properties,
+            groups=capture_kwargs.get("groups"),
+        )
         posthoganalytics.capture(**capture_kwargs)
         posthoganalytics.flush()
 
-    async def _on_failure(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
+    async def _on_failure(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
+    ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
         product = get_product()
 
-        trace_id = metadata.get("user_id") or str(uuid4())
-        distinct_id = auth_user.distinct_id if auth_user else str(uuid4())
+        trace_id = (
+            metadata.get("user_id") or str(uuid4())
+        )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
+        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+
+        logger.debug(
+            "PostHog callback _on_failure",
+            end_user_id=end_user_id,
+            distinct_id=distinct_id,
+            team_id=team_id,
+            product=product,
+        )
 
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
@@ -93,6 +128,13 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             capture_kwargs["groups"] = {"project": team_id}
 
+        logger.debug(
+            "PostHog capturing error event",
+            distinct_id=distinct_id,
+            posthog_event="$ai_generation",
+            properties=properties,
+            groups=capture_kwargs.get("groups"),
+        )
         posthoganalytics.capture(**capture_kwargs)
         posthoganalytics.flush()
 

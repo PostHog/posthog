@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -180,6 +181,13 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
 
                 props.onSuccess?.()
                 surveysLogic.actions.loadSurveys()
+
+                // Keep track of the tasks that were completed for our onboarding depending on the create mode
+                const completedTasks = [
+                    SetupTaskId.CreateSurvey,
+                    shouldLaunch ? SetupTaskId.LaunchSurvey : undefined,
+                ].filter(Boolean) as SetupTaskId[]
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
             },
         },
     })),
@@ -252,5 +260,6 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                 },
             })
         },
+        submitSurveyFormSuccess: () => {},
     })),
 ])
