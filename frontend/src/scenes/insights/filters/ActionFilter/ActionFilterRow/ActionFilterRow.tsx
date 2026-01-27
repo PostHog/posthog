@@ -772,6 +772,7 @@ export function ActionFilterRow({
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
+                        sendAllKeyUpdates
                         metadataSource={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse
                                 ? {

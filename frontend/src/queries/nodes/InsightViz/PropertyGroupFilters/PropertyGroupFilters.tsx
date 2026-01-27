@@ -138,6 +138,7 @@ export function PropertyGroupFilters({
                                                     eventNames={eventNames}
                                                     propertyGroupType={group.type}
                                                     orFiltering
+                                                    sendAllKeyUpdates
                                                 />
                                             </div>
                                             {propertyGroupIndex !== propertyGroupFilter.values.length - 1 && (
