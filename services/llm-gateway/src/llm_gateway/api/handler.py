@@ -14,6 +14,7 @@ from llm_gateway.config import get_settings
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
     CONCURRENT_REQUESTS,
+    LLM_RESPONSE_TIME,
     LLM_TIME_TO_FIRST_TOKEN,
     PROVIDER_ERRORS,
     REQUEST_COUNT,
@@ -247,7 +248,7 @@ async def handle_transcription_request(
             litellm.atranscription(**kwargs),
             timeout=settings.request_timeout,
         )
-        PROVIDER_LATENCY.labels(provider=provider_config.name, model=model, product=product).observe(
+        LLM_RESPONSE_TIME.labels(provider=provider_config.name, model=model, product=product).observe(
             time.monotonic() - provider_start
         )
 
