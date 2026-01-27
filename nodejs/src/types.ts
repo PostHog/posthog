@@ -651,7 +651,7 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
-    logs_settings: LogsSettings | null
+    logs_settings?: LogsSettings | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
