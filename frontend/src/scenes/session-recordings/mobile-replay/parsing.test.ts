@@ -4,7 +4,7 @@ import {
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 
-import { encodedWebSnapshotData } from './__mocks__/mobile-encoded-snapshot-data'
+import { encodedWebSnapshotData } from './__mocks__/encoded-snapshot-data'
 
 describe('snapshot parsing', () => {
     const sessionId = '12345'

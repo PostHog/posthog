@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/player-encoded-snapshot-data'
+import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
