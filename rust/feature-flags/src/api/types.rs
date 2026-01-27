@@ -1,3 +1,4 @@
+use crate::api::errors::FlagError;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
 use crate::{flags::flag_match_reason::FeatureFlagMatchReason, site_apps::WebJsUrl};
@@ -388,6 +389,8 @@ pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
     pub variant: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
 }
@@ -428,7 +431,7 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
-    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self;
+    fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
 }
 
@@ -438,6 +441,7 @@ impl FromFeatureAndMatch for FlagDetails {
             key: flag.key.clone(),
             enabled: flag_match.matches,
             variant: flag_match.variant.clone(),
+            failed: false,
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
                 condition_index: flag_match.condition_index.map(|i| i as i32),
@@ -452,15 +456,16 @@ impl FromFeatureAndMatch for FlagDetails {
         }
     }
 
-    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self {
+    fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self {
         FlagDetails {
             key: flag.key.clone(),
             enabled: false,
             variant: None,
+            failed: true,
             reason: FlagEvaluationReason {
-                code: error_reason.to_string(),
+                code: error.evaluation_error_code(),
                 condition_index,
-                description: None,
+                description: Some(error.evaluation_error_description()),
             },
             metadata: FlagDetailsMetadata {
                 id: flag.id,
@@ -737,6 +742,7 @@ mod tests {
                 key: "flag_with_payload".to_string(),
                 enabled: true,
                 variant: None,
+                failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -758,6 +764,7 @@ mod tests {
                 key: "flag2".to_string(),
                 enabled: true,
                 variant: None,
+                failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -779,6 +786,7 @@ mod tests {
                 key: "flag_with_null_payload".to_string(),
                 enabled: true,
                 variant: None,
+                failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),

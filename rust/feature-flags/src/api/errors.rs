@@ -69,6 +69,8 @@ pub enum FlagError {
     RedisUnavailable,
     #[error("database unavailable")]
     DatabaseUnavailable,
+    #[error("Failed to fetch hash key override for experience continuity")]
+    HashKeyOverrideError,
     #[error("Database error: {0}")]
     DatabaseError(sqlx::Error, Option<String>),
     /// Timeout error with optional type classification.
@@ -155,6 +157,7 @@ impl FlagError {
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
             FlagError::DataParsingError => ("data_parsing_error", 500),
+            FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
 
             // Service unavailable errors (503)
             FlagError::RedisDataParsingError => ("redis_parsing_error", 503),
@@ -183,6 +186,99 @@ impl FlagError {
         self.error_metadata().1
     }
 
+    /// Returns a granular error code for flag evaluation failures.
+    /// This provides more specific error classification than `error_code()`,
+    /// particularly for database errors where we can distinguish between
+    /// timeouts, connection pool exhaustion, etc.
+    pub fn evaluation_error_code(&self) -> String {
+        match self {
+            FlagError::HashKeyOverrideError => "hash_key_override_error".to_string(),
+            FlagError::DatabaseError(sqlx_error, context) => {
+                let error_msg = sqlx_error.to_string();
+                let context_msg = context.as_deref().unwrap_or("");
+
+                if error_msg.contains("statement timeout") {
+                    "timeout".to_string()
+                } else if error_msg.contains("no more connections") {
+                    "no_more_connections".to_string()
+                } else if context_msg.contains("Failed to fetch conditions") {
+                    "flag_condition_retry".to_string()
+                } else if context_msg.contains("Failed to fetch group") {
+                    "group_mapping_retry".to_string()
+                } else if context_msg.contains("Database healthcheck failed") {
+                    "healthcheck_failed".to_string()
+                } else if error_msg.contains("query_wait_timeout") {
+                    "query_wait_timeout".to_string()
+                } else {
+                    "database_error".to_string()
+                }
+            }
+            FlagError::DatabaseUnavailable => "database_unavailable".to_string(),
+            FlagError::RedisUnavailable => "redis_unavailable".to_string(),
+            FlagError::TimeoutError(timeout_type) => match timeout_type {
+                Some(t) => format!("timeout:{t}"),
+                None => "timeout_error".to_string(),
+            },
+            FlagError::NoGroupTypeMappings => "no_group_type_mappings".to_string(),
+            FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
+                DependencyType::Cohort => "dependency_not_found_cohort".to_string(),
+                DependencyType::Flag => "dependency_not_found_flag".to_string(),
+            },
+            FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
+                DependencyType::Cohort => "dependency_cycle_cohort".to_string(),
+                DependencyType::Flag => "dependency_cycle_flag".to_string(),
+            },
+            _ => "unknown".to_string(),
+        }
+    }
+
+    /// Returns a human-readable description for flag evaluation failures.
+    pub fn evaluation_error_description(&self) -> String {
+        match self {
+            FlagError::HashKeyOverrideError => {
+                "Failed to fetch hash key override for experience continuity".to_string()
+            }
+            FlagError::DatabaseError(sqlx_error, context) => {
+                let error_msg = sqlx_error.to_string();
+                let context_msg = context.as_deref().unwrap_or("");
+
+                if error_msg.contains("statement timeout") {
+                    "Database statement timed out".to_string()
+                } else if error_msg.contains("no more connections") {
+                    "Database connection pool exhausted".to_string()
+                } else if context_msg.contains("Failed to fetch conditions") {
+                    "Failed to fetch flag conditions".to_string()
+                } else if context_msg.contains("Failed to fetch group") {
+                    "Failed to fetch group mappings".to_string()
+                } else if context_msg.contains("Database healthcheck failed") {
+                    "Database healthcheck failed".to_string()
+                } else if error_msg.contains("query_wait_timeout") {
+                    "Query wait timeout exceeded".to_string()
+                } else {
+                    "Database connection error during evaluation".to_string()
+                }
+            }
+            FlagError::DatabaseUnavailable => "Database is unavailable".to_string(),
+            FlagError::RedisUnavailable => "Redis cache unavailable".to_string(),
+            FlagError::TimeoutError(timeout_type) => match timeout_type {
+                Some(t) => format!("Timeout: {t}"),
+                None => "Evaluation timed out".to_string(),
+            },
+            FlagError::NoGroupTypeMappings => {
+                "Group type mappings not found for this team".to_string()
+            }
+            FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
+                DependencyType::Cohort => "Cohort dependency not found".to_string(),
+                DependencyType::Flag => "Flag dependency not found".to_string(),
+            },
+            FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
+                DependencyType::Cohort => "Cohort dependency cycle detected".to_string(),
+                DependencyType::Flag => "Flag dependency cycle detected".to_string(),
+            },
+            _ => "Flag evaluation failed due to an unknown error".to_string(),
+        }
+    }
+
     pub fn is_5xx(&self) -> bool {
         let status = match self {
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
@@ -197,7 +293,8 @@ impl FlagError {
             | FlagError::DependencyNotFound(_, _)
             | FlagError::CohortFiltersParsingError
             | FlagError::DependencyCycle(_, _)
-            | FlagError::DataParsingError => StatusCode::INTERNAL_SERVER_ERROR,
+            | FlagError::DataParsingError
+            | FlagError::HashKeyOverrideError => StatusCode::INTERNAL_SERVER_ERROR,
 
             FlagError::RedisDataParsingError
             | FlagError::RedisUnavailable
@@ -360,6 +457,10 @@ impl IntoResponse for FlagError {
             FlagError::DependencyCycle(dependency_type, cycle_start_id) => {
                 tracing::error!("{} dependency cycle: {:?}", dependency_type, cycle_start_id);
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency cycle detected: {dependency_type} id {cycle_start_id} starts the cycle"))
+            }
+            FlagError::HashKeyOverrideError => {
+                tracing::error!("Failed to fetch hash key override for experience continuity");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch hash key override for experience continuity. Please try again later.".to_string())
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
