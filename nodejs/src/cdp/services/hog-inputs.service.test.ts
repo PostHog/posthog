@@ -247,7 +247,9 @@ describe('Hog Inputs', () => {
             distinctId: string,
             token: string,
             platform: 'android' | 'ios',
-            isActive: boolean = true
+            isActive: boolean = true,
+            provider: 'fcm' | 'apns' = 'fcm',
+            firebaseAppId: string | null = null
         ): Promise<PushSubscription> => {
             const id = randomUUID()
             const encryptedToken = hub.encryptedFields.encrypt(token)
@@ -256,10 +258,10 @@ describe('Hog Inputs', () => {
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO workflows_pushsubscription 
-                 (id, team_id, distinct_id, token, token_hash, platform, is_active, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                 (id, team_id, distinct_id, token, token_hash, platform, provider, firebase_app_id, is_active, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
                  RETURNING *`,
-                [id, teamId, distinctId, encryptedToken, tokenHash, platform, isActive],
+                [id, teamId, distinctId, encryptedToken, tokenHash, platform, provider, firebaseAppId, isActive],
                 'insertPushSubscription'
             )
 
@@ -269,6 +271,7 @@ describe('Hog Inputs', () => {
                 distinct_id: distinctId,
                 token,
                 platform,
+                provider,
                 is_active: isActive,
                 last_successfully_used_at: null,
                 created_at: new Date().toISOString(),
@@ -321,7 +324,8 @@ describe('Hog Inputs', () => {
         })
 
         it('returns empty object when no push subscription inputs exist', async () => {
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({})
         })
 
@@ -339,14 +343,15 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({})
         })
 
         it('resolves distinct_id to FCM token for active subscription', async () => {
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', true)
+            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'app-123')
 
             hogFunction.inputs_schema = [
                 {
@@ -361,7 +366,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: token,
@@ -372,7 +378,7 @@ describe('Hog Inputs', () => {
         it('returns null for inactive subscription', async () => {
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', false)
+            await insertPushSubscription(team.id, distinctId, token, 'android', false, 'fcm', 'app-123')
 
             hogFunction.inputs_schema = [
                 {
@@ -387,7 +393,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: null,
@@ -398,7 +405,7 @@ describe('Hog Inputs', () => {
         it('returns null for subscription from different team', async () => {
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(999, distinctId, token, 'android', true)
+            await insertPushSubscription(999, distinctId, token, 'android', true, 'fcm', 'app-123')
 
             hogFunction.inputs_schema = [
                 {
@@ -413,7 +420,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: null,
@@ -425,8 +433,8 @@ describe('Hog Inputs', () => {
             const distinctId = 'user-123'
             const androidToken = 'fcm-token-android'
             const iosToken = 'fcm-token-ios'
-            await insertPushSubscription(team.id, distinctId, androidToken, 'android', true)
-            await insertPushSubscription(team.id, distinctId, iosToken, 'ios', true)
+            await insertPushSubscription(team.id, distinctId, androidToken, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId, iosToken, 'ios', true, 'apns')
 
             hogFunction.inputs_schema = [
                 {
@@ -441,7 +449,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: androidToken,
@@ -452,7 +461,7 @@ describe('Hog Inputs', () => {
         it('resolves liquid template to distinct_id', async () => {
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', true)
+            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'app-123')
 
             globals.person = {
                 id: 'person-1',
@@ -476,7 +485,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: token,
@@ -487,7 +497,7 @@ describe('Hog Inputs', () => {
         it('resolves hog template to distinct_id', async () => {
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', true)
+            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'app-123')
 
             globals.event = {
                 ...globals.event!,
@@ -510,7 +520,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: token,
@@ -534,7 +545,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: null,
@@ -553,7 +565,7 @@ describe('Hog Inputs', () => {
             await insertPersonDistinctId(team.id, personId, newDistinctId)
 
             // Subscription exists with original distinct_id
-            await insertPushSubscription(team.id, originalDistinctId, token, 'android', true)
+            await insertPushSubscription(team.id, originalDistinctId, token, 'android', true, 'fcm', 'app-123')
 
             // But we're looking for new distinct_id
             hogFunction.inputs_schema = [
@@ -569,7 +581,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: token,
@@ -592,8 +605,8 @@ describe('Hog Inputs', () => {
             const distinctId2 = 'user-2'
             const token1 = 'fcm-token-1'
             const token2 = 'fcm-token-2'
-            await insertPushSubscription(team.id, distinctId1, token1, 'android', true)
-            await insertPushSubscription(team.id, distinctId2, token2, 'ios', true)
+            await insertPushSubscription(team.id, distinctId1, token1, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId2, token2, 'ios', true, 'apns')
 
             hogFunction.inputs_schema = [
                 {
@@ -616,13 +629,65 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 android_token: {
                     value: token1,
                 },
                 ios_token: {
                     value: token2,
+                },
+            })
+        })
+
+        it('filters by provider when firebase_account integration is present', async () => {
+            const distinctId = 'user-123'
+            const fcmToken = 'fcm-token-abc123'
+            const apnsToken = 'apns-token-xyz789'
+
+            // Insert subscriptions with different providers
+            await insertPushSubscription(team.id, distinctId, fcmToken, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId, apnsToken, 'ios', true, 'apns')
+
+            // Mock firebase_account integration
+            const firebaseIntegration = {
+                id: 1,
+                team_id: team.id,
+                kind: 'firebase',
+                config: { project_id: 'test-project' },
+                sensitive_config: {},
+            }
+            hub.integrationManager.getMany = jest.fn().mockResolvedValue({ 1: firebaseIntegration })
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
+
+            // Should only return FCM token since provider filter is set to 'fcm'
+            expect(result).toEqual({
+                push_subscription_distinct_id: {
+                    value: fcmToken,
                 },
             })
         })
@@ -641,7 +706,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: null,
@@ -652,7 +718,7 @@ describe('Hog Inputs', () => {
         it('handles liquid template with double braces detection', async () => {
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', true)
+            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'app-123')
 
             globals.person = {
                 id: 'person-1',
@@ -675,7 +741,8 @@ describe('Hog Inputs', () => {
                 },
             }
 
-            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals)
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+            const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
                     value: token,

@@ -26,9 +26,14 @@ class Migration(migrations.Migration):
                     "platform",
                     models.CharField(choices=[("android", "Android"), ("ios", "Ios")], max_length=16),
                 ),
+                (
+                    "provider",
+                    models.CharField(choices=[("fcm", "Fcm"), ("apns", "Apns")], max_length=16),
+                ),
                 ("is_active", models.BooleanField(db_index=True, default=True)),
                 ("last_successfully_used_at", models.DateTimeField(blank=True, null=True)),
                 ("disabled_reason", models.CharField(blank=True, max_length=128, null=True)),
+                ("firebase_app_id", models.CharField(blank=True, max_length=256, null=True)),
                 (
                     "team",
                     models.ForeignKey(
@@ -45,6 +50,13 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="pushsubscription",
             index=models.Index(fields=["team", "token_hash"], name="workflows_p_team_id_7c454a_idx"),
+        ),
+        migrations.AddIndex(
+            model_name="pushsubscription",
+            index=models.Index(
+                fields=["team", "distinct_id", "platform", "provider", "is_active"],
+                name="workflows_p_team_distinct_platform_provider_idx",
+            ),
         ),
         migrations.AddConstraint(
             model_name="pushsubscription",

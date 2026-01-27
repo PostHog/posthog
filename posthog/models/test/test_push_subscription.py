@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from products.workflows.backend.models.push_subscription import PushPlatform, PushSubscription
+from products.workflows.backend.models.push_subscription import PushPlatform, PushProvider, PushSubscription
 
 
 class TestPushSubscription(BaseTest):
@@ -17,12 +17,16 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
         )
 
         self.assertEqual(subscription.distinct_id, "user-123")
         self.assertEqual(subscription.token, "fcm-token-abc123")
         self.assertEqual(subscription.token_hash, PushSubscription._hash_token("fcm-token-abc123"))
         self.assertEqual(subscription.platform, PushPlatform.ANDROID)
+        self.assertEqual(subscription.provider, PushProvider.FCM)
+        self.assertEqual(subscription.firebase_app_id, "app-123")
         self.assertTrue(subscription.is_active)
         self.assertIsNotNone(subscription.id)
 
@@ -32,11 +36,15 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
         )
 
         self.assertEqual(subscription.distinct_id, "user-123")
         self.assertEqual(subscription.token, "fcm-token-abc123")
         self.assertEqual(subscription.platform, PushPlatform.ANDROID)
+        self.assertEqual(subscription.provider, PushProvider.FCM)
+        self.assertEqual(subscription.firebase_app_id, "app-123")
         self.assertTrue(subscription.is_active)
 
     def test_upsert_token_updates_existing(self):
@@ -45,6 +53,8 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
         )
 
         subscription1.is_active = False
@@ -55,11 +65,13 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.IOS,
+            provider=PushProvider.APNS,
         )
 
         self.assertEqual(subscription1.id, subscription2.id)
         self.assertTrue(subscription2.is_active)
         self.assertEqual(subscription2.platform, PushPlatform.IOS)
+        self.assertEqual(subscription2.provider, PushProvider.APNS)
 
     def test_get_active_tokens_for_distinct_id(self):
         PushSubscription.objects.create(
@@ -67,6 +79,8 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="token-1",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=True,
         )
         PushSubscription.objects.create(
@@ -74,6 +88,7 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="token-2",
             platform=PushPlatform.IOS,
+            provider=PushProvider.APNS,
             is_active=True,
         )
         PushSubscription.objects.create(
@@ -81,6 +96,8 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="token-3",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=False,
         )
 
@@ -99,6 +116,8 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="token-1",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=True,
         )
         PushSubscription.objects.create(
@@ -106,6 +125,7 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="token-2",
             platform=PushPlatform.IOS,
+            provider=PushProvider.APNS,
             is_active=True,
         )
 
@@ -124,6 +144,8 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=True,
         )
         subscription_2 = PushSubscription.objects.create(
@@ -131,6 +153,8 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-456",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=True,
         )
 
@@ -154,6 +178,8 @@ class TestPushSubscription(BaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=True,
         )
 

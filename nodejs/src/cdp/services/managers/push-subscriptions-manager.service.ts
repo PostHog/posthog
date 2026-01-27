@@ -11,20 +11,30 @@ export type PushSubscriptionGetArgs = {
     teamId: number
     distinctId: string
     platform?: 'android' | 'ios'
+    firebaseAppId?: string
+    provider?: 'fcm' | 'apns'
 }
 
 const toKey = (args: PushSubscriptionGetArgs): string => {
     // Use JSON encoding to safely handle distinctIds containing colons or other special characters
-    return JSON.stringify([args.teamId, args.distinctId, args.platform ?? 'all'])
+    return JSON.stringify([
+        args.teamId,
+        args.distinctId,
+        args.platform ?? 'all',
+        args.firebaseAppId ?? 'all',
+        args.provider ?? 'all',
+    ])
 }
 
 const fromKey = (key: string): PushSubscriptionGetArgs => {
     // Parse JSON-encoded key to safely handle distinctIds containing colons or other special characters
-    const [teamId, distinctId, platform] = parseJSON(key)
+    const [teamId, distinctId, platform, firebaseAppId, provider] = parseJSON(key)
     return {
         teamId: parseInt(teamId),
         distinctId,
         platform: platform === 'all' ? undefined : (platform as 'android' | 'ios'),
+        firebaseAppId: firebaseAppId === 'all' ? undefined : firebaseAppId,
+        provider: provider === 'all' ? undefined : (provider as 'fcm' | 'apns'),
     }
 }
 
@@ -35,10 +45,12 @@ type PushSubscriptionRow = {
     distinct_id: string
     token: string
     platform: 'android' | 'ios'
+    provider: 'fcm' | 'apns'
     is_active: boolean
     last_successfully_used_at: string | null
     created_at: string
     updated_at: string
+    firebase_app_id: string | null
 }
 
 export type PushSubscription = {
@@ -47,6 +59,7 @@ export type PushSubscription = {
     distinct_id: string
     token: string
     platform: 'android' | 'ios'
+    provider: 'fcm' | 'apns'
     is_active: boolean
     last_successfully_used_at: string | null
     created_at: string
@@ -87,10 +100,12 @@ export class PushSubscriptionsManagerService {
                 distinct_id,
                 token,
                 platform,
+                provider,
                 is_active,
                 last_successfully_used_at,
                 created_at,
-                updated_at
+                updated_at,
+                firebase_app_id
             FROM workflows_pushsubscription
             WHERE id = $1 AND team_id = $2 AND is_active = true
             LIMIT 1`
@@ -117,6 +132,7 @@ export class PushSubscriptionsManagerService {
             distinct_id: row.distinct_id,
             token: decryptedToken,
             platform: row.platform,
+            provider: row.provider,
             is_active: row.is_active,
             last_successfully_used_at: row.last_successfully_used_at,
             created_at: row.created_at,
@@ -124,74 +140,63 @@ export class PushSubscriptionsManagerService {
         }
     }
 
+    // TODOdin: Do we really need this?
     private async fetchPushSubscriptions(ids: string[]): Promise<Record<string, PushSubscription[] | undefined>> {
         const subscriptionArgs = ids.map(fromKey)
 
         logger.debug('[PushSubscriptionsManager]', 'Fetching push subscriptions', { subscriptionArgs })
 
-        // Separate queries with and without platform filter for efficiency
-        const withPlatformFilter: Array<{ index: number; args: PushSubscriptionGetArgs }> = []
-        const withoutPlatformFilter: Array<{ index: number; args: PushSubscriptionGetArgs }> = []
+        // Separate queries by platform, provider, and firebase_app_id filters for efficiency
+        const queryGroups: Array<{ indices: number[]; args: PushSubscriptionGetArgs[] }> = []
+        const grouped = new Map<string, number[]>()
 
         subscriptionArgs.forEach((args, index) => {
-            if (args.platform) {
-                withPlatformFilter.push({ index, args })
-            } else {
-                withoutPlatformFilter.push({ index, args })
+            const groupKey = JSON.stringify({
+                platform: args.platform ?? 'all',
+                provider: args.provider ?? 'all',
+                firebaseAppId: args.firebaseAppId ?? 'all',
+            })
+            if (!grouped.has(groupKey)) {
+                grouped.set(groupKey, [])
             }
+            grouped.get(groupKey)!.push(index)
+        })
+
+        grouped.forEach((indices) => {
+            const args = indices.map((idx) => subscriptionArgs[idx])
+            queryGroups.push({ indices, args })
         })
 
         const allResults: PushSubscriptionRow[] = []
 
-        // Query subscriptions with platform filter
-        if (withPlatformFilter.length > 0) {
-            const conditions = withPlatformFilter
-                .map((_, idx) => {
-                    const baseIdx = idx * 3
-                    return `(team_id = $${baseIdx + 1} AND distinct_id = $${baseIdx + 2} AND platform = $${baseIdx + 3} AND is_active = true)`
-                })
-                .join(' OR ')
+        // Execute queries for each group
+        for (const group of queryGroups) {
+            const conditions: string[] = []
+            const params: any[] = []
+            let paramIdx = 1
 
-            const params = withPlatformFilter.flatMap((item) => [
-                item.args.teamId,
-                item.args.distinctId,
-                item.args.platform!,
-            ])
+            for (const args of group.args) {
+                const conditionParts: string[] = [`team_id = $${paramIdx++}`, `distinct_id = $${paramIdx++}`]
+                params.push(args.teamId, args.distinctId)
 
-            const queryString = `SELECT
-                    id,
-                    team_id,
-                    distinct_id,
-                    token,
-                    platform,
-                    is_active,
-                    last_successfully_used_at,
-                    created_at,
-                    updated_at
-                FROM workflows_pushsubscription
-                WHERE ${conditions}
-                ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
+                if (args.platform) {
+                    conditionParts.push(`platform = $${paramIdx++}`)
+                    params.push(args.platform)
+                }
 
-            const response = await this.postgres.query<PushSubscriptionRow>(
-                PostgresUse.COMMON_READ,
-                queryString,
-                params,
-                'fetchPushSubscriptionsWithPlatform'
-            )
+                if (args.provider) {
+                    conditionParts.push(`provider = $${paramIdx++}`)
+                    params.push(args.provider)
+                }
 
-            allResults.push(...response.rows)
-        }
+                if (args.firebaseAppId) {
+                    conditionParts.push(`(firebase_app_id = $${paramIdx++} OR firebase_app_id IS NULL)`)
+                    params.push(args.firebaseAppId)
+                }
 
-        // Query subscriptions without platform filter
-        if (withoutPlatformFilter.length > 0) {
-            const conditions = withoutPlatformFilter
-                .map((_, idx) => {
-                    const baseIdx = idx * 2
-                    return `(team_id = $${baseIdx + 1} AND distinct_id = $${baseIdx + 2} AND is_active = true)`
-                })
-                .join(' OR ')
-
-            const params = withoutPlatformFilter.flatMap((item) => [item.args.teamId, item.args.distinctId])
+                conditionParts.push('is_active = true')
+                conditions.push(`(${conditionParts.join(' AND ')})`)
+            }
 
             const queryString = `SELECT
                     id,
@@ -199,19 +204,21 @@ export class PushSubscriptionsManagerService {
                     distinct_id,
                     token,
                     platform,
+                    provider,
                     is_active,
                     last_successfully_used_at,
                     created_at,
-                    updated_at
+                    updated_at,
+                    firebase_app_id
                 FROM workflows_pushsubscription
-                WHERE ${conditions}
+                WHERE ${conditions.join(' OR ')}
                 ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
 
             const response = await this.postgres.query<PushSubscriptionRow>(
                 PostgresUse.COMMON_READ,
                 queryString,
                 params,
-                'fetchPushSubscriptionsWithoutPlatform'
+                'fetchPushSubscriptions'
             )
 
             allResults.push(...response.rows)
@@ -238,10 +245,17 @@ export class PushSubscriptionsManagerService {
             // Find matching keys (could match multiple)
             for (const key of ids) {
                 const args = fromKey(key)
+                const matchesPlatform = !args.platform || args.platform === row.platform
+                const matchesProvider = !args.provider || args.provider === row.provider
+                const matchesAppId =
+                    !args.firebaseAppId || args.firebaseAppId === row.firebase_app_id || row.firebase_app_id === null
+
                 if (
                     args.teamId === row.team_id &&
                     args.distinctId === row.distinct_id &&
-                    (!args.platform || args.platform === row.platform)
+                    matchesPlatform &&
+                    matchesProvider &&
+                    matchesAppId
                 ) {
                     const decryptedToken =
                         this.encryptedFields.decrypt(row.token, { ignoreDecryptionErrors: true }) ?? row.token
@@ -251,6 +265,7 @@ export class PushSubscriptionsManagerService {
                         distinct_id: row.distinct_id,
                         token: decryptedToken,
                         platform: row.platform,
+                        provider: row.provider,
                         is_active: row.is_active,
                         last_successfully_used_at: row.last_successfully_used_at,
                         created_at: row.created_at,
@@ -315,15 +330,30 @@ export class PushSubscriptionsManagerService {
     public async findSubscriptionByPersonDistinctIds(
         teamId: number,
         distinctIds: string[],
-        platform?: 'android' | 'ios'
+        platform?: 'android' | 'ios',
+        firebaseAppId?: string,
+        provider?: 'fcm' | 'apns'
     ): Promise<PushSubscription | null> {
         if (distinctIds.length === 0) {
             return null
         }
 
         const placeholders = distinctIds.map((_, idx) => `$${idx + 2}`).join(', ')
-        const platformFilter = platform ? `AND platform = $${distinctIds.length + 2}` : ''
-        const params = platform ? [teamId, ...distinctIds, platform] : [teamId, ...distinctIds]
+        let paramIndex = distinctIds.length + 2
+        const platformFilter = platform ? `AND platform = $${paramIndex++}` : ''
+        const providerFilter = provider ? `AND provider = $${paramIndex++}` : ''
+        const appIdFilter = firebaseAppId ? `AND (firebase_app_id = $${paramIndex++} OR firebase_app_id IS NULL)` : ''
+
+        const params: any[] = [teamId, ...distinctIds]
+        if (platform) {
+            params.push(platform)
+        }
+        if (provider) {
+            params.push(provider)
+        }
+        if (firebaseAppId) {
+            params.push(firebaseAppId)
+        }
 
         const queryString = `SELECT
                 id,
@@ -331,12 +361,14 @@ export class PushSubscriptionsManagerService {
                 distinct_id,
                 token,
                 platform,
+                provider,
                 is_active,
                 last_successfully_used_at,
                 created_at,
-                updated_at
+                updated_at,
+                firebase_app_id
             FROM workflows_pushsubscription
-            WHERE team_id = $1 AND distinct_id IN (${placeholders}) AND is_active = true ${platformFilter}
+            WHERE team_id = $1 AND distinct_id IN (${placeholders}) AND is_active = true ${platformFilter} ${providerFilter} ${appIdFilter}
             ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC
             LIMIT 1`
 
@@ -362,6 +394,7 @@ export class PushSubscriptionsManagerService {
             distinct_id: row.distinct_id,
             token: decryptedToken,
             platform: row.platform,
+            provider: row.provider,
             is_active: row.is_active,
             last_successfully_used_at: row.last_successfully_used_at,
             created_at: row.created_at,

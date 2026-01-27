@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.api.push_subscription import PushSubscriptionSerializer
 
-from products.workflows.backend.models.push_subscription import PushPlatform, PushSubscription
+from products.workflows.backend.models.push_subscription import PushPlatform, PushProvider, PushSubscription
 
 
 class TestPushSubscriptionAPI(BaseTest):
@@ -26,6 +26,8 @@ class TestPushSubscriptionAPI(BaseTest):
             "distinct_id": "user-123",
             "token": "fcm-token-abc123",
             "platform": "android",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response = self.client.post(
@@ -46,6 +48,8 @@ class TestPushSubscriptionAPI(BaseTest):
         )
         self.assertEqual(subscription.distinct_id, "user-123")
         self.assertEqual(subscription.platform, PushPlatform.ANDROID)
+        self.assertEqual(subscription.provider, PushProvider.FCM)
+        self.assertEqual(subscription.firebase_app_id, "app-123")
         self.assertTrue(subscription.is_active)
 
     def test_sdk_register_push_subscription_ios(self):
@@ -54,6 +58,7 @@ class TestPushSubscriptionAPI(BaseTest):
             "distinct_id": "user-123",
             "token": "apns-token-xyz789",
             "platform": "ios",
+            "provider": "apns",
         }
 
         response = self.client.post(
@@ -70,6 +75,7 @@ class TestPushSubscriptionAPI(BaseTest):
         )
         self.assertEqual(subscription.distinct_id, "user-123")
         self.assertEqual(subscription.platform, PushPlatform.IOS)
+        self.assertEqual(subscription.provider, PushProvider.APNS)
 
     def test_sdk_register_allows_same_token_for_multiple_distinct_ids(self):
         payload_1 = {
@@ -77,12 +83,16 @@ class TestPushSubscriptionAPI(BaseTest):
             "distinct_id": "user-123",
             "token": "fcm-token-abc123",
             "platform": "android",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
         payload_2 = {
             "api_key": self.team.api_token,
             "distinct_id": "user-456",
             "token": "fcm-token-abc123",
             "platform": "android",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response_1 = self.client.post(
@@ -111,6 +121,8 @@ class TestPushSubscriptionAPI(BaseTest):
             "distinct_id": "user-123",
             "token": "fcm-token-abc123",
             "platform": "android",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response = self.client.post(
@@ -129,6 +141,8 @@ class TestPushSubscriptionAPI(BaseTest):
             "distinct_id": "user-123",
             "token": "fcm-token-abc123",
             "platform": "android",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response = self.client.post(
@@ -146,6 +160,8 @@ class TestPushSubscriptionAPI(BaseTest):
             "api_key": self.team.api_token,
             "token": "fcm-token-abc123",
             "platform": "android",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response = self.client.post(
@@ -163,6 +179,8 @@ class TestPushSubscriptionAPI(BaseTest):
             "api_key": self.team.api_token,
             "distinct_id": "user-123",
             "platform": "android",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response = self.client.post(
@@ -180,6 +198,8 @@ class TestPushSubscriptionAPI(BaseTest):
             "api_key": self.team.api_token,
             "distinct_id": "user-123",
             "token": "fcm-token-abc123",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response = self.client.post(
@@ -198,6 +218,8 @@ class TestPushSubscriptionAPI(BaseTest):
             "distinct_id": "user-123",
             "token": "fcm-token-abc123",
             "platform": "invalid",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response = self.client.post(
@@ -210,12 +232,96 @@ class TestPushSubscriptionAPI(BaseTest):
         data = json.loads(response.content)
         self.assertIn("Invalid platform", data["error"])
 
+    def test_sdk_register_push_subscription_missing_provider(self):
+        payload = {
+            "api_key": self.team.api_token,
+            "distinct_id": "user-123",
+            "token": "fcm-token-abc123",
+            "platform": "android",
+            "firebase_app_id": "app-123",
+        }
+
+        response = self.client.post(
+            "/api/sdk/push_subscriptions/register/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertIn("provider is required", data["error"])
+
+    def test_sdk_register_push_subscription_invalid_provider(self):
+        payload = {
+            "api_key": self.team.api_token,
+            "distinct_id": "user-123",
+            "token": "fcm-token-abc123",
+            "platform": "android",
+            "provider": "invalid",
+            "firebase_app_id": "app-123",
+        }
+
+        response = self.client.post(
+            "/api/sdk/push_subscriptions/register/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertIn("Invalid provider", data["error"])
+
+    def test_sdk_register_push_subscription_fcm_requires_firebase_app_id(self):
+        payload = {
+            "api_key": self.team.api_token,
+            "distinct_id": "user-123",
+            "token": "fcm-token-abc123",
+            "platform": "android",
+            "provider": "fcm",
+        }
+
+        response = self.client.post(
+            "/api/sdk/push_subscriptions/register/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertIn("firebase_app_id is required when provider is fcm", data["error"])
+
+    def test_sdk_register_push_subscription_apns_does_not_require_firebase_app_id(self):
+        payload = {
+            "api_key": self.team.api_token,
+            "distinct_id": "user-123",
+            "token": "apns-token-xyz789",
+            "platform": "ios",
+            "provider": "apns",
+        }
+
+        response = self.client.post(
+            "/api/sdk/push_subscriptions/register/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        subscription = PushSubscription.objects.get(
+            team=self.team,
+            distinct_id="user-123",
+            token_hash=PushSubscription._hash_token("apns-token-xyz789"),
+        )
+        self.assertEqual(subscription.provider, PushProvider.APNS)
+        self.assertIsNone(subscription.firebase_app_id)
+
     def test_sdk_register_push_subscription_cors_headers(self):
         payload = {
             "api_key": self.team.api_token,
             "distinct_id": "user-123",
             "token": "fcm-token-abc123",
             "platform": "android",
+            "provider": "fcm",
+            "firebase_app_id": "app-123",
         }
 
         response = self.client.post(
@@ -249,6 +355,8 @@ class TestPushSubscriptionViewSet(APIBaseTest):
                 "distinct_id": "user-123",
                 "token": "fcm-token-abc123",
                 "platform": "android",
+                "provider": "fcm",
+                "firebase_app_id": "app-123",
             },
             format="json",
         )
@@ -274,11 +382,80 @@ class TestPushSubscriptionViewSet(APIBaseTest):
                 "distinct_id": "user-123",
                 "token": "fcm-token-abc123",
                 "platform": "invalid",
+                "provider": "fcm",
+                "firebase_app_id": "app-123",
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Invalid platform", response.json()["error"])
+
+    def test_viewset_register_missing_provider(self):
+        """Test register action requires provider."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/push_subscriptions/register/",
+            data={
+                "distinct_id": "user-123",
+                "token": "fcm-token-abc123",
+                "platform": "android",
+                "firebase_app_id": "app-123",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("provider is required", response.json()["error"])
+
+    def test_viewset_register_invalid_provider(self):
+        """Test register action rejects invalid provider."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/push_subscriptions/register/",
+            data={
+                "distinct_id": "user-123",
+                "token": "fcm-token-abc123",
+                "platform": "android",
+                "provider": "invalid",
+                "firebase_app_id": "app-123",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid provider", response.json()["error"])
+
+    def test_viewset_register_fcm_requires_firebase_app_id(self):
+        """Test register action requires firebase_app_id when provider is fcm."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/push_subscriptions/register/",
+            data={
+                "distinct_id": "user-123",
+                "token": "fcm-token-abc123",
+                "platform": "android",
+                "provider": "fcm",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("firebase_app_id is required when provider is fcm", response.json()["error"])
+
+    def test_viewset_register_apns_does_not_require_firebase_app_id(self):
+        """Test register action does not require firebase_app_id when provider is apns."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/push_subscriptions/register/",
+            data={
+                "distinct_id": "user-123",
+                "token": "apns-token-xyz789",
+                "platform": "ios",
+                "provider": "apns",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription = PushSubscription.objects.get(
+            team=self.team,
+            distinct_id="user-123",
+            token_hash=PushSubscription._hash_token("apns-token-xyz789"),
+        )
+        self.assertEqual(subscription.provider, PushProvider.APNS)
+        self.assertIsNone(subscription.firebase_app_id)
 
     def test_viewset_register_updates_existing(self):
         """Test register action updates existing subscription."""
@@ -287,6 +464,8 @@ class TestPushSubscriptionViewSet(APIBaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=False,
         )
 
@@ -296,6 +475,7 @@ class TestPushSubscriptionViewSet(APIBaseTest):
                 "distinct_id": "user-123",
                 "token": "fcm-token-abc123",
                 "platform": "ios",
+                "provider": "apns",
             },
             format="json",
         )
@@ -304,6 +484,7 @@ class TestPushSubscriptionViewSet(APIBaseTest):
         subscription.refresh_from_db()
         self.assertTrue(subscription.is_active)
         self.assertEqual(subscription.platform, PushPlatform.IOS)
+        self.assertEqual(subscription.provider, PushProvider.APNS)
 
     def test_viewset_unregister_success(self):
         """Test unregister action deactivates token."""
@@ -312,6 +493,8 @@ class TestPushSubscriptionViewSet(APIBaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=True,
         )
 
@@ -333,6 +516,8 @@ class TestPushSubscriptionViewSet(APIBaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
             is_active=True,
         )
 
@@ -360,6 +545,8 @@ class TestPushSubscriptionSerializer(APIBaseTest):
             distinct_id="user-123",
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
+            provider=PushProvider.FCM,
+            firebase_app_id="app-123",
         )
 
         serializer = PushSubscriptionSerializer(subscription)
