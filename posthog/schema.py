@@ -10310,6 +10310,10 @@ class EndpointRunRequest(BaseModel):
             "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
         ),
     )
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
+    )
     query_override: dict[str, Any] | None = Field(
         default=None,
         description=(

@@ -1766,6 +1766,8 @@ export interface EndpointRunRequest {
      * @default false
      */
     debug?: boolean
+    /** Maximum number of results to return. If not provided, returns all results. */
+    limit?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
