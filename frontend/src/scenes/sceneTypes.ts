@@ -1,6 +1,6 @@
 import { LogicWrapper } from 'kea'
 
-import type { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 // The enum here has to match the first and only exported component of the scene.
@@ -69,6 +69,7 @@ export enum Scene {
     HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
+    InsightOptions = 'InsightOptions',
     IntegrationsRedirect = 'IntegrationsRedirect',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
@@ -178,6 +179,8 @@ export interface SceneExport<T = SceneProps> {
     component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
+    /** product key associated with this scene - used for Quick Start setup tracking */
+    productKey?: ProductKey
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */

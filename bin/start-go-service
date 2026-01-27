@@ -58,11 +58,24 @@ case "$GO_SVC" in
     ;;
 esac
 
+# check if air is available for hot reloading
+if command -v air &>/dev/null; then
+  USE_AIR=true
+else
+  USE_AIR=false
+  echo -e "\n\033[33mWarning: 'air' not found. Running without hot reload.\033[0m"
+  echo -e "Install air for hot reloading: go install github.com/air-verse/air@latest\n"
+fi
+
 # ensure the service restarts if it crashes in dev
 sleep 1
 while true; do
   if ! ps -p ${GO_PID:-} &>/dev/null; then
-    air &
+    if [ "$USE_AIR" = true ]; then
+      air &
+    else
+      go run . &
+    fi
     export GO_PID=$!
     echo -e "\n\033[47m>>\033[0m Restarted '$GO_SVC' with PID $GO_PID\n"
   fi

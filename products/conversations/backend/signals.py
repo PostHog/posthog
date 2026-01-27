@@ -8,7 +8,6 @@ import structlog
 
 from posthog.models.comment import Comment
 
-from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .models import Ticket
 
 logger = structlog.get_logger(__name__)
@@ -20,9 +19,9 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     Update ticket stats when a new message is created.
     - Increment message_count, update last_message_at/text
     - Increment unread_customer_count for team messages
-    - Invalidate widget cache for polling endpoints
 
     Uses transaction.on_commit() to defer work and avoid blocking the request.
+    Cache invalidation not needed - short TTLs handle staleness.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -57,20 +56,6 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
-        # Invalidate widget cache so polling sees new messages
-        invalidate_messages_cache(team_id, item_id)
-        # Also invalidate tickets list cache (last_message changed)
-        try:
-            ticket = Ticket.objects.filter(id=item_id, team_id=team_id).values("widget_session_id").first()
-            if ticket:
-                invalidate_tickets_cache(team_id, ticket["widget_session_id"])
-        except Exception:
-            logger.warning(
-                "conversations_ticket_cache_invalidate_failed",
-                ticket_id=item_id,
-                exc_info=True,
-            )
-
     transaction.on_commit(do_update)
 
 
@@ -81,6 +66,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
     We use pre_save to detect the change from deleted=False to deleted=True.
 
     Uses transaction.on_commit() to defer work and avoid blocking the request.
+    Cache invalidation not needed - short TTLs handle staleness.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -138,19 +124,6 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(
                     last_message_at=None,
                     last_message_text=None,
-                )
-
-            # Invalidate widget cache
-            invalidate_messages_cache(team_id, item_id)
-            try:
-                ticket = Ticket.objects.filter(id=item_id, team_id=team_id).values("widget_session_id").first()
-                if ticket:
-                    invalidate_tickets_cache(team_id, ticket["widget_session_id"])
-            except Exception:
-                logger.warning(
-                    "conversations_ticket_cache_invalidate_failed",
-                    ticket_id=item_id,
-                    exc_info=True,
                 )
 
         transaction.on_commit(do_soft_delete_update)

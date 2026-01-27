@@ -25,6 +25,7 @@ import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
     logic: revenueAnalyticsLogic,
+    productKey: ProductKey.REVENUE_ANALYTICS,
 }
 
 export const PRODUCT_KEY = ProductKey.REVENUE_ANALYTICS

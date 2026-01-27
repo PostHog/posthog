@@ -22,7 +22,8 @@ import { isTracesQuery } from '~/queries/utils'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { LLMAnalyticsSetupPrompt } from 'products/llm_analytics/frontend/LLMAnalyticsSetupPrompt'
 import { useTracesQueryContext } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
-import { llmAnalyticsLogic } from 'products/llm_analytics/frontend/llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from 'products/llm_analytics/frontend/llmAnalyticsSharedLogic'
+import { llmAnalyticsTracesTabLogic } from 'products/llm_analytics/frontend/tabs/llmAnalyticsTracesTabLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
@@ -36,9 +37,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
     const logicKey = getLogicKey({ groupKey, personId, tabId })
 
-    const logic = llmAnalyticsLogic({ logicKey, personId, group })
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
-    const { tracesQuery } = useValues(logic)
+    const sharedLogic = llmAnalyticsSharedLogic({ logicKey, personId, group })
+    const tracesLogic = llmAnalyticsTracesTabLogic({ personId, group })
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(sharedLogic)
+    const { setTracesQuery } = useActions(tracesLogic)
+    const { tracesQuery } = useValues(tracesLogic)
     const context = useTracesQueryContext()
     const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
     const { removeNode } = useActions(customerProfileLogic)
@@ -60,7 +63,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 
     return (
         <BindLogic logic={dataNodeLogic} props={{ key: logicKey }}>
-            <LLMAnalyticsSetupPrompt className="border-none">
+            <LLMAnalyticsSetupPrompt className="border-none" thing="trace">
                 <Query
                     uniqueKey={logicKey}
                     attachTo={attachTo}
@@ -91,10 +94,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 }
 
 const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLLMTraceAttributes>): JSX.Element => {
-    const { personId, groupKey, nodeId } = attributes
-    const logic = llmAnalyticsLogic({ logicKey: nodeId })
-    const { setDates, setPropertyFilters, setTracesQuery } = useActions(logic)
-    const { tracesQuery } = useValues(logic)
+    const { personId, groupKey, groupTypeIndex, nodeId } = attributes
+    const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
+    const sharedLogic = llmAnalyticsSharedLogic({ logicKey: nodeId, personId, group })
+    const tracesLogic = llmAnalyticsTracesTabLogic({ personId, group })
+    const { setDates, setPropertyFilters } = useActions(sharedLogic)
+    const { setTracesQuery } = useActions(tracesLogic)
+    const { tracesQuery } = useValues(tracesLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (

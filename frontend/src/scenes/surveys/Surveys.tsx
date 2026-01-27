@@ -33,12 +33,20 @@ import { SurveysTabs, surveysLogic } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
+    productKey: ProductKey.SURVEYS,
 }
 
 function NewSurveyButton(): JSX.Element {
     const { guidedEditorEnabled } = useValues(surveysLogic)
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
+
+    const trackAddNewClick = (): void => {
+        addProductIntent({
+            product_type: ProductKey.SURVEYS,
+            intent_context: ProductIntentContext.SURVEY_ADD_NEW,
+        })
+    }
 
     return (
         <MaxTool
@@ -95,6 +103,7 @@ function NewSurveyButton(): JSX.Element {
                         type="primary"
                         data-attr="new-survey"
                         tooltip="New survey"
+                        onClick={trackAddNewClick}
                     >
                         <span className="pr-3">New survey</span>
                     </LemonButton>
@@ -106,7 +115,6 @@ function NewSurveyButton(): JSX.Element {
 
 function Surveys(): JSX.Element {
     const { tab } = useValues(surveysLogic)
-
     const { setTab } = useActions(surveysLogic)
 
     return (
