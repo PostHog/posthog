@@ -72,7 +72,13 @@ export async function cdpTrackedFetch({
     if (shadowFetchContext.getStore()) {
         return {
             fetchError: null,
-            fetchResponse: { status: 200, headers: {} } as unknown as FetchResponse,
+            fetchResponse: {
+                status: 200,
+                headers: {},
+                text: () => Promise.resolve(''),
+                json: () => Promise.resolve(null),
+                dump: () => Promise.resolve(),
+            },
             fetchDuration: 0,
         }
     }
