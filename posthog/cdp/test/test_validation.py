@@ -480,6 +480,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("valid_bracket", "{person.properties['self-serve']}", False),
             ("hyphenated_single", "{person.properties.self-serve}", True),
             ("hyphenated_multi", "{event.properties.multi-word-name}", True),
+            ("subtraction_with_spaces", "{event.properties.count - total}", False),
+            ("subtraction_field_minus_field", "{event.properties.amount - event.properties.discount}", False),
         ]
     )
     def test_hyphenated_property_detection(self, _name, template, should_error):
@@ -499,6 +501,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         [
             ("valid_code", "let x := person.properties.email", False),
             ("hyphenated_code", "let x := person.properties.self-serve", True),
+            ("subtraction_code", "let x := event.properties.count - total", False),
         ]
     )
     def test_hyphenated_property_detection_in_hog(self, _name, hog_code, should_error):

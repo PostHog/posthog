@@ -46,6 +46,7 @@ class HyphenatedPropertyDetector(TraversingVisitor):
                 and len(node.left.chain) >= 2
                 and isinstance(node.right, ast.Field)
                 and len(node.right.chain) == 1
+                and self._is_hyphenated(node.left, node.right)
             ):
                 right_name = str(node.right.chain[0])
                 left_last = str(node.left.chain[-1])
@@ -55,6 +56,13 @@ class HyphenatedPropertyDetector(TraversingVisitor):
                     f"subtraction. Use bracket notation: "
                     f"{parent}['{left_last}-{right_name}']"
                 )
+
+    @staticmethod
+    def _is_hyphenated(left: ast.Field, right: ast.Field) -> bool:
+        """Check if the subtraction looks like a hyphenated property name (no spaces around the minus)."""
+        if left.end is not None and right.start is not None:
+            return right.start - left.end == 1
+        return True
 
 
 def collect_inputs(node: ast.Expr) -> set[str]:
