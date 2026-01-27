@@ -4,6 +4,7 @@ import logging
 from django.conf import settings
 
 import boto3
+import posthoganalytics
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
@@ -34,7 +35,7 @@ class SESProvider:
 
     def create_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
         # NOTE: For sesv1, domain Identity creation is done through verification
-        self.verify_email_domain(domain, mail_from_subdomain)
+        self.verify_email_domain(domain, mail_from_subdomain, team_id)
 
         # Create a tenant for the domain if not exists
         tenant_name = f"team-{team_id}"
@@ -54,7 +55,19 @@ class SESProvider:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
-    def verify_email_domain(self, domain: str, mail_from_subdomain: str):
+    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
+        mail_from_subdomain_enabled = posthoganalytics.feature_enabled(
+            "workflows-mail-from-domain",
+            str(team_id),
+            groups={"project": str(team_id)},
+            group_properties={
+                "project": {
+                    "id": str(team_id),
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
@@ -114,36 +127,37 @@ class SESProvider:
         )
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
-        try:
-            resp = self.ses_client.set_identity_mail_from_domain(
-                Identity=domain,
-                MailFromDomain=f"{mail_from_subdomain}.{domain}",
-                BehaviorOnMXFailure="UseDefaultValue",
+        if mail_from_subdomain_enabled:
+            try:
+                resp = self.ses_client.set_identity_mail_from_domain(
+                    Identity=domain,
+                    MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                    BehaviorOnMXFailure="UseDefaultValue",
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                    raise
+
+            ses_region = getattr(settings, "SES_REGION", "us-east-1")
+
+            dns_records.append(
+                {
+                    "type": "mail_from",
+                    "recordType": "MX",
+                    "recordHostname": f"{mail_from_subdomain}.{domain}",
+                    "recordValue": f"feedback-smtp.{ses_region}.amazonses.com",
+                    "status": "pending",
+                }
             )
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
-                raise
-
-        ses_region = getattr(settings, "SES_REGION", "us-east-1")
-
-        dns_records.append(
-            {
-                "type": "mail_from",
-                "recordType": "MX",
-                "recordHostname": f"{mail_from_subdomain}.{domain}",
-                "recordValue": f"feedback-smtp.{ses_region}.amazonses.com",
-                "status": "pending",
-            }
-        )
-        dns_records.append(
-            {
-                "type": "mail_from",
-                "recordType": "TXT",
-                "recordHostname": f"{mail_from_subdomain}.{domain}",
-                "recordValue": "v=spf1 include:amazonses.com ~all",
-                "status": "pending",
-            }
-        )
+            dns_records.append(
+                {
+                    "type": "mail_from",
+                    "recordType": "TXT",
+                    "recordHostname": f"{mail_from_subdomain}.{domain}",
+                    "recordValue": "v=spf1 include:amazonses.com ~all",
+                    "status": "pending",
+                }
+            )
 
         # Current verification / DKIM statuses to compute overall status & per-record statuses ---
         try:
@@ -160,18 +174,27 @@ class SESProvider:
         except ClientError:
             dkim_status = "Unknown"
 
-        try:
-            mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])
-            mail_from_status = (
-                mail_from_attrs["MailFromDomainAttributes"].get(domain, {}).get("MailFromDomainStatus", "Unknown")
-            )
-        except ClientError:
-            mail_from_status = "Unknown"
+        if mail_from_subdomain_enabled:
+            try:
+                mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])
+                mail_from_status = (
+                    mail_from_attrs["MailFromDomainAttributes"].get(domain, {}).get("MailFromDomainStatus", "Unknown")
+                )
+            except ClientError:
+                mail_from_status = "Unknown"
+
+        all_statuses = [verification_status, dkim_status]
+        if mail_from_subdomain_enabled:
+            all_statuses.append(mail_from_status)
 
         # Normalize overall status
-        if verification_status == "Success" and dkim_status == "Success" and mail_from_status == "Success":
+        if (
+            verification_status == "Success"
+            and dkim_status == "Success"
+            and (not mail_from_subdomain_enabled or mail_from_status == "Success")
+        ):
             overall = "success"
-        elif "Failed" in (verification_status, dkim_status, mail_from_status):
+        elif "Failed" in all_statuses:
             overall = "failed"
         else:
             overall = "pending"
@@ -187,7 +210,7 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "dkim":
                     r["status"] = "success"
-        if mail_from_status == "Success":
+        if mail_from_subdomain_enabled and mail_from_status == "Success":
             for r in dns_records:
                 if r["type"] == "mail_from":
                     r["status"] = "success"

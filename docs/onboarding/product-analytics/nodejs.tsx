@@ -1,8 +1,11 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { PersonProfiles } from './_snippets/person-profiles'
-import { StepDefinition } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getNodeJSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+import { StepDefinition } from '../steps'
+import { PersonProfiles } from './_snippets/person-profiles'
+
+export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install the package',
@@ -16,22 +19,22 @@ export const getNodeJSSteps = (CodeBlock: any, Markdown: any, dedent: any): Step
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install posthog-node
-                                `,
+                                npm install posthog-node
+                            `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-node
-                                `,
+                                yarn add posthog-node
+                            `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add posthog-node
-                                `,
+                                pnpm add posthog-node
+                            `,
                             },
                         ]}
                     />
@@ -50,15 +53,15 @@ export const getNodeJSSteps = (CodeBlock: any, Markdown: any, dedent: any): Step
                                 language: 'javascript',
                                 file: 'Node.js',
                                 code: dedent`
-                                    import { PostHog } from 'posthog-node'
+                                import { PostHog } from 'posthog-node'
 
-                                    const client = new PostHog(
-                                        '<ph_project_api_key>',
-                                        {
-                                            host: '<ph_client_api_host>'
-                                        }
-                                    )
-                                `,
+                                const client = new PostHog(
+                                    '<ph_project_api_key>',
+                                    {
+                                        host: '<ph_client_api_host>'
+                                    }
+                                )
+                            `,
                             },
                         ]}
                     />
@@ -70,24 +73,22 @@ export const getNodeJSSteps = (CodeBlock: any, Markdown: any, dedent: any): Step
             badge: 'recommended',
             content: (
                 <>
-                    <Markdown>
-                        Once installed, you can manually send events to test your integration:
-                    </Markdown>
+                    <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'javascript',
                                 file: 'Node.js',
                                 code: dedent`
-                                    client.capture({
-                                        distinctId: 'distinct_id_of_the_user',
-                                        event: 'event_name',
-                                        properties: {
-                                            property1: 'value',
-                                            property2: 'value',
-                                        },
-                                    })
-                                `,
+                                client.capture({
+                                    distinctId: 'distinct_id_of_the_user',
+                                    event: 'event_name',
+                                    properties: {
+                                        property1: 'value',
+                                        property2: 'value',
+                                    },
+                                })
+                            `,
                             },
                         ]}
                     />
@@ -98,17 +99,4 @@ export const getNodeJSSteps = (CodeBlock: any, Markdown: any, dedent: any): Step
     ]
 }
 
-export const NodeJSInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getNodeJSSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const NodeJSInstallation = createInstallation(getNodeJSSteps)

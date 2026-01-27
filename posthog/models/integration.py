@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 from urllib.parse import urlencode
 
+import posthoganalytics
+
 if TYPE_CHECKING:
     import aiohttp
 
@@ -111,6 +113,7 @@ class Integration(models.Model):
         DATABRICKS = "databricks"
         AZURE_BLOB = "azure-blob"
         FIREBASE = "firebase"
+        JIRA = "jira"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -201,6 +204,7 @@ class OauthIntegration:
         "intercom",
         "linear",
         "clickup",
+        "jira",
     ]
     integration: Integration
 
@@ -450,6 +454,22 @@ class OauthIntegration:
                 id_path="user.id",
                 name_path="user.email",
             )
+        elif kind == "jira":
+            if not settings.ATLASSIAN_APP_CLIENT_ID or not settings.ATLASSIAN_APP_CLIENT_SECRET:
+                raise NotImplementedError("Atlassian/Jira app not configured")
+
+            return OauthConfig(
+                authorize_url="https://auth.atlassian.com/authorize",
+                additional_authorize_params={"audience": "api.atlassian.com", "prompt": "consent"},
+                token_url="https://auth.atlassian.com/oauth/token",
+                token_info_url="https://api.atlassian.com/oauth/token/accessible-resources",
+                token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
+                client_id=settings.ATLASSIAN_APP_CLIENT_ID,
+                client_secret=settings.ATLASSIAN_APP_CLIENT_SECRET,
+                scope="read:jira-work write:jira-work offline_access",
+                id_path="cloud_id",
+                name_path="site_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -571,9 +591,32 @@ class OauthIntegration:
 
             if token_info_res.status_code == 200:
                 data = token_info_res.json()
-                if oauth_config.token_info_config_fields:
+
+                # Jira returns an array of accessible resources, extract the first one
+                if kind == "jira" and isinstance(data, list):
+                    if len(data) > 0:
+                        site = data[0]
+                        config["cloud_id"] = site.get("id")
+                        config["site_name"] = site.get("name")
+                        config["site_url"] = site.get("url")
+                    else:
+                        logger.error(
+                            "Jira OAuth returned empty accessible resources array - user may not have access to any Jira sites",
+                            kind=kind,
+                        )
+                        raise ValidationError(
+                            "No accessible Jira sites found. Please ensure your Atlassian account has access to at least one Jira site."
+                        )
+                elif oauth_config.token_info_config_fields:
                     for field in oauth_config.token_info_config_fields:
                         config[field] = dot_get(data, field)
+            else:
+                logger.error(
+                    f"OAuth token_info request failed for {kind}",
+                    token_info_url=oauth_config.token_info_url,
+                    status_code=token_info_res.status_code,
+                    response=token_info_res.text[:500],
+                )
 
         integration_id = dot_get(config, oauth_config.id_path)
 
@@ -635,7 +678,7 @@ class OauthIntegration:
             integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
-            raise Exception("Oauth error")
+            raise Exception(f"Oauth error: failed to extract integration ID for {kind}")
 
         # Handle TikTok's nested response format
         if kind == "tiktok-ads":
@@ -1371,7 +1414,7 @@ class EmailIntegration:
 
         return integration
 
-    def update_native_integration(self, config: dict) -> Integration:
+    def update_native_integration(self, config: dict, team_id: int) -> Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated
@@ -1382,8 +1425,20 @@ class EmailIntegration:
 
         # Update domain in the appropriate provider
         if provider == "ses":
-            ses = SESProvider()
-            ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+            mail_from_subdomain_enabled = posthoganalytics.feature_enabled(
+                "workflows-mail-from-domain",
+                str(team_id),
+                groups={"project": str(team_id)},
+                group_properties={
+                    "project": {
+                        "id": str(team_id),
+                    }
+                },
+                send_feature_flag_events=False,
+            )
+            if mail_from_subdomain_enabled:
+                ses = SESProvider()
+                ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -1406,7 +1461,9 @@ class EmailIntegration:
 
         # Use the appropriate provider for verification
         if provider == "ses":
-            verification_result = self.ses_provider.verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain)
+            verification_result = self.ses_provider.verify_email_domain(
+                domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
+            )
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
@@ -1473,6 +1530,121 @@ class LinearIntegration:
             json={"query": query},
         )
         return response.json()
+
+
+class JiraIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "jira":
+            raise Exception("JiraIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def cloud_id(self) -> str | None:
+        """Get the Atlassian cloud ID from the integration config"""
+        return dot_get(self.integration.config, "cloud_id")
+
+    def site_name(self) -> str | None:
+        """Get the Jira site name from the integration config"""
+        return dot_get(self.integration.config, "site_name")
+
+    def site_url(self) -> str:
+        """Get the Jira site URL from the integration config"""
+        return dot_get(self.integration.config, "site_url", "")
+
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+        """Check if the Atlassian access token has expired or is close to expiring"""
+        refresh_token = self.integration.sensitive_config.get("refresh_token")
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+
+        if not refresh_token:
+            return False
+
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be safe we refresh if it's halfway through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self) -> None:
+        """Refresh the Atlassian access token using the refresh token"""
+        oauth_integration = OauthIntegration(self.integration)
+        oauth_integration.refresh_access_token()
+
+    def _ensure_token_valid(self) -> None:
+        """Proactively refresh token if it's close to expiring to avoid intermittent 401s"""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
+
+    def list_projects(self) -> list[dict]:
+        """List all Jira projects accessible to the user"""
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/project/search",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+        )
+        body = response.json()
+        projects = body.get("values", [])
+        return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
+
+    def create_issue(self, config: dict[str, str]) -> dict[str, str]:
+        """Create a Jira issue and return the issue key"""
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        title = config.get("title")
+        description = config.get("description")
+        project_key = config.get("project_key")
+
+        # Jira uses Atlassian Document Format (ADF) for description
+        payload = {
+            "fields": {
+                "project": {"key": project_key},
+                "summary": title,
+                "description": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": description}],
+                        }
+                    ],
+                },
+                "issuetype": {"name": "Task"},
+            }
+        }
+
+        response = requests.post(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+        issue = response.json()
+        return {"key": issue.get("key", ""), "id": issue.get("id", "")}
 
 
 class GitHubIntegration:

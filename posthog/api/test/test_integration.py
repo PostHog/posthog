@@ -291,7 +291,9 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com", mail_from_subdomain="feedback")
+        mock_client.verify_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
+        )
 
         integration.refresh_from_db()
         assert integration.config == {
@@ -326,7 +328,9 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com", mail_from_subdomain="feedback")
+        mock_client.verify_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
+        )
 
         integration.refresh_from_db()
         assert integration.config == {

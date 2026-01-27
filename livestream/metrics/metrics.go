@@ -57,6 +57,10 @@ var (
 		},
 		[]string{"channel"},
 	)
+	GeoIPLookupFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_geoip_lookup_failures_total",
+		Help: "The total number of failed GeoIP lookups",
+	})
 
 	SessionRecordingMsgConsumed = promauto.NewCounterVec(
 		prometheus.CounterOpts{

@@ -141,11 +141,17 @@ class TestGetPartitionWhereClause:
 
 class TestEventsColumnsSchema:
     def test_events_columns_has_expected_columns(self):
-        columns_in_sql = {
-            col.strip().split()[0].rstrip(",") for col in EVENTS_COLUMNS.strip().split("\n") if col.strip()
-        }
-        columns_in_sql.discard("toInt64(team_id)")
-        columns_in_sql.add("project_id")
+        columns_in_sql = set()
+        for col in EVENTS_COLUMNS.strip().split("\n"):
+            if col.strip():
+                # Handle columns with 'AS' alias (e.g., "toString(uuid) as uuid")
+                if " as " in col.lower():
+                    # Extract the alias after 'as'
+                    alias = col.lower().split(" as ")[1].split(",")[0].strip()
+                    columns_in_sql.add(alias)
+                else:
+                    # No alias, use the column name directly
+                    columns_in_sql.add(col.strip().split()[0].rstrip(","))
 
         assert "uuid" in columns_in_sql
         assert "event" in columns_in_sql
@@ -184,5 +190,6 @@ class TestEventsColumnsSchema:
             "group4_created_at",
             "person_mode",
             "historical_migration",
+            "_inserted_at",
         }
         assert EXPECTED_DUCKLAKE_COLUMNS == export_columns

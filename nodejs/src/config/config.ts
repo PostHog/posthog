@@ -192,7 +192,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',
-        CDP_REDIS_PORT: 6479,
+        CDP_REDIS_PORT: 6379,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
@@ -237,7 +237,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-        INGESTION_JOINED_PIPELINE: false,
 
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
@@ -262,6 +261,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
+        SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: 3000, // Max burst of new sessions per team
+        SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: 300, // Sessions per second sustained rate
+        SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: false, // When true, drop messages that exceed limit. When false, dry run mode (metrics only)
+        SESSION_RECORDING_SESSION_FILTER_ENABLED: true, // When false, skip all Redis calls for session filtering
+        SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+        SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -328,7 +333,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
         LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
         LOGS_REDIS_HOST: '127.0.0.1',
-        LOGS_REDIS_PORT: 6479,
+        LOGS_REDIS_PORT: 6379,
         LOGS_REDIS_PASSWORD: '',
         LOGS_REDIS_TLS: isProdEnv() ? true : false,
         LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',

@@ -33,6 +33,7 @@ from posthog.models.integration import (
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     Integration,
+    JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
@@ -475,14 +476,20 @@ class IntegrationViewSet(
         github = GitHubIntegration(self.get_object())
         return Response({"repositories": github.list_repositories()})
 
+    @action(methods=["GET"], detail=True, url_path="jira_projects")
+    def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        jira = JiraIntegration(self.get_object())
+        return Response({"projects": jira.list_projects()})
+
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         email = EmailIntegration(self.get_object())
         verification_result = email.verify()
         return Response(verification_result)
 
+    @extend_schema(responses={200: IntegrationSerializer})
     @action(methods=["PATCH"], detail=True, url_path="email")
-    def email_update(self, request, **kwargs):
+    def email_update(self, request, **kwargs) -> Response:
         instance = self.get_object()
         config = request.data.get("config", {})
 
@@ -490,6 +497,6 @@ class IntegrationViewSet(
         serializer.is_valid(raise_exception=True)
 
         email = EmailIntegration(instance)
-        email.update_native_integration(serializer.validated_data)
+        email.update_native_integration(serializer.validated_data, instance.team_id)
 
         return Response(IntegrationSerializer(email.integration).data)
