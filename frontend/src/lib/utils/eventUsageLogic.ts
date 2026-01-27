@@ -429,12 +429,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ insight, dashboardId }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
-        reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
         reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
+        reportExperimentPaused: (experiment: Experiment) => ({ experiment }),
+        reportExperimentResumed: (experiment: Experiment) => ({ experiment }),
         reportExperimentReset: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentUpdated: (experiment: Experiment) => ({ experiment }),
@@ -1102,9 +1103,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightTabChanged: ({ tab }) => {
             posthog.capture('saved insights list page tab changed', { tab })
         },
-        reportSavedInsightLayoutChanged: ({ layout }) => {
-            posthog.capture('saved insights list page layout changed', { layout })
-        },
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
@@ -1139,6 +1137,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
+        reportExperimentPaused: ({ experiment }) => {
+            posthog.capture('experiment paused', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
+        reportExperimentResumed: ({ experiment }) => {
+            posthog.capture('experiment resumed', {
                 ...getEventPropertiesForExperiment(experiment),
             })
         },

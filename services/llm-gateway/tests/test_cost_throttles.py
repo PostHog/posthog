@@ -5,11 +5,11 @@ from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 
 
-def make_user(user_id: int = 1, team_id: int = 1) -> AuthenticatedUser:
+def make_user(user_id: int = 1, team_id: int = 1, auth_method: str = "oauth_access_token") -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=user_id,
         team_id=team_id,
-        auth_method="personal_api_key",
+        auth_method=auth_method,
         distinct_id=f"test-distinct-id-{user_id}",
         scopes=["llm_gateway:read"],
     )
@@ -18,10 +18,16 @@ def make_user(user_id: int = 1, team_id: int = 1) -> AuthenticatedUser:
 def make_context(
     user: AuthenticatedUser | None = None,
     product: str = "llm_gateway",
+    end_user_id: str | None = None,
 ) -> ThrottleContext:
+    user = user or make_user()
+    # For OAuth, end_user_id defaults to user_id (as set in dependencies.py)
+    if end_user_id is None and user.auth_method == "oauth_access_token":
+        end_user_id = str(user.user_id)
     return ThrottleContext(
-        user=user or make_user(),
+        user=user,
         product=product,
+        end_user_id=end_user_id,
     )
 
 
@@ -36,14 +42,14 @@ class TestProductCostLimitConfig:
     def test_parses_json_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
             "LLM_GATEWAY_PRODUCT_COST_LIMITS",
-            '{"wizard": {"limit_usd": 100, "window_seconds": 86400}, "array": {"limit_usd": 50, "window_seconds": 14400}}',
+            '{"wizard": {"limit_usd": 100, "window_seconds": 86400}, "twig": {"limit_usd": 50, "window_seconds": 14400}}',
         )
         get_settings.cache_clear()
         settings = get_settings()
         assert settings.product_cost_limits["wizard"].limit_usd == 100.0
         assert settings.product_cost_limits["wizard"].window_seconds == 86400
-        assert settings.product_cost_limits["array"].limit_usd == 50.0
-        assert settings.product_cost_limits["array"].window_seconds == 14400
+        assert settings.product_cost_limits["twig"].limit_usd == 50.0
+        assert settings.product_cost_limits["twig"].window_seconds == 14400
         get_settings.cache_clear()
 
     def test_default_user_cost_settings(self) -> None:
@@ -85,15 +91,15 @@ class TestProductCostThrottle:
         throttle = ProductCostThrottle(redis=None)
 
         ctx_wizard = make_context(product="wizard")
-        ctx_array = make_context(product="array")
+        ctx_twig = make_context(product="twig")
 
         await throttle.record_cost(ctx_wizard, 500.0)
 
         result_wizard = await throttle.allow_request(ctx_wizard)
-        result_array = await throttle.allow_request(ctx_array)
+        result_twig = await throttle.allow_request(ctx_twig)
 
         assert result_wizard.allowed is False
-        assert result_array.allowed is True
+        assert result_twig.allowed is True
 
     @pytest.mark.asyncio
     async def test_cache_key_format(self) -> None:
@@ -161,15 +167,31 @@ class TestUserCostThrottle:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_cache_key_includes_user_id(self) -> None:
+    async def test_cache_key_includes_end_user_id(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         throttle = UserCostThrottle(redis=None)
         user = make_user(user_id=42)
-        context = make_context(user=user)
+        context = make_context(user=user, end_user_id="42")
 
         key = throttle._get_cache_key(context)
         assert key == "cost:user:42"
+
+    @pytest.mark.asyncio
+    async def test_skips_rate_limiting_without_end_user_id(self) -> None:
+        get_settings.cache_clear()
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        throttle = UserCostThrottle(redis=None)
+        user = make_user(user_id=1, auth_method="personal_api_key")
+        context = make_context(user=user, end_user_id=None)
+
+        await throttle.record_cost(context, 1000.0)
+        result = await throttle.allow_request(context)
+
+        assert result.allowed is True
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_allows_when_limits_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:

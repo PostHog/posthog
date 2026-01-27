@@ -6424,8 +6424,8 @@ class TestReconciliationSchedulerSensor:
         assert isinstance(result, SensorResult)
         assert result.run_requests is not None
         assert len(result.run_requests) == 2
-        assert result.run_requests[0].run_key == "reconcile_teams_1_1000"
-        assert result.run_requests[1].run_key == "reconcile_teams_1001_2000"
+        assert result.run_requests[0].tags["reconciliation_range"] == "1-1000"
+        assert result.run_requests[1].tags["reconciliation_range"] == "1001-2000"
 
         assert result.cursor is not None
         new_cursor = json.loads(result.cursor)
@@ -6458,7 +6458,7 @@ class TestReconciliationSchedulerSensor:
         assert isinstance(result, SensorResult)
         assert result.run_requests is not None
         assert len(result.run_requests) == 1
-        assert result.run_requests[0].run_key == "reconcile_teams_1001_1500"
+        assert result.run_requests[0].tags["reconciliation_range"] == "1001-1500"
 
         assert result.cursor is not None
         new_cursor = json.loads(result.cursor)
@@ -6721,10 +6721,10 @@ class TestReconciliationSchedulerSensor:
         assert isinstance(result, SensorResult)
         assert result.run_requests is not None
         assert len(result.run_requests) == 4  # 10 teams / 3 per chunk = 4 chunks (3+3+3+1)
-        assert result.run_requests[0].run_key == "reconcile_team_ids_0_2"
-        assert result.run_requests[1].run_key == "reconcile_team_ids_3_5"
-        assert result.run_requests[2].run_key == "reconcile_team_ids_6_8"
-        assert result.run_requests[3].run_key == "reconcile_team_ids_9_9"
+        assert result.run_requests[0].tags["reconciliation_team_ids_range"] == "0-2"
+        assert result.run_requests[1].tags["reconciliation_team_ids_range"] == "3-5"
+        assert result.run_requests[2].tags["reconciliation_team_ids_range"] == "6-8"
+        assert result.run_requests[3].tags["reconciliation_team_ids_range"] == "9-9"
 
         # Verify first run config has correct team_ids chunk
         first_run_config = result.run_requests[0].run_config

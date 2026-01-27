@@ -2881,6 +2881,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'settings'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -4770,6 +4771,7 @@ export const externalDataSources = [
     'TikTokAds',
     'BingAds',
     'Shopify',
+    'SnapchatAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5175,8 +5177,9 @@ export enum ProductKey {
     MOBILE_REPLAY = 'mobile_replay',
     NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',
-    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_BATCH_EXPORTS = 'pipeline_batch_exports',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
@@ -5256,7 +5259,8 @@ export enum ProductIntentContext {
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
 
     // Surveys
-    SURVEYS_VIEWED = 'surveys_viewed', // deprecated, not used anymore
+    SURVEYS_VIEWED = 'surveys_viewed',
+    SURVEY_ADD_NEW = 'survey_add_new',
     SURVEY_CREATED = 'survey_created',
     SURVEY_LAUNCHED = 'survey_launched',
     SURVEY_VIEWED = 'survey_viewed',
@@ -5302,6 +5306,7 @@ export enum ProductIntentContext {
 
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
+    BATCH_EXPORT_CREATED = 'batch_export_created',
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',

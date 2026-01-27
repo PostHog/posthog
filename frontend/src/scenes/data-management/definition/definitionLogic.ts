@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -6,11 +6,10 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AvailableFeature, Breadcrumb, Definition, EventDefinitionMetrics, PropertyDefinition } from '~/types'
+import { Breadcrumb, Definition, EventDefinitionMetrics, PropertyDefinition } from '~/types'
 
 import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
@@ -42,9 +41,6 @@ export const definitionLogic = kea<definitionLogicType>([
         loadMetrics: (id: Definition['id']) => ({ id }),
         setDefinitionMissing: true,
     }),
-    connect(() => ({
-        values: [userLogic, ['hasAvailableFeature']],
-    })),
     reducers(() => ({
         definitionMissing: [
             false,
@@ -115,10 +111,6 @@ export const definitionLogic = kea<definitionLogicType>([
         ],
     })),
     selectors({
-        hasTaxonomyFeatures: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
-        ],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.includes(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],
