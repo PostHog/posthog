@@ -707,7 +707,8 @@ function StickyActionBar(): JSX.Element {
                                 addMessage()
                                 scrollToBottom()
                             }}
-                            disabled={submitting}
+                            disabledReason={submitting ? 'Generating...' : undefined}
+                            data-attr="ai-playground-run-button"
                         >
                             Add message
                         </LemonButton>
@@ -716,7 +717,13 @@ function StickyActionBar(): JSX.Element {
                             status="danger"
                             icon={<IconTrash />}
                             onClick={clearConversation}
-                            disabled={submitting || messages.length === 0}
+                            disabledReason={
+                                messages.length === 0
+                                    ? 'Add messages to start the conversation'
+                                    : submitting
+                                      ? 'Generating...'
+                                      : undefined
+                            }
                             tooltip="Clear all messages"
                         >
                             Clear all

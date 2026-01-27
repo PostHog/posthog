@@ -1,7 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getJSWebSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
+export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -44,9 +47,7 @@ export const getJSWebSteps = (CodeBlock: any, Markdown: any, dedent: any, snippe
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Import and initialize the PostHog library with your project API key and host:
-                    </Markdown>
+                    <Markdown>Import and initialize the PostHog library with your project API key and host:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -82,17 +83,4 @@ export const getJSWebSteps = (CodeBlock: any, Markdown: any, dedent: any, snippe
     ]
 }
 
-export const JSWebInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getJSWebSteps(CodeBlock, Markdown, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const JSWebInstallation = createInstallation(getJSWebSteps)

@@ -303,7 +303,6 @@ posthog/cache_utils.py:0: error: Arguments not allowed after ParamSpec.args  [va
 posthog/caching/calculate_results.py:0: error: Argument 2 to "process_query_dict" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
 posthog/caching/insight_cache.py:0: error: Argument 2 to "process_query_dict" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
 posthog/caching/insight_caching_state.py:0: error: Argument "params" to "execute" of "CursorWrapper" has incompatible type "list[object]"; expected "Sequence[bool | int | float | Decimal | str | <6 more items> | None] | Mapping[str, bool | int | float | Decimal | str | <6 more items> | None] | None | None"  [arg-type]
-posthog/caching/insights_api.py:0: error: Unsupported operand types for >= ("datetime" and "None")  [operator]
 posthog/caching/warming.py:0: error: Argument 2 to "process_query_dict" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
 posthog/clickhouse/client/tracing.py:0: error: Argument 2 to "set_attribute" of "Span" has incompatible type "Any | None"; expected "str | bool | int | float | Sequence[str] | Sequence[bool] | Sequence[int] | Sequence[float]"  [arg-type]
 posthog/dags/backfill_materialized_column.py:0: error: "str" has no attribute "strftime"  [attr-defined]
