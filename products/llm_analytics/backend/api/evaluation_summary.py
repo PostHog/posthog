@@ -407,7 +407,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
                 evaluation_name=evaluation.name,
                 evaluation_description=evaluation.description or "",
                 evaluation_prompt=evaluation.evaluation_config.get("prompt", ""),
-                user_distinct_id=user.distinct_id,
+                user_distinct_id=user.distinct_id or "",
             )
             duration_seconds = time.time() - start_time
 
