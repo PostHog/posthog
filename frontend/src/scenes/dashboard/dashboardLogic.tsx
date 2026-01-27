@@ -1607,7 +1607,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // REFRESH DONE: all insights have been refreshed
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
-                if (forceRefresh) {
+                // and all tiles were refreshed
+                if (forceRefresh && tilesAbortedCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
