@@ -85,7 +85,20 @@ Narrow.args = {
     children: 'This is a one-time message. Acknowledge it and move on with your life.',
 }
 
-export const WarningWithAction: Story = WideTemplate.bind({})
+const SceneWidthTemplate: StoryFn<typeof LemonBanner> = (props: LemonBannerProps) => {
+    return (
+        <div id="target" className="w-200">
+            <LemonBanner {...props} />
+        </div>
+    )
+}
+SceneWidthTemplate.parameters = {
+    testOptions: {
+        snapshotTargetSelector: '#target',
+    },
+}
+
+export const WarningWithAction: Story = SceneWidthTemplate.bind({})
 WarningWithAction.args = {
     type: 'warning',
     children: (
