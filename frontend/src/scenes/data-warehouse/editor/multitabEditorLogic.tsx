@@ -50,6 +50,13 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
+import {
+    getStateIndicators,
+    getUrlIndicators,
+    needsStateReset,
+    shouldOpenFromHashParams,
+    shouldSkipUrlAction,
+} from './editorUrlUtils'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
@@ -1131,33 +1138,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
-            // If the URL doesn't indicate we should be editing a view/insight/draft,
-            // but our current state has one, we need to clear it
-            const urlIndicatesView = searchParams.open_view || hashParams.view
-            const urlIndicatesInsight = searchParams.open_insight || hashParams.insight
-            const urlIndicatesDraft = searchParams.open_draft || hashParams.draft
-            const stateHasView = values.activeTab?.view
-            const stateHasInsight = values.activeTab?.insight
-            const stateHasDraft = values.activeTab?.draft
+            const urlParams = { searchParams, hashParams }
+            const editorState = { queryInput: values.queryInput, activeTab: values.activeTab }
 
-            // If URL indicates no view/insight/draft but state has one, we need to reset
-            const needsReset =
-                (!urlIndicatesView && stateHasView) ||
-                (!urlIndicatesInsight && stateHasInsight) ||
-                (!urlIndicatesDraft && stateHasDraft)
+            const urlIndicators = getUrlIndicators(urlParams)
+            const stateIndicators = getStateIndicators(editorState)
+            const needsReset = needsStateReset(urlIndicators, stateIndicators)
 
-            if (
-                !searchParams.open_query &&
-                !searchParams.open_view &&
-                !searchParams.open_insight &&
-                !searchParams.open_draft &&
-                !searchParams.output_tab &&
-                !hashParams.q &&
-                !hashParams.view &&
-                !hashParams.insight &&
-                values.queryInput !== null &&
-                !needsReset
-            ) {
+            if (shouldSkipUrlAction(urlParams, editorState, needsReset)) {
                 return
             }
 
@@ -1171,7 +1159,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setIsUpdateMode(true)
                     actions.setSelectedEndpointName(searchParams.endpoint_name)
                 }
-                if (searchParams.open_draft || (hashParams.draft && (values.queryInput === null || needsReset))) {
+                if (
+                    searchParams.open_draft ||
+                    shouldOpenFromHashParams(hashParams.draft, values.queryInput, needsReset)
+                ) {
                     const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {
                         return draft.id === draftId
@@ -1196,7 +1187,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         }
                     }
                     return
-                } else if (searchParams.open_view || (hashParams.view && (values.queryInput === null || needsReset))) {
+                } else if (
+                    searchParams.open_view ||
+                    shouldOpenFromHashParams(hashParams.view, values.queryInput, needsReset)
+                ) {
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
@@ -1227,7 +1221,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (
                     searchParams.open_insight ||
-                    (hashParams.insight && (values.queryInput === null || needsReset))
+                    shouldOpenFromHashParams(hashParams.insight, values.queryInput, needsReset)
                 ) {
                     const shortId = searchParams.open_insight || hashParams.insight
                     if (shortId === 'new') {
@@ -1287,8 +1281,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                } else if (hashParams.q && (values.queryInput === null || needsReset)) {
-                    // Opening the tab or resetting state when URL no longer indicates view/insight/draft
+                } else if (shouldOpenFromHashParams(hashParams.q, values.queryInput, needsReset)) {
                     actions.createTab(hashParams.q)
                     tabAdded = true
                 } else if (values.queryInput === null || needsReset) {
