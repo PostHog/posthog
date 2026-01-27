@@ -193,10 +193,10 @@ async def temporal_schedule_every_5_minutes(temporal_client, ateam):
 
 
 @pytest.fixture
-async def temporal_schedule_hourly(temporal_client, team):
+async def temporal_schedule_hourly(temporal_client, ateam):
     """Manage a test Temporal Schedule with interval 'hour'."""
     batch_export = await acreate_batch_export(
-        team_id=team.pk,
+        team_id=ateam.pk,
         name="no-op-export-hourly",
         destination_data={
             "type": "NoOp",
