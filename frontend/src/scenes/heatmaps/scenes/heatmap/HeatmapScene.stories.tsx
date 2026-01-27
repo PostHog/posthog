@@ -78,7 +78,7 @@ export const IframeExample: Story = {
     parameters: {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
-            waitForSelector: '.heatmaps-ready',
+            waitForSelector: '[data-attr=heatmap-canvas] canvas',
             waitForLoadersToDisappear: true,
             skipIframeWait: true,
         },
@@ -87,7 +87,7 @@ export const IframeExample: Story = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/saved/hm_iframe/': iframeSaved,
-                '/api/heatmap': (_req, res, ctx) =>
+                '/api/heatmap/': (_req, res, ctx) =>
                     res(
                         ctx.status(200),
                         ctx.json({
