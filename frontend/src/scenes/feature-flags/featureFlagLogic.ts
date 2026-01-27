@@ -381,6 +381,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
+        // Track which fields have been manually edited by the user (not by templates)
+        markFieldAsEdited: (field: string) => ({ field }),
+        resetEditedFields: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -704,6 +707,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             [] as string[],
             {
                 setOpenVariants: (_, { openVariants }) => openVariants,
+            },
+        ],
+        // Track which fields have been manually edited by the user
+        userEditedFields: [
+            new Set<string>() as Set<string>,
+            {
+                markFieldAsEdited: (state, { field }) => new Set([...state, field]),
+                resetEditedFields: () => new Set<string>(),
+                // Reset when loading a new flag
+                loadFeatureFlagSuccess: () => new Set<string>(),
             },
         ],
     }),
@@ -1225,15 +1238,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.editFeatureFlag(false)
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
         },
-        saveFeatureFlagFailure: ({ error, errorObject }) => {
+        saveFeatureFlagFailure: ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 // Redirect to detail page so user can see the CR banner
                 router.actions.replace(urls.featureFlag(values.featureFlag.id))
                 actions.editFeatureFlag(false)
                 return
             }
-
-            lemonToast.error(`Failed to save flag: ${error}`)
+            // Note: Error toast is handled by the global error handler in initKea.ts
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {

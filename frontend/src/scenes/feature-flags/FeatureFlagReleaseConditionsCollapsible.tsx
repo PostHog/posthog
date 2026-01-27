@@ -191,9 +191,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     const handleAddConditionSet = (): void => {
         addConditionSet()
-        // Open the new condition set and close others
+        // Open the new condition set while keeping existing ones open
         const newIndex = filterGroups.length
-        setOpenConditions([`condition-${newIndex}`])
+        setOpenConditions((prev) => [...prev, `condition-${newIndex}`])
     }
 
     if (readOnly) {

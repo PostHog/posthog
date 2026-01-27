@@ -32,6 +32,7 @@ import {
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
@@ -72,6 +73,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         loadFeatureFlag,
         setShowImplementation,
         setOpenVariants,
+        markFieldAsEdited,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
@@ -237,9 +239,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     {isNewFeatureFlag && <FeatureFlagTemplates />}
 
                     {/* Two-column layout */}
-                    <div className={`flex gap-4 flex-wrap ${!isNewFeatureFlag ? 'mt-4' : ''}`}>
-                        {/* Left column - narrow */}
-                        <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
+                    <div className="flex gap-4 flex-wrap items-start">
+                        {/* Left column - narrow, sticky */}
+                        <div className="flex-1 min-w-[20rem] flex flex-col gap-4 sticky top-4 self-start">
                             {/* Main settings card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                 <LemonField
@@ -255,6 +257,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         autoCorrect="off"
                                         spellCheck={false}
                                         placeholder="Enter a unique key - e.g. new-landing-page, betaFeature, ab_test_1"
+                                        onFocus={() => markFieldAsEdited('key')}
                                     />
                                 </LemonField>
 
@@ -263,6 +266,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         className="ph-ignore-input"
                                         data-attr="feature-flag-description"
                                         placeholder="(Optional) A description of the feature flag for your reference."
+                                        onFocus={() => markFieldAsEdited('name')}
                                     />
                                 </LemonField>
 
@@ -276,7 +280,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         >
                                             <LemonSwitch
                                                 checked={value}
-                                                onChange={onChange}
+                                                onChange={(newValue) => {
+                                                    markFieldAsEdited('active')
+                                                    onChange(newValue)
+                                                }}
                                                 label={
                                                     <span className="flex items-center">
                                                         <span>Enabled</span>
@@ -432,7 +439,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             {/* Flag type card */}
                             <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
                                 <div className="flex flex-col gap-2">
-                                    <LemonLabel>Flag type</LemonLabel>
+                                    <LemonLabel info="Changing flag type may clear existing configuration. Switching from Multivariate will remove all variants and their payloads. Switching from Remote config or Boolean will remove the payload.">
+                                        Flag type
+                                    </LemonLabel>
                                     <LemonSelect
                                         fullWidth
                                         value={
@@ -626,7 +635,26 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 status="danger"
                                                                 size="small"
                                                                 icon={<IconTrash />}
-                                                                onClick={() => removeVariant(index)}
+                                                                onClick={() => {
+                                                                    const variantKey =
+                                                                        variant.key || `Variant ${index + 1}`
+                                                                    const hasPayload =
+                                                                        !!featureFlag.filters?.payloads?.[variant.key]
+                                                                    LemonDialog.open({
+                                                                        title: `Remove variant "${variantKey}"?`,
+                                                                        description: hasPayload
+                                                                            ? 'This variant has a payload configured. Both the variant and its payload will be deleted.'
+                                                                            : 'This action cannot be undone.',
+                                                                        primaryButton: {
+                                                                            children: 'Remove variant',
+                                                                            status: 'danger',
+                                                                            onClick: () => removeVariant(index),
+                                                                        },
+                                                                        secondaryButton: {
+                                                                            children: 'Cancel',
+                                                                        },
+                                                                    })
+                                                                }}
                                                             >
                                                                 Remove variant
                                                             </LemonButton>
@@ -690,7 +718,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <FeatureFlagReleaseConditionsCollapsible
                                         id={String(props.id)}
                                         filters={featureFlag.filters}
-                                        onChange={setFeatureFlagFilters}
+                                        onChange={(filters, errors) => {
+                                            markFieldAsEdited('filters')
+                                            setFeatureFlagFilters(filters, errors)
+                                        }}
                                     />
                                 </div>
                             )}
