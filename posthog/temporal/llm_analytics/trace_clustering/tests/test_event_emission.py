@@ -102,9 +102,9 @@ class TestBuildClusterData:
         )
 
         # Rank 0 should be trace_close (lowest distance)
-        assert clusters[0].traces["trace_close"]["rank"] == 0
-        assert clusters[0].traces["trace_mid"]["rank"] == 1
-        assert clusters[0].traces["trace_far"]["rank"] == 2
+        assert clusters[0].traces["trace_close"].rank == 0
+        assert clusters[0].traces["trace_mid"].rank == 1
+        assert clusters[0].traces["trace_far"].rank == 2
 
     def test_handles_noise_cluster(self):
         labels = [0, -1, -1]  # One regular cluster, two noise points
@@ -170,9 +170,9 @@ class TestBuildClusterData:
 
         noise_cluster = clusters[0]  # Only noise cluster since all points are noise
         # For noise, rank 0 should be the most anomalous (highest min distance)
-        assert noise_cluster.traces["trace_far"]["rank"] == 0
-        assert noise_cluster.traces["trace_mid"]["rank"] == 1
-        assert noise_cluster.traces["trace_close"]["rank"] == 2
+        assert noise_cluster.traces["trace_far"].rank == 0
+        assert noise_cluster.traces["trace_mid"].rank == 1
+        assert noise_cluster.traces["trace_close"].rank == 2
 
     def test_uses_default_labels_when_not_provided(self):
         labels = [0, 1]
@@ -224,7 +224,7 @@ class TestBuildClusterData:
             item_timestamps=item_timestamps,
         )
 
-        assert clusters[0].traces["trace_0"]["timestamp"] == "2025-01-05T10:30:00"
+        assert clusters[0].traces["trace_0"].timestamp == "2025-01-05T10:30:00"
 
     def test_handles_empty_cluster(self):
         labels = [0, 0]  # All in cluster 0, none in cluster 1

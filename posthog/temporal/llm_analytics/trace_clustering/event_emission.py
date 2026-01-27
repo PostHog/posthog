@@ -214,9 +214,8 @@ def _build_cluster_data(
                 y=t["y"],
                 timestamp=t["timestamp"],
                 trace_id=t["trace_id"],
+                generation_id=t["generation_id"],
             )
-            if t["generation_id"]:
-                metadata["generation_id"] = t["generation_id"]
             traces_dict[key] = metadata
 
         if cluster_id in cluster_labels:
@@ -279,9 +278,8 @@ def _build_cluster_data(
                 y=t["y"],
                 timestamp=t["timestamp"],
                 trace_id=t["trace_id"],
+                generation_id=t["generation_id"],
             )
-            if t["generation_id"]:
-                metadata["generation_id"] = t["generation_id"]
             noise_traces_dict[key] = metadata
 
         # Compute centroid as mean of noise points for visualization

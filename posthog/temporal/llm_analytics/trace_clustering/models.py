@@ -87,7 +87,8 @@ class ClusterLabel:
     description: str
 
 
-class TraceClusterMetadata(TypedDict, total=False):
+@dataclass
+class TraceClusterMetadata:
     """Metadata for a trace or generation within a cluster.
 
     For trace-level: trace_id is set, generation_id is None
@@ -100,7 +101,7 @@ class TraceClusterMetadata(TypedDict, total=False):
     y: float  # UMAP 2D y coordinate for scatter plot visualization
     timestamp: str  # First event timestamp of the trace/generation (ISO format) for efficient linking
     trace_id: str  # Always set - the trace ID (or parent trace for generations)
-    generation_id: str  # Only set for generation-level clustering
+    generation_id: str | None = None  # Only set for generation-level clustering
 
 
 @dataclass
