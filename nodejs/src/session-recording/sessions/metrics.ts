@@ -76,6 +76,7 @@ export class SessionBatchMetrics {
     private static readonly newSessionsRateLimited = new Counter({
         name: 'recording_blob_ingestion_v2_new_sessions_rate_limited_total',
         help: 'Number of new sessions that were rate limited',
+        labelNames: ['team_id'],
     })
 
     private static readonly sessionTrackerCacheHit = new Counter({
@@ -170,8 +171,8 @@ export class SessionBatchMetrics {
         this.newSessionsDetected.inc(count)
     }
 
-    public static incrementNewSessionsRateLimited(count: number = 1): void {
-        this.newSessionsRateLimited.inc(count)
+    public static incrementNewSessionsRateLimited(teamId: number, count: number = 1): void {
+        this.newSessionsRateLimited.labels({ team_id: teamId }).inc(count)
     }
 
     public static incrementSessionTrackerCacheHit(count: number = 1): void {
