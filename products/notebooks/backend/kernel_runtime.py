@@ -15,7 +15,9 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.models import User
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.models import Team, User
 from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
@@ -66,6 +68,59 @@ class KernelExecutionResult:
                 "sandbox_id": self.kernel_runtime.sandbox_id,
             },
         }
+
+
+@dataclass
+class _NotebookBridgeParser:
+    marker: str
+    buffer: str = ""
+
+    def feed(self, text: str) -> tuple[str, list[str]]:
+        self.buffer += text
+        output_parts: list[str] = []
+        payloads: list[str] = []
+
+        while True:
+            marker_index = self.buffer.find(self.marker)
+            if marker_index == -1:
+                if len(self.buffer) > len(self.marker):
+                    output_parts.append(self.buffer[: -len(self.marker)])
+                    self.buffer = self.buffer[-len(self.marker) :]
+                return "".join(output_parts), payloads
+
+            if marker_index > 0:
+                output_parts.append(self.buffer[:marker_index])
+                self.buffer = self.buffer[marker_index:]
+
+            size_start = len(self.marker)
+            size_end = size_start
+            while size_end < len(self.buffer) and self.buffer[size_end].isdigit():
+                size_end += 1
+            if size_end == size_start or size_end >= len(self.buffer):
+                break
+
+            if self.buffer[size_end] != " ":
+                output_parts.append(self.buffer[: len(self.marker)])
+                self.buffer = self.buffer[len(self.marker) :]
+                continue
+
+            size = int(self.buffer[size_start:size_end])
+            payload_start = size_end + 1
+            payload_end = payload_start + size
+            if len(self.buffer) < payload_end:
+                break
+
+            payloads.append(self.buffer[payload_start:payload_end])
+            self.buffer = self.buffer[payload_end:]
+            if self.buffer.startswith("\n"):
+                self.buffer = self.buffer[1:]
+
+        return "".join(output_parts), payloads
+
+    def flush(self) -> str:
+        remaining = self.buffer
+        self.buffer = ""
+        return remaining
 
 
 @dataclass
@@ -372,6 +427,99 @@ class KernelRuntimeService:
                 payload["type"] = type_name
         return parsed or None
 
+    def _notebook_bridge_marker(self, handle: _KernelHandle) -> str:
+        sandbox_id = handle.sandbox_id or "unknown"
+        return f"__NOTEBOOK_BRIDGE_{sandbox_id}__"
+
+    def _strip_notebook_bridge_messages(self, text: str, marker: str) -> str:
+        parser = _NotebookBridgeParser(marker=marker)
+        filtered, _ = parser.feed(text)
+        return filtered + parser.flush()
+
+    def _handle_notebook_bridge_payload(self, payload_json: str, handle: _KernelHandle) -> None:
+        try:
+            payload = json.loads(payload_json)
+        except json.JSONDecodeError:
+            logger.warning(
+                "notebook_bridge_payload_invalid",
+                payload=payload_json[:200],
+                sandbox_id=handle.sandbox_id,
+            )
+            return
+
+        query = payload.get("query")
+        response_path = payload.get("response_path")
+        if not isinstance(query, str) or not isinstance(response_path, str) or not response_path:
+            logger.warning(
+                "notebook_bridge_payload_missing_fields",
+                payload=payload,
+                sandbox_id=handle.sandbox_id,
+            )
+            return
+
+        if not handle.sandbox_id:
+            logger.warning(
+                "notebook_bridge_missing_sandbox",
+                sandbox_id=handle.sandbox_id,
+                team_id=handle.runtime.team_id,
+            )
+            return
+
+        try:
+            team = Team.objects.get(id=handle.runtime.team_id)
+        except Team.DoesNotExist:
+            logger.warning(
+                "notebook_bridge_team_missing",
+                team_id=handle.runtime.team_id,
+                sandbox_id=handle.sandbox_id,
+            )
+            return
+
+        try:
+            response = execute_hogql_query(query=query, team=team)
+            if hasattr(response, "model_dump"):
+                response_payload = response.model_dump(exclude_none=True)
+            else:
+                response_payload = response.dict(exclude_none=True)
+            del response_payload["clickhouse"]
+            del response_payload["timings"]
+            del response_payload["modifiers"]
+            del response_payload["hogql"]
+        except Exception as err:
+            logger.exception(
+                "notebook_bridge_query_failed",
+                sandbox_id=handle.sandbox_id,
+                team_id=handle.runtime.team_id,
+            )
+            response_payload = {"error": str(err)}
+
+        response_json = json.dumps(response_payload, ensure_ascii=False, default=str)
+        response_bytes = response_json.encode("utf-8")
+        response_blob = f"{len(response_bytes)}\n".encode() + response_bytes
+        encoded_response = base64.b64encode(response_blob).decode("utf-8")
+
+        command = (
+            "python3 - <<'EOF_NOTEBOOK_BRIDGE'\n"
+            "import base64\n"
+            "from pathlib import Path\n"
+            f"payload = base64.b64decode('{encoded_response}')\n"
+            f"path = Path({json.dumps(response_path)})\n"
+            "path.parent.mkdir(parents=True, exist_ok=True)\n"
+            "path.write_bytes(payload)\n"
+            "EOF_NOTEBOOK_BRIDGE"
+        )
+
+        sandbox_class = self._get_sandbox_class(handle.backend)
+        sandbox = sandbox_class.get_by_id(handle.sandbox_id)
+        result = sandbox.execute(command, timeout_seconds=int(self._execution_timeout))
+        if result.exit_code != 0:
+            logger.warning(
+                "notebook_bridge_response_write_failed",
+                stdout=result.stdout,
+                stderr=result.stderr,
+                sandbox_id=handle.sandbox_id,
+            )
+
     def _extract_user_expression_text(self, payload: dict[str, Any]) -> str | None:
         data = payload.get("data")
         if not isinstance(data, dict):
@@ -600,7 +748,7 @@ class KernelRuntimeService:
     def _bootstrap_kernel(
         self, sandbox: SandboxProtocol, connection_file: str, notebook: Notebook, user: User | None
     ) -> None:
-        code = self._build_kernel_bootstrap_code(notebook, user)
+        code = self._build_kernel_bootstrap_code(notebook, user, sandbox.id)
         if not code:
             return
         payload = {
@@ -641,10 +789,13 @@ class KernelRuntimeService:
                 notebook_short_id=notebook.short_id,
             )
 
-    def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None) -> str:
+    def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None, sandbox_id: str | None) -> str:
         return (
             "import duckdb\n"
             "import json\n"
+            "import os\n"
+            "import tempfile\n"
+            "import time\n"
             "from typing import Any, Sequence\n"
             "\n"
             "_duckdb_connection = duckdb.connect(database=':memory:')\n"
@@ -689,6 +840,61 @@ class KernelRuntimeService:
             "        'rows': rows,\n"
             "        'row_count': total_rows,\n"
             "    }\n"
+            "\n"
+            f"_NOTEBOOK_BRIDGE_PREFIX = '__NOTEBOOK_BRIDGE_{sandbox_id or 'unknown'}__'\n"
+            "\n"
+            "def _notebook_bridge_write(payload: dict[str, Any]) -> None:\n"
+            "    payload_bytes = json.dumps(payload, ensure_ascii=True).encode('utf-8')\n"
+            "    header = f\"{_NOTEBOOK_BRIDGE_PREFIX}{len(payload_bytes)} \".encode('utf-8')\n"
+            '    data = header + payload_bytes + b"\\n"\n'
+            "    offset = 0\n"
+            "    while offset < len(data):\n"
+            "        written = os.write(1, data[offset:])\n"
+            "        if written <= 0:\n"
+            "            raise RuntimeError('Failed to write HogQL request')\n"
+            "        offset += written\n"
+            "\n"
+            "def hogql_execute(query: str, *, timeout: float | None = 30.0) -> Any:\n"
+            "    if not isinstance(query, str):\n"
+            "        raise ValueError('query must be a string')\n"
+            "    fd, response_path = tempfile.mkstemp(prefix='hogql_response_', suffix='.json')\n"
+            "    os.close(fd)\n"
+            "    os.unlink(response_path)\n"
+            "    _notebook_bridge_write({'query': query, 'response_path': response_path})\n"
+            "    start_time = time.monotonic()\n"
+            "    while not os.path.exists(response_path):\n"
+            "        if timeout is not None and time.monotonic() - start_time > timeout:\n"
+            "            raise TimeoutError('Timed out waiting for HogQL response')\n"
+            "        time.sleep(0.1)\n"
+            "    expected_length: int | None = None\n"
+            "    data = b''\n"
+            "    with open(response_path, 'rb') as response_file:\n"
+            "        header = response_file.readline()\n"
+            "        if not header:\n"
+            "            raise RuntimeError('Empty HogQL response')\n"
+            "        try:\n"
+            "            expected_length = int(header.strip() or b'0')\n"
+            "        except ValueError:\n"
+            "            raise RuntimeError('Invalid HogQL response length')\n"
+            "        while expected_length is not None and len(data) < expected_length:\n"
+            "            chunk = response_file.read(expected_length - len(data))\n"
+            "            if chunk:\n"
+            "                data += chunk\n"
+            "                continue\n"
+            "            if timeout is not None and time.monotonic() - start_time > timeout:\n"
+            "                raise TimeoutError('Timed out reading HogQL response')\n"
+            "            time.sleep(0.1)\n"
+            "    try:\n"
+            "        os.unlink(response_path)\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "    if expected_length is None or len(data) != expected_length:\n"
+            "        raise RuntimeError('Incomplete HogQL response')\n"
+            "    text = data.decode('utf-8')\n"
+            "    try:\n"
+            "        return json.loads(text)\n"
+            "    except Exception:\n"
+            "        return text\n"
         )
 
     def _reuse_kernel_handle_for_backend(
@@ -914,23 +1120,51 @@ class KernelRuntimeService:
             "timeout": timeout_seconds,
             "code": code,
             "user_expressions": user_expressions,
+            "stream": True,
         }
         command = self._build_kernel_command(payload, action="execute")
         sandbox_class = self._get_sandbox_class(handle.backend)
         sandbox = sandbox_class.get_by_id(handle.sandbox_id)
         started_at = timezone.now()
-        result = sandbox.execute(command, timeout_seconds=timeout_seconds)
+        stream = sandbox.execute_stream(command, timeout_seconds=timeout_seconds)
+
+        payload_out: dict[str, Any] | None = None
+        marker = self._notebook_bridge_marker(handle)
+        bridge_parser = _NotebookBridgeParser(marker=marker)
+
+        for line in stream.iter_stdout():
+            trimmed = line.strip()
+            if not trimmed:
+                continue
+            try:
+                chunk = json.loads(trimmed)
+            except json.JSONDecodeError:
+                continue
+            if chunk.get("type") == "stream":
+                if chunk.get("name") == "stdout":
+                    text = chunk.get("text", "")
+                    _, payloads = bridge_parser.feed(text)
+                    for payload_json in payloads:
+                        self._handle_notebook_bridge_payload(payload_json, handle)
+                continue
+            if chunk.get("type") == "result":
+                payload_out = chunk
+
+        result = stream.wait()
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel execution failed: {result.stdout} {result.stderr}")
 
-        lines = result.stdout.strip().splitlines()
-        if not lines:
-            raise RuntimeError("Kernel execution returned no output.")
+        if payload_out is None:
+            output_lines = [line for line in result.stdout.splitlines() if line.strip()]
+            if output_lines:
+                try:
+                    payload_out = json.loads(output_lines[-1])
+                except json.JSONDecodeError as err:
+                    raise RuntimeError("Kernel execution returned no output.") from err
+            else:
+                raise RuntimeError("Kernel execution returned no output.")
 
-        try:
-            payload_out = json.loads(lines[-1])
-        except json.JSONDecodeError as err:
-            raise RuntimeError(f"Failed to parse kernel execution output: {result.stdout}") from err
+        payload_out["stdout"] = self._strip_notebook_bridge_messages(payload_out.get("stdout", ""), marker)
 
         status = payload_out.get("status", "error")
         execution_count = payload_out.get("execution_count")
@@ -993,6 +1227,8 @@ class KernelRuntimeService:
         stream = sandbox.execute_stream(command, timeout_seconds=timeout_seconds)
 
         payload_out: dict[str, Any] | None = None
+        marker = self._notebook_bridge_marker(handle)
+        bridge_parser = _NotebookBridgeParser(marker=marker)
 
         for line in stream.iter_stdout():
             trimmed = line.strip()
@@ -1006,13 +1242,21 @@ class KernelRuntimeService:
                 stream_name = chunk.get("name")
                 text = chunk.get("text", "")
                 if stream_name == "stdout":
-                    yield {"type": "stdout", "text": text}
+                    filtered_text, payloads = bridge_parser.feed(text)
+                    for payload_json in payloads:
+                        self._handle_notebook_bridge_payload(payload_json, handle)
+                    if filtered_text:
+                        yield {"type": "stdout", "text": filtered_text}
                 elif stream_name == "stderr":
                     yield {"type": "stderr", "text": text}
                 continue
             if chunk.get("type") == "result":
                 payload_out = chunk
                 continue
+
+        remaining_text = bridge_parser.flush()
+        if remaining_text:
+            yield {"type": "stdout", "text": remaining_text}
 
         result = stream.wait()
         if result.exit_code != 0:
@@ -1028,6 +1272,7 @@ class KernelRuntimeService:
             else:
                 raise RuntimeError("Kernel execution returned no output.")
 
+        payload_out["stdout"] = self._strip_notebook_bridge_messages(payload_out.get("stdout", ""), marker)
         status = payload_out.get("status", "error")
         execution_count = payload_out.get("execution_count")
         error_name = payload_out.get("error_name")
