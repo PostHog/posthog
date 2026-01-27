@@ -1,5 +1,6 @@
 import './SidePanel.scss'
 
+import { Tabs } from '@base-ui/react/tabs'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -12,6 +13,7 @@ import {
     IconLogomark,
     IconNotebook,
     IconSupport,
+    IconX,
 } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 
@@ -19,6 +21,7 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
@@ -235,7 +238,9 @@ export function SidePanel({
                 'SidePanel3000 h-screen',
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
-                isRemovingSidePanelFlag && 'bg-surface-tertiary',
+                isRemovingSidePanelFlag &&
+                    'bg-surface-secondary absolute top-px right-px bottom-px h-full flex flex-col',
+                isRemovingSidePanelFlag && !sidePanelOpen && 'hidden',
                 className
             )}
             ref={ref}
@@ -252,8 +257,7 @@ export function SidePanel({
                     className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
                         'left-0': sidePanelOpenAndAvailable,
                         // Hide handle line, make it as thick as the gap between scene and sidepanel (looking like split-screen, nice.)
-                        '-left-[3.5px] [&_*:before]:hidden [&_*:after]:w-[2px] [--resizer-thickness:12px]':
-                            sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
+                        'top-0 h-full': sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
                     })}
                 />
             )}
@@ -320,17 +324,88 @@ export function SidePanel({
                 </div>
             )}
 
-            {PanelContent ? (
+            {PanelContent && !isRemovingSidePanelFlag ? (
                 <div
                     className={cn('SidePanel3000__content', contentClassName, {
-                        'border-l-0': isRemovingSidePanelFlag,
+                        'border-l-0 h-full': isRemovingSidePanelFlag,
                     })}
                 >
                     <ErrorBoundary>
                         <PanelContent />
                     </ErrorBoundary>
                 </div>
-            ) : null}
+            ) : (
+                <Tabs.Root
+                    className={cn(
+                        'scene-panel-container bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
+                        'z-[var(--z-scene-panel)] lg:rounded-tr-none'
+                    )}
+                    value={activeTab}
+                    onValueChange={(value) => openSidePanel(value as SidePanelTab)}
+                >
+                    {/* Header with close button */}
+                    <div className="h-[50px] flex items-center justify-between gap-2 pl-2 pr-1.5 py-2 border-b border-primary shrink-0">
+                        {/* Tab buttons */}
+                        <Tabs.List className="relative z-0 flex gap-1 grow">
+                            {[SidePanelTab.Discussion, SidePanelTab.AccessControl, SidePanelTab.Notebooks]
+                                .filter((tab) => visibleTabs.includes(tab))
+                                .map((tab) => {
+                                    const { Icon, label } = SIDE_PANEL_TABS[tab]!
+                                    return (
+                                        <Tabs.Tab
+                                            key={tab}
+                                            value={tab}
+                                            render={(props) => (
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    onClick={() => openSidePanel(tab as SidePanelTab)}
+                                                    tooltip={label}
+                                                    className="hover:bg-transparent group"
+                                                >
+                                                    <Icon
+                                                        className={cn(
+                                                            'size-4 text-tertiary group-hover:text-primary',
+                                                            activeTab === tab ? 'text-primary' : 'text-tertiary'
+                                                        )}
+                                                    />
+                                                    <span
+                                                        className={cn(
+                                                            'text-tertiary group-hover:text-primary',
+                                                            activeTab === tab ? 'text-primary' : 'text-tertiary'
+                                                        )}
+                                                    >
+                                                        {label}
+                                                    </span>
+                                                </ButtonPrimitive>
+                                            )}
+                                        />
+                                    )
+                                })}
+                            <Tabs.Indicator className="transform-gpu absolute top-[calc(50%-1px)] left-0 z-[-1] h-[30px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
+
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    closeSidePanel()
+                                }}
+                                tooltip="Close side panel"
+                                tooltipPlacement="bottom-end"
+                                iconOnly
+                                className="group size-[33px] ml-auto"
+                            >
+                                <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                            </ButtonPrimitive>
+                        </Tabs.List>
+                    </div>
+
+                    {/* Content area */}
+                    <Tabs.Panel
+                        className="h-full grow flex flex-col gap-2 relative -outline-offset-1 outline-blue-800 focus-visible:rounded-md"
+                        value={activeTab}
+                    >
+                        {PanelContent && <PanelContent />}
+                    </Tabs.Panel>
+                </Tabs.Root>
+            )}
         </div>
     )
 }

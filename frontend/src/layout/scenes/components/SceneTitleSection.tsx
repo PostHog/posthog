@@ -2,10 +2,13 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconSidebarClose, IconSidebarOpen, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -13,9 +16,11 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor } from '~/types'
+import { SidePanelTab } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
@@ -26,11 +31,51 @@ import { SceneDivider } from './SceneDivider'
 export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
     // Show "Open" button when panel is closed, show "Close" button when panel is open
     // Both should never render simultaneously to avoid Playwright strict mode violations
     if (!scenePanelIsPresent || inPanel !== scenePanelOpenManual) {
         return null
+    }
+
+    if (isRemovingSidePanelFlag) {
+        return (
+            <>
+                <div className="flex-1" />
+                <AppShortcut
+                    name="OpenSidePanel"
+                    keybind={[keyBinds.openSidePanel]}
+                    intent="Open side panel"
+                    interaction="click"
+                >
+                    <ButtonPrimitive
+                        className="-mr-2 size-[33px]"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            if (sidePanelOpen) {
+                                closeSidePanel()
+                            } else {
+                                openSidePanel(SidePanelTab.Notebooks)
+                            }
+                        }}
+                        tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                        tooltipPlacement="bottom-end"
+                        tooltipCloseDelayMs={0}
+                        iconOnly
+                    >
+                        {sidePanelOpen ? (
+                            <IconSidebarClose className="!ml-0" fontSize={14} />
+                        ) : (
+                            <IconSidebarOpen className="!ml-0" fontSize={14} />
+                        )}
+                    </ButtonPrimitive>
+                </AppShortcut>
+            </>
+        )
     }
 
     return (
@@ -138,7 +183,7 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
-
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const effectiveDescription = description
 
     // Always include ProductSetupButton alongside other actions
@@ -232,7 +277,12 @@ export function SceneTitleSection({
                         )}
                     </div>
                     {effectiveActions && (
-                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first">
+                        <div
+                            className={cn(
+                                'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
+                                isRemovingSidePanelFlag && 'gap-1'
+                            )}
+                        >
                             {effectiveActions}
                             <SceneTitlePanelButton />
                         </div>

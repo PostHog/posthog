@@ -25,7 +25,6 @@ import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
-import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
 import { themeLogic } from './themeLogic'
 
 export function Navigation({
@@ -49,7 +48,6 @@ export function Navigation({
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const { sidePanelOpen, sidePanelAvailable } = useValues(sidePanelStateLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Set container ref so we can measure the width of the scene layout in logic
@@ -84,8 +82,7 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
-                    'app-layout--sidepanel-open': isRemovingSidePanelFlag && sidePanelOpen && sidePanelAvailable,
-                    'app-layout--ai-first': isRemovingSidePanelFlag,
+                    'app-layout--scene-side-panel': isRemovingSidePanelFlag,
                 })}
                 style={
                     {
@@ -156,6 +153,7 @@ export function Navigation({
                                     </div>
                                 )}
                                 {children}
+                                {isRemovingSidePanelFlag && <SidePanel />}
                             </SceneLayout>
                         </main>
 
@@ -186,7 +184,7 @@ export function Navigation({
                             </>
                         )}
                     </div>
-                    <SidePanel className="right-nav" />
+                    {!isRemovingSidePanelFlag && <SidePanel className="right-nav" />}
                 </ProjectDragAndDropProvider>
             </div>
         </>

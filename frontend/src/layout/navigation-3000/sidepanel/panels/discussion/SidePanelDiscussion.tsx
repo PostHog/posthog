@@ -5,11 +5,13 @@ import { IconChat } from '@posthog/icons'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { WarningHog } from 'lib/components/hedgehogs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { CommentComposer } from 'scenes/comments/CommentComposer'
 import { CommentsList } from 'scenes/comments/CommentsList'
 import { CommentsLogicProps, commentsLogic } from 'scenes/comments/commentsLogic'
 
+import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelDiscussionLogic } from './sidePanelDiscussionLogic'
@@ -26,40 +28,60 @@ export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Elem
 
 export const SidePanelDiscussion = (): JSX.Element => {
     const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
-
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const { scope, item_id } = commentsLogicProps ?? {}
 
     return (
         <div className="flex flex-col overflow-hidden flex-1">
-            <SidePanelPaneHeader
-                title={
-                    <div className="flex deprecated-space-x-2">
-                        <span>
-                            Discussion{' '}
-                            {scope ? (
-                                <span className="font-normal text-secondary">
-                                    about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
-                                </span>
-                            ) : null}
-                        </span>
-                    </div>
-                }
-            />
+            {!isRemovingSidePanelFlag ? (
+                <SidePanelPaneHeader
+                    title={
+                        <div className="flex deprecated-space-x-2">
+                            <span>
+                                Discussion{' '}
+                                {scope ? (
+                                    <span className="font-normal text-secondary">
+                                        about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
+                                    </span>
+                                ) : null}
+                            </span>
+                        </div>
+                    }
+                />
+            ) : null}
 
-            {commentsLogicProps && !commentsLogicProps.disabled ? (
-                <DiscussionContent logicProps={commentsLogicProps} />
-            ) : (
-                <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">
-                    <div className="max-w-80 mx-auto">
-                        <WarningHog className="w-full h-full" />
+            <SidePanelContentContainer flagOffClassName="contents">
+                {isRemovingSidePanelFlag ? (
+                    <SidePanelPaneHeader
+                        title={
+                            <div className="flex deprecated-space-x-2">
+                                <span>
+                                    Discussion{' '}
+                                    {scope ? (
+                                        <span className="font-normal text-secondary">
+                                            about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
+                                        </span>
+                                    ) : null}
+                                </span>
+                            </div>
+                        }
+                    />
+                ) : null}
+                {commentsLogicProps && !commentsLogicProps.disabled ? (
+                    <DiscussionContent logicProps={commentsLogicProps} />
+                ) : (
+                    <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">
+                        <div className="max-w-80 mx-auto">
+                            <WarningHog className="w-full h-full" />
+                        </div>
+                        <h2>Discussions aren't supported here yet...</h2>
+                        <p>
+                            This a beta feature that is currently only available when viewing things like an Insight,
+                            Dashboard or Notebook.
+                        </p>
                     </div>
-                    <h2>Discussions aren't supported here yet...</h2>
-                    <p>
-                        This a beta feature that is currently only available when viewing things like an Insight,
-                        Dashboard or Notebook.
-                    </p>
-                </div>
-            )}
+                )}
+            </SidePanelContentContainer>
         </div>
     )
 }
