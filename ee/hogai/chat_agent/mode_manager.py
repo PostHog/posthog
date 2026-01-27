@@ -105,7 +105,8 @@ class ChatAgentModeManager(AgentModeManager):
             registry[AgentMode.SURVEY] = survey_agent
         # Only include onboarding mode in registry when already in onboarding mode
         # This prevents it from showing in the mode picker in the main UI
-        if self._mode == AgentMode.ONBOARDING:
+        # Use getattr to handle case where mode_registry is called before __init__ completes
+        if getattr(self, "_mode", None) == AgentMode.ONBOARDING:
             registry[AgentMode.ONBOARDING] = onboarding_agent
         return registry
 
