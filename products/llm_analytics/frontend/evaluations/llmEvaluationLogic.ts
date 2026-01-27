@@ -122,12 +122,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return null
                     }
 
+                    const requestFilter = values.evaluationSummaryFilter
+
                     // Backend fetches data server-side by ID - we just pass the filter
                     const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
                         evaluation_id: props.evaluationId,
-                        filter: values.evaluationSummaryFilter,
+                        filter: requestFilter,
                         force_refresh: forceRefresh,
                     })
+
+                    // Discard if the user changed the filter while the request was in flight
+                    if (values.evaluationSummaryFilter !== requestFilter) {
+                        return null
+                    }
 
                     return response as EvaluationSummary
                 },
@@ -228,6 +235,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         evaluationSummary: {
             setEvaluationSummaryFilter: () => null,
         },
+        evaluationSummaryError: [
+            false,
+            {
+                generateEvaluationSummary: () => false,
+                generateEvaluationSummarySuccess: () => false,
+                generateEvaluationSummaryFailure: () => true,
+                setEvaluationSummaryFilter: () => false,
+            },
+        ],
         summaryExpanded: [
             true,
             {
