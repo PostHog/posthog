@@ -78,9 +78,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
 
     const handleDuplicate = (endpoint: EndpointType): void => {
         if (isHogQLQuery(endpoint.query)) {
-            router.actions.push(
-                urls.sqlEditor(endpoint.query.query, undefined, undefined, undefined, OutputTab.Endpoint)
-            )
+            router.actions.push(urls.sqlEditor({ query: endpoint.query.query, outputTab: OutputTab.Endpoint }))
         } else {
             setDuplicateEndpoint(endpoint)
         }
@@ -181,6 +179,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                                 }}
                                 fullWidth
                                 status="alt"
+                                data-attr="endpoint-activate"
                             >
                                 {record.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
                             </LemonButton>

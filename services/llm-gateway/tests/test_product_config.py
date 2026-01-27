@@ -1,12 +1,16 @@
 import pytest
+from fastapi import HTTPException
 
 from llm_gateway.products.config import (
+    ALLOWED_PRODUCTS,
     ARRAY_EU_APP_ID,
     ARRAY_US_APP_ID,
+    PRODUCTS,
     WIZARD_EU_APP_ID,
     WIZARD_US_APP_ID,
     check_product_access,
     get_product_config,
+    validate_product,
 )
 
 
@@ -39,6 +43,10 @@ class TestCheckProductAccess:
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, True, None),
             ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, True, None),
+            # django allows API keys with any model
+            ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            ("django", "personal_api_key", None, "claude-3-opus", True, None),
+            ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -61,13 +69,45 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "model",
         [
-            "claude-3-5-haiku-20241022",
-            "gpt-4o-mini",
-            "claude-3-opus",
-            "gpt-4o",
+            "claude-opus-4-5",
+            "claude-sonnet-4-5",
+            "claude-haiku-4-5",
+            "gpt-5.2",
+            "gpt-5-mini",
         ],
     )
-    def test_array_allows_all_models_with_valid_app_id(self, model: str):
+    def test_array_allows_restricted_models_with_valid_app_id(self, model: str):
         allowed, error = check_product_access("array", "oauth_access_token", ARRAY_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "claude-3-5-haiku-20241022",
+            "claude-3-opus",
+            "o1",
+        ],
+    )
+    def test_array_rejects_non_allowed_models(self, model: str):
+        allowed, error = check_product_access("array", "oauth_access_token", ARRAY_US_APP_ID, model)
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
+
+
+class TestValidateProduct:
+    def test_allowed_products_derived_from_products_dict(self):
+        assert ALLOWED_PRODUCTS == frozenset(PRODUCTS.keys())
+
+    @pytest.mark.parametrize("product", list(PRODUCTS.keys()))
+    def test_valid_product_returns_product(self, product: str):
+        assert validate_product(product) == product
+
+    def test_invalid_product_raises_http_exception(self):
+        with pytest.raises(HTTPException) as exc_info:
+            validate_product("invalid_product")
+        assert exc_info.value.status_code == 400
+        assert "Invalid product" in exc_info.value.detail

@@ -79,6 +79,7 @@ export const IframeExample: Story = {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
             waitForSelector: '#heatmap-iframe',
+            skipIframeWait: true,
         },
     },
     decorators: [

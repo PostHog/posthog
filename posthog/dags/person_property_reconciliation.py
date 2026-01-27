@@ -2013,14 +2013,12 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
                 team_ids=chunk_team_ids,
             )
 
-            run_key = f"reconcile_team_ids_{next_team_index}_{chunk_end_index - 1}"
             context.log.info(
                 f"Scheduling run for team_ids[{next_team_index}:{chunk_end_index}] ({len(chunk_team_ids)} teams)"
             )
 
             run_requests.append(
                 dagster.RunRequest(
-                    run_key=run_key,
                     run_config=run_config,
                     tags={
                         "reconciliation_team_ids_range": f"{next_team_index}-{chunk_end_index - 1}",
@@ -2055,12 +2053,10 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
                 max_team_id=chunk_end,
             )
 
-            run_key = f"reconcile_teams_{current_start}_{chunk_end}"
             context.log.info(f"Scheduling run for teams {current_start}-{chunk_end}")
 
             run_requests.append(
                 dagster.RunRequest(
-                    run_key=run_key,
                     run_config=run_config,
                     tags={
                         "reconciliation_range": f"{current_start}-{chunk_end}",

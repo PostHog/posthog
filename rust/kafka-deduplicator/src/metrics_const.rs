@@ -108,6 +108,21 @@ pub const STORE_CREATION_EVENTS: &str = "store_creation_events_total";
 /// Gauge for active store count
 pub const ACTIVE_STORE_COUNT: &str = "active_store_count";
 
+/// Gauge for number of overlapping rebalances in progress
+/// Value > 0 means rebalance async work is ongoing; used to block orphan cleanup
+pub const REBALANCING_COUNT: &str = "rebalancing_count";
+
+/// Counter for messages dropped because no store was registered for the partition
+/// This indicates the partition was likely revoked during a rebalance
+pub const MESSAGES_DROPPED_NO_STORE: &str = "messages_dropped_no_store_total";
+
+// ==== Rebalance Resume Filtering ====
+/// Counter for partitions filtered from Resume commands (revoked during async setup)
+pub const REBALANCE_RESUME_PARTITIONS_FILTERED: &str = "rebalance_resume_partitions_filtered_total";
+
+/// Counter for Resume commands skipped entirely (all partitions were revoked)
+pub const REBALANCE_RESUME_SKIPPED_ALL_REVOKED: &str = "rebalance_resume_skipped_all_revoked_total";
+
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)
 pub const PARTITION_BATCH_PROCESSING_DURATION_MS: &str = "partition_batch_processing_duration_ms";

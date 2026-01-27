@@ -40,7 +40,6 @@ import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
-import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
@@ -84,11 +83,6 @@ export const SIDE_PANEL_TABS: Record<
         noModalSupport: true,
     },
 
-    [SidePanelTab.Activation]: {
-        label: 'Quick start',
-        Icon: SidePanelActivationIcon,
-        Content: SidePanelActivation,
-    },
     [SidePanelTab.Settings]: {
         label: 'Settings',
         Icon: IconGear,
@@ -205,15 +199,17 @@ export function SidePanel({
         ? [
               {
                   title: 'Open in side panel',
-                  items: extraTabs.map((tab) => {
-                      const { Icon, label } = SIDE_PANEL_TABS[tab]
+                  items: extraTabs
+                      .filter((tab) => SIDE_PANEL_TABS[tab])
+                      .map((tab) => {
+                          const { Icon, label } = SIDE_PANEL_TABS[tab]!
 
-                      return {
-                          label: label,
-                          icon: <Icon />,
-                          onClick: () => openSidePanel(tab),
-                      }
-                  }),
+                          return {
+                              label: label,
+                              icon: <Icon />,
+                              onClick: () => openSidePanel(tab),
+                          }
+                      }),
               },
           ]
         : undefined
@@ -255,7 +251,9 @@ export function SidePanel({
                     {...resizerLogicProps}
                     className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
                         'left-0': sidePanelOpenAndAvailable,
-                        '-left-[.5px]': sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
+                        // Hide handle line, make it as thick as the gap between scene and sidepanel (looking like split-screen, nice.)
+                        '-left-[3.5px] [&_*:before]:hidden [&_*:after]:w-[2px] [--resizer-thickness:12px]':
+                            sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
                     })}
                 />
             )}
@@ -264,48 +262,52 @@ export function SidePanel({
                 <div className="SidePanel3000__bar">
                     <div className="SidePanel3000__tabs">
                         <div className="SidePanel3000__tabs-content">
-                            {visibleTabs.map((tab: SidePanelTab) => {
-                                const { Icon, label } = SIDE_PANEL_TABS[tab]
-                                const keybind = SIDE_PANEL_TAB_KEYBINDS[tab]
+                            {visibleTabs
+                                .filter((tab) => SIDE_PANEL_TABS[tab])
+                                .map((tab: SidePanelTab) => {
+                                    const { Icon, label } = SIDE_PANEL_TABS[tab]!
+                                    const keybind = SIDE_PANEL_TAB_KEYBINDS[tab]
 
-                                const button = (
-                                    <LemonButton
-                                        key={tab}
-                                        icon={<Icon className="size-5" />}
-                                        onClick={() =>
-                                            activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
-                                        }
-                                        data-attr={`sidepanel-tab-${tab}`}
-                                        data-ph-capture-attribute-state-before-click={
-                                            activeTab === tab ? 'open' : 'closed'
-                                        }
-                                        active={activeTab === tab}
-                                        type="secondary"
-                                        status="alt"
-                                        tooltip={label}
-                                        size="xsmall"
-                                    >
-                                        {label}
-                                    </LemonButton>
-                                )
-
-                                if (keybind) {
-                                    return (
-                                        <AppShortcut
+                                    const button = (
+                                        <LemonButton
                                             key={tab}
-                                            name={`SidePanel-${tab}`}
-                                            keybind={keybind}
-                                            intent={`Open ${label}`}
-                                            priority={label === 'PostHog AI' ? 10 : 0}
-                                            interaction="click"
+                                            icon={<Icon className="size-5" />}
+                                            onClick={() =>
+                                                activeTab === tab
+                                                    ? closeSidePanel()
+                                                    : openSidePanel(tab as SidePanelTab)
+                                            }
+                                            data-attr={`sidepanel-tab-${tab}`}
+                                            data-ph-capture-attribute-state-before-click={
+                                                activeTab === tab ? 'open' : 'closed'
+                                            }
+                                            active={activeTab === tab}
+                                            type="secondary"
+                                            status="alt"
+                                            tooltip={label}
+                                            size="xsmall"
                                         >
-                                            {button}
-                                        </AppShortcut>
+                                            {label}
+                                        </LemonButton>
                                     )
-                                }
 
-                                return button
-                            })}
+                                    if (keybind) {
+                                        return (
+                                            <AppShortcut
+                                                key={tab}
+                                                name={`SidePanel-${tab}`}
+                                                keybind={keybind}
+                                                intent={`Open ${label}`}
+                                                priority={label === 'PostHog AI' ? 10 : 0}
+                                                interaction="click"
+                                            >
+                                                {button}
+                                            </AppShortcut>
+                                        )
+                                    }
+
+                                    return button
+                                })}
                         </div>
                     </div>
                     {menuOptions ? (

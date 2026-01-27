@@ -10,6 +10,7 @@ import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
+    createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
 } from '../event-preprocessing'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
@@ -54,4 +55,5 @@ export function createPreTeamPreprocessingSubpipeline<TInput extends PreTeamPrep
         .pipe(createDropExceptionEventsStep())
         .pipe(createResolveTeamStep(teamManager))
         .pipe(createValidateHistoricalMigrationStep())
+        .pipe(createValidateAiEventTokensStep())
 }

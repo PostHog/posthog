@@ -31,6 +31,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
+    "pytest-rerunfailures>=16.0",
     "mypy>=1.13.0",
     "respx>=0.22.0",
     "openai>=1.50.0",
@@ -84,6 +85,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = ["--junitxml=junit.xml", "--reruns=2", "--reruns-delay=5"]
 
 [tool.mypy]
 python_version = "3.12"
