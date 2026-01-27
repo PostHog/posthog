@@ -39,6 +39,7 @@ class RecordingResult:
     measured_width: Optional[int]
     inactivity_periods: list[ReplayInactivityPeriod] | None
     segment_start_timestamps: dict[int, float]
+    custom_fps: int | None = None
 
 
 @dataclass(frozen=True)
@@ -550,13 +551,36 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
 
 
 class ReplayVideoRenderer:
-    @staticmethod
-    def _convert_to_mp4(
-        tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, playback_speed: int
-    ) -> None:
+    def __init__(
+        self,
+        tmp_webm: str,
+        image_path: str,
+        pre_roll: float,
+        recording_duration: int,
+        playback_speed: int,
+        measured_width: int | None = None,
+        custom_fps: int | None = None,
+    ):
+        self.tmp_webm = tmp_webm
+        self.image_path = image_path
+        self.pre_roll = pre_roll
+        self.recording_duration = recording_duration
+        self.playback_speed = playback_speed
+        self.measured_width = measured_width
+        self.custom_fps = custom_fps
+
+    def _define_video_filter(self) -> str | None:
+        vf_parts = []
+        if self.playback_speed > 1.0:
+            vf_parts.append(f"setpts={self.playback_speed}*PTS")
+        if self.custom_fps:
+            vf_parts.append(f"fps={self.custom_fps}")
+        video_filter = ",".join(vf_parts) if vf_parts else None
+        return video_filter
+
+    def _convert_to_mp4(self) -> None:
         """Convert WebM to MP4 using ffmpeg."""
-        # Slow down video if it was recorded at high speed
-        video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
+        video_filter = self._define_video_filter()
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -564,11 +588,11 @@ class ReplayVideoRenderer:
             "error",
             "-y",
             "-ss",
-            f"{pre_roll:.2f}",
+            f"{self.pre_roll:.2f}",
             "-i",
-            tmp_webm,
+            self.tmp_webm,
             "-t",
-            f"{float(recording_duration):.2f}",
+            f"{float(self.recording_duration):.2f}",
             "-c:v",
             "libx264",
             "-preset",
@@ -584,8 +608,7 @@ class ReplayVideoRenderer:
         ]
         if video_filter:
             cmd.extend(["-vf", video_filter])
-        cmd.append(image_path)
-
+        cmd.append(self.image_path)
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
@@ -594,12 +617,9 @@ class ReplayVideoRenderer:
                 error_msg += f": {e.stderr.strip()}"
             raise RuntimeError(error_msg) from e
 
-    @staticmethod
-    def _process_webm(
-        tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, playback_speed: int
-    ) -> None:
+    def _process_webm(self) -> None:
         """Process WebM with speed correction using ffmpeg."""
-        video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
+        video_filter = self._define_video_filter()
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -607,11 +627,11 @@ class ReplayVideoRenderer:
             "error",
             "-y",
             "-ss",
-            f"{pre_roll:.2f}",
+            f"{self.pre_roll:.2f}",
             "-i",
-            tmp_webm,
+            self.tmp_webm,
             "-t",
-            f"{float(recording_duration):.2f}",
+            f"{float(self.recording_duration):.2f}",
             "-c:v",
             "libvpx-vp9",
             "-crf",
@@ -623,8 +643,7 @@ class ReplayVideoRenderer:
         ]
         if video_filter:
             cmd.extend(["-vf", video_filter])
-        cmd.append(image_path)
-
+        cmd.append(self.image_path)
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
@@ -633,16 +652,13 @@ class ReplayVideoRenderer:
                 error_msg += f": {e.stderr.strip()}"
             raise RuntimeError(error_msg) from e
 
-    @staticmethod
-    def _convert_to_gif(
-        tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, measured_width: Optional[int]
-    ) -> None:
+    def _convert_to_gif(self) -> None:
         """Convert WebM to GIF using ffmpeg."""
+        # Custom filter because of GIF
         vf_parts = ["fps=12"]
-        if measured_width is not None:
-            vf_parts.append(f"scale={measured_width}:-2:flags=lanczos")
+        if self.measured_width is not None:
+            vf_parts.append(f"scale={self.measured_width}:-2:flags=lanczos")
         vf = ",".join(vf_parts)
-
         try:
             subprocess.run(
                 [
@@ -652,18 +668,18 @@ class ReplayVideoRenderer:
                     "error",
                     "-y",
                     "-ss",
-                    f"{pre_roll:.2f}",
+                    f"{self.pre_roll:.2f}",
                     "-t",
-                    f"{float(recording_duration):.2f}",
+                    f"{float(self.recording_duration):.2f}",
                     "-i",
-                    tmp_webm,
+                    self.tmp_webm,
                     "-vf",
                     f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
                     "-loop",
                     "0",
                     "-f",
                     "gif",
-                    image_path,
+                    self.image_path,
                 ],
                 check=True,
             )
@@ -722,20 +738,22 @@ def record_replay_to_file(
             recording_duration=opts.recording_duration,
             segment_count=len(result.segment_start_timestamps) if result.segment_start_timestamps else 0,
         )
-        video_renderer = ReplayVideoRenderer()
+        video_renderer = ReplayVideoRenderer(
+            tmp_webm=tmp_webm,
+            image_path=opts.image_path,
+            pre_roll=result.pre_roll,
+            recording_duration=opts.recording_duration,
+            playback_speed=result.playback_speed,
+            measured_width=result.measured_width,
+            fps=result.fps,
+        )
         if ext == ".mp4":
-            video_renderer._convert_to_mp4(
-                tmp_webm, opts.image_path, result.pre_roll, opts.recording_duration, result.playback_speed
-            )
+            video_renderer._convert_to_mp4()
         elif ext == ".gif":
-            video_renderer._convert_to_gif(
-                tmp_webm, opts.image_path, result.pre_roll, opts.recording_duration, result.measured_width
-            )
+            video_renderer._convert_to_gif()
         elif ext == ".webm":
             if result.playback_speed > 1:
-                video_renderer._process_webm(
-                    tmp_webm, opts.image_path, result.pre_roll, opts.recording_duration, result.playback_speed
-                )
+                video_renderer._process_webm()
             else:
                 shutil.move(tmp_webm, opts.image_path)
         else:
