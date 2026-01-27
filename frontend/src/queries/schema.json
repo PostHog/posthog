@@ -22401,6 +22401,7 @@
                 "early_access_feature_view_recordings",
                 "data_warehouse_stripe_source_created",
                 "surveys_viewed",
+                "survey_add_new",
                 "survey_created",
                 "survey_launched",
                 "survey_viewed",
