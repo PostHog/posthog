@@ -646,7 +646,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             recommendedProducts,
         }),
         reportOnboardingUseCaseSkipped: true,
-        reportAIChatOnboardingStarted: (productKey: string) => ({ productKey }),
+        reportAIChatOnboardingStarted: (variant: string) => ({ variant }),
         reportAIChatOnboardingMessageSent: (stepKey: OnboardingStepKey, messageType: 'chat' | 'button') => ({
             stepKey,
             messageType,

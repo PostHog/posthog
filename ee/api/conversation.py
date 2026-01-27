@@ -54,10 +54,12 @@ def increment_onboarding_usage(user_id: int) -> int:
     """Increment onboarding usage count for a user. Returns new count."""
     redis_client = get_redis_client()
     key = f"{ONBOARDING_USAGE_KEY_PREFIX}{user_id}"
-    new_count = redis_client.incr(key)
-    if new_count == 1:
-        redis_client.expire(key, ONBOARDING_USAGE_TTL_SECONDS)
-    return new_count
+    # Use pipeline for atomicity - always set TTL to prevent memory leak if expire fails
+    pipe = redis_client.pipeline()
+    pipe.incr(key)
+    pipe.expire(key, ONBOARDING_USAGE_TTL_SECONDS)
+    results = pipe.execute()
+    return results[0]
 
 
 logger = structlog.get_logger(__name__)

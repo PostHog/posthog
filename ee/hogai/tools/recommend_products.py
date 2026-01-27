@@ -17,7 +17,7 @@ class PostHogProduct(StrEnum):
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
     DATA_WAREHOUSE = "data_warehouse"
-    LLM_OBSERVABILITY = "llm_observability"
+    LLM_ANALYTICS = "llm_analytics"
 
 
 class RecommendProductsArgs(BaseModel):
