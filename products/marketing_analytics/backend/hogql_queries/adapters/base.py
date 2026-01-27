@@ -6,9 +6,10 @@ from typing import Any, Generic, Optional, TypeVar
 
 import structlog
 
-from posthog.schema import MarketingAnalyticsColumnsSchemaNames, SourceMap
+from posthog.schema import MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsConstants, SourceMap
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
@@ -122,6 +123,26 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
     reported_conversion_value_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE
     match_key_field: str = MATCH_KEY_FIELD
+
+    CONSTANT_VALUE_PREFIX = MarketingAnalyticsConstants.CONST_
+
+    @staticmethod
+    def _is_simple_column_name(value: str) -> bool:
+        return bool(value) and value.replace("_", "").replace(".", "").isalnum() and not value.startswith(".") and not value.endswith(".")
+
+    def _resolve_field_expr(self, field_value: str) -> ast.Expr:
+        if self._is_simple_column_name(field_value):
+            parts: list[str | int] = list(field_value.split("."))
+            return ast.Field(chain=parts)
+        return parse_expr(field_value)
+
+    def _resolve_field_or_constant(self, field_value: str) -> ast.Expr:
+        """Resolve a field value that may be a column reference or a constant.
+        Values prefixed with 'const:' are treated as string constants.
+        """
+        if field_value.startswith(self.CONSTANT_VALUE_PREFIX):
+            return ast.Constant(value=field_value[len(self.CONSTANT_VALUE_PREFIX) :])
+        return self._resolve_field_expr(field_value)
 
     @classmethod
     @abstractmethod
@@ -272,6 +293,22 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         else:
             self.logger.error("Query generation failed", error=error)
 
+    def _build_select_columns(self) -> list[ast.Expr]:
+        """Build the standardized SELECT columns for marketing analytics queries.
+        match_key first (stable position for joins), then data columns.
+        """
+        return [
+            ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
+            ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
+            ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
+            ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
+            ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
+            ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
+            ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
+            ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
+            ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
+        ]
+
     def build_query(self) -> Optional[ast.SelectQuery]:
         """
         Build SelectQuery that returns marketing data in standardized format.
@@ -290,19 +327,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         Returns None if this source cannot provide data for the given context.
         """
         try:
-            # Build SELECT columns - match_key first (stable position for joins), then data columns
-            # Each adapter decides whether to use campaign_name or campaign_id for match_key based on team preferences
-            select_columns: list[ast.Expr] = [
-                ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
-                ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
-                ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
-                ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
-                ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
-                ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
-                ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
-                ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
-                ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
-            ]
+            select_columns = self._build_select_columns()
 
             # Build query components
             from_expr = self._get_from()

@@ -10,7 +10,7 @@ from posthog.schema import (
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     NodeKind,
 )
 
@@ -251,7 +251,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Create processor if select is None (all columns) or if conversion goal columns are explicitly selected
             should_create = self.query.select is None or (
                 conversion_goal.conversion_goal_name in self.query.select
-                or f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {conversion_goal.conversion_goal_name}"
+                or f"{MarketingAnalyticsConstants.COST_PER} {conversion_goal.conversion_goal_name}"
                 in self.query.select
             )
             if should_create:

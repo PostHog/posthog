@@ -7,7 +7,7 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAggregatedQueryResponse,
     MarketingAnalyticsBaseColumns,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsItem,
 )
 
@@ -103,7 +103,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             conversion_columns = {
                 k: v
                 for k, v in conversion_columns.items()
-                if not k.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER)
+                if not k.startswith(MarketingAnalyticsConstants.COST_PER)
             }
             all_columns.update(conversion_columns)
 
@@ -431,7 +431,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
         base_metric_keys = {col.value for col in MarketingAnalyticsBaseColumns}
         for key in results_dict.keys():
             # Skip base metrics and cost per conversion metrics
-            if key in base_metric_keys or key.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
+            if key in base_metric_keys or key.startswith(MarketingAnalyticsConstants.COST_PER):
                 continue
             conversion_goals.append(key)
 
@@ -441,7 +441,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 continue
 
             # Calculate cost per conversion using the same prefix as the config
-            cost_per_key = f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {goal_name}"
+            cost_per_key = f"{MarketingAnalyticsConstants.COST_PER} {goal_name}"
 
             # Handle comparison data
             if has_comparison and conversion_item.previous is not None and total_cost_item.previous is not None:
