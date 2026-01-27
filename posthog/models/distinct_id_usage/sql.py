@@ -1,11 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import (
-    CONSUMER_GROUP_DISTINCT_ID_USAGE,
-    KAFKA_COLUMNS_WITH_PARTITION,
-    kafka_engine,
-    ttl_period,
-)
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_DISTINCT_ID_USAGE, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, ReplicationScheme, SummingMergeTree
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -33,7 +28,6 @@ CREATE TABLE IF NOT EXISTS {table_name}
     distinct_id String,
     minute DateTime,
     event_count UInt64
-    {extra_fields}
 ) ENGINE = {engine}
 """
 
@@ -45,11 +39,11 @@ def DISTINCT_ID_USAGE_DATA_TABLE_SQL():
 PARTITION BY toYYYYMMDD(minute)
 ORDER BY (team_id, minute, distinct_id)
 {ttl}
+SETTINGS ttl_only_drop_parts = 1
 """
     ).format(
         table_name=DATA_TABLE_NAME,
         engine=DISTINCT_ID_USAGE_DATA_TABLE_ENGINE(),
-        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
         ttl=ttl_period("minute", DISTINCT_ID_USAGE_TTL_DAYS, unit="DAY"),
     )
 
@@ -61,7 +55,6 @@ def WRITABLE_DISTINCT_ID_USAGE_TABLE_SQL():
             data_table=DATA_TABLE_NAME,
             sharding_key="sipHash64(distinct_id)",
         ),
-        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     )
 
 
@@ -72,7 +65,6 @@ def DISTRIBUTED_DISTINCT_ID_USAGE_TABLE_SQL():
             data_table=DATA_TABLE_NAME,
             sharding_key="sipHash64(distinct_id)",
         ),
-        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     )
 
 
@@ -107,10 +99,7 @@ AS SELECT
     team_id,
     distinct_id,
     toStartOfMinute(timestamp) AS minute,
-    1 AS event_count,
-    now() AS _timestamp,
-    0 AS _offset,
-    0 AS _partition
+    1 AS event_count
 FROM {database}.{kafka_table}
 """.format(
         mv_name=MV_NAME,
@@ -118,26 +107,6 @@ FROM {database}.{kafka_table}
         database=settings.CLICKHOUSE_DATABASE,
         kafka_table=KAFKA_TABLE_NAME,
     )
-
-
-def DROP_DISTINCT_ID_USAGE_DATA_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {DATA_TABLE_NAME} SYNC"
-
-
-def DROP_WRITABLE_DISTINCT_ID_USAGE_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {WRITABLE_TABLE_NAME}"
-
-
-def DROP_DISTRIBUTED_DISTINCT_ID_USAGE_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}"
-
-
-def DROP_KAFKA_DISTINCT_ID_USAGE_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {KAFKA_TABLE_NAME}"
-
-
-def DROP_DISTINCT_ID_USAGE_MV_SQL():
-    return f"DROP TABLE IF EXISTS {MV_NAME}"
 
 
 def TRUNCATE_DISTINCT_ID_USAGE_TABLE_SQL():

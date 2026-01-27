@@ -17,9 +17,9 @@ from posthog.models.distinct_id_usage.sql import (
 # Architecture:
 # - sharded_distinct_id_usage: Sharded SummingMergeTree on DATA nodes
 # - distinct_id_usage: Distributed read table on DATA + COORDINATOR nodes
-# - writable_distinct_id_usage: Distributed write table on INGESTION nodes
-# - kafka_distinct_id_usage: Kafka engine table on INGESTION nodes
-# - distinct_id_usage_mv: Materialized view on INGESTION nodes
+# - writable_distinct_id_usage: Distributed write table on INGESTION_MEDIUM nodes
+# - kafka_distinct_id_usage: Kafka engine table on INGESTION_MEDIUM nodes
+# - distinct_id_usage_mv: Materialized view on INGESTION_MEDIUM nodes
 
 operations = [
     # 1. Create sharded data table on data nodes only
@@ -35,16 +35,16 @@ operations = [
     # 3. Create writable distributed table on ingestion nodes
     run_sql_with_exceptions(
         WRITABLE_DISTINCT_ID_USAGE_TABLE_SQL(),
-        node_roles=[NodeRole.INGESTION_SMALL],
+        node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
     # 4. Create Kafka table on ingestion nodes
     run_sql_with_exceptions(
         KAFKA_DISTINCT_ID_USAGE_TABLE_SQL(),
-        node_roles=[NodeRole.INGESTION_SMALL],
+        node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
     # 5. Create MV on ingestion nodes (reads from Kafka, writes to writable table)
     run_sql_with_exceptions(
         DISTINCT_ID_USAGE_MV_SQL(),
-        node_roles=[NodeRole.INGESTION_SMALL],
+        node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
 ]
