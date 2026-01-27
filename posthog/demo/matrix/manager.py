@@ -207,7 +207,13 @@ class MatrixManager:
     @classmethod
     def _create_master_team(cls) -> Team:
         organization = Organization.objects.create(id=cls.MASTER_TEAM_ID, name="PostHog")
-        return cls.create_team(organization, id=cls.MASTER_TEAM_ID, name="Master")
+        # Master team is only used for pre-saving demo data, not for actual users
+        # Bypass create_with_data since we don't need dashboards, cohorts, or demo data generation
+        return Team.objects.create(
+            organization=organization,
+            id=cls.MASTER_TEAM_ID,
+            name="Master",
+        )
 
     @classmethod
     def _erase_master_team_data(cls):
