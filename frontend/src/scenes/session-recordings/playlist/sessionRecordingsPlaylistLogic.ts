@@ -40,6 +40,7 @@ import {
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
+    AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
     LegacyRecordingFilters,
@@ -317,7 +318,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
                 // Only create a new object if the value actually changed
                 if (normalizedValue !== f.value) {
-                    properties.push({ ...f, value: normalizedValue } as typeof f)
+                    properties.push({ ...f, value: normalizedValue } as AnyPropertyFilter)
                 } else {
                     properties.push(f)
                 }
