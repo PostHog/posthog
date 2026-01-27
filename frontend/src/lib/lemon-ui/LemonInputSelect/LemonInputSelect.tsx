@@ -5,13 +5,13 @@ import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@d
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List } from 'react-virtualized/dist/es/List'
+import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { List } from 'react-window'
 
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -31,6 +31,90 @@ const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
 const VIRTUALIZED_SELECT_OPTION_HEIGHT = 33
 
 const VIRTUALIZED_MAX_DROPDOWN_HEIGHT = 420
+
+interface VirtualizedOptionRowProps<T = string> {
+    visibleOptions: LemonInputSelectOption<T>[]
+    selectedIndex: number
+    stringKeys: string[]
+    wasLimitReached: boolean
+    limit?: number
+    _onActionItem: (key: string, e?: MouseEvent) => void
+    setSelectedIndex: (index: number) => void
+    allowCustomValues?: boolean
+    disableEditing?: boolean
+    setInputValue: (value: string) => void
+    inputRef: React.RefObject<HTMLInputElement | null>
+    _onFocus: () => void
+    getInputLabel: (option: LemonInputSelectOption<T>) => React.ReactNode
+    getOptionIcon: (option: LemonInputSelectOption<T>, isSelected: boolean) => JSX.Element | null | undefined
+}
+
+function VirtualizedOptionRow<T = string>({
+    index,
+    style,
+    visibleOptions,
+    selectedIndex,
+    stringKeys,
+    wasLimitReached,
+    limit,
+    _onActionItem,
+    setSelectedIndex,
+    allowCustomValues,
+    disableEditing,
+    setInputValue,
+    inputRef,
+    _onFocus,
+    getInputLabel,
+    getOptionIcon,
+}: {
+    ariaAttributes: Record<string, unknown>
+    index: number
+    style: CSSProperties
+} & VirtualizedOptionRowProps<T>): JSX.Element {
+    const option = visibleOptions[index]
+    const isFocused = index === selectedIndex
+    const isSelected = stringKeys.includes(option.key)
+    const isDisabled = wasLimitReached && !isSelected
+    return (
+        <LemonButton
+            style={style}
+            key={option.key}
+            type="tertiary"
+            size="small"
+            fullWidth
+            active={isFocused}
+            onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
+            onMouseEnter={() => setSelectedIndex(index)}
+            disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
+            tooltip={option.tooltip}
+            icon={getOptionIcon(option, isSelected)}
+            sideAction={
+                !option.__isInput && allowCustomValues && !disableEditing
+                    ? {
+                          icon: <IconPencil className={!isFocused ? 'invisible' : undefined} />,
+                          tooltip: (
+                              <>
+                                  Edit this value
+                                  <KeyboardShortcut option enter />
+                              </>
+                          ),
+                          onClick: () => {
+                              setInputValue(option.key)
+                              inputRef.current?.focus()
+                              _onFocus()
+                          },
+                      }
+                    : undefined
+            }
+        >
+            <span className="whitespace-nowrap ph-no-capture truncate">
+                {!option.__isInput && !option.__isCustomValue
+                    ? (option.labelComponent ?? option.label)
+                    : getInputLabel(option)}
+            </span>
+        </LemonButton>
+    )
+}
 
 export interface LemonInputSelectOption<T = string> {
     key: string
@@ -358,7 +442,7 @@ export function LemonInputSelect<T = string>({
 
     const _onActionItem = (
         item: string,
-        popoverOptionClickEvent: MouseEvent | null,
+        popoverOptionClickEvent?: MouseEvent | null,
         shouldInitiateEdit?: boolean
     ): void => {
         if (shouldInitiateEdit && allowCustomValues) {
@@ -604,6 +688,7 @@ export function LemonInputSelect<T = string>({
         sortable,
         handleDragEnd,
         size,
+        onChange,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -755,74 +840,35 @@ export function LemonInputSelect<T = string>({
                     {visibleOptions.length > 0 ? (
                         virtualized ? (
                             <div>
-                                <AutoSizer disableHeight>
-                                    {({ width }) => (
-                                        <List
-                                            width={width}
-                                            height={virtualizedListHeight}
-                                            rowCount={visibleOptions.length}
-                                            overscanRowCount={100}
-                                            rowHeight={VIRTUALIZED_SELECT_OPTION_HEIGHT}
-                                            rowRenderer={({ index, style }) => {
-                                                const option = visibleOptions[index]
-                                                const isFocused = index === selectedIndex
-                                                const isSelected = stringKeys.includes(option.key)
-                                                const isDisabled = wasLimitReached && !isSelected
-                                                return (
-                                                    <LemonButton
-                                                        style={style}
-                                                        key={option.key}
-                                                        type="tertiary"
-                                                        size="small"
-                                                        fullWidth
-                                                        active={isFocused}
-                                                        onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
-                                                        onMouseEnter={() => setSelectedIndex(index)}
-                                                        disabledReason={
-                                                            isDisabled ? `Limit of ${limit} options reached` : undefined
-                                                        }
-                                                        tooltip={option.tooltip}
-                                                        icon={getOptionIcon(option, isSelected)}
-                                                        sideAction={
-                                                            !option.__isInput && allowCustomValues && !disableEditing
-                                                                ? {
-                                                                      // To reduce visual clutter we only show the icon on focus or hover,
-                                                                      // but we do want it present to make sure the layout is stable
-                                                                      icon: (
-                                                                          <IconPencil
-                                                                              className={
-                                                                                  !isFocused ? 'invisible' : undefined
-                                                                              }
-                                                                          />
-                                                                      ),
-                                                                      tooltip: (
-                                                                          <>
-                                                                              Edit this value
-                                                                              <KeyboardShortcut option enter />
-                                                                          </>
-                                                                      ),
-                                                                      onClick: () => {
-                                                                          setInputValue(option.key)
-                                                                          inputRef.current?.focus()
-                                                                          _onFocus()
-                                                                      },
-                                                                  }
-                                                                : undefined
-                                                        }
-                                                    >
-                                                        <span className="whitespace-nowrap ph-no-capture truncate">
-                                                            {
-                                                                !option.__isInput && !option.__isCustomValue
-                                                                    ? (option.labelComponent ?? option.label) // Regular option
-                                                                    : getInputLabel(option) // Input-based option
-                                                            }
-                                                        </span>
-                                                    </LemonButton>
-                                                )
-                                            }}
-                                        />
-                                    )}
-                                </AutoSizer>
+                                <AutoSizer
+                                    renderProp={({ width }) =>
+                                        width ? (
+                                            <List<VirtualizedOptionRowProps<T>>
+                                                style={{ width, height: virtualizedListHeight }}
+                                                rowCount={visibleOptions.length}
+                                                overscanCount={100}
+                                                rowHeight={VIRTUALIZED_SELECT_OPTION_HEIGHT}
+                                                rowComponent={VirtualizedOptionRow}
+                                                rowProps={{
+                                                    visibleOptions,
+                                                    selectedIndex,
+                                                    stringKeys,
+                                                    wasLimitReached,
+                                                    limit,
+                                                    _onActionItem,
+                                                    setSelectedIndex,
+                                                    allowCustomValues,
+                                                    disableEditing,
+                                                    setInputValue,
+                                                    inputRef,
+                                                    _onFocus,
+                                                    getInputLabel,
+                                                    getOptionIcon,
+                                                }}
+                                            />
+                                        ) : null
+                                    }
+                                />
                             </div>
                         ) : (
                             visibleOptions.map((option, index) => {

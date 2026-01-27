@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
@@ -28,6 +29,7 @@ import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 export const scene: SceneExport<{ ticketId: string }> = {
     component: SupportTicketScene,
     logic: supportTicketSceneLogic,
+    productKey: ProductKey.CONVERSATIONS,
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 

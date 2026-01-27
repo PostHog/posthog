@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     AssigneeDisplay,
@@ -29,6 +30,7 @@ import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 export const scene: SceneExport = {
     component: SupportTicketsScene,
     logic: supportTicketsSceneLogic,
+    productKey: ProductKey.CONVERSATIONS,
 }
 
 export function SupportTicketsScene(): JSX.Element {

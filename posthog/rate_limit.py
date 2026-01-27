@@ -305,6 +305,26 @@ class SignupIPThrottle(IPThrottle):
     rate = "5/day"
 
 
+class WebAuthnSignupRegistrationThrottle(IPThrottle):
+    """
+    Rate limit passkey signup registrations by IP address to avoid a single IP address from initiating too many signups.
+
+    Note: this is effectively 5 attempts per minute, because each attempt issues 2 requests: begin, complete.
+    """
+
+    scope = "webauthn_signup_registration_ip"
+    rate = "10/minute"
+
+
+class SignupEmailPrecheckThrottle(IPThrottle):
+    """
+    Rate limit signup email precheck requests by IP.
+    """
+
+    scope = "signup_email_precheck"
+    rate = "30/minute"
+
+
 class OnboardingIPThrottle(IPThrottle):
     """
     Rate limit onboarding product recommendations by IP address.

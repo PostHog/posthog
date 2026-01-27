@@ -168,9 +168,16 @@ const getIconForItem = (item: SearchItem): ReactNode => {
         itemType = 'workflows'
     }
     if (itemType) {
+        // Handle iconColor which may be a single-element array or tuple
+        const rawColor = item.record?.iconColor as string[] | undefined
+        const colorOverride: [string, string] | undefined = rawColor
+            ? rawColor.length === 1
+                ? [rawColor[0], rawColor[0]]
+                : [rawColor[0], rawColor[1]]
+            : undefined
         return (
-            <ProductIconWrapper type={itemType as string}>
-                {iconForType(itemType as FileSystemIconType)}
+            <ProductIconWrapper type={itemType as string} colorOverride={colorOverride}>
+                {iconForType(itemType as FileSystemIconType, colorOverride)}
             </ProductIconWrapper>
         )
     }
@@ -332,8 +339,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: recents first, then apps, then everything else
-        const orderedCategories = ['recents', 'apps']
+        // Fixed order: recents first, then apps, then create, then everything else
+        const orderedCategories = ['recents', 'apps', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -342,9 +349,10 @@ function SearchRoot({
 
             // When searching: hide empty groups (unless still loading)
             // When not searching: always show recents/apps (with skeleton if loading)
+            // "create" is only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
-                : category === 'recents' || category === 'apps' || items.length > 0
+                : category === 'recents' || category === 'apps'
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
