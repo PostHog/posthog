@@ -297,16 +297,16 @@ async function main() {
             followNewTab: false, // Always a single tab is recorded
             // Adjust FPS based on the playback speed, so we can speed up seamlessly later
             fps: 30 * playbackSpeed, // TODO: Decide if it's not too much or if we need to adjust bitrate to match
-            ffmpeg_Path: null, // Should pick the system one
+            ffmpeg_Path: null, // TODO: Check if it picks the system one, or installs it instead
             videoFrame: {
                 width,
                 height,
             },
-            videoCrf: 23, // Default, could need to adjust
-            videoCodec: 'libvpx-vp9',
-            videoPreset: 'ultrafast',
+            videoCrf: 23, // Keeping default
+            videoCodec: 'libvpx-vp9', // Using V9, think if it makes sense to record the original in lossless mode
+            // videoPreset should not be used as we use V9 codec
             // Adjusting bitrate to match the playback speed to keep the quality
-            videoBitrate: 1000 * playbackSpeed, // TODO: Decide if it should be linear
+            videoBitrate: 1000 * (0.5 * playbackSpeed),
             // No autopad
             // Keep to two aspect ratios for the time being
             aspectRatio: width > height ? '16:9' : '9:16', // TODO: Find a better way to decide it
