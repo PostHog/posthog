@@ -99,7 +99,9 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                                 posthog.capture('sdk doctor view events', {
                                     sdkType: record.type,
                                 })
-                                newInternalTab(urls.sqlEditor(queryForSdkVersion(record.type, record.version)))
+                                newInternalTab(
+                                    urls.sqlEditor({ query: queryForSdkVersion(record.type, record.version) })
+                                )
                             }}
                         >
                             <code className="text-xs font-mono bg-muted-highlight rounded-sm">{record.version}</code>

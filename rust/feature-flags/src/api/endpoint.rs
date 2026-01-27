@@ -350,6 +350,9 @@ pub async fn flags(
     .instrument(_span)
     .await;
 
+    // Emit DB operations metrics before the canonical log
+    log.emit_db_operations_metrics();
+
     match result {
         Ok(response) => {
             // Determine the response format based on whether request is from decide and version

@@ -26,7 +26,10 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInput
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
-from posthog.temporal.experiments.schedule import create_experiment_regular_metrics_schedules
+from posthog.temporal.experiments.schedule import (
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
+)
 from posthog.temporal.llm_analytics.trace_clustering.schedule import create_trace_clustering_coordinator_schedule
 from posthog.temporal.llm_analytics.trace_summarization.schedule import (
     create_batch_generation_summarization_schedule,
@@ -312,6 +315,7 @@ schedules = [
     create_ducklake_compaction_schedule,
     create_delete_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
 ]
 
 if settings.EE_AVAILABLE:

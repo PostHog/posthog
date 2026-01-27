@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,7 +26,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -898,6 +898,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.loadSurveys()
                 router.actions.replace(urls.survey(survey.id))
                 actions.reportSurveyCreated(survey)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
@@ -907,6 +908,8 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             launchSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} launched</>)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchSurvey)
+
                 actions.loadSurveys()
             },
             stopSurveySuccess: () => {
@@ -935,10 +938,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.loadSurveyDismissedAndSentCount()
                     // Load archived response UUIDs when survey loads
                     actions.loadArchivedResponseUuids()
-                }
-
-                if (values.survey.start_date) {
-                    activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
                 }
             },
             loadSurveyBaseStatsSuccess: () => {

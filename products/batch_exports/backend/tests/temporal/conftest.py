@@ -1,6 +1,7 @@
 import uuid
 import random
 import asyncio
+import logging
 import datetime as dt
 
 import pytest
@@ -13,10 +14,13 @@ import temporalio.worker
 from asgiref.sync import sync_to_async
 from infi.clickhouse_orm import Database
 from psycopg import sql
+from temporalio.client import Client as TemporalClient
+from temporalio.service import RPCError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.conftest import create_clickhouse_tables
-from posthog.models import Organization, Team
+from posthog.models import BatchExport, Organization, Team
+from posthog.models.team.util import delete_batch_exports
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
@@ -68,7 +72,7 @@ def team(organization):
     team.save()
 
     yield team
-
+    delete_batch_exports(team_ids=[team.pk])
     team.delete()
 
 
@@ -88,7 +92,7 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-
+    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
     await sync_to_async(team.delete)()
 
 
@@ -115,9 +119,29 @@ async def clickhouse_client():
         yield client
 
 
-@pytest_asyncio.fixture
+async def delete_temporal_schedule(temporal: TemporalClient, schedule_id: str):
+    """Delete a Temporal Schedule with the given id."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    await handle.delete()
+
+
+async def cleanup_temporal_schedules(temporal: TemporalClient):
+    """Clean up any Temporal Schedules created during the test."""
+    async for schedule in BatchExport.objects.all():
+        try:
+            await delete_temporal_schedule(temporal, str(schedule.id))
+        except RPCError:
+            # Assume this is fine as we are tearing down, but don't fail silently.
+            logging.warning("Schedule %s has already been deleted, ignoring.", schedule.id)
+            continue
+
+
+@pytest.fixture
 async def temporal_client():
-    """Provide a temporalio.client.Client to use in tests."""
+    """Provide a temporalio.client.Client to use in tests.
+
+    Also cleans up any Temporal Schedules created during the test.
+    """
     client = await connect(
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
@@ -126,8 +150,8 @@ async def temporal_client():
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )
-
     yield client
+    await cleanup_temporal_schedules(client)
 
 
 @pytest_asyncio.fixture()

@@ -56,7 +56,7 @@ import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
 import { LinearIntegration } from './environment/Integrations'
-import { LogsCaptureSettings } from './environment/LogsCaptureSettings'
+import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -542,6 +542,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Logs',
                 component: <LogsCaptureSettings />,
                 flag: 'LOGS_SETTINGS',
+            },
+            {
+                id: 'logs-json-parse',
+                title: 'JSON parse logs',
+                component: <LogsJsonParseSettings />,
+                flag: 'LOGS_SETTINGS_JSON',
+            },
+            {
+                id: 'logs-retention',
+                title: 'Retention',
+                component: <LogsRetentionSettings />,
+                flag: 'LOGS_SETTINGS_RETENTION',
             },
         ],
     },
