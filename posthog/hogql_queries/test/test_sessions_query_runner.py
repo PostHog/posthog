@@ -300,3 +300,200 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = SessionsQueryRunner(query=query, team=self.team)
 
         assert runner.select_input_raw() == ["session_id", "distinct_id"]
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_field(self):
+        """Test person_display_name returns correct dict structure with default properties."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            person_display = response.results[0][1]
+            assert isinstance(person_display, dict)
+            # Default display name uses email
+            assert person_display["display_name"] == "user1@posthog.com"
+            assert "id" in person_display
+            assert person_display["distinct_id"] == "user1"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_with_custom_properties(self):
+        """Test person_display_name respects team.person_display_name_properties."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        # Set custom display name property
+        self.team.person_display_name_properties = ["name"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            person_display = response.results[0][1]
+            # Should use name property instead of email
+            assert person_display["display_name"] == "Person user1"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_fallback_to_distinct_id(self):
+        """Test person_display_name falls back to distinct_id when properties missing."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        # Set property that doesn't exist
+        self.team.person_display_name_properties = ["nonexistent_property"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            person_display = response.results[0][1]
+            # Should fall back to distinct_id
+            assert person_display["display_name"] == "user1"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_with_spaces_in_property_name(self):
+        """Test person_display_name handles property names with spaces."""
+        # Create person with property that has spaces
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user_spaced"],
+            properties={
+                "Property With Spaces": "Test User With Spaces",
+                "email": "spaced@example.com",
+            },
+        )
+        session_id = str(uuid7("2024-01-01T12:00:00Z"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_spaced",
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"$session_id": session_id},
+        )
+        flush_persons_and_events()
+
+        # Set property with spaces as display name
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            person_display = response.results[0][1]
+            assert person_display["display_name"] == "Test User With Spaces"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_combined_with_other_columns(self):
+        """Test person_display_name works alongside other session columns."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+                ("user1", "session1", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person", "$session_duration"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            row = response.results[0]
+            assert row[0] is not None  # session_id
+            assert isinstance(row[1], dict)  # person_display_name
+            assert row[1]["display_name"] == "user1@posthog.com"
+            assert row[2] == 600  # 10 minutes duration
+
+    @snapshot_clickhouse_queries
+    def test_orderby_person_display_name(self):
+        """Test sessions can be ordered by person_display_name."""
+        self._create_test_sessions(
+            data=[
+                ("userA", "session1", "2024-01-01T12:00:00Z", {}),
+                ("userB", "session2", "2024-01-01T12:05:00Z", {}),
+                ("userC", "session3", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+                orderBy=["person_display_name -- Person DESC"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 3
+
+            # Should be ordered by display_name (email) descending
+            display_names = [row[1]["display_name"] for row in response.results]
+            assert display_names == ["userC@posthog.com", "userB@posthog.com", "userA@posthog.com"]

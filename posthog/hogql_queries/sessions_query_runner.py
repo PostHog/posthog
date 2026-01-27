@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from typing import Optional
 
@@ -9,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
 
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -42,17 +44,46 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
 
+    def _build_person_display_name_expr(self) -> str:
+        """Build the HogQL expression for person_display_name using a subquery join."""
+        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+        # Build coalesce expression for person properties
+        props = []
+        for key in property_keys:
+            if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                props.append(f"toString(__person_lookup.properties.{key})")
+            else:
+                props.append(f"toString(__person_lookup.properties.`{key}`)")
+
+        # Create a tuple with (display_name, person_id, distinct_id)
+        # Use sessions.distinct_id to avoid ambiguity with pdi.distinct_id
+        coalesce_expr = f"coalesce({', '.join([*props, 'sessions.distinct_id'])})"
+        return f"({coalesce_expr}, toString(__person_lookup.id), sessions.distinct_id)"
+
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
         for col in self.select_input_raw():
             # Selecting a "*" expands the list of columns
             if col == "*":
                 select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_SESSIONS_FIELDS)})")
+            elif col.split("--")[0].strip() == "person_display_name":
+                select_input.append(self._build_person_display_name_expr())
             else:
                 select_input.append(col)
         return select_input, [
             map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
         ]
+
+    def _needs_person_join(self) -> bool:
+        """Check if any selected column or orderBy requires person join."""
+        for col in self.select_input_raw():
+            if col.split("--")[0].strip() == "person_display_name":
+                return True
+        if self.query.orderBy:
+            for col in self.query.orderBy:
+                if col.split("--")[0].strip() == "person_display_name":
+                    return True
+        return False
 
     def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("build_ast"):
@@ -214,7 +245,25 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             # order by
             with self.timings.measure("order"):
                 if self.query.orderBy is not None:
-                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+                    order_columns: list[str] = []
+                    for col in self.query.orderBy:
+                        if col.split("--")[0].strip() == "person_display_name":
+                            # Replace person_display_name with the actual expression
+                            property_keys = (
+                                self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                            )
+                            props = []
+                            for key in property_keys:
+                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                                    props.append(f"toString(__person_lookup.properties.{key})")
+                                else:
+                                    props.append(f"toString(__person_lookup.properties.`{key}`)")
+                            expr = f"(coalesce({', '.join([*props, 'sessions.distinct_id'])}), toString(__person_lookup.id))"
+                            new_col = re.sub(r"person_display_name -- Person\s*", expr, col)
+                            order_columns.append(new_col)
+                        else:
+                            order_columns.append(col)
+                    order_by = [parse_order_expr(column, timings=self.timings) for column in order_columns]
                 elif "count()" in select_input:
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
                 elif len(aggregations) > 0:
@@ -227,9 +276,45 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     order_by = []
 
             with self.timings.measure("select"):
+                # Build the FROM clause, optionally adding person join
+                select_from = ast.JoinExpr(table=ast.Field(chain=["sessions"]))
+
+                if self._needs_person_join():
+                    # Join sessions -> person_distinct_ids -> persons
+                    # First join: sessions.distinct_id -> person_distinct_ids.distinct_id
+                    pdi_join = ast.JoinExpr(
+                        table=ast.Field(chain=["person_distinct_ids"]),
+                        join_type="LEFT JOIN",
+                        alias="__pdi",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["sessions", "distinct_id"]),
+                                right=ast.Field(chain=["__pdi", "distinct_id"]),
+                            ),
+                            constraint_type="ON",
+                        ),
+                    )
+                    # Second join: person_distinct_ids.person_id -> persons.id
+                    persons_join = ast.JoinExpr(
+                        table=ast.Field(chain=["persons"]),
+                        join_type="LEFT JOIN",
+                        alias="__person_lookup",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["__pdi", "person_id"]),
+                                right=ast.Field(chain=["__person_lookup", "id"]),
+                            ),
+                            constraint_type="ON",
+                        ),
+                    )
+                    pdi_join.next_join = persons_join
+                    select_from.next_join = pdi_join
+
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+                    select_from=select_from,
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,
@@ -257,6 +342,18 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     select = result[star_idx]
                     new_result = dict(zip(SELECT_STAR_FROM_SESSIONS_FIELDS, select))
                     self.paginator.results[index][star_idx] = new_result
+
+        # Convert person_display_name tuple to dict
+        for column_index, col in enumerate(self.select_input_raw()):
+            if col.split("--")[0].strip() == "person_display_name":
+                for index, result in enumerate(self.paginator.results):
+                    row = list(self.paginator.results[index])
+                    row[column_index] = {
+                        "display_name": result[column_index][0],
+                        "id": str(result[column_index][1]),
+                        "distinct_id": str(result[column_index][2]),
+                    }
+                    self.paginator.results[index] = row
 
         return SessionsQueryResponse(
             results=self.paginator.results,
