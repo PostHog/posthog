@@ -3,18 +3,28 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
+import {
+    AccessControlLevel,
+    Survey,
+    SurveyQuestionDescriptionContentType,
+    SurveyQuestionType,
+    SurveySchedule,
+    SurveyType,
+} from '~/types'
 
-import { SURVEY_CREATED_SOURCE, SurveyTemplate } from '../constants'
+import { SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, SurveyTemplate, SurveyTemplateType } from '../constants'
 import { surveyWizardLogic } from './surveyWizardLogic'
 
 const createMockTemplate = (): SurveyTemplate => ({
-    templateType: 'Net promoter score (NPS)',
+    templateType: SurveyTemplateType.NPS,
     questions: [
         {
             type: SurveyQuestionType.Rating,
             question: 'How likely are you to recommend us?',
-            scale: 10,
+            description: '',
+            descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            display: 'number',
+            scale: SURVEY_RATING_SCALE.NPS_10_POINT,
             lowerBoundLabel: 'Not likely',
             upperBoundLabel: 'Very likely',
         },
