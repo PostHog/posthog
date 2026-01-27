@@ -60,7 +60,7 @@ export function AuthorizedUrlList({
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
             <EmptyState
                 experimentId={experimentId}
                 productTourId={productTourId}

@@ -5,7 +5,6 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
@@ -20,10 +19,8 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
-import { OnboardingAIConsent } from './OnboardingAIConsent'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
-import { OnboardingProjectData } from './OnboardingProjectData'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
@@ -73,8 +70,6 @@ const OnboardingWrapper = ({
         scope: RestrictionScope.Organization,
     })
 
-    const shouldShowTellUsMoreStep = useFeatureFlag('ONBOARDING_TELL_US_MORE_STEP', 'test')
-
     useEffect(() => {
         if (billingLoading && waitForBilling) {
             return
@@ -104,29 +99,14 @@ const OnboardingWrapper = ({
             steps = [...steps, BillingStep]
         }
 
-        const aiConsentStep = <OnboardingAIConsent />
-        steps = [...steps, aiConsentStep]
-
         const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
         if (!userCannotInvite) {
             const inviteTeammatesStep = <OnboardingInviteTeammates />
             steps = [...steps, inviteTeammatesStep]
         }
 
-        if (shouldShowTellUsMoreStep) {
-            const tellUsMoreStep = <OnboardingProjectData />
-            steps = [...steps, tellUsMoreStep]
-        }
-
         setAllOnboardingSteps(steps.filter(Boolean))
-    }, [
-        children,
-        billingLoading,
-        waitForBilling,
-        minAdminRestrictionReason,
-        currentOrganization,
-        shouldShowTellUsMoreStep,
-    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [children, billingLoading, waitForBilling, minAdminRestrictionReason, currentOrganization]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!product || !children) {
         return <></>

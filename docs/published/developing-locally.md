@@ -79,6 +79,8 @@ This is the recommended option for most developers.
 
 > Note: Importantly, if you're internal to PostHog we are standardised on working on MacOS (not Linux). In part because of SOC2 auditing gains it gives us.
 
+> Note: If you're running PostHog on WSL2, make sure to change $HOST_BIND to 0.0.0.0 and set the debugpy address to 0.0.0.0:5678.
+
 1. Install Docker following the [official Docker installation guide for Ubuntu](https://docs.docker.com/engine/install/ubuntu/).
 
 2. Install the `build-essential` package:
@@ -135,6 +137,16 @@ To get PostHog running in a dev environment:
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
 You can now change PostHog in any way you want. See [Project structure](/handbook/engineering/project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
+
+### Customizing which services run
+
+By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, use `hogli dev:setup`:
+
+```bash
+hogli dev:setup
+```
+
+This interactive wizard lets you pick a preset (minimal, backend-focused, etc.) or select individual capabilities. Your choices are saved and used automatically by `hogli start`.
 
 ### Manual setup
 
@@ -377,7 +389,11 @@ When creating the slack integration it will redirect you to `https://localhost..
 
 ## Extra: Use tracing with Jaeger
 
-Jaeger is enabled by default after running `./bin/start`.
+Jaeger is enabled by default after running `./bin/start`. To disable tracing (e.g. for faster startup or reduced resource usage), use:
+
+```bash
+./bin/start --no-tracing
+```
 
 Jaeger will be available at [http://localhost:16686](http://localhost:16686).
 

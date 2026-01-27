@@ -10,13 +10,14 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { removeUndefinedAndNull } from 'lib/utils'
+import { objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -704,10 +705,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: newSource,
                 }).mount()
             }
+
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
+
+            // Mark the first query task as complete when the query is run
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             LemonDialog.openForm({
@@ -1093,7 +1098,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         {
                             key: view.id,
                             name: view.name,
-                            path: urls.sqlEditor(undefined, view.id),
+                            path: urls.sqlEditor({ view_id: view.id }),
                             iconType: 'sql_editor',
                         },
                     ]
@@ -1103,7 +1108,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         {
                             key: insight.id,
                             name: insight.name || insight.derived_name || 'Untitled',
-                            path: urls.sqlEditor(undefined, undefined, insight.short_id),
+                            path: urls.sqlEditor({ insightShortId: insight.short_id }),
                             iconType: 'sql_editor',
                         },
                     ]
@@ -1113,7 +1118,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         {
                             key: draft.id,
                             name: draft.name || 'Untitled',
-                            path: urls.sqlEditor(undefined, undefined, undefined, draft.id),
+                            path: urls.sqlEditor({ draftId: draft.id }),
                             iconType: 'sql_editor',
                         },
                     ]
@@ -1127,6 +1132,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             (queryInput: string | null): Record<string, Record<string, boolean>> => {
                 return parseQueryTablesAndColumns(queryInput)
             },
+        ],
+        selectedQueryColumns: [
+            (s) => [s.queryInput],
+            (queryInput: string | null): Record<string, boolean> => {
+                const tablesAndColumns = parseQueryTablesAndColumns(queryInput)
+
+                return Object.fromEntries(
+                    Object.entries(tablesAndColumns).flatMap(([table, columns]) => {
+                        return Object.keys(columns).map((column) => [`${table}.${column}`, true])
+                    })
+                )
+            },
+            { resultEqualityCheck: objectsEqual },
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({

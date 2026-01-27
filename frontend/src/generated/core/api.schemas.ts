@@ -117,7 +117,7 @@ export const EffectivePrivilegeLevelEnumApi = {
 } as const
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface DashboardBasicApi {
     readonly id: number
@@ -178,7 +178,7 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null |
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface DashboardApi {
     readonly id: number
@@ -264,7 +264,7 @@ export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } |
 export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface PatchedDashboardApi {
     readonly id?: number
@@ -483,11 +483,12 @@ export interface CreateGroupApi {
  * `databricks` - Databricks
  * `azure-blob` - Azure Blob
  * `firebase` - Firebase
+ * `jira` - Jira
  */
-export type Kind9f6EnumApi = (typeof Kind9f6EnumApi)[keyof typeof Kind9f6EnumApi]
+export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Kind9f6EnumApi = {
+export const KindCf2EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -512,6 +513,7 @@ export const Kind9f6EnumApi = {
     databricks: 'databricks',
     'azure-blob': 'azure-blob',
     firebase: 'firebase',
+    jira: 'jira',
 } as const
 
 /**
@@ -519,7 +521,7 @@ export const Kind9f6EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: Kind9f6EnumApi
+    kind: KindCf2EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -534,6 +536,19 @@ export interface PaginatedIntegrationListApi {
     /** @nullable */
     previous?: string | null
     results: IntegrationApi[]
+}
+
+/**
+ * Standard Integration serializer.
+ */
+export interface PatchedIntegrationApi {
+    readonly id?: number
+    kind?: KindCf2EnumApi
+    config?: unknown
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly errors?: string
+    readonly display_name?: string
 }
 
 /**
@@ -2246,6 +2261,7 @@ export interface ProjectBackwardCompatApi {
     /** @nullable */
     conversations_enabled?: boolean | null
     conversations_settings?: unknown
+    logs_settings?: unknown
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2367,6 +2383,7 @@ export interface PatchedProjectBackwardCompatApi {
     /** @nullable */
     conversations_enabled?: boolean | null
     conversations_settings?: unknown
+    logs_settings?: unknown
 }
 
 export interface RoleApi {
@@ -2581,6 +2598,10 @@ export interface CohortApi {
         } */
     filters?: unknown
     query?: unknown
+    /** @nullable */
+    readonly version: number | null
+    /** @nullable */
+    readonly pending_version: number | null
     readonly is_calculating: boolean
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -2681,6 +2702,10 @@ export interface PatchedCohortApi {
         } */
     filters?: unknown
     query?: unknown
+    /** @nullable */
+    readonly version?: number | null
+    /** @nullable */
+    readonly pending_version?: number | null
     readonly is_calculating?: boolean
     readonly created_by?: UserBasicApi
     /** @nullable */
@@ -2867,6 +2892,83 @@ export interface PatchedDashboardTemplateApi {
 }
 
 /**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface EnterpriseEventDefinitionApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    owner?: number | null
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    /** @nullable */
+    readonly created_at: string | null
+    readonly updated_at: string
+    readonly updated_by: UserBasicApi
+    /** @nullable */
+    readonly last_seen_at: string | null
+    readonly last_updated_at: string
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verified_by: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
+    readonly is_action: boolean
+    readonly action_id: number
+    readonly is_calculating: boolean
+    readonly last_calculated_at: string
+    readonly created_by: UserBasicApi
+    post_to_slack?: boolean
+    default_columns?: string[]
+}
+
+export interface PaginatedEnterpriseEventDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EnterpriseEventDefinitionApi[]
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface PatchedEnterpriseEventDefinitionApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    owner?: number | null
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly updated_at?: string
+    readonly updated_by?: UserBasicApi
+    /** @nullable */
+    readonly last_seen_at?: string | null
+    readonly last_updated_at?: string
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verified_by?: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
+    readonly is_action?: boolean
+    readonly action_id?: number
+    readonly is_calculating?: boolean
+    readonly last_calculated_at?: string
+    readonly created_by?: UserBasicApi
+    post_to_slack?: boolean
+    default_columns?: string[]
+}
+
+/**
  * * `DateTime` - DateTime
  * `String` - String
  * `Numeric` - Numeric
@@ -2885,49 +2987,58 @@ export const PropertyType549EnumApi = {
 } as const
 
 /**
- * * `1` - event
- * `2` - person
- * `3` - group
- * `4` - session
+ * Serializer mixin that handles tags for objects.
  */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyDefinitionTypeEnumApi = {
-    NUMBER_1: 1,
-    NUMBER_2: 2,
-    NUMBER_3: 3,
-    NUMBER_4: 4,
-} as const
-
-export interface PropertyDefinitionApi {
+export interface EnterprisePropertyDefinitionApi {
     readonly id: string
     readonly name: string
-    readonly property_type: PropertyType549EnumApi | NullEnumApi
-    readonly type: PropertyDefinitionTypeEnumApi
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    readonly is_numerical: boolean
+    readonly updated_at: string
+    readonly updated_by: UserBasicApi
+    /** @nullable */
+    readonly is_seen_on_filtered_events: boolean | null
+    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verified_by: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
 }
 
-export interface PaginatedPropertyDefinitionListApi {
+export interface PaginatedEnterprisePropertyDefinitionListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: PropertyDefinitionApi[]
+    results: EnterprisePropertyDefinitionApi[]
 }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
-export interface PatchedPropertyDefinitionApi {
+export interface PatchedEnterprisePropertyDefinitionApi {
     readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    is_numerical?: boolean
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi
+    readonly name?: string
+    /** @nullable */
+    description?: string | null
     tags?: unknown[]
-    readonly is_seen_on_filtered_events?: string
+    readonly is_numerical?: boolean
+    readonly updated_at?: string
+    readonly updated_by?: UserBasicApi
+    /** @nullable */
+    readonly is_seen_on_filtered_events?: boolean | null
+    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verified_by?: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
 }
 
 /**
@@ -3267,6 +3378,11 @@ export interface UserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export interface PaginatedUserListApi {
@@ -3333,6 +3449,11 @@ export interface PatchedUserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export type EnvironmentsDashboardsListParams = {
@@ -3835,6 +3956,17 @@ export const DashboardsCreateUnlistedDashboardCreateFormat = {
     json: 'json',
     txt: 'txt',
 } as const
+
+export type EventDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type ExportsListParams = {
     /**

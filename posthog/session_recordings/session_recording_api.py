@@ -247,8 +247,11 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             SessionRecordingExternalReferenceSerializer,
         )
 
-        references = obj.external_references.select_related("integration").all()  # type: ignore[attr-defined]
-        return list(SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data)
+        return list(
+            SessionRecordingExternalReferenceSerializer(
+                obj.external_references.select_related("integration").all(), many=True, context=self.context
+            ).data
+        )
 
     class Meta:
         model = SessionRecording
