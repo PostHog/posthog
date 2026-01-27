@@ -3,9 +3,18 @@ import { NextFunction, Request, Response } from 'ultimate-express'
 
 import { logger } from '~/utils/logger'
 
+/**
+ * Internal API authentication middleware.
+ *
+ * NOTE: This provides defense-in-depth authentication for internal service-to-service
+ * calls (e.g., Django -> Node.js CDP API). The primary protection comes from Contour
+ * routing configuration at the infrastructure level, which restricts access to internal
+ * endpoints. This middleware adds an additional layer of verification using a shared secret.
+ */
+
 const HEADER_NAME = 'X-Internal-Api-Secret'
 
-// Paths that don't require authentication
+// Paths that don't require authentication (public endpoints and health checks)
 const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/metrics']
 
 export interface InternalApiAuthOptions {

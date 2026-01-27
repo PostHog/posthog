@@ -30,7 +30,8 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
     // Add CORS middleware before other middleware
     app.use(corsMiddleware)
 
-    // Add internal API authentication middleware (skips public paths by default)
+    // Add internal API authentication middleware for defense-in-depth.
+    // Primary protection comes from Contour routing at the infra level.
     app.use(createInternalApiAuthMiddleware({ secret: options.internalApiSecret || '' }))
 
     app.use(
