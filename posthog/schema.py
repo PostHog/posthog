@@ -14116,6 +14116,10 @@ class WebExternalClicksTableQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -14154,6 +14158,10 @@ class WebGoalsQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -14191,6 +14199,10 @@ class WebOverviewQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -14227,6 +14239,10 @@ class WebPageURLSearchQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -14269,6 +14285,10 @@ class WebStatsTableQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeAvgTimeOnPage: bool | None = None
     includeBounceRate: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     includeScrollDepth: bool | None = None
     interval: IntervalType | None = Field(
@@ -15397,6 +15417,10 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
         description="Draft conversion goal that can be set in the UI without saving",
     )
     filterTestAccounts: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
     interval: IntervalType | None = Field(
@@ -15441,6 +15465,10 @@ class MarketingAnalyticsTableQuery(BaseModel):
         description="Draft conversion goal that can be set in the UI without saving",
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
     interval: IntervalType | None = Field(
@@ -15553,6 +15581,10 @@ class NonIntegratedConversionsTableQuery(BaseModel):
         description="Draft conversion goal that can be set in the UI without saving",
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -15920,6 +15952,10 @@ class WebTrendsQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     interval: IntervalType = Field(
         ...,
@@ -15959,6 +15995,10 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -17804,6 +17844,10 @@ class WebVitalsQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeMobileEvents: bool | None = Field(
+        default=None,
+        description=("Whether to include $screen events (mobile) in queries. Defaults to true."),
+    )
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,

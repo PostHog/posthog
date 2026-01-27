@@ -20,7 +20,7 @@ FROM (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            or(events.event == '$pageview', events.event == '$screen'),
+            {event_filter},
             {inside_periods},
             {event_properties},
             {session_properties},
@@ -43,7 +43,7 @@ LEFT JOIN (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            or(events.event == '$pageview', events.event == '$screen'),
+            {event_filter},
             breakdown_value IS NOT NULL,
             {inside_periods},
             {bounce_event_properties}, -- Using filtered properties but excluding pathname
@@ -80,7 +80,7 @@ FROM (
             min(session.$start_timestamp ) AS start_timestamp
         FROM events
         WHERE and(
-            or(events.event == '$pageview', events.event == '$screen'),
+            {event_filter},
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
@@ -103,7 +103,7 @@ LEFT JOIN (
             min(session.$start_timestamp) as start_timestamp
         FROM events
         WHERE and(
-            or(events.event == '$pageview', events.event == '$screen'),
+            {event_filter},
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
@@ -135,7 +135,7 @@ LEFT JOIN (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            or(events.event == '$pageview', events.event == '$pageleave', events.event == '$screen'),
+            {scroll_event_filter},
             breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties_for_scroll},
@@ -181,7 +181,7 @@ FROM (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            or(events.event = '$pageview', events.event = '$screen'),
+            {event_filter},
             {inside_periods},
             {event_properties},
             {session_properties},
@@ -208,7 +208,7 @@ LEFT JOIN (
         ) AS previous_avg_time_on_page
     FROM events
     WHERE and(
-        or(events.event = '$pageview', events.event = '$pageleave', events.event = '$screen'),
+        {scroll_event_filter},
         {time_on_page_breakdown_value} IS NOT NULL,
         events.properties.`$prev_pageview_duration` IS NOT NULL,
         {inside_periods},
@@ -235,7 +235,7 @@ LEFT JOIN (
             min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            or(events.event = '$pageview', events.event = '$screen'),
+            {event_filter},
             breakdown_value IS NOT NULL,
             {inside_periods},
             {bounce_event_properties},
@@ -251,7 +251,7 @@ ON counts.breakdown_value = bounce.breakdown_value
 FRUSTRATION_METRICS_INNER_QUERY = """
 SELECT
     any(person_id) AS filtered_person_id,
-    countIf(events.event = '$pageview' OR events.event = '$screen') AS filtered_pageview_count,
+    countIf({pageview_event_filter}) AS filtered_pageview_count,
     {breakdown_value} AS breakdown_value,
     countIf(events.event = '$exception') AS errors_count,
     countIf(events.event = '$rageclick') AS rage_clicks_count,

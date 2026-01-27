@@ -19337,6 +19337,10 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                    "type": "boolean"
+                },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
@@ -19638,6 +19642,10 @@
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -21605,6 +21613,10 @@
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -33011,6 +33023,10 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                    "type": "boolean"
+                },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
@@ -33161,6 +33177,10 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -33340,6 +33360,10 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                    "type": "boolean"
+                },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
@@ -33478,6 +33502,10 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -33659,6 +33687,10 @@
                     "type": "boolean"
                 },
                 "includeBounceRate": {
+                    "type": "boolean"
+                },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -33855,6 +33887,10 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -34084,6 +34120,10 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
+                    "type": "boolean"
+                },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
@@ -34268,6 +34308,10 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeMobileEvents": {
+                    "description": "Whether to include $screen events (mobile) in queries. Defaults to true.",
                     "type": "boolean"
                 },
                 "includeRevenue": {

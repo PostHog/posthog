@@ -14,6 +14,7 @@ from posthog.test.base import (
 )
 
 import numpy as np
+from parameterized import parameterized
 from pydantic.dataclasses import dataclass
 
 from posthog.schema import (
@@ -221,6 +222,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         filter_test_accounts: Optional[bool] = False,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
         orderBy=None,
+        include_mobile_events: Optional[bool] = None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
             modifiers = HogQLQueryModifiers(
@@ -242,6 +244,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 if custom_event
                 else None,
                 filterTestAccounts=filter_test_accounts,
+                includeMobileEvents=include_mobile_events,
                 orderBy=orderBy,
             )
             self.team.path_cleaning_filters = path_cleaning_filters or []
@@ -2328,3 +2331,34 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         start_result = next(r for r in results if r[0] == "/start")
         self.assertAlmostEqual(start_result[3][0], stats["/start"]["p90_duration"], places=2)
+
+    @parameterized.expand(
+        [
+            ("include_mobile_events_default", None),
+            ("include_mobile_events_true", True),
+            ("include_mobile_events_false", False),
+        ]
+    )
+    def test_include_mobile_events(self, _name: str, include_mobile_events: Optional[bool]):
+        s1 = str(uuid7("2023-12-11"))
+
+        # Create $pageview events
+        self._create_events(
+            [
+                ("p1", [("2023-12-11", s1, "/"), ("2023-12-12", s1, "/about")]),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        # Verify the query runs without error with each setting
+        results = self._run_web_stats_table_query(
+            "2023-12-08",
+            "2023-12-15",
+            include_mobile_events=include_mobile_events,
+        ).results
+
+        # Basic sanity check - should return page results
+        self.assertEqual(len(results), 2)  # "/" and "/about"
+        total_views = sum(r[2][0] for r in results)
+        self.assertEqual(total_views, 2)

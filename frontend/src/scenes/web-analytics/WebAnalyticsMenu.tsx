@@ -28,10 +28,11 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const { shouldFilterTestAccounts, hiddenTiles, productTab } = useValues(webAnalyticsLogic)
+    const { shouldFilterTestAccounts, includeMobileEvents, hiddenTiles, productTab } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { setShouldFilterTestAccounts, setTileVisibility, resetTileVisibility } = useActions(webAnalyticsLogic)
+    const { setShouldFilterTestAccounts, setIncludeMobileEvents, setTileVisibility, resetTileVisibility } =
+        useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
 
@@ -58,6 +59,19 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                             }}
                             fullWidth={true}
                             label="Filter out internal and test users"
+                        />
+                    ),
+                },
+                {
+                    label: () => (
+                        <LemonSwitch
+                            checked={includeMobileEvents}
+                            onChange={() => {
+                                setIncludeMobileEvents(!includeMobileEvents)
+                            }}
+                            fullWidth={true}
+                            label="Include mobile events"
+                            tooltip="When enabled, $screen events from mobile apps are included in analytics. Disable to see only web pageviews."
                         />
                     ),
                 },

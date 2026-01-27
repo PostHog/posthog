@@ -2070,6 +2070,8 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     /** Sampling rate */
     samplingFactor?: number | null
     filterTestAccounts?: boolean
+    /** Whether to include $screen events (mobile) in queries. Defaults to true. */
+    includeMobileEvents?: boolean
     /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */

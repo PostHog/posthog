@@ -10,6 +10,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     CompareFilter,
     DateRange,
@@ -130,6 +132,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         compare=True,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
+        include_mobile_events: Optional[bool] = None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
             modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
@@ -138,6 +141,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 properties=properties or [],
                 limit=limit,
                 filterTestAccounts=filter_test_accounts,
+                includeMobileEvents=include_mobile_events,
                 compareFilter=CompareFilter(compare=compare),
             )
             self.team.path_cleaning_filters = path_cleaning_filters or []
@@ -523,3 +527,28 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results is not None
         assert pretty_print_in_tests(str(results.results), self.team.pk) == self.snapshot
+
+    @parameterized.expand(
+        [
+            ("include_mobile_events_default", None),
+            ("include_mobile_events_true", True),
+            ("include_mobile_events_false", False),
+        ]
+    )
+    def test_include_mobile_events(self, _name: str, include_mobile_events: Optional[bool]):
+        self._create_actions()
+        p1, s1 = self._create_person()
+        self._visit_web_analytics(p1, s1)
+
+        # Simply verify the query runs without error with each setting
+        results = self._run_web_goals_query(
+            "2024-11-01",
+            None,
+            compare=False,
+            include_mobile_events=include_mobile_events,
+        ).results
+
+        # Basic sanity check - should return action results
+        assert len(results) == 3  # 3 actions created
+        assert results[1][0] == "Visited Web Analytics"
+        assert results[1][1][0] == 1  # 1 unique user visited web analytics

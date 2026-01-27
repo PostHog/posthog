@@ -6658,6 +6658,7 @@ export interface WebAnalyticsFiltersConfig {
     conversionGoal?: { actionId?: number; customEventName?: string } | null
     isPathCleaningEnabled?: boolean
     shouldFilterTestAccounts?: boolean
+    includeMobileEvents?: boolean
 }
 
 export interface WebAnalyticsFilterPresetType {
