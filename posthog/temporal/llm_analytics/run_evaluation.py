@@ -116,7 +116,7 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
             evaluation = Evaluation.objects.select_related(
                 "model_configuration",
                 "model_configuration__provider_key",
-            ).get(id=inputs.evaluation_id, team_id=inputs.event_data.get("team_id"))
+            ).get(id=inputs.evaluation_id, team_id=inputs.event_data["team_id"])
 
             model_configuration = None
             if evaluation.model_configuration:
