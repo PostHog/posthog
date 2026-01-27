@@ -185,6 +185,7 @@ ARROW: '->';
 ASTERISK: '*';
 BACKQUOTE: '`';
 BACKSLASH: '\\';
+DOUBLECOLON: '::';
 COLON: ':';
 COMMA: ',';
 CONCAT: '||';
