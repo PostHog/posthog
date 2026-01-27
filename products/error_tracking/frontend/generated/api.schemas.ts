@@ -70,11 +70,13 @@ export interface ErrorTrackingIssueAssignmentApi {
  * `vercel` - Vercel
  * `databricks` - Databricks
  * `azure-blob` - Azure Blob
+ * `firebase` - Firebase
+ * `jira` - Jira
  */
-export type Kind7b5EnumApi = (typeof Kind7b5EnumApi)[keyof typeof Kind7b5EnumApi]
+export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Kind7b5EnumApi = {
+export const KindCf2EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -98,11 +100,13 @@ export const Kind7b5EnumApi = {
     vercel: 'vercel',
     databricks: 'databricks',
     'azure-blob': 'azure-blob',
+    firebase: 'firebase',
+    jira: 'jira',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
     readonly id: number
-    readonly kind: Kind7b5EnumApi
+    readonly kind: KindCf2EnumApi
     readonly display_name: string
 }
 

@@ -42,7 +42,6 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
-from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY
 from posthog.tasks.exports import image_exporter
 from posthog.tasks.exports.failure_handler import (
     FAILURE_TYPE_SYSTEM,
@@ -862,6 +861,58 @@ class TestExports(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_team_specific_limit(self, mock_async_connect, mock_async_to_sync) -> None:
+        """Test that teams can have custom export limits via extra_settings"""
+        # Set a custom limit of 3 for this team
+        self.team.extra_settings = {"full_video_exports_limit": 3}
+        self.team.save()
+
+        # Create 2 video exports (should succeed)
+        for i in range(2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "video/mp4",
+                    "export_context": {
+                        "mode": "video",
+                        "session_recording_id": f"session_{i}",
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # The 3rd export should succeed (at the custom limit)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_3",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # The 4th export should fail with the custom limit in error message
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "mode": "video",
+                    "session_recording_id": "session_4",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertEqual(error_data["type"], "validation_error")
+        self.assertEqual(error_data["attr"], "export_limit_exceeded")
+        self.assertIn("reached the limit of 3 full video exports this month", error_data["detail"])
+
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_synchronous_export_records_failure_on_query_error(self, mock_export_direct) -> None:
         """Test that synchronous exports record failure info when a QueryError occurs."""
@@ -883,22 +934,6 @@ class TestExports(APIBaseTest):
         self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
-
-    @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_synchronous_export_raises_retriable_errors(self, mock_export_direct) -> None:
-        """Test that retriable errors are re-raised during synchronous export, causing a 500."""
-        from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-
-        e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
-        assert isinstance(e, EXCEPTIONS_TO_RETRY)
-        mock_export_direct.side_effect = e
-
-        # Retriable errors should propagate and cause a 500 (re-raised for retry)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "insight": self.insight.id},
-        )
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class TestExportMixin(APIBaseTest):
@@ -956,8 +991,8 @@ class TestExportAssetCounters(APIBaseTest):
             (None, FAILURE_TYPE_USER, 1.0, 0.0, False),
             # User error: recorded but not raised
             (QueryError("Invalid query"), FAILURE_TYPE_USER, 0.0, 1.0, False),
-            # System error: retried by tenacity, then recorded and raised
-            (CHQueryErrorTooManySimultaneousQueries("err"), FAILURE_TYPE_SYSTEM, 0.0, 1.0, True),
+            # System error: retried by tenacity, then recorded (not raised, swallowed by export_asset)
+            (CHQueryErrorTooManySimultaneousQueries("err"), FAILURE_TYPE_SYSTEM, 0.0, 1.0, False),
         ],
         name_func=lambda func, num, params: f"{func.__name__}_{['success', 'user_error', 'system_error'][int(num)]}",
     )

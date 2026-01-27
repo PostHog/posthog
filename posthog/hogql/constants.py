@@ -31,6 +31,8 @@ MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 # Max limit for LLM traces
 MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
+# Max limit for PostHog AI queries
+MAX_SELECT_POSTHOG_AI_LIMIT = 100  # 100 rows
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
@@ -43,6 +45,8 @@ BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
 
+type HogQLParserBackend = Literal["python", "cpp", "cpp-json"]
+
 
 class LimitContext(StrEnum):
     QUERY = "query"
@@ -52,6 +56,7 @@ class LimitContext(StrEnum):
     HEATMAPS = "heatmaps"
     SAVED_QUERY = "saved_query"
     RETENTION = "retention"
+    POSTHOG_AI = "posthog_ai"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -70,6 +75,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_RETENTION_LIMIT  # 100k
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
+    elif limit_context == LimitContext.POSTHOG_AI:
+        return MAX_SELECT_POSTHOG_AI_LIMIT  # 100
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -78,7 +85,7 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
-    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC, LimitContext.POSTHOG_AI):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
@@ -105,6 +112,7 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
+    force_data_skipping_indices: Optional[list[str]] = None
 
 
 # Settings applied on top of all HogQL queries.

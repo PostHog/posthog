@@ -1,36 +1,46 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
+import { StepDefinition } from '../steps'
 import { PersonProfiles } from './_snippets/person-profiles'
 
-export const LaravelInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+export const getLaravelSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
 
-    return (
-        <Steps>
-            <Step title="Install the package" badge="required">
-                <Markdown>Install the PostHog PHP library using Composer:</Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'bash',
-                            file: 'Terminal',
-                            code: dedent`
+    return [
+        {
+            title: 'Install the package',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>Install the PostHog PHP library using Composer:</Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'bash',
+                                file: 'Terminal',
+                                code: dedent`
                                 composer require posthog/posthog-php
                             `,
-                        },
-                    ]}
-                />
-            </Step>
-
-            <Step title="Configure PostHog" badge="required">
-                <Markdown>
-                    Initialize PostHog in the `boot` method of `app/Providers/AppServiceProvider.php`:
-                </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'php',
-                            file: 'app/Providers/AppServiceProvider.php',
-                            code: dedent`
+                            },
+                        ]}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Configure PostHog',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        Initialize PostHog in the `boot` method of `app/Providers/AppServiceProvider.php`:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'php',
+                                file: 'app/Providers/AppServiceProvider.php',
+                                code: dedent`
                                 <?php
 
                                 namespace App\\Providers;
@@ -51,29 +61,37 @@ export const LaravelInstallation = (): JSX.Element => {
                                     }
                                 }
                             `,
-                        },
-                    ]}
-                />
-            </Step>
-
-            <Step title="Send events" badge="optional">
-                <Markdown>Capture custom events using the PostHog client:</Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'php',
-                            file: 'PHP',
-                            code: dedent`
+                            },
+                        ]}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Send events',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>Capture custom events using the PostHog client:</Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'php',
+                                file: 'PHP',
+                                code: dedent`
                                 PostHog::capture([
                                     'distinctId' => 'test-user',
                                     'event' => 'test-event',
                                 ]);
                             `,
-                        },
-                    ]}
-                />
-                <PersonProfiles language="php" />
-            </Step>
-        </Steps>
-    )
+                            },
+                        ]}
+                    />
+                    <PersonProfiles language="php" />
+                </>
+            ),
+        },
+    ]
 }
+
+export const LaravelInstallation = createInstallation(getLaravelSteps)

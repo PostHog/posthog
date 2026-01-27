@@ -28,6 +28,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.persons import _is_virtual_field_requiring_join
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -291,3 +292,111 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         # test that it doesn't throw
         results = tqr.calculate().results
         assert results[0]["breakdown_value"] == [expected]
+
+
+class TestVirtualFieldDetection(APIBaseTest):
+    @parameterized.expand(
+        [
+            # Cases that should return True (require joins - revenue analytics fields)
+            ("virt_mrr_simple", ast.Field(chain=["$virt_mrr"]), True),
+            ("virt_revenue_simple", ast.Field(chain=["$virt_revenue"]), True),
+            ("virt_mrr_in_function_sum", ast.Call(name="sum", args=[ast.Field(chain=["$virt_mrr"])]), True),
+            ("virt_revenue_in_function_count", ast.Call(name="count", args=[ast.Field(chain=["$virt_revenue"])]), True),
+            (
+                "virt_mrr_in_comparison",
+                ast.CompareOperation(
+                    left=ast.Field(chain=["$virt_mrr"]), op=ast.CompareOperationOp.Gt, right=ast.Constant(value=100)
+                ),
+                True,
+            ),
+            ("virt_revenue_in_alias", ast.Alias(alias="revenue", expr=ast.Field(chain=["$virt_revenue"])), True),
+            (
+                "virt_mrr_in_arithmetic",
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=["$virt_mrr"]), op=ast.ArithmeticOperationOp.Add, right=ast.Constant(value=10)
+                ),
+                True,
+            ),
+            # Cases that should return False (no join required)
+            ("regular_field_created_at", ast.Field(chain=["created_at"]), False),
+            ("regular_field_id", ast.Field(chain=["id"]), False),
+            ("regular_field_properties", ast.Field(chain=["properties"]), False),
+            ("inline_virtual_channel_type", ast.Field(chain=["$virt_initial_channel_type"]), False),
+            ("inline_virtual_domain_type", ast.Field(chain=["$virt_initial_referring_domain_type"]), False),
+            ("unknown_virtual_field", ast.Field(chain=["$virt_unknown"]), False),
+            ("non_virtual_field_with_dollar", ast.Field(chain=["$session_id"]), False),
+            ("empty_chain", ast.Field(chain=[]), False),
+            ("regular_function_without_virtual", ast.Call(name="sum", args=[ast.Field(chain=["id"])]), False),
+            (
+                "comparison_without_virtual",
+                ast.CompareOperation(
+                    left=ast.Field(chain=["created_at"]),
+                    op=ast.CompareOperationOp.Gt,
+                    right=ast.Constant(value="2024-01-01"),
+                ),
+                False,
+            ),
+            # Edge cases
+            ("constant_value", ast.Constant(value=42), False),
+            (
+                "mixed_expression_with_virtual",
+                ast.CompareOperation(
+                    left=ast.Field(chain=["$virt_mrr"]),
+                    op=ast.CompareOperationOp.GtEq,
+                    right=ast.Constant(value=1000),
+                ),
+                True,
+            ),
+            (
+                "nested_function_with_virtual",
+                ast.Call(name="round", args=[ast.Call(name="sum", args=[ast.Field(chain=["$virt_revenue"])])]),
+                True,
+            ),
+            (
+                "complex_nested_no_virtual",
+                ast.Call(name="round", args=[ast.Call(name="sum", args=[ast.Field(chain=["id"])])]),
+                False,
+            ),
+        ]
+    )
+    def test_is_virtual_field_requiring_join(self, name: str, expr: ast.Expr, expected: bool):
+        result = _is_virtual_field_requiring_join(expr)
+        self.assertEqual(result, expected, f"Failed for test case: {name}")
+
+    def test_complex_nested_expression(self):
+        complex_expr = ast.CompareOperation(
+            left=ast.ArithmeticOperation(
+                left=ast.Field(chain=["$virt_mrr"]), op=ast.ArithmeticOperationOp.Add, right=ast.Constant(value=100)
+            ),
+            op=ast.CompareOperationOp.Gt,
+            right=ast.ArithmeticOperation(
+                left=ast.Field(chain=["created_at"]),
+                op=ast.ArithmeticOperationOp.Sub,
+                right=ast.Constant(value=1000),
+            ),
+        )
+
+        result = _is_virtual_field_requiring_join(complex_expr)
+
+        self.assertTrue(result, "Complex expression with virtual field should return True")
+
+    def test_multiple_virtual_fields(self):
+        expr = ast.ArithmeticOperation(
+            left=ast.Field(chain=["$virt_mrr"]),
+            op=ast.ArithmeticOperationOp.Add,
+            right=ast.Field(chain=["$virt_revenue"]),
+        )
+
+        result = _is_virtual_field_requiring_join(expr)
+
+        self.assertTrue(result, "Expression with multiple virtual fields should return True")
+
+    def test_no_exception_on_malformed_ast(self):
+        class MockASTNode:
+            def __init__(self):
+                self.unexpected_attr = "test"
+
+        mock_node = MockASTNode()
+
+        result = _is_virtual_field_requiring_join(mock_node)  # type: ignore
+        self.assertFalse(result, "Malformed AST should return False without exception")

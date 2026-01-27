@@ -10,7 +10,6 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { cn } from 'lib/utils/css-classes'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -34,12 +33,20 @@ import { SurveysTabs, surveysLogic } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
-    settingSectionId: 'environment-surveys',
+    productKey: ProductKey.SURVEYS,
 }
 
 function NewSurveyButton(): JSX.Element {
+    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
+
+    const trackAddNewClick = (): void => {
+        addProductIntent({
+            product_type: ProductKey.SURVEYS,
+            intent_context: ProductIntentContext.SURVEY_ADD_NEW,
+        })
+    }
 
     return (
         <MaxTool
@@ -78,7 +85,6 @@ function NewSurveyButton(): JSX.Element {
             }}
             position="bottom-right"
             active={!!user?.uuid && userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)}
-            className={cn('mr-3')}
         >
             <AccessControlAction
                 resourceType={AccessControlResourceType.Survey}
@@ -93,10 +99,11 @@ function NewSurveyButton(): JSX.Element {
                 >
                     <LemonButton
                         size="small"
-                        to={urls.surveyTemplates()}
+                        to={guidedEditorEnabled ? urls.surveyWizard() : urls.surveyTemplates()}
                         type="primary"
                         data-attr="new-survey"
                         tooltip="New survey"
+                        onClick={trackAddNewClick}
                     >
                         <span className="pr-3">New survey</span>
                     </LemonButton>
@@ -108,7 +115,6 @@ function NewSurveyButton(): JSX.Element {
 
 function Surveys(): JSX.Element {
     const { tab } = useValues(surveysLogic)
-
     const { setTab } = useActions(surveysLogic)
 
     return (

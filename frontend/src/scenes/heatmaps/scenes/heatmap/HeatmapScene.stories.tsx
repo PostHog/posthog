@@ -79,12 +79,23 @@ export const IframeExample: Story = {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
             waitForSelector: '#heatmap-iframe',
+            skipIframeWait: true,
         },
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/environments/:team_id/saved/hm_iframe/': iframeSaved,
+                '/api/heatmap': (_req, res, ctx) =>
+                    res(
+                        ctx.status(200),
+                        ctx.json({
+                            results: [],
+                            count: 0,
+                            next: null,
+                            previous: null,
+                        })
+                    ),
                 'https://example.com': (_req, res, ctx) =>
                     res(
                         ctx.status(200),

@@ -65,6 +65,7 @@ def table_has_data(
 
     try:
         with tags_context(kind="dagster", dagster=tags):
+            # nosemgrep: clickhouse-fstring-param-audit - table_name from internal dagster asset config
             result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
         row_count = result[0][0] if result and result[0] else 0
 
