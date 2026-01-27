@@ -240,6 +240,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             raise ValidationError("Metrics must be a list")
 
         for i, metric in enumerate(metrics):
+            if not isinstance(metric, dict) or metric.get("kind") != "ExperimentMetric":
+                continue
             try:
                 ExperimentMetric.model_validate(metric)
             except Exception:
