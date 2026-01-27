@@ -92,9 +92,9 @@ export const IframeExample: Story = {
                         ctx.status(200),
                         ctx.json({
                             results: [
-                                { x: 400, y: 150, count: 25 },
-                                { x: 420, y: 350, count: 12 },
-                                { x: 200, y: 500, count: 8 },
+                                { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 150, count: 25 },
+                                { pointer_relative_x: 0.52, pointer_target_fixed: false, pointer_y: 350, count: 12 },
+                                { pointer_relative_x: 0.25, pointer_target_fixed: false, pointer_y: 500, count: 8 },
                             ],
                             count: 3,
                             next: null,
