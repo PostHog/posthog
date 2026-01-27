@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -43,6 +44,7 @@ export const scene: SceneExport<DashboardLogicProps> = {
         id: parseInt(id as string),
         placement,
     }),
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {

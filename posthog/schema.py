@@ -334,6 +334,7 @@ class AssistantTool(StrEnum):
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
@@ -1737,6 +1738,7 @@ class FileSystemIconType(StrEnum):
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
+    SETTINGS = "settings"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2858,6 +2860,7 @@ class ProductIntentContext(StrEnum):
     EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = "early_access_feature_view_recordings"
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = "data_warehouse_stripe_source_created"
     SURVEYS_VIEWED = "surveys_viewed"
+    SURVEY_ADD_NEW = "survey_add_new"
     SURVEY_CREATED = "survey_created"
     SURVEY_LAUNCHED = "survey_launched"
     SURVEY_VIEWED = "survey_viewed"
@@ -2897,6 +2900,9 @@ class ProductIntentContext(StrEnum):
     TASK_CREATED = "task_created"
     TOOLBAR_LAUNCHED = "toolbar_launched"
     VERCEL_INTEGRATION = "vercel_integration"
+    ENDPOINT_CREATED = "endpoint_created"
+    ENDPOINT_CREATED_FROM_INSIGHT = "endpoint_created_from_insight"
+    ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
 
 
 class ProductKey(StrEnum):

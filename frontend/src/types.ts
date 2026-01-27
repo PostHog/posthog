@@ -608,6 +608,9 @@ export interface ConversationsSettings {
 
 export interface LogsSettings {
     capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
 }
 
 export interface TeamType extends TeamBasicType {
@@ -5480,7 +5483,7 @@ export type BatchExportService =
     | BatchExportServiceAzureBlob
     | BatchExportRealtimeDestinationBackfill
 
-export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
+export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes'
 
 export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
 export type OrNever = 'never'
@@ -5492,7 +5495,10 @@ export type BatchExportConfiguration = {
     team_id: number
     name: string
     destination: BatchExportService
-    interval: PipelineInterval
+    interval: BatchExportInterval
+    timezone: string | null
+    offset_day: number | null
+    offset_hour: number | null
     created_at: string
     start_at: string | null
     end_at: string | null
@@ -5722,7 +5728,6 @@ export enum SidePanelTab {
     Support = 'support',
     Docs = 'docs',
     Changelog = 'changelog',
-    Activation = 'activation',
     Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',

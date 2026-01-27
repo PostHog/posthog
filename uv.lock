@@ -4643,9 +4643,11 @@ dev = [
     { name = "pytest-mock" },
     { name = "pytest-rerunfailures" },
     { name = "pytest-split" },
+    { name = "pytest-timeout" },
     { name = "pytest-watch" },
     { name = "pytest-xdist" },
     { name = "python-dateutil" },
+    { name = "pywatchman" },
     { name = "requests-mock" },
     { name = "responses" },
     { name = "ruff" },
@@ -4898,9 +4900,11 @@ dev = [
     { name = "pytest-mock", specifier = "~=3.15.1" },
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
     { name = "pytest-split", specifier = "~=0.10.0" },
+    { name = "pytest-timeout", specifier = "~=2.4.0" },
     { name = "pytest-watch", specifier = "==4.2.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
+    { name = "pywatchman", specifier = ">=2.0.0" },
     { name = "requests-mock", specifier = "~=1.12.1" },
     { name = "responses", specifier = "==0.23.1" },
     { name = "ruff", specifier = "~=0.14.11" },
@@ -5614,6 +5618,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-timeout"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/82/4c9ecabab13363e72d880f2fb504c5f750433b2b6f16e99f4ec21ada284c/pytest_timeout-2.4.0.tar.gz", hash = "sha256:7e68e90b01f9eff71332b25001f85c75495fc4e3a836701876183c4bcfd0540a", size = 17973, upload-time = "2025-05-05T19:44:34.99Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/b6/3127540ecdf1464a00e5a01ee60a1b09175f6913f0644ac748494d9c4b21/pytest_timeout-2.4.0-py3-none-any.whl", hash = "sha256:c42667e5cdadb151aeb5b26d114aff6bdf5a907f176a007a30b940d3d865b5c2", size = 14382, upload-time = "2025-05-05T19:44:33.502Z" },
+]
+
+[[package]]
 name = "pytest-watch"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5734,6 +5750,16 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5e/32/12032aa8c673ee16707a9b6cdda2b09c0089131f35af55d443b6a9c69c1d/pytz-2023.3.tar.gz", hash = "sha256:1d8ce29db189191fb55338ee6d0387d82ab59f3d00eac103412d64e0ebd0c588", size = 317095, upload-time = "2023-03-29T04:23:28.655Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/99/ad6bd37e748257dd70d6f85d916cafe79c0b0f5e2e95b11f7fbc82bf3110/pytz-2023.3-py2.py3-none-any.whl", hash = "sha256:a151b3abb88eda1d4e34a9814df37de2a80e301e68ba0fd856fb9b46bfbbbffb", size = 502345, upload-time = "2023-03-29T04:23:25.307Z" },
+]
+
+[[package]]
+name = "pywatchman"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/6b/f1df266103d33014ea7492222d12652f3341978c21d13f0b297cb7fd7e1f/pywatchman-3.0.0.tar.gz", hash = "sha256:efd32a17391a5872118c55041da71a20960e46ba4b73440c24efac287eea911e", size = 40717, upload-time = "2025-05-30T00:36:18.526Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dc/8e/431e68fca61344c68ac1ad294bc6fa352d68e48a0f6a1fbeb538216bb1d7/pywatchman-3.0.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:4f69c49a72e81f1d24733ff5c9dda451404c542edb1efafdb77fd43c7c1a8df9", size = 60136, upload-time = "2025-05-30T00:36:13.45Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/2e/721898f989cab2c0fe8bb3805b2f847c94c46ce7c88af3bd0cb9e0a6b2eb/pywatchman-3.0.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:c15484b7d20c007f5b3c7781dddf5acb2c8a8f6440925e3e512b7e194b05dda9", size = 52448, upload-time = "2025-05-30T00:36:14.287Z" },
 ]
 
 [[package]]

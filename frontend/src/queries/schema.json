@@ -1951,6 +1951,7 @@
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
+                "edit_survey",
                 "analyze_survey_responses",
                 "create_dashboard",
                 "edit_current_dashboard",
@@ -15578,7 +15579,8 @@
                 "folder",
                 "folder_open",
                 "conversations",
-                "toolbar"
+                "toolbar",
+                "settings"
             ],
             "type": "string"
         },
@@ -22399,6 +22401,7 @@
                 "early_access_feature_view_recordings",
                 "data_warehouse_stripe_source_created",
                 "surveys_viewed",
+                "survey_add_new",
                 "survey_created",
                 "survey_launched",
                 "survey_viewed",
@@ -22435,7 +22438,10 @@
                 "product_tour_created",
                 "task_created",
                 "toolbar_launched",
-                "vercel_integration"
+                "vercel_integration",
+                "endpoint_created",
+                "endpoint_created_from_insight",
+                "endpoint_created_from_sql_editor"
             ],
             "type": "string"
         },
