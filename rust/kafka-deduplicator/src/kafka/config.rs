@@ -97,6 +97,12 @@ impl ConsumerConfigBuilder {
         self
     }
 
+    /// Set maximum time between poll() calls before consumer leaves group
+    pub fn with_max_poll_interval_ms(mut self, ms: u32) -> Self {
+        self.config.set("max.poll.interval.ms", ms.to_string());
+        self
+    }
+
     /// Enable sticky partition assignments based on the kafka client ID supplied.
     /// Always uses cooperative-sticky strategy for consistent behavior across all pods.
     /// When client_id is provided, also enables static membership for truly sticky assignments.

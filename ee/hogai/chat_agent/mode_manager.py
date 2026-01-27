@@ -21,9 +21,14 @@ from ee.hogai.core.agent_modes.presets.product_analytics import (
 )
 from ee.hogai.core.agent_modes.presets.session_replay import chat_agent_plan_session_replay_agent, session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import chat_agent_plan_sql_agent, sql_agent
+from ee.hogai.core.agent_modes.presets.survey import survey_agent
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
-from ee.hogai.utils.feature_flags import has_error_tracking_mode_feature_flag, has_plan_mode_feature_flag
+from ee.hogai.utils.feature_flags import (
+    has_error_tracking_mode_feature_flag,
+    has_plan_mode_feature_flag,
+    has_survey_mode_feature_flag,
+)
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 # Execution and plan mode definitions - fictitious modes used to trigger transition in and out of plan mode
@@ -94,6 +99,8 @@ class ChatAgentModeManager(AgentModeManager):
                 registry[AgentMode.ERROR_TRACKING] = chat_agent_plan_error_tracking_agent
             else:
                 registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
+        if has_survey_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.SURVEY] = survey_agent
         return registry
 
     @property

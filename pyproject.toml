@@ -172,7 +172,7 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.54b1",
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
-    "asgiref==3.8.1",
+    "asgiref==3.11.0",
     "claude-code-sdk~=0.0.14",
     "user-agents~=2.2.0",
     "django-admin-inline-paginator===0.4.0",
