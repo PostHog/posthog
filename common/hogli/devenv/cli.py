@@ -92,7 +92,7 @@ def dev_generate(
     click.echo(f"  Units: {len(resolved.units)} processes")
     click.echo(f"  Config: {output_path}")
     click.echo("")
-    click.echo("Run 'hogli start' to start the dev environment.")
+    click.echo("Run 'hogli dev:setup' to change your environment.")
 
 
 @cli.command(name="dev:explain", help="Show what services would be started for intents")
