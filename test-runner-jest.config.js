@@ -13,5 +13,5 @@ module.exports = {
     // For jest-image-snapshot, see https://github.com/americanexpress/jest-image-snapshot#removing-outdated-snapshots
     reporters: ['default', 'jest-image-snapshot/src/outdated-snapshot-reporter.js'],
     testEnvironment: './test-runner-jest-environment.js',
-    snapshotResolver: './test-snapshot-resolver.js',
+    testPathIgnorePatterns: ['node_modules', '<rootDir>/rust/'],
 }
