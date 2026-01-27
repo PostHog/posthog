@@ -347,7 +347,7 @@ class DockerSandbox:
 
             def iter_stdout(self) -> Iterable[str]:
                 if not self._process.stdout:
-                    return []
+                    return
                 self._stdout_iterated = True
                 for line in iter(self._process.stdout.readline, ""):
                     if line == "" and self._process.poll() is not None:

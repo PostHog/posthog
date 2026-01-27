@@ -42,8 +42,9 @@ class _FakeExecutionResult:
 
 
 class _FakeSandbox:
-    def __init__(self, result: _FakeExecutionResult) -> None:
+    def __init__(self, result: _FakeExecutionResult, stream: _FakeSandboxStream | None = None) -> None:
         self.result = result
+        self.stream = stream
         self.command: str | None = None
         self.timeout_seconds: int | None = None
 
@@ -51,6 +52,25 @@ class _FakeSandbox:
         self.command = command
         self.timeout_seconds = timeout_seconds
         return self.result
+
+    def execute_stream(self, command: str, timeout_seconds: int | None = None) -> _FakeSandboxStream:
+        self.command = command
+        self.timeout_seconds = timeout_seconds
+        if self.stream is None:
+            raise RuntimeError("Fake sandbox stream not configured")
+        return self.stream
+
+
+class _FakeSandboxStream:
+    def __init__(self, stdout_lines: list[str], result: _FakeExecutionResult) -> None:
+        self._stdout_lines = stdout_lines
+        self._result = result
+
+    def iter_stdout(self):
+        yield from self._stdout_lines
+
+    def wait(self) -> _FakeExecutionResult:
+        return self._result
 
 
 class _FakeSandboxClass:
@@ -239,9 +259,10 @@ class TestKernelRuntimeService(BaseTest):
             "user_expressions": {
                 "__type__answer": {"status": "ok", "data": {"text/plain": "'int'"}},
             },
+            "type": "result",
         }
-        result = _FakeExecutionResult(stdout=f"log\n{json.dumps(payload_out)}")
-        sandbox = _FakeSandbox(result)
+        stream = _FakeSandboxStream(stdout_lines=[json.dumps(payload_out)], result=_FakeExecutionResult(stdout=""))
+        sandbox = _FakeSandbox(_FakeExecutionResult(stdout=""), stream=stream)
         _FakeSandboxClass.sandbox = sandbox
 
         with patch.object(service, "_get_sandbox_class", return_value=_FakeSandboxClass):
@@ -258,6 +279,142 @@ class TestKernelRuntimeService(BaseTest):
         assert execution_result.execution_count == 3
         assert execution_result.variables == {"answer": {"status": "ok", "type": "int"}}
         assert handle.execution_count == 3
+
+    def test_execute_in_sandbox_handles_notebook_bridge_messages(self) -> None:
+        service = KernelRuntimeService(execution_timeout=5)
+        notebook = Notebook.objects.create(team=self.team)
+        runtime = KernelRuntime.objects.create(
+            team=self.team,
+            notebook=notebook,
+            notebook_short_id=notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            connection_file="/tmp/connection.json",
+            sandbox_id="sandbox-1",
+        )
+        handle = _KernelHandle(
+            runtime=runtime,
+            lock_name="lock",
+            started_at=timezone.now(),
+            last_activity_at=timezone.now(),
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id=runtime.sandbox_id,
+        )
+        marker = service._notebook_bridge_marker(handle)
+        bridge_payload = {"query": "select 1", "response_path": "/tmp/resp.json"}
+        bridge_payload_json = json.dumps(bridge_payload)
+        bridge_message = f"{marker}{len(bridge_payload_json)} {bridge_payload_json}\n"
+        payload_out = {
+            "type": "result",
+            "status": "ok",
+            "stdout": f"before {bridge_message}after",
+            "stderr": "",
+            "result": None,
+            "media": [],
+            "execution_count": 1,
+            "error_name": None,
+            "traceback": [],
+            "user_expressions": None,
+        }
+        stream = _FakeSandboxStream(
+            stdout_lines=[
+                json.dumps({"type": "stream", "name": "stdout", "text": bridge_message}),
+                json.dumps(payload_out),
+            ],
+            result=_FakeExecutionResult(stdout=""),
+        )
+        sandbox = _FakeSandbox(_FakeExecutionResult(stdout=""), stream=stream)
+        _FakeSandboxClass.sandbox = sandbox
+
+        with (
+            patch.object(service, "_get_sandbox_class", return_value=_FakeSandboxClass),
+            patch.object(service, "_handle_notebook_bridge_payload") as mock_payload,
+        ):
+            execution_result = service._execute_in_sandbox(
+                handle,
+                "print('hi')",
+                capture_variables=False,
+                variable_names=[],
+                timeout=5,
+            )
+
+        assert execution_result.stdout == "before after"
+        mock_payload.assert_called_once_with(bridge_payload_json, handle)
+
+    def test_execute_in_sandbox_stream_yields_output_and_result(self) -> None:
+        service = KernelRuntimeService(execution_timeout=5)
+        notebook = Notebook.objects.create(team=self.team)
+        runtime = KernelRuntime.objects.create(
+            team=self.team,
+            notebook=notebook,
+            notebook_short_id=notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            connection_file="/tmp/connection.json",
+            sandbox_id="sandbox-1",
+        )
+        handle = _KernelHandle(
+            runtime=runtime,
+            lock_name="lock",
+            started_at=timezone.now(),
+            last_activity_at=timezone.now(),
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id=runtime.sandbox_id,
+        )
+        marker = service._notebook_bridge_marker(handle)
+        bridge_payload = {"query": "select 1", "response_path": "/tmp/resp.json"}
+        bridge_payload_json = json.dumps(bridge_payload)
+        bridge_message = f"{marker}{len(bridge_payload_json)} {bridge_payload_json}\n"
+        payload_out = {
+            "type": "result",
+            "status": "ok",
+            "stdout": "final",
+            "stderr": "",
+            "result": None,
+            "media": [],
+            "execution_count": 2,
+            "error_name": None,
+            "traceback": [],
+            "user_expressions": None,
+        }
+        stream = _FakeSandboxStream(
+            stdout_lines=[
+                json.dumps(
+                    {
+                        "type": "stream",
+                        "name": "stdout",
+                        "text": f"hello {bridge_message}world",
+                    }
+                ),
+                json.dumps({"type": "stream", "name": "stderr", "text": "oops"}),
+                json.dumps(payload_out),
+            ],
+            result=_FakeExecutionResult(stdout=""),
+        )
+        sandbox = _FakeSandbox(_FakeExecutionResult(stdout=""), stream=stream)
+        _FakeSandboxClass.sandbox = sandbox
+
+        with (
+            patch.object(service, "_get_sandbox_class", return_value=_FakeSandboxClass),
+            patch.object(service, "_handle_notebook_bridge_payload") as mock_payload,
+        ):
+            output = list(
+                service._execute_in_sandbox_stream(
+                    handle,
+                    "print('hi')",
+                    capture_variables=False,
+                    variable_names=[],
+                    timeout=5,
+                )
+            )
+
+        assert output[0] == {"type": "stdout", "text": "hello world"}
+        assert output[1] == {"type": "stderr", "text": "oops"}
+        assert output[2]["type"] == "result"
+        assert output[2]["data"]["stdout"] == "final"
+        mock_payload.assert_called_once_with(bridge_payload_json, handle)
         assert sandbox.timeout_seconds == 5
 
     @parameterized.expand(
