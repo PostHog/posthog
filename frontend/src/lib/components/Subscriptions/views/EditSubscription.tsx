@@ -21,11 +21,12 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { DashboardType, InsightShortId } from '~/types'
+
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
-    SubscriptionBaseProps,
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
@@ -36,8 +37,10 @@ import {
     weekdayOptions,
 } from '../utils'
 
-interface EditSubscriptionProps extends SubscriptionBaseProps {
+interface EditSubscriptionProps {
     id: number | 'new'
+    insightShortId?: InsightShortId
+    dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
 }
@@ -49,15 +52,16 @@ export function EditSubscription({
     onCancel,
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
+    const dashboardId = dashboard?.id
     const logicProps = {
         id,
         insightShortId,
-        dashboardId: dashboard?.id,
+        dashboardId,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
         insightShortId,
-        dashboardId: dashboard?.id,
+        dashboardId,
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)

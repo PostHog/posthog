@@ -3,14 +3,14 @@ import { router } from 'kea-router'
 
 import { IconBell } from '@posthog/icons'
 
+import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { QueryBasedInsightModel } from '~/types'
 
-import { SubscriptionBaseProps, urlForSubscriptions } from '../Subscriptions/utils'
 import { SceneDataAttrKeyProps } from './utils'
 
-interface SceneSubscribeButtonProps extends SubscriptionBaseProps, SceneDataAttrKeyProps {
+interface SceneSubscribeButtonProps extends SceneDataAttrKeyProps {
     insight?: Partial<QueryBasedInsightModel>
     dashboardId?: number
 }

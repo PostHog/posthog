@@ -79,13 +79,13 @@ interface ManageSubscriptionsProps extends SubscriptionBaseProps {
 
 export function ManageSubscriptions({
     insightShortId,
-    dashboard,
+    dashboardId,
     onCancel,
     onSelect,
 }: ManageSubscriptionsProps): JSX.Element {
     const logic = subscriptionsLogic({
         insightShortId,
-        dashboardId: dashboard?.id,
+        dashboardId,
     })
 
     const { subscriptions, subscriptionsLoading } = useValues(logic)
