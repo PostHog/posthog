@@ -164,3 +164,16 @@ export const buildPythonExecutionError = (
         variables: mergeExecutionVariables(exportedGlobals, {}),
     }
 }
+
+export const buildPythonExecutionRunning = (
+    exportedGlobals: { name: string; type: string }[],
+    stdout = '',
+    stderr = ''
+): PythonExecutionResult => {
+    return {
+        status: 'running',
+        stdout,
+        stderr,
+        variables: mergeExecutionVariables(exportedGlobals, {}),
+    }
+}

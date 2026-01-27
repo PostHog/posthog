@@ -133,6 +133,23 @@ class KernelRuntimeSession:
             timeout=timeout,
         )
 
+    def execute_stream(
+        self,
+        code: str,
+        *,
+        capture_variables: bool = True,
+        variable_names: list[str] | None = None,
+        timeout: float | None = None,
+    ):
+        return self.service.execute_stream(
+            self.notebook,
+            self.user,
+            code,
+            capture_variables=capture_variables,
+            variable_names=variable_names,
+            timeout=timeout,
+        )
+
     def dataframe_page(
         self,
         variable_name: str,
@@ -265,6 +282,40 @@ class KernelRuntimeService:
                 )
 
             raise RuntimeError("Unsupported notebook kernel backend.")
+
+    def execute_stream(
+        self,
+        notebook: Notebook,
+        user: User | None,
+        code: str,
+        *,
+        capture_variables: bool = True,
+        variable_names: list[str] | None = None,
+        timeout: float | None = None,
+    ):
+        valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
+        handle = self._ensure_handle(notebook, user)
+        lock_timeout = (timeout or self._execution_timeout) + self._EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS
+
+        def _stream():
+            with self._acquire_lock(handle.lock_name, timeout=lock_timeout):
+                current_handle = handle
+                if not self._is_handle_alive(current_handle):
+                    current_handle = self._reset_handle(notebook, user, current_handle)
+
+                if current_handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
+                    yield from self._execute_in_sandbox_stream(
+                        current_handle,
+                        code,
+                        capture_variables=capture_variables,
+                        variable_names=valid_variable_names,
+                        timeout=timeout,
+                    )
+                    return
+
+                raise RuntimeError("Unsupported notebook kernel backend.")
+
+        return _stream()
 
     def shutdown_all(self) -> None:
         with self._acquire_lock(self._service_lock_name, timeout=self._SERVICE_LOCK_TIMEOUT_SECONDS):
@@ -694,7 +745,7 @@ class KernelRuntimeService:
         payload["action"] = action
         encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
         return (
-            "python3 - <<'EOF_KERNEL_CMD_EXEC'\n"
+            "python3 -u - <<'EOF_KERNEL_CMD_EXEC'\n"
             "import base64\n"
             "import json\n"
             "import os\n"
@@ -711,6 +762,7 @@ class KernelRuntimeService:
             "timeout = payload.get('timeout', 30)\n"
             "code = payload.get('code')\n"
             "user_expressions = payload.get('user_expressions')\n"
+            "stream = bool(payload.get('stream', False))\n"
             "\n"
             "start_time = time.monotonic()\n"
             "while not os.path.exists(connection_file):\n"
@@ -748,7 +800,11 @@ class KernelRuntimeService:
             "                break\n"
             "            if msg_type == 'stream':\n"
             "                destination = stdout if content.get('name') == 'stdout' else stderr\n"
-            "                destination.append(content.get('text', ''))\n"
+            "                text = content.get('text', '')\n"
+            "                destination.append(text)\n"
+            "                if stream:\n"
+            "                    print(json.dumps({'type': 'stream', 'name': content.get('name'), 'text': text}), "
+            "flush=True)\n"
             "                continue\n"
             "            if msg_type in ('execute_result', 'display_data'):\n"
             "                data = content.get('data') or {}\n"
@@ -792,12 +848,17 @@ class KernelRuntimeService:
             "            'traceback': traceback_lines,\n"
             "            'user_expressions': user_expressions_result,\n"
             "        }\n"
+            "        if stream:\n"
+            "            payload_out['type'] = 'result'\n"
             "        print(json.dumps(payload_out))\n"
             "except Empty:\n"
-            "    print(json.dumps({'status': 'timeout', 'stdout': '', 'stderr': '', 'result': None, "
-            "'media': [], 'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}))\n"
+            "    payload_out = {'status': 'timeout', 'stdout': '', 'stderr': '', 'result': None, "
+            "'media': [], 'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}\n"
+            "    if stream:\n"
+            "        payload_out['type'] = 'result'\n"
+            "    print(json.dumps(payload_out))\n"
             "except Exception as err:\n"
-            "    print(json.dumps({\n"
+            "    payload_out = {\n"
             "        'status': 'error',\n"
             "        'stdout': '',\n"
             "        'stderr': str(err),\n"
@@ -807,7 +868,10 @@ class KernelRuntimeService:
             "        'error_name': err.__class__.__name__,\n"
             "        'traceback': traceback.format_exception(type(err), err, err.__traceback__),\n"
             "        'user_expressions': None,\n"
-            "    }))\n"
+            "    }\n"
+            "    if stream:\n"
+            "        payload_out['type'] = 'result'\n"
+            "    print(json.dumps(payload_out))\n"
             "    sys.exit(1)\n"
             "finally:\n"
             "    if client:\n"
@@ -894,6 +958,104 @@ class KernelRuntimeService:
             completed_at=timezone.now(),
             kernel_runtime=handle.runtime,
         )
+
+    def _execute_in_sandbox_stream(
+        self,
+        handle: _KernelHandle,
+        code: str,
+        *,
+        capture_variables: bool,
+        variable_names: list[str],
+        timeout: float | None,
+    ):
+        if not handle.sandbox_id:
+            raise RuntimeError("Sandbox not available for kernel execution.")
+
+        timeout_seconds = int(timeout or self._execution_timeout)
+        user_expressions: dict[str, str] | None = None
+        if capture_variables and variable_names:
+            user_expressions = {name: name for name in variable_names}
+            user_expressions.update(
+                {f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names}
+            )
+
+        payload = {
+            "connection_file": handle.runtime.connection_file,
+            "timeout": timeout_seconds,
+            "code": code,
+            "user_expressions": user_expressions,
+            "stream": True,
+        }
+        command = self._build_kernel_command(payload, action="execute")
+        sandbox_class = self._get_sandbox_class(handle.backend)
+        sandbox = sandbox_class.get_by_id(handle.sandbox_id)
+        started_at = timezone.now()
+        stream = sandbox.execute_stream(command, timeout_seconds=timeout_seconds)
+
+        payload_out: dict[str, Any] | None = None
+
+        for line in stream.iter_stdout():
+            trimmed = line.strip()
+            if not trimmed:
+                continue
+            try:
+                chunk = json.loads(trimmed)
+            except json.JSONDecodeError:
+                continue
+            if chunk.get("type") == "stream":
+                stream_name = chunk.get("name")
+                text = chunk.get("text", "")
+                if stream_name == "stdout":
+                    yield {"type": "stdout", "text": text}
+                elif stream_name == "stderr":
+                    yield {"type": "stderr", "text": text}
+                continue
+            if chunk.get("type") == "result":
+                payload_out = chunk
+                continue
+
+        result = stream.wait()
+        if result.exit_code != 0:
+            raise RuntimeError(f"Kernel execution failed: {result.stdout} {result.stderr}")
+
+        if payload_out is None:
+            output_lines = [line for line in result.stdout.splitlines() if line.strip()]
+            if output_lines:
+                try:
+                    payload_out = json.loads(output_lines[-1])
+                except json.JSONDecodeError as err:
+                    raise RuntimeError("Kernel execution returned no output.") from err
+            else:
+                raise RuntimeError("Kernel execution returned no output.")
+
+        status = payload_out.get("status", "error")
+        execution_count = payload_out.get("execution_count")
+        error_name = payload_out.get("error_name")
+        traceback = payload_out.get("traceback", [])
+        variables = None
+        if user_expressions is not None:
+            variables = self._parse_user_expressions(payload_out.get("user_expressions"))
+
+        handle.execution_count = execution_count or handle.execution_count
+        handle.last_activity_at = timezone.now()
+        self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
+
+        execution_result = KernelExecutionResult(
+            status=status,
+            stdout=payload_out.get("stdout", ""),
+            stderr=payload_out.get("stderr", ""),
+            result=payload_out.get("result"),
+            media=payload_out.get("media", []) or [],
+            execution_count=execution_count,
+            error_name=error_name,
+            traceback=traceback,
+            variables=variables,
+            started_at=started_at,
+            completed_at=timezone.now(),
+            kernel_runtime=handle.runtime,
+        )
+
+        yield {"type": "result", "data": execution_result.as_dict()}
 
     def dataframe_page(
         self,
