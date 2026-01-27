@@ -23,7 +23,7 @@ import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
-import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
+import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
@@ -80,7 +80,7 @@ export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `${props.id}`),
+    key((props) => `hog-flow-editor-${props.id}-${props.tabId}`),
     connect((props: WorkflowLogicProps) => ({
         values: [
             workflowLogic(props),
@@ -90,7 +90,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         actions: [
             workflowLogic(props),
-            ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
+            ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess', 'resetWorkflow'],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -740,6 +740,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             const handler = (actions as any)._keydownHandler
             if (handler) {
                 document.removeEventListener('keydown', handler)
+            }
+
+            if (values.workflow.id === 'new') {
+                actions.resetWorkflow(NEW_WORKFLOW)
             }
         },
     })),

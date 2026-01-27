@@ -29,6 +29,7 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
     paramsToProps: ({ params: { id, tab } }) => ({
         id: id || 'new',
         tab: tab || 'workflow',
+        tabId: router.values.searchParams.tabId || 'default',
     }),
 }
 
@@ -42,7 +43,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: props.id })
     const { futureJobs } = useValues(batchJobsLogic)
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
+    const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
     const { workflowLoading, originalWorkflow } = useValues(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
