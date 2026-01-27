@@ -40,7 +40,9 @@ class RateLimitCallback(InstrumentedCallback):
 
     callback_name = "rate_limit"
 
-    async def _on_success(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
+    async def _on_success(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
+    ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
         response_cost = standard_logging_object.get("response_cost")
         model = standard_logging_object.get("model", "unknown")
@@ -50,21 +52,46 @@ class RateLimitCallback(InstrumentedCallback):
         output_tokens = standard_logging_object.get("completion_tokens")
 
         if response_cost and response_cost > 0:
-            await record_cost(response_cost)
+            logger.debug(
+                "cost_recorded",
+                cost=response_cost,
+                end_user_id=end_user_id,
+                model=model,
+                provider=provider,
+                product=product,
+                source="response_cost",
+            )
+            await record_cost(response_cost, end_user_id)
             COST_RECORDED.labels(provider=provider, model=model, product=product).inc(response_cost)
             return
 
         estimated_cost = estimate_cost_from_tokens(model, input_tokens, output_tokens)
 
         if estimated_cost and estimated_cost > 0:
-            await record_cost(estimated_cost)
+            logger.debug(
+                "cost_recorded",
+                cost=estimated_cost,
+                end_user_id=end_user_id,
+                model=model,
+                provider=provider,
+                product=product,
+                source="token_estimation",
+            )
+            await record_cost(estimated_cost, end_user_id)
             COST_RECORDED.labels(provider=provider, model=model, product=product).inc(estimated_cost)
             COST_ESTIMATED.labels(provider=provider, model=model, product=product).inc()
             return
 
         settings = get_settings()
         fallback_cost = settings.default_fallback_cost_usd
-        logger.warning("cost_fallback_used", model=model, provider=provider, fallback_cost=fallback_cost)
-        await record_cost(fallback_cost)
+        logger.warning(
+            "cost_fallback_used",
+            model=model,
+            provider=provider,
+            fallback_cost=fallback_cost,
+            end_user_id=end_user_id,
+            product=product,
+        )
+        await record_cost(fallback_cost, end_user_id)
         COST_FALLBACK_DEFAULT.labels(provider=provider, model=model, product=product).inc()
         COST_MISSING.labels(provider=provider, model=model, product=product).inc()

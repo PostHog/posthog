@@ -18,7 +18,7 @@ export type CyclotronInternalPoolConfig = {
 }
 
 
-export type CyclotronJobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
+export type CyclotronJobState = 'available' | 'running' | 'completed' | 'failed' | 'paused' | 'canceled'
 
 export type CyclotronJob = {
     id: string

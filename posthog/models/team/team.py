@@ -422,9 +422,7 @@ class Team(UUIDTClassicModel):
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
 
-    # Capture logs
-    # Kind of confusing but this is separate from capture_console_log_opt_in, which is for session replay
-    # This captures console logs to the Logs product, not as part of a recording
+    # Logs
     logs_settings = models.JSONField(null=True, blank=True)
 
     # Heatmaps
@@ -571,6 +569,14 @@ class Team(UUIDTClassicModel):
         help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
     )
 
+    default_experiment_confidence_level = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
+    )
+
     business_model = models.CharField(
         max_length=10,
         choices=BusinessModel.choices,
@@ -714,6 +720,7 @@ class Team(UUIDTClassicModel):
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
+        # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
         return sync_execute(
             f"""
             SELECT

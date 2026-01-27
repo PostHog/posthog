@@ -278,11 +278,11 @@ const featureFlagActionsMapping: Record<
         const getBucketingLabel = (identifier: string): string => {
             switch (identifier) {
                 case 'distinct_id':
-                    return 'User ID'
+                    return 'User'
                 case 'device_id':
-                    return 'Device ID'
+                    return 'Device'
                 default:
-                    return identifier || 'User ID'
+                    return identifier || 'User'
             }
         }
 

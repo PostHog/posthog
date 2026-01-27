@@ -18,7 +18,8 @@
                 "completed",
                 "failed",
                 "running",
-                "paused"
+                "paused",
+                "canceled"
               ]
             }
           }

@@ -137,7 +137,8 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    await waitForPageReady(page)
+    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    await waitForPageReady(page, skipIframeWait)
 
     // set up iframe load tracking early, before they start loading
     await page.evaluate(() => {
@@ -216,7 +217,8 @@ async function takeSnapshotWithTheme(
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
 
     // Wait until we're sure we've finished loading everything
-    await waitForPageReady(page)
+    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    await waitForPageReady(page, skipIframeWait)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         await page.waitForFunction(() => {
@@ -239,7 +241,6 @@ async function takeSnapshotWithTheme(
     }
 
     // wait for iframes to load their content
-    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     if (!skipIframeWait) {
         const iframeCount = await page.locator('iframe').count()
         if (iframeCount > 0) {
@@ -437,12 +438,14 @@ async function expectLocatorToMatchStorySnapshot(
 /**
  * Just like the `waitForPageReady` helper offered by Playwright - except we only wait for `networkidle` in CI,
  * as it doesn't work with local Storybook (the live reload feature keeps up a long-running request, so we aren't idle).
+ *
+ * @param skipNetworkIdle - Skip waiting for network idle. Useful for stories with iframes that cause ongoing network activity.
  */
-async function waitForPageReady(page: Page): Promise<void> {
+async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<void> {
     await page.waitForLoadState('domcontentloaded')
     await page.waitForLoadState('load')
 
-    if (process.env.CI) {
+    if (process.env.CI && !skipNetworkIdle) {
         await page.waitForLoadState('networkidle')
     }
 
