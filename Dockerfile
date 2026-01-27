@@ -171,6 +171,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "chromium" \
     "chromium-driver" \
+    "gettext-base" \
     "libpq-dev" \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-dev=1.2.37-2" \
