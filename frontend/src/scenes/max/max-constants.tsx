@@ -927,7 +927,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     recommend_products: {
         name: 'Recommend products',
-        description: 'Recommend PostHog products based on user needs',
+        description: 'Recommend products based on user needs',
         icon: iconForType('product_analytics'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
