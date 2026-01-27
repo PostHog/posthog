@@ -253,11 +253,6 @@ export class HogExecutorService {
                 if (!hogFunction.mappings) {
                     const invocation = await _buildInvocation(hogFunction)
                     if (!invocation) {
-                        logger.error('[HogExecutor]', 'Destination invocation creation failed', {
-                            destinationId: hogFunction.id,
-                            destinationName: hogFunction.name,
-                            eventUuid: triggerGlobals.event?.uuid,
-                        })
                         return
                     }
 
