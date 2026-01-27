@@ -234,9 +234,9 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
         return None
 
     def _get_provider_key_by_id(key_id: str) -> LLMProviderKey:
-        """Fetch a specific provider key by ID."""
+        """Fetch a specific provider key by ID, validating team ownership."""
         try:
-            key = LLMProviderKey.objects.get(id=key_id)
+            key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
             if key.state != LLMProviderKey.State.OK:
                 raise ApplicationError(
                     f"Your API key is {key.state}. Please fix or replace it.",
