@@ -54,6 +54,8 @@ export class CyclotronJobQueue {
     private jobQueueKafka: CyclotronJobQueueKafka
     private jobQueueDelay: CyclotronJobQueueDelay
     private shadowPostgres: CyclotronJobQueuePostgres | null = null
+    private shadowFailures = 0
+    private shadowCircuitOpenUntil = 0
 
     constructor(
         private config: PluginsServerConfig,
@@ -147,7 +149,12 @@ export class CyclotronJobQueue {
         }
 
         if (this.shadowPostgres) {
-            await this.shadowPostgres.startAsProducer()
+            await this.shadowPostgres.startAsProducer().catch((err) => {
+                logger.warn('Shadow cyclotron producer failed to start, disabling shadow writes', {
+                    error: err.message,
+                })
+                this.shadowPostgres = null
+            })
         }
     }
 
@@ -241,10 +248,21 @@ export class CyclotronJobQueue {
             this.jobQueueKafka.queueInvocations(kafkaInvocations),
         ])
 
-        if (this.shadowPostgres) {
-            void this.shadowPostgres.queueInvocations(invocations).catch((err) => {
-                logger.warn('Shadow cyclotron write failed', { error: err.message })
-            })
+        if (this.shadowPostgres && Date.now() >= this.shadowCircuitOpenUntil) {
+            void this.shadowPostgres
+                .queueInvocations(invocations)
+                .then(() => {
+                    this.shadowFailures = 0
+                })
+                .catch((err) => {
+                    this.shadowFailures++
+                    if (this.shadowFailures >= 5) {
+                        this.shadowCircuitOpenUntil = Date.now() + 60_000
+                        this.shadowFailures = 0
+                        logger.warn('Shadow cyclotron circuit breaker opened')
+                    }
+                    logger.warn('Shadow cyclotron write failed', { error: err.message })
+                })
         }
     }
 
