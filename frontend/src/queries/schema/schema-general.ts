@@ -1147,6 +1147,8 @@ interface DataTableNodeViewProps {
     showSavedQueries?: boolean
     /** Show saved filters feature for this table (requires uniqueKey) */
     showSavedFilters?: boolean
+    /** Show table views feature for this table (requires uniqueKey) */
+    showTableViews?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -5322,6 +5324,11 @@ export enum ProductIntentContext {
 
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
+
+    // Endpoints
+    ENDPOINT_CREATED = 'endpoint_created',
+    ENDPOINT_CREATED_FROM_INSIGHT = 'endpoint_created_from_insight',
+    ENDPOINT_CREATED_FROM_SQL_EDITOR = 'endpoint_created_from_sql_editor',
 }
 
 // Known prod_interest values from posthog.com

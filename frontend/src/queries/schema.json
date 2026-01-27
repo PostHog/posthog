@@ -10551,6 +10551,10 @@
                     "description": "Show actors query options and back to source",
                     "type": "boolean"
                 },
+                "showTableViews": {
+                    "description": "Show table views feature for this table (requires uniqueKey)",
+                    "type": "boolean"
+                },
                 "showTestAccountFilters": {
                     "description": "Show filter to exclude test accounts",
                     "type": "boolean"
@@ -22438,7 +22442,10 @@
                 "product_tour_created",
                 "task_created",
                 "toolbar_launched",
-                "vercel_integration"
+                "vercel_integration",
+                "endpoint_created",
+                "endpoint_created_from_insight",
+                "endpoint_created_from_sql_editor"
             ],
             "type": "string"
         },
@@ -29287,6 +29294,10 @@
                     "type": "boolean"
                 },
                 "showTable": {
+                    "type": "boolean"
+                },
+                "showTableViews": {
+                    "description": "Show table views feature for this table (requires uniqueKey)",
                     "type": "boolean"
                 },
                 "showTestAccountFilters": {

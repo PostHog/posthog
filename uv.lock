@@ -2680,14 +2680,14 @@ wheels = [
 
 [[package]]
 name = "hogql-parser"
-version = "1.3.4"
+version = "1.3.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/52/4e/526ad5126dd907e0fcaea0a71a1b2aa1d483335659d5bdfdc08b19bfb64e/hogql_parser-1.3.4.tar.gz", hash = "sha256:a75fb109a81f52471b322d2cc22fad84d877041d1c8dcd149aee3fae2840352a", size = 83956, upload-time = "2026-01-20T11:30:44.835Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/79/dcd57de2430089122aff27379d50a229ce2837715545cb937cf68b78f74a/hogql_parser-1.3.5.tar.gz", hash = "sha256:135779ebd308054a6f645bd31a4aafc9f41deda4f0f32dfe4a11c1509dcd0306", size = 84091, upload-time = "2026-01-23T11:43:58.542Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/12/f4/8dec602b19159188569117c9bd879838c0306865ca104122b76e4739ec8d/hogql_parser-1.3.4-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:69711e18f1d8eb34c0be63670c3e8bb4f4e75c4ff88057f62226afb39599f619", size = 601954, upload-time = "2026-01-20T11:30:29.79Z" },
-    { url = "https://files.pythonhosted.org/packages/16/8a/837e95167cff2275d0d631b664235e6c478459f67256a42f562a2fc8d378/hogql_parser-1.3.4-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:c2925f5995994729c1f817ced38b2d11e215503d0ed1768dc6e108c26946c618", size = 611483, upload-time = "2026-01-20T11:30:31.787Z" },
-    { url = "https://files.pythonhosted.org/packages/3a/53/70e454e44549c1f8b28190ad84243e2ced211d293cf788542bcdc6a19d86/hogql_parser-1.3.4-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:d8594d9e703820bf2bb0bc9b890d6f8a0aececf6725bda2cd4b538bdb8d4e73d", size = 4425222, upload-time = "2026-01-20T11:30:33.911Z" },
-    { url = "https://files.pythonhosted.org/packages/e5/6e/6ea48fa79ed3c264848c9b61083a96ae730beddff79372149f0cc62f6fb6/hogql_parser-1.3.4-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:f2f5bec0fd569a0947f89403baa7e8377ab9225714990df9191c94e0e1317b6e", size = 4555237, upload-time = "2026-01-20T11:30:36.021Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/01/ac5c8718b5bcb0785174dc600a4cb6a343d7cca07acc9e4efa7405a6e6ed/hogql_parser-1.3.5-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:b4132d6b92c10cf5fc9ae470a84349e021ee717e77c81efe5848df34a29ea43c", size = 604200, upload-time = "2026-01-23T11:43:44.845Z" },
+    { url = "https://files.pythonhosted.org/packages/02/98/f8652ecfa2afe439568c4b744b32805c5229f1a5fa0dcab079ce9000c555/hogql_parser-1.3.5-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:3b13c98876433b2e9db2b1607750c84942a569024ce03ceebadceaa7ab71811f", size = 612111, upload-time = "2026-01-23T11:43:46.186Z" },
+    { url = "https://files.pythonhosted.org/packages/82/eb/989fe40101c99b94984009023d0db4b2617d81cf4365d9afaa6e360cf1ec/hogql_parser-1.3.5-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:b8b505a6ad6d520d498b0da50f09339350057a624c16c107b5c69377eca23062", size = 4438490, upload-time = "2026-01-23T11:43:48.167Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/fb/e4b632c0feedb9eb0bf56c4fb32077594a4729eacc42f12a7ccf58947168/hogql_parser-1.3.5-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:47d032da69cc4a145425d1e22fdb8eae6685966eacf2355c2f9f6ddb8513f748", size = 4567613, upload-time = "2026-01-23T11:43:50.163Z" },
 ]
 
 [[package]]
@@ -4616,6 +4616,7 @@ dev = [
     { name = "pytest-mock" },
     { name = "pytest-rerunfailures" },
     { name = "pytest-split" },
+    { name = "pytest-timeout" },
     { name = "pytest-watch" },
     { name = "pytest-xdist" },
     { name = "python-dateutil" },
@@ -4729,7 +4730,7 @@ requires-dist = [
     { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "grimp", specifier = "==3.13" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.3.4" },
+    { name = "hogql-parser", specifier = "==1.3.5" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=9578c79f29635ee2c1d01b7979e89adab8383de2" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.0.6" },
@@ -4872,6 +4873,7 @@ dev = [
     { name = "pytest-mock", specifier = "~=3.15.1" },
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
     { name = "pytest-split", specifier = "~=0.10.0" },
+    { name = "pytest-timeout", specifier = "~=2.4.0" },
     { name = "pytest-watch", specifier = "==4.2.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
@@ -5586,6 +5588,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/46/d7/e30ba44adf83f15aee3f636daea54efadf735769edc0f0a7d98163f61038/pytest_split-0.10.0.tar.gz", hash = "sha256:adf80ba9fef7be89500d571e705b4f963dfa05038edf35e4925817e6b34ea66f", size = 13903, upload-time = "2024-10-16T15:45:19.783Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d6/a7/cad88e9c1109a5c2a320d608daa32e5ee008ccbc766310f54b1cd6b3d69c/pytest_split-0.10.0-py3-none-any.whl", hash = "sha256:466096b086a7147bcd423c6e6c2e57fc62af1c5ea2e256b4ed50fc030fc3dddc", size = 11961, upload-time = "2024-10-16T15:45:18.289Z" },
+]
+
+[[package]]
+name = "pytest-timeout"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/82/4c9ecabab13363e72d880f2fb504c5f750433b2b6f16e99f4ec21ada284c/pytest_timeout-2.4.0.tar.gz", hash = "sha256:7e68e90b01f9eff71332b25001f85c75495fc4e3a836701876183c4bcfd0540a", size = 17973, upload-time = "2025-05-05T19:44:34.99Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/b6/3127540ecdf1464a00e5a01ee60a1b09175f6913f0644ac748494d9c4b21/pytest_timeout-2.4.0-py3-none-any.whl", hash = "sha256:c42667e5cdadb151aeb5b26d114aff6bdf5a907f176a007a30b940d3d865b5c2", size = 14382, upload-time = "2025-05-05T19:44:33.502Z" },
 ]
 
 [[package]]
