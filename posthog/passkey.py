@@ -1,8 +1,10 @@
 """
-Secure wrapper functions for WebAuthn/passkey operations.
+Secure wrapper functions for passkey operations.
 
 This module provides a secure interface to the webauthn library, enforcing
 security best practices and consistent configuration across all passkey operations.
+If you need webauthn without strict user verification/biometrics, use the
+webauthn library directly (or create a new webauthn.py helper).
 """
 
 from urllib.parse import urlparse
