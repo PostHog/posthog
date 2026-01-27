@@ -1,22 +1,39 @@
+# Process registry for the intent-based dev environment.
+#
+# This file defines all available processes and their capabilities.
+# Normally, `hogli dev:generate` creates a tailored config at
+# .posthog/.generated/mprocs.yaml based on your selected intents.
+# This file is used as fallback when hogli isn't available.
+#
+# To customize which processes run, use `hogli dev:setup`.
+# See devenv/intent-map.yaml for intent-to-capability mappings.
+
 procs:
     backend:
         shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && bin/check_ducklake_up && ./bin/start-backend'
+        # no capability - always_required via intent-map.yaml
 
     celery-worker:
         shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && bin/check_ducklake_up && ./bin/start-celery worker'
+        capability: celery_workers
 
     celery-beat:
         shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && bin/check_ducklake_up && ./bin/start-celery beat'
+        capability: celery_scheduler
 
     nodejs:
         shell: 'bin/check_postgres_up && bin/check_kafka_clickhouse_up && bin/check_ducklake_up && ./bin/posthog-node'
+        capability: event_ingestion
 
     frontend:
         shell: './bin/start-frontend'
         autorestart: true
+        # no capability - always_required via intent-map.yaml
 
     typegen:
-        shell: 'if [ -n "$SKIP_TYPEGEN" ]; then exit 0; fi && cd frontend && pnpm run typegen:watch'
+        shell: 'cd frontend && pnpm run typegen:watch'
+        autostart: false
+        ask_skip: true # wizard asks if user wants to skip this
 
     temporal-worker:
         shell: |-
@@ -28,6 +45,7 @@ procs:
             else \
                 nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue"; \
             fi
+        capability: temporal_workflows
 
     dagster:
         shell: |-
@@ -35,72 +53,85 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/check_ducklake_up && \
             dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT
+        capability: dagster_pipelines
 
     docker-compose:
-        # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
         shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
+        capability: core_infra
+        # also always_required via intent-map.yaml
 
     cyclotron-janitor:
         shell: |-
             bin/check_postgres_up cyclotron && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cyclotron-janitor
+        capability: cyclotron
 
     cymbal:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cymbal
+        capability: error_symbolication
 
     embedding-worker:
         shell: |-
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service embedding-worker
+        capability: embedding_service
 
     feature-flags:
         shell: |-
             bin/check_postgres_up posthog && \
             bin/start-rust-service feature-flags
+        capability: flag_evaluation
 
     livestream:
         shell: |-
             bin/check_postgres_up posthog && \
             bin/check_kafka_clickhouse_up && \
             bin/start-go-service livestream
+        capability: livestream
 
     property-defs-rs:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service property-defs-rs
+        capability: property_definitions
 
     capture:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service capture
+        capability: event_ingestion
 
     capture-replay:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service capture-replay
+        capability: replay_storage
 
     capture-ai:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service capture-ai
+        capability: ai_capture
 
     batch-import-worker:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service batch-import-worker
+        capability: batch_imports
 
     llm-gateway:
         shell: 'bin/check_postgres_up && bin/start-llm-gateway'
         autostart: true
+        capability: llm_gateway
         env:
             LLM_GATEWAY_DEBUG: 'true'
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
@@ -110,20 +141,23 @@ procs:
     mcp:
         shell: 'bin/start-mcp-server'
         autostart: false
+        # no capability - manual start
 
-    # This takes ~10 s
     migrate-postgres:
         shell: 'bin/check_postgres_up && bin/check_ducklake_up && bin/migrate --scope=postgres'
+        capability: core_infra
 
-    # This takes ~10 s too
     migrate-clickhouse:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_ducklake_up && bin/migrate --scope=clickhouse'
+        capability: core_infra
 
     migrate-persons-db:
         shell: 'bin/check_postgres_up posthog_persons && bin/migrate --scope=persons'
+        # no capability - optional migration
 
     migrate-behavioral-cohorts:
         shell: 'bin/check_postgres_up behavioral_cohorts && bin/migrate --scope=behavioral-cohorts'
+        # no capability - optional migration
 
     generate-demo-data:
         shell: |-
@@ -132,6 +166,7 @@ procs:
             bin/check_ducklake_up && \
             ./manage.py generate_demo_data
         autostart: false
+        # no capability - manual start
 
     sync-feature-flags:
         shell: |-
@@ -139,14 +174,17 @@ procs:
             bin/check_ducklake_up && \
             ./manage.py sync_feature_flags
         autostart: false
+        # no capability - manual start
 
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
+        # no capability - manual start
 
     hedgebox-dummy:
         shell: 'bin/check_postgres_up && cd hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
+        # no capability - manual start
 
 mouse_scroll_speed: 1
 scrollback: 10000
