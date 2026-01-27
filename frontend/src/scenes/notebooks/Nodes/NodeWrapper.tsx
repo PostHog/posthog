@@ -406,19 +406,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     )
 }
 
-// Custom comparison function for MemoizedNodeWrapper to prevent unnecessary rerenders
-// The default shallow comparison fails because TipTap creates new prop objects on every editor update
-// We only compare props that actually affect rendering, using deep comparison for attributes
+// comparison function for memo - TipTap creates new prop objects on every editor update
 function areNodeWrapperPropsEqual<T extends CustomNotebookNodeAttributes>(
     prevProps: NodeWrapperProps<T>,
     nextProps: NodeWrapperProps<T>
 ): boolean {
-    // Fast path: if references are the same, props are equal
     if (prevProps === nextProps) {
         return true
     }
 
-    // Compare primitive props that affect rendering
     if (
         prevProps.nodeType !== nextProps.nodeType ||
         prevProps.selected !== nextProps.selected ||
@@ -433,15 +429,10 @@ function areNodeWrapperPropsEqual<T extends CustomNotebookNodeAttributes>(
         return false
     }
 
-    // Deep compare attributes - this is the most important check
-    // Attributes contain the actual node data (query, filters, etc.)
+    // Deep compare attributes (query, filters, etc.)
     if (!objectsEqual(prevProps.attributes, nextProps.attributes)) {
         return false
     }
-
-    // Component reference should be stable (same node type = same component)
-    // Settings reference should also be stable
-    // getPos, updateAttributes are functions that may change reference but shouldn't trigger rerenders
 
     return true
 }
