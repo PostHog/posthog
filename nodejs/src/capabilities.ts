@@ -116,5 +116,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpDataWarehouseEvents: true,
             }
+        case PluginServerMode.cdp_cyclotron_shadow_worker:
+            return {
+                cdpCyclotronShadowWorker: true,
+            }
     }
 }
