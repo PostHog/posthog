@@ -24,7 +24,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
 
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -78,7 +78,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            llmAnalyticsLogic,
+            llmAnalyticsSharedLogic,
             ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
         ],
     })),
