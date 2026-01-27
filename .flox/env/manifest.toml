@@ -58,6 +58,7 @@ OPENSSL_INCLUDE_DIR = "$FLOX_ENV/include"
 LDFLAGS="-L$FLOX_ENV/lib"
 CPPFLAGS="-I$FLOX_ENV/include"
 UV_PROJECT_ENVIRONMENT = "$FLOX_ENV_CACHE/venv"
+COMPOSE_PROJECT_NAME = "posthog" # Ensure consistent Docker Compose project name across worktrees
 
 # The `hook.on-activate` script is run by the *bash* shell immediately upon
 # activating an environment, and will not be invoked if Flox detects that the
