@@ -59,9 +59,9 @@ def get_config(*, team_id: int | None = None, allow_env_fallback: bool = False) 
 def _is_dev_mode() -> bool:
     """Check if running in development mode."""
     try:
-        from posthog.settings.data_warehouse import USE_LOCAL_SETUP
+        from django.conf import settings
 
-        return USE_LOCAL_SETUP
+        return settings.USE_LOCAL_SETUP
     except ImportError:
         return True
 
