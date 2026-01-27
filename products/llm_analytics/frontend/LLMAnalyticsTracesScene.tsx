@@ -26,27 +26,29 @@ export function LLMAnalyticsTraces(): JSX.Element {
     const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
 
     return (
-        <DataTable
-            query={{
-                ...tracesQuery,
-                showSavedFilters: true,
-            }}
-            setQuery={(query) => {
-                if (!isTracesQuery(query.source)) {
-                    throw new Error('Invalid query')
-                }
-                setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
+        <div data-attr="llm-trace-table">
+            <DataTable
+                query={{
+                    ...tracesQuery,
+                    showSavedFilters: true,
+                }}
+                setQuery={(query) => {
+                    if (!isTracesQuery(query.source)) {
+                        throw new Error('Invalid query')
+                    }
+                    setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
+                    setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                    setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                const newPropertyFilters = query.source.properties || []
-                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                    setPropertyFilters(newPropertyFilters)
-                }
-            }}
-            context={useTracesQueryContext()}
-            uniqueKey="llm-analytics-traces"
-        />
+                    const newPropertyFilters = query.source.properties || []
+                    if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
+                        setPropertyFilters(newPropertyFilters)
+                    }
+                }}
+                context={useTracesQueryContext()}
+                uniqueKey="llm-analytics-traces"
+            />
+        </div>
     )
 }
 

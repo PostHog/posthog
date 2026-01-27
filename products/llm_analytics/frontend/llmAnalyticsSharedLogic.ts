@@ -1,7 +1,8 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -120,6 +121,14 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             loadAIEventDefinition: async (): Promise<boolean> => {
                 return hasRecentAIEvents()
             },
+        },
+    })),
+
+    listeners(() => ({
+        loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
+            if (hasSentAiEvent) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+            }
         },
     })),
 
@@ -246,6 +255,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
 
     afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
+        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
 
         // Track product intent when dashboard is viewed
         if (values.activeTab === 'dashboard') {

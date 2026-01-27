@@ -164,7 +164,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
         if (editingStep) {
             setEditorWidth(getWidthValue(editingStep.maxWidth))
         }
-    }, [editingStep?.id, editingStep?.maxWidth])
+    }, [editingStep?.id, editingStep?.maxWidth]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     // Initialize selector and progressionTrigger from selectedElement or editingStep
     useEffect(() => {
@@ -189,7 +189,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     useEffect(() => {
         setSurveyConfig(editingStep?.survey)
         setModalPosition(editingStep?.modalPosition ?? SurveyPosition.MiddleCenter)
-    }, [editingStep?.id])
+    }, [editingStep?.id]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     // Position element steps near target (when element is visible)
     useLayoutEffect(() => {
@@ -232,7 +232,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     // Update content state when editing a different step
     useEffect(() => {
         setStepContent(editingStep?.content ?? DEFAULT_STEP_CONTENT)
-    }, [editingStep?.id])
+    }, [editingStep?.id]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const style: React.CSSProperties = {
         position: 'fixed',

@@ -43,6 +43,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { DashboardPlacement, EventType } from '~/types'
 
@@ -77,6 +78,7 @@ import { truncateValue } from './utils'
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
     logic: llmAnalyticsSharedLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
@@ -151,7 +153,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
     return (
         <LLMAnalyticsSetupPrompt>
-            <div className="@container/dashboard">
+            <div className="@container/dashboard" data-attr="llm-analytics-costs">
                 <Filters />
 
                 {availableDashboardsLoading || !selectedDashboardId ? (
@@ -637,7 +639,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             key: 'traces',
             label: 'Traces',
             content: (
-                <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsSetupPrompt thing="trace">
                     <LLMAnalyticsTraces />
                 </LLMAnalyticsSetupPrompt>
             ),
