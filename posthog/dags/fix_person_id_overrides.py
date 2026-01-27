@@ -19,7 +19,7 @@ class FixPersonIdOverridesConfig(dagster.Config):
     """Configuration for the fix person_id overrides job."""
 
     team_id: int = pydantic.Field(description="Team ID to process")
-    distinct_ids_file: str = pydantic.Field(description="Path to file containing bugged distinct_ids (one per line)")
+    distinct_ids: str = pydantic.Field(description="Comma-separated list of bugged distinct_ids")
     dry_run: bool = pydantic.Field(
         default=True,
         description="If true, don't actually insert, just log what would be inserted",
@@ -106,18 +106,17 @@ def insert_override(team_id: int, distinct_id: str, person_id: str, version: int
 def fix_person_id_overrides_op(
     context: dagster.OpExecutionContext,
     config: FixPersonIdOverridesConfig,
-) -> dict:
+) -> None:
     """
     For each bugged distinct_id:
     1. Find its person_id in person_distinct_id2
     2. Find ALL distinct_ids mapped to that person_id
     3. Insert ALL mappings into person_distinct_id_overrides
     """
-    # Load bugged distinct_ids from file
-    with open(config.distinct_ids_file) as f:
-        bugged_distinct_ids = [line.strip() for line in f if line.strip()]
+    # Parse comma-separated distinct_ids
+    bugged_distinct_ids = [d.strip() for d in config.distinct_ids.split(",") if d.strip()]
 
-    context.log.info(f"Loaded {len(bugged_distinct_ids)} bugged distinct_ids from {config.distinct_ids_file}")
+    context.log.info(f"Processing {len(bugged_distinct_ids)} bugged distinct_ids")
     context.log.info(f"Dry run: {config.dry_run}")
 
     # Track which person_ids we've already processed to avoid duplicates
@@ -142,7 +141,7 @@ def fix_person_id_overrides_op(
         # Step 2: Get ALL distinct_ids mapped to this person
         all_distinct_ids = get_all_distinct_ids_for_person(config.team_id, person_id)
         context.log.info(
-            f"Person {person_id}... has {len(all_distinct_ids)} distinct_ids: {', '.join(all_distinct_ids)} "
+            f"Person {person_id}... has {len(all_distinct_ids)} distinct_ids: {', '.join(did for did, _ in all_distinct_ids)} "
         )
 
         # Step 3: Insert override for each distinct_id
@@ -156,7 +155,7 @@ def fix_person_id_overrides_op(
             new_version = max(version, 1)
 
             if config.dry_run:
-                context.log.info(f"  [DRY RUN] Would insert: {distinct_id} -> {person_id}...")
+                context.log.info(f"  [DRY RUN] Would insert -> Distinct ID: {distinct_id}, Person ID: {person_id}...")
             else:
                 insert_override(config.team_id, distinct_id, person_id, new_version)
                 context.log.info(f"  Inserted: {distinct_id} -> {person_id}...")
@@ -164,5 +163,5 @@ def fix_person_id_overrides_op(
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def fix_person_id_overrides_job():
-    """Job to insert person_id overrides for specified distinct_ids from a file."""
+    """Job to insert person_id overrides for specified distinct_ids."""
     fix_person_id_overrides_op()
