@@ -50,20 +50,6 @@ class LLMModelConfiguration(UUIDTModel):
                 {"provider": f"Provider '{self.provider}' does not match key provider '{self.provider_key.provider}'"}
             )
 
-    def _validate_model_availability(self) -> None:
-        """Validate model is available for the given provider/key combination."""
-        available = self.get_available_models()
-        if self.model not in available:
-            if self.provider_key:
-                raise ValidationError({"model": f"Model '{self.model}' is not available for your API key"})
-            else:
-                raise ValidationError(
-                    {
-                        "model": f"Model '{self.model}' is not available with PostHog's default key. "
-                        "Add your own API key to use this model."
-                    }
-                )
-
     def get_available_models(self) -> list[str]:
         """Get available models - delegates to API if key present, otherwise returns PostHog allowed list."""
         if self.provider_key:

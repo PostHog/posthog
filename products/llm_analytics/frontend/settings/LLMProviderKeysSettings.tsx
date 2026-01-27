@@ -98,21 +98,28 @@ function KeyValidationStatus({
         return <p className="text-xs text-muted mt-1">Validating key...</p>
     }
 
+    const bullets = (
+        <ul className="text-xs text-muted mt-1 list-disc pl-4 space-y-0.5">
+            <li>Your key will be encrypted and stored securely</li>
+            <li>You pay {LLM_PROVIDER_LABELS[provider]} directly for model usage</li>
+            <li>Each evaluation counts as an LLM analytics event</li>
+        </ul>
+    )
+
     if (!result) {
-        return (
-            <ul className="text-xs text-muted mt-1 list-disc pl-4 space-y-0.5">
-                <li>Your key will be encrypted and stored securely</li>
-                <li>You pay {LLM_PROVIDER_LABELS[provider]} directly for model usage</li>
-                <li>Each evaluation counts as an LLM analytics event</li>
-            </ul>
-        )
+        return bullets
     }
 
     if (result.state === 'ok') {
         return <p className="text-xs text-success mt-1">Key validated successfully</p>
     }
 
-    return <p className="text-xs text-danger mt-1">{result.error_message || 'Key validation failed'}</p>
+    return (
+        <>
+            {bullets}
+            <p className="text-xs text-danger mt-1">{result.error_message || 'Key validation failed'}</p>
+        </>
+    )
 }
 
 function AddKeyModal(): JSX.Element {

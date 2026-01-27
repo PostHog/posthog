@@ -6,36 +6,6 @@ from django.db import migrations, models
 import posthog.models.utils
 
 
-def migrate_existing_evals(apps, schema_editor):
-    """Create default model configurations for existing evals, preserving BYOK settings."""
-    Evaluation = apps.get_model("llm_analytics", "Evaluation")
-    EvaluationConfig = apps.get_model("llm_analytics", "EvaluationConfig")
-    LLMModelConfiguration = apps.get_model("llm_analytics", "LLMModelConfiguration")
-
-    # Build a map of team_id -> active_provider_key for teams with BYOK
-    team_active_keys = {}
-    for config in EvaluationConfig.objects.filter(active_provider_key__isnull=False).select_related(
-        "active_provider_key"
-    ):
-        team_active_keys[config.team_id] = config.active_provider_key
-
-    for evaluation in Evaluation.objects.filter(model_configuration__isnull=True, deleted=False):
-        config = LLMModelConfiguration.objects.create(
-            team_id=evaluation.team_id,
-            provider="openai",
-            model="gpt-5-mini",
-            provider_key=team_active_keys.get(evaluation.team_id),
-        )
-        evaluation.model_configuration = config
-        evaluation.save(update_fields=["model_configuration"])
-
-
-def reverse_migrate(apps, schema_editor):
-    """Reverse migration - just remove FK references, configurations will be cascade deleted."""
-    Evaluation = apps.get_model("llm_analytics", "Evaluation")
-    Evaluation.objects.filter(model_configuration__isnull=False).update(model_configuration=None)
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0932_add_session_ids_to_restriction_config"),
@@ -43,6 +13,15 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Update LLMProviderKey.provider choices to include anthropic and gemini
+        migrations.AlterField(
+            model_name="llmproviderkey",
+            name="provider",
+            field=models.CharField(
+                choices=[("openai", "Openai"), ("anthropic", "Anthropic"), ("gemini", "Gemini")],
+                max_length=50,
+            ),
+        ),
         # Create LLMModelConfiguration model
         migrations.CreateModel(
             name="LLMModelConfiguration",
@@ -76,7 +55,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "indexes": [
-                    models.Index(fields=["team", "provider"], name="llm_analyti_team_id_a2b3c4_idx"),
+                    models.Index(fields=["team", "provider"], name="llm_analyti_team_id_e3928e_idx"),
                 ],
             },
         ),
@@ -92,6 +71,4 @@ class Migration(migrations.Migration):
                 to="llm_analytics.llmmodelconfiguration",
             ),
         ),
-        # Migrate existing evaluations to have default model configuration
-        migrations.RunPython(migrate_existing_evals, reverse_migrate, elidable=True),
     ]

@@ -31,7 +31,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     connect({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
-        actions: [llmProviderKeysLogic, ['loadProviderKeys']],
+        actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
     }),
 
     actions({
@@ -241,8 +241,31 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             // Load available models for the current provider/key combination
             if (evaluation) {
                 const provider = evaluation.model_configuration?.provider || 'openai'
-                const keyId = evaluation.model_configuration?.provider_key_id || null
+                let keyId = evaluation.model_configuration?.provider_key_id || null
+
+                // For new evals without a key, auto-select user's first key if available
+                if (!keyId && !evaluation.id) {
+                    const keysForProvider = values.providerKeysByProvider[provider] || []
+                    if (keysForProvider.length > 0) {
+                        keyId = keysForProvider[0].id
+                        actions.setSelectedKeyId(keyId)
+                    }
+                }
+
                 actions.loadAvailableModels({ provider, keyId })
+            }
+        },
+
+        loadProviderKeysSuccess: () => {
+            // When provider keys finish loading after evaluation, auto-select key for new evals
+            const evaluation = values.evaluation
+            if (evaluation && !evaluation.id && !values.selectedKeyId) {
+                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
+                if (keysForProvider.length > 0) {
+                    const keyId = keysForProvider[0].id
+                    actions.setSelectedKeyId(keyId)
+                    actions.loadAvailableModels({ provider: values.selectedProvider, keyId })
+                }
             }
         },
 
