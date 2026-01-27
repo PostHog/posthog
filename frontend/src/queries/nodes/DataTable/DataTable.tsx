@@ -679,7 +679,7 @@ export function DataTable({
                 setQuery={setQuerySource}
             />
         ) : null,
-        showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
+        showEventFilter && !showEventsFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
         ) : null,
         showEventsFilter && isEventsQuery(query.source) ? (
