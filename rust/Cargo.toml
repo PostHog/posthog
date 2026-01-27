@@ -38,6 +38,7 @@ members = [
     "common/hogvm",
     "kafka-deduplicator",
     "personhog-proto",
+    "personhog-replica",
 ]
 
 [workspace.lints.rust]
@@ -116,7 +117,7 @@ time = { version = "0.3.36", features = [
 ] }
 thiserror = { version = "2.0" }
 tokio = { version = "1.34.0", features = ["full"] }
-tower = { version = "0.4.13", features = ["default", "limit"] }
+tower = { version = "0.4.13", features = ["default", "limit", "util"] }
 tower-http = { version = "0.5.2", features = ["cors", "decompression-br", "decompression-deflate", "decompression-gzip", "decompression-zstd", "limit", "trace"] }
 tracing = "0.1.40"
 tracing-opentelemetry = "0.23.0"

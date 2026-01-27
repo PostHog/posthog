@@ -2051,6 +2051,83 @@ def team_api_test_factory():
             response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
             assert response.status_code == status.HTTP_403_FORBIDDEN
 
+        def test_logs_settings_retention_24_hour_restriction(self):
+            # Set initial retention - first update doesn't set retention_last_updated
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 16}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert not hasattr(response.json()["logs_settings"], "retention_last_updated")
+
+            # update retention, should set retention_last_updated
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 15}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["logs_settings"]["retention_last_updated"] is not None
+
+            # Try to update retention within 24 hours - should fail
+            with freeze_time("2025-01-01T12:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 20}},
+                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST
+                assert "24 hours" in response.json()["detail"]
+
+            # Try to update retention after 24 hours - should succeed
+            with freeze_time("2025-01-02T00:00:01Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 20}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_non_retention_changes_not_restricted(self):
+            # Set initial retention
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 16}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 15}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            # Change other settings within 24 hours - should succeed
+            with freeze_time("2025-01-01T12:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {
+                        "logs_settings": {
+                            "retention_days": 15,  # Same retention
+                            "json_parse_logs": True,
+                        }
+                    },
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            # Change retention after 24 hours - should succeed
+            with freeze_time("2025-01-02T00:00:01Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {
+                        "logs_settings": {
+                            "retention_days": 16,
+                        }
+                    },
+                )
+                assert response.status_code == status.HTTP_200_OK
+
     return TestTeamAPI
 
 

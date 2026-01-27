@@ -4,6 +4,9 @@ export const keyBinds: Record<string, string[]> = {
     // Sequence shortcuts: use 'then' between keys (e.g., type "sql" to open SQL editor)
     sqlEditor: ['s', 'then', 'q', 'then', 'l'],
     openSidePanel: ['g', 'then', 'p'],
+    helpMenu: ['?'],
+    newAccountMenu: ['g', 'then', 'a'],
+    quickStart: ['g', 'then', 's'],
     recentItems: [...baseModifier, 'y'],
     newTab: [...baseModifier, 't'],
     closeActiveTab: [...baseModifier, 'w'],
@@ -30,6 +33,6 @@ export const keyBinds: Record<string, string[]> = {
     tab9: [...baseModifier, '9'],
     zenMode: [...baseModifier, 'z'],
     newChat: ['g', 'then', 'n'],
-    allChats: ['g', 'then', 'c'],
-    allApps: ['g', 'then', 'a'],
+    allChats: ['g', 'then', '1'],
+    allApps: ['g', 'then', '2'],
 }

@@ -10,6 +10,7 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -754,6 +755,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 posthog.capture('logs no results returned')
             } else {
                 posthog.capture('logs results returned', { count: logs.length })
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstLogs)
             }
         },
         fetchNextLogsPage: () => {

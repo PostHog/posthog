@@ -87,6 +87,7 @@ export interface PaginatedDataModelingJobListApi {
  * `TikTokAds` - TikTokAds
  * `BingAds` - BingAds
  * `Shopify` - Shopify
+ * `SnapchatAds` - SnapchatAds
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
@@ -125,6 +126,7 @@ export const SourceTypeEnumApi = {
     TikTokAds: 'TikTokAds',
     BingAds: 'BingAds',
     Shopify: 'Shopify',
+    SnapchatAds: 'SnapchatAds',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {

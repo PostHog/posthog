@@ -125,6 +125,10 @@ pub struct Config {
     #[envconfig(default = "102400")] // 100MB max bytes to prefetch (value is in KB)
     pub kafka_consumer_queued_max_messages_kbytes: u32,
 
+    #[envconfig(default = "300000")]
+    // 5 minutes - max time between poll() calls before consumer leaves group
+    pub kafka_max_poll_interval_ms: u32,
+
     // Partition worker channel buffer size for pipeline parallelism
     #[envconfig(default = "10")]
     pub partition_worker_channel_buffer_size: usize,

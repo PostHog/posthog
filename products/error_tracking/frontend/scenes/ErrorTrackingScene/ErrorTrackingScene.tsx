@@ -1,12 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -56,7 +56,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         api.hogFunctions
             .list({
                 types: ['internal_destination'],
@@ -68,7 +68,7 @@ export function ErrorTrackingScene(): JSX.Element {
                     alert_destination_count: res.results.length,
                 })
             })
-    }, [])
+    })
 
     return (
         <StyleVariables>

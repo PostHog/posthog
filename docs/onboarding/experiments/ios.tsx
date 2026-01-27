@@ -1,18 +1,14 @@
-import { getIOSSteps as getIOSStepsPA } from '../product-analytics/ios'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getIOSSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getIOSSteps as getIOSStepsPA } from '../product-analytics/ios'
+import { StepDefinition } from '../steps'
+
+export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
     // Get installation steps from product-analytics only
-    const installationSteps = getIOSStepsPA(CodeBlock, Markdown, dedent).filter(
+    const installationSteps = getIOSStepsPA(ctx).filter(
         (step: StepDefinition) => step.title !== 'Send events'
     )
 
@@ -45,21 +41,7 @@ export const getIOSSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...experimentSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...experimentSteps]
 }
 
-export const IOSInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getIOSSteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const IOSInstallation = createInstallation(getIOSSteps)
