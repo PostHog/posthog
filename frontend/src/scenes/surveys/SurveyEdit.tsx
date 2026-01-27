@@ -180,7 +180,7 @@ function SurveyCompletionConditions(): JSX.Element {
                         />
                         <LemonSelect
                             value={survey.response_sampling_interval_type}
-                            size="small"
+                            size="small="
                             onChange={(newValue) => {
                                 setSurveyValue('response_sampling_interval_type', newValue)
                             }}
@@ -230,6 +230,30 @@ function SurveyCompletionConditions(): JSX.Element {
             <SurveyResponsesCollection />
         </div>
     )
+}
+
+// Helper to format field names for display
+function formatFieldName(field: string): string {
+    const fieldNameMap: Record<string, string> = {
+        name: 'Survey name',
+        description: 'Survey description',
+        thankYouMessageHeader: 'Thank you message header',
+        thankYouMessageDescription: 'Thank you message description',
+        thankYouMessageCloseButtonText: 'Thank you close button text',
+        question: 'Question text',
+        buttonText: 'Button text',
+        lowerBoundLabel: 'Lower bound label',
+        upperBoundLabel: 'Upper bound label',
+        link: 'Link URL',
+    }
+
+    // Handle choices[n] format
+    const choiceMatch = field.match(/^choices\[(\d+)\]$/)
+    if (choiceMatch) {
+        return `Choice ${parseInt(choiceMatch[1]) + 1}`
+    }
+
+    return fieldNameMap[field] || field
 }
 
 export default function SurveyEdit({ id }: { id: string }): JSX.Element {
@@ -438,69 +462,69 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
             />
             <div className="sticky top-[34px] z-[100] bg-bg-3000">
                 {hasTranslationValidationErrors ? (
-                    <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
-                        <LemonCollapse
-                            embedded
-                            defaultActiveKey="validation-errors"
-                            panels={[
-                                {
-                                    key: 'validation-errors',
-                                    header: {
-                                        children: (
-                                            <span className="text-sm font-semibold">
-                                                ⚠️ Translation validation issues ({translationValidationErrors.length})
-                                            </span>
-                                        ),
-                                    },
-                                    content: (
-                                        <div className="text-sm">
-                                            {(() => {
-                                                // Group errors by language
-                                                const errorsByLanguage = translationValidationErrors.reduce(
-                                                    (acc, error) => {
-                                                        const lang = error.language
-                                                        if (!acc[lang]) {
-                                                            acc[lang] = []
-                                                        }
-                                                        acc[lang].push(error)
-                                                        return acc
-                                                    },
-                                                    {} as Record<string, typeof translationValidationErrors>
-                                                )
-
-                                                return Object.entries(errorsByLanguage).map(([lang, errors]) => (
-                                                    <div key={lang} className="mb-2">
-                                                        <button
-                                                            onClick={() =>
-                                                                setEditingLanguage(lang === 'default' ? null : lang)
-                                                            }
-                                                            className="font-semibold hover:underline cursor-pointer"
-                                                        >
-                                                            {lang === 'default'
-                                                                ? 'Default language'
-                                                                : COMMON_LANGUAGES.find((l) => l.value === lang)
-                                                                      ?.label || lang}
-                                                        </button>
-                                                        :
-                                                        <ul className="ml-4 list-disc">
-                                                            {errors.map((error, idx) => (
-                                                                <li key={idx}>
-                                                                    {error.questionIndex >= 0
-                                                                        ? `Question ${error.questionIndex + 1}`
-                                                                        : 'Survey'}{' '}
-                                                                    - {error.field}: {error.error}
-                                                                </li>
-                                                            ))}
-                                                        </ul>
-                                                    </div>
-                                                ))
-                                            })()}
-                                        </div>
+                    <LemonCollapse
+                        embedded
+                        className="my-2 bg-warning-highlight rounded"
+                        panels={[
+                            {
+                                key: 'validation-errors',
+                                header: {
+                                    children: (
+                                        <span className="text-sm">
+                                            ⚠️ Translation validation issues ({translationValidationErrors.length})
+                                        </span>
                                     ),
+                                    className: 'bg-warning-highlight',
                                 },
-                            ]}
-                        />
-                    </div>
+                                content: (
+                                    <div className="text-sm">
+                                        {(() => {
+                                            // Group errors by language
+                                            const errorsByLanguage = translationValidationErrors.reduce(
+                                                (acc, error) => {
+                                                    const lang = error.language
+                                                    if (!acc[lang]) {
+                                                        acc[lang] = []
+                                                    }
+                                                    acc[lang].push(error)
+                                                    return acc
+                                                },
+                                                {} as Record<string, typeof translationValidationErrors>
+                                            )
+
+                                            return Object.entries(errorsByLanguage).map(([lang, errors]) => (
+                                                <div key={lang} className="mb-2">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.preventDefault()
+                                                            setEditingLanguage(lang === 'default' ? null : lang)
+                                                        }}
+                                                        className="font-semibold hover:underline cursor-pointer"
+                                                    >
+                                                        {lang === 'default'
+                                                            ? 'Default language'
+                                                            : COMMON_LANGUAGES.find((l) => l.value === lang)?.label ||
+                                                              lang}
+                                                    </button>
+                                                    :
+                                                    <ul className="ml-4 list-disc">
+                                                        {errors.map((error, idx) => (
+                                                            <li key={idx}>
+                                                                {error.questionIndex >= 0
+                                                                    ? `Question ${error.questionIndex + 1}`
+                                                                    : 'Survey'}{' '}
+                                                                - {formatFieldName(error.field)}: {error.error}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            ))
+                                        })()}
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
                 ) : editingLanguage ? (
                     <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
                         <span className="text-sm">

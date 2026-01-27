@@ -221,10 +221,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             }
         })
 
-        // Update question with synced translations
+        // Update question with synced translations AND updated choices
         setSurveyValue('questions', [
             ...survey.questions.slice(0, index),
-            { ...question, translations: updatedTranslations },
+            { ...question, choices: newChoices, translations: updatedTranslations },
             ...survey.questions.slice(index + 1),
         ])
     }
