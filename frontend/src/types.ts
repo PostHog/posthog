@@ -3439,6 +3439,7 @@ export interface ProductTourDisplayConditions {
     cancelEvents?: {
         values: SurveyEventsWithProperties[]
     } | null
+    linkedFlagVariant?: string
 }
 
 export interface ProductTourAppearance {
@@ -3476,8 +3477,9 @@ export interface ProductTour {
     name: string
     description: string
     internal_targeting_flag: FeatureFlagBasicType | null
-    feature_flag_key: string | null
     targeting_flag_filters: FeatureFlagFilters | null
+    linked_flag: FeatureFlagBasicType | null
+    linked_flag_id: number | null
     content: ProductTourContent
     auto_launch: boolean
     start_date: string | null
