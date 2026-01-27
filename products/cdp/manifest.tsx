@@ -38,7 +38,12 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Data pipelines`,
-            intents: [ProductKey.PIPELINE_DESTINATIONS, ProductKey.PIPELINE_TRANSFORMATIONS, ProductKey.SITE_APPS],
+            intents: [
+                ProductKey.PIPELINE_BATCH_EXPORTS,
+                ProductKey.PIPELINE_DESTINATIONS,
+                ProductKey.PIPELINE_TRANSFORMATIONS,
+                ProductKey.SITE_APPS,
+            ],
             category: 'Tools',
             type: 'hog_function',
             iconType: 'data_pipeline',

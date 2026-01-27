@@ -32,7 +32,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
                                       items={[
                                           {
                                               label: 'Open as direct SQL insight',
-                                              to: urls.sqlEditor(response.hogql),
+                                              to: urls.sqlEditor({ query: response.hogql }),
                                               'data-attr': 'open-sql-editor-button',
                                           },
                                       ]}

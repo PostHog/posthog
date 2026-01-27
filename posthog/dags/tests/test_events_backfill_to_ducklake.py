@@ -184,5 +184,6 @@ class TestEventsColumnsSchema:
             "group4_created_at",
             "person_mode",
             "historical_migration",
+            "_inserted_at",
         }
         assert EXPECTED_DUCKLAKE_COLUMNS == export_columns

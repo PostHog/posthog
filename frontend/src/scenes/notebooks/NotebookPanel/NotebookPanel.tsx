@@ -12,6 +12,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 
 import { Notebook } from '../Notebook/Notebook'
@@ -97,19 +98,14 @@ export function NotebookPanel(): JSX.Element | null {
                         </div>
                     </SidePanelPaneHeader>
 
-                    <div
-                        className={cn('flex flex-col flex-1 overflow-y-auto p-3 bg-[var(--color-bg-surface-primary)]', {
-                            'rounded mx-2 mb-2 border border-primary focus-within:outline-none focus-within:ring-2 focus-within:ring-accent z-10':
-                                isRemovingSidePanelFlag,
-                        })}
-                    >
+                    <SidePanelContentContainer flagOffClassName="flex flex-col flex-1 overflow-y-auto p-3 bg-[var(--color-bg-surface-primary)]">
                         <Notebook
                             key={selectedNotebook}
                             shortId={selectedNotebook}
                             editable={editable}
                             initialAutofocus={initialAutofocus}
                         />
-                    </div>
+                    </SidePanelContentContainer>
                 </>
             ) : null}
 

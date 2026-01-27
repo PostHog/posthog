@@ -70,6 +70,7 @@ async fn janitor_test(db: PgPool) {
         priority: 0,
         scheduled: now,
         function_id: Some(uuid),
+        parent_run_id: None,
         vm_state: None,
         parameters: None,
         blob: None,
