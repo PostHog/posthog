@@ -78,7 +78,6 @@ class Task(DeletedMetaFields, models.Model):
     priority_score = models.FloatField(
         null=True,
         blank=True,
-        db_index=True,
         help_text="Calculated priority score for ranking tasks",
     )
     relevant_user_count = models.IntegerField(

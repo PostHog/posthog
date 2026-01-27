@@ -44,9 +44,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="task",
             name="priority_score",
-            field=models.FloatField(
-                blank=True, db_index=True, help_text="Calculated priority score for ranking tasks", null=True
-            ),
+            field=models.FloatField(blank=True, help_text="Calculated priority score for ranking tasks", null=True),
         ),
         migrations.AddField(
             model_name="task",
