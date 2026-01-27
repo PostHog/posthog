@@ -29,78 +29,11 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
     cached_response: CachedTraceNeighborsQueryResponse
 
     def _calculate(self):
-        # Parse the current trace's timestamp
-        current_timestamp = datetime.fromisoformat(self.query.timestamp.replace("Z", "+00:00"))
-
-        # Get both neighbors in a single query using UNION ALL
-        older_trace_id, older_timestamp, newer_trace_id, newer_timestamp = self._get_both_neighbors(current_timestamp)
-
-        return TraceNeighborsQueryResponse(
-            olderTraceId=older_trace_id,
-            olderTimestamp=older_timestamp,
-            newerTraceId=newer_trace_id,
-            newerTimestamp=newer_timestamp,
-        )
-
-    def _get_both_neighbors(self, current_timestamp: datetime) -> tuple[str | None, str | None, str | None, str | None]:
-        """
-        Get both older and newer traces in a single query using UNION ALL.
-        Returns (older_trace_id, older_timestamp, newer_trace_id, newer_timestamp).
-        """
         with self.timings.measure("trace_neighbors"), tags_context(product=Product.LLM_ANALYTICS):
-            # Combine both queries with UNION ALL for efficiency
-            # Apply timestamp filter before GROUP BY to reduce data scanned
-            # Use tuple comparison (timestamp, trace_id) to handle identical timestamps deterministically
-            query = parse_select(
-                """
-                SELECT
-                    'older' as direction,
-                    trace_id,
-                    trace_timestamp
-                FROM (
-                    SELECT
-                        properties.$ai_trace_id as trace_id,
-                        max(timestamp) as trace_timestamp
-                    FROM events
-                    WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                      AND timestamp <= {current_timestamp}
-                      AND {conditions}
-                    GROUP BY properties.$ai_trace_id
-                    HAVING (trace_timestamp, trace_id) < ({current_timestamp}, {current_trace_id})
-                    ORDER BY trace_timestamp DESC, trace_id DESC
-                    LIMIT 1
-                )
-
-                UNION ALL
-
-                SELECT
-                    'newer' as direction,
-                    trace_id,
-                    trace_timestamp
-                FROM (
-                    SELECT
-                        properties.$ai_trace_id as trace_id,
-                        max(timestamp) as trace_timestamp
-                    FROM events
-                    WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                      AND timestamp >= {current_timestamp}
-                      AND {conditions}
-                    GROUP BY properties.$ai_trace_id
-                    HAVING (trace_timestamp, trace_id) > ({current_timestamp}, {current_trace_id})
-                    ORDER BY trace_timestamp ASC, trace_id ASC
-                    LIMIT 1
-                )
-                """,
-            )
-
             result = execute_hogql_query(
                 query_type="TraceNeighborsQuery",
-                query=query,
-                placeholders={
-                    "conditions": self._get_filter_conditions(),
-                    "current_timestamp": ast.Constant(value=current_timestamp),
-                    "current_trace_id": ast.Constant(value=self.query.traceId),
-                },
+                query=self.to_query(),
+                placeholders=self._get_placeholders(),
                 team=self.team,
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -119,7 +52,12 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
                     newer_trace_id = str(trace_id) if trace_id else None
                     newer_timestamp = timestamp.isoformat() if timestamp else None
 
-            return older_trace_id, older_timestamp, newer_trace_id, newer_timestamp
+            return TraceNeighborsQueryResponse(
+                olderTraceId=older_trace_id,
+                olderTimestamp=older_timestamp,
+                newerTraceId=newer_trace_id,
+                newerTimestamp=newer_timestamp,
+            )
 
     def _get_filter_conditions(self) -> ast.Expr:
         """Build the filter conditions, similar to TracesQueryRunner."""
@@ -217,6 +155,58 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        """Required by base class but not used for this query type."""
-        # Return a simple placeholder query - the actual work is done in _calculate
-        return cast(ast.SelectQuery, parse_select("SELECT 1"))
+        """
+        Build a query that finds both older and newer traces using UNION ALL.
+        Uses tuple comparison (timestamp, trace_id) to handle identical timestamps deterministically.
+        """
+        query = parse_select(
+            """
+            SELECT
+                'older' as direction,
+                trace_id,
+                trace_timestamp
+            FROM (
+                SELECT
+                    properties.$ai_trace_id as trace_id,
+                    max(timestamp) as trace_timestamp
+                FROM events
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                  AND timestamp <= {current_timestamp}
+                  AND {conditions}
+                GROUP BY properties.$ai_trace_id
+                HAVING (trace_timestamp, trace_id) < ({current_timestamp}, {current_trace_id})
+                ORDER BY trace_timestamp DESC, trace_id DESC
+                LIMIT 1
+            )
+
+            UNION ALL
+
+            SELECT
+                'newer' as direction,
+                trace_id,
+                trace_timestamp
+            FROM (
+                SELECT
+                    properties.$ai_trace_id as trace_id,
+                    max(timestamp) as trace_timestamp
+                FROM events
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                  AND timestamp >= {current_timestamp}
+                  AND {conditions}
+                GROUP BY properties.$ai_trace_id
+                HAVING (trace_timestamp, trace_id) > ({current_timestamp}, {current_trace_id})
+                ORDER BY trace_timestamp ASC, trace_id ASC
+                LIMIT 1
+            )
+            """,
+        )
+        return cast(ast.SelectSetQuery, query)
+
+    def _get_placeholders(self) -> dict[str, ast.Expr]:
+        """Build placeholders for the query."""
+        current_timestamp = datetime.fromisoformat(self.query.timestamp.replace("Z", "+00:00"))
+        return {
+            "conditions": self._get_filter_conditions(),
+            "current_timestamp": ast.Constant(value=current_timestamp),
+            "current_trace_id": ast.Constant(value=self.query.traceId),
+        }
