@@ -8,6 +8,35 @@ import { urls } from 'scenes/urls'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
 
+const NUM_LETTERMARK_COLORS = 8
+
+/**
+ * Generates a stable color index (0-7) from a string using djb2 hash.
+ * Used for consistent avatar colors based on person identifiers.
+ */
+function hashStringToColorIndex(str: string): number {
+    let hash = 5381
+    for (let i = 0; i < str.length; i++) {
+        hash = (hash * 33) ^ str.charCodeAt(i)
+    }
+    return Math.abs(hash) % NUM_LETTERMARK_COLORS
+}
+
+/**
+ * Returns a stable color index for a person based on their identifier.
+ * Uses distinct_id (or first of distinct_ids) to generate consistent colors.
+ */
+export function getPersonColorIndex(person: PersonPropType | null | undefined): number | undefined {
+    if (!person) {
+        return undefined
+    }
+    const identifier = person.distinct_id || person.distinct_ids?.[0]
+    if (!identifier) {
+        return undefined
+    }
+    return hashStringToColorIndex(identifier)
+}
+
 export type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
     | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never }
