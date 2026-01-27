@@ -12,9 +12,16 @@ interface AnimatedPathRowProps {
     offset: number
     positionDelta: number
     deltaVersion: number
+    percentage: number
 }
 
-const AnimatedPathRow = ({ item, offset, positionDelta, deltaVersion }: AnimatedPathRowProps): JSX.Element => {
+const AnimatedPathRow = ({
+    item,
+    offset,
+    positionDelta,
+    deltaVersion,
+    percentage,
+}: AnimatedPathRowProps): JSX.Element => {
     const currentOffsetRef = useRef(offset)
     const shouldSkipAnimation = currentOffsetRef.current === offset
 
@@ -50,7 +57,10 @@ const AnimatedPathRow = ({ item, offset, positionDelta, deltaVersion }: Animated
                     </span>
                 )}
             </div>
-            <span className="font-semibold text-sm flex-shrink-0">{item.views.toLocaleString()}</span>
+            <div className="flex items-center justify-center gap-1 flex-shrink-0 w-28">
+                <span className="font-semibold text-sm tabular-nums">{item.views.toLocaleString()}</span>
+                <span className="text-muted text-xs tabular-nums">({percentage.toFixed(1)}%)</span>
+            </div>
         </div>
     )
 }
@@ -58,9 +68,10 @@ const AnimatedPathRow = ({ item, offset, positionDelta, deltaVersion }: Animated
 interface LiveTopPathsTableProps {
     paths: PathItem[]
     isLoading: boolean
+    totalPageviews: number
 }
 
-export const LiveTopPathsTable = ({ paths, isLoading }: LiveTopPathsTableProps): JSX.Element => {
+export const LiveTopPathsTable = ({ paths, isLoading, totalPageviews }: LiveTopPathsTableProps): JSX.Element => {
     const prevPositionsRef = useRef<Map<string, number>>(new Map())
     const deltaVersionRef = useRef(0)
 
@@ -93,9 +104,9 @@ export const LiveTopPathsTable = ({ paths, isLoading }: LiveTopPathsTableProps):
                 <div className="text-center py-6 text-muted">No pageviews recorded in the last 30 minutes</div>
             ) : (
                 <>
-                    <div className="flex items-center justify-between px-3 py-2 border-b text-xs font-semibold text-muted uppercase">
-                        <span>Path</span>
-                        <span>Views</span>
+                    <div className="flex items-center px-3 py-2 border-b text-xs font-semibold text-muted uppercase">
+                        <span className="flex-1">Path</span>
+                        <span className="w-28 text-center">Views</span>
                     </div>
                     <div className="relative" style={{ height: paths.length * ROW_HEIGHT }}>
                         {paths.map((item, index) => (
@@ -105,6 +116,7 @@ export const LiveTopPathsTable = ({ paths, isLoading }: LiveTopPathsTableProps):
                                 offset={index * ROW_HEIGHT}
                                 positionDelta={positionDeltas.get(item.path) ?? 0}
                                 deltaVersion={deltaVersionRef.current}
+                                percentage={totalPageviews > 0 ? (item.views / totalPageviews) * 100 : 0}
                             />
                         ))}
                     </div>
