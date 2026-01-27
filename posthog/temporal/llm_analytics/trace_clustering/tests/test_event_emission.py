@@ -8,7 +8,12 @@ from parameterized import parameterized
 
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.llm_analytics.trace_clustering.event_emission import _build_cluster_data, emit_cluster_events
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusterItem, ClusterLabel
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusterData,
+    ClusterItem,
+    ClusterLabel,
+    TraceClusterMetadata,
+)
 
 
 @pytest.fixture
@@ -354,7 +359,11 @@ class TestClusterDataStructure:
             size=10,
             title="Test Cluster",
             description="Test description",
-            traces={"trace_1": {"rank": 0, "distance_to_centroid": 0.1, "x": 0.0, "y": 0.0, "timestamp": ""}},
+            traces={
+                "trace_1": TraceClusterMetadata(
+                    rank=0, distance_to_centroid=0.1, x=0.0, y=0.0, timestamp="", trace_id="trace_1"
+                )
+            },
             centroid=[1.0, 2.0],
             centroid_x=0.5,
             centroid_y=0.5,
