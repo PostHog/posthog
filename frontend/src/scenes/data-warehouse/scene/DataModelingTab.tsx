@@ -92,7 +92,7 @@ export function DataModelingTab(): JSX.Element {
                     value={viewMode}
                     onChange={(value) => setViewMode(value)}
                     options={[
-                        { value: 'graph', icon: <IconGraph />, tooltip: 'Graph view' },
+                        { value: 'graph', icon: <IconDirectedGraph />, tooltip: 'Graph view' },
                         { value: 'list', icon: <IconList />, tooltip: 'List view' },
                     ]}
                     size="small"
