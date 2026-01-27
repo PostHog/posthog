@@ -1,13 +1,14 @@
-import structlog
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Union
 
 import pytest
-from parameterized import parameterized
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
+
+import structlog
+from parameterized import parameterized
 
 from posthog.schema import DateRange, SourceMap
 
@@ -1931,7 +1932,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         result = adapter._resolve_field_or_constant(field_value)
         assert isinstance(result, expected_type)
         if expected_type == ast.Constant:
-            assert result.value == field_value[len("const:"):]
+            assert result.value == field_value[len("const:") :]
         elif expected_type == ast.Field:
             assert result.chain == [field_value]
 
