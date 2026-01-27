@@ -6,6 +6,7 @@ from .list_data import ListDataTool
 from .manage_memories import ManageMemoriesTool
 from .read_data import ReadDataTool
 from .read_taxonomy import ReadTaxonomyTool
+from .recommend_products import RecommendProductsTool
 from .search import SearchTool
 from .switch_mode import SwitchModeTool
 from .task import TaskTool
@@ -19,6 +20,7 @@ __all__ = [
     "ListDataTool",
     "ReadDataTool",
     "ReadTaxonomyTool",
+    "RecommendProductsTool",
     "SearchTool",
     "TaskTool",
     "TodoWriteTool",

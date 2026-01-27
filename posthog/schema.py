@@ -42,6 +42,7 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
+    ONBOARDING = "onboarding"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -366,6 +367,7 @@ class AssistantTool(StrEnum):
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
     FINALIZE_PLAN = "finalize_plan"
+    RECOMMEND_PRODUCTS = "recommend_products"
 
 
 class AssistantToolCall(BaseModel):
