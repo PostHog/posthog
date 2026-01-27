@@ -109,6 +109,12 @@ pub struct FlagsCanonicalLogLine {
     pub group_queries: usize,
     /// Number of static cohort membership queries made to the database.
     pub static_cohort_queries: usize,
+    /// Time spent on person property queries in milliseconds.
+    pub person_query_time_ms: u64,
+    /// Time spent on group property queries in milliseconds.
+    pub group_query_time_ms: u64,
+    /// Time spent on static cohort membership queries in milliseconds.
+    pub cohort_query_time_ms: u64,
     pub property_cache_hits: usize,
     pub property_cache_misses: usize,
     /// True if person properties were not found in evaluation state cache.
@@ -167,6 +173,9 @@ impl Default for FlagsCanonicalLogLine {
             person_queries: 0,
             group_queries: 0,
             static_cohort_queries: 0,
+            person_query_time_ms: 0,
+            group_query_time_ms: 0,
+            cohort_query_time_ms: 0,
             property_cache_hits: 0,
             property_cache_misses: 0,
             person_properties_not_cached: false,
@@ -223,6 +232,9 @@ impl FlagsCanonicalLogLine {
             person_queries = self.person_queries,
             group_queries = self.group_queries,
             static_cohort_queries = self.static_cohort_queries,
+            person_query_time_ms = self.person_query_time_ms,
+            group_query_time_ms = self.group_query_time_ms,
+            cohort_query_time_ms = self.cohort_query_time_ms,
             property_cache_hits = self.property_cache_hits,
             property_cache_misses = self.property_cache_misses,
             person_properties_not_cached = self.person_properties_not_cached,

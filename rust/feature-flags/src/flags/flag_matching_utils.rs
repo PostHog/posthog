@@ -246,9 +246,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
     person_query_timer.fin();
-    with_canonical_log(|log| log.person_queries += 1);
-
     let person_query_duration = person_query_start.elapsed();
+    with_canonical_log(|log| {
+        log.person_queries += 1;
+        log.person_query_time_ms += person_query_duration.as_millis() as u64;
+    });
 
     if person_query_duration.as_millis() > 500 {
         warn!(
@@ -294,9 +296,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
-            with_canonical_log(|log| log.static_cohort_queries += 1);
-
             let cohort_query_duration = cohort_query_start.elapsed();
+            with_canonical_log(|log| {
+                log.static_cohort_queries += 1;
+                log.cohort_query_time_ms += cohort_query_duration.as_millis() as u64;
+            });
 
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
@@ -385,9 +389,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             .fetch_all(&mut *conn)
             .await?;
         group_query_timer.fin();
-        with_canonical_log(|log| log.group_queries += 1);
-
         let group_query_duration = group_query_start.elapsed();
+        with_canonical_log(|log| {
+            log.group_queries += 1;
+            log.group_query_time_ms += group_query_duration.as_millis() as u64;
+        });
 
         if group_query_duration.as_millis() > 300 {
             warn!(
