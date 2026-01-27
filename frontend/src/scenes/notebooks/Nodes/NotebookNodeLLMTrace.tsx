@@ -60,7 +60,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 
     return (
         <BindLogic logic={dataNodeLogic} props={{ key: logicKey }}>
-            <LLMAnalyticsSetupPrompt className="border-none">
+            <LLMAnalyticsSetupPrompt className="border-none" thing="trace">
                 <Query
                     uniqueKey={logicKey}
                     attachTo={attachTo}

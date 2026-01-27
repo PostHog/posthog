@@ -51,14 +51,21 @@ export const urls = {
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
     marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (
-        query?: string,
-        view_id?: string,
-        insightShortId?: string,
-        draftId?: string,
-        outputTab?: OutputTab,
+    sqlEditor: ({
+        query,
+        view_id,
+        insightShortId,
+        draftId,
+        outputTab,
+        endpointName,
+    }: {
+        query?: string
+        view_id?: string
+        insightShortId?: string
+        draftId?: string
+        outputTab?: OutputTab
         endpointName?: string
-    ): string => {
+    } = {}): string => {
         const params = new URLSearchParams()
 
         if (query) {

@@ -138,7 +138,7 @@ mod test {
             proguard::ProguardProvider,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
-            Catalog, S3Client,
+            Catalog, MockS3Client,
         },
         types::{RawErrProps, Stacktrace},
     };
@@ -150,7 +150,7 @@ mod test {
 
     async fn setup_test_context<S>(pool: PgPool, s3_init: S) -> (Config, Catalog, MockServer)
     where
-        S: FnOnce(&Config, S3Client) -> S3Client,
+        S: FnOnce(&Config, MockS3Client) -> MockS3Client,
     {
         let mut config = Config::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
@@ -169,7 +169,7 @@ mod test {
             then.status(200).body(MAP);
         });
 
-        let client = S3Client::default();
+        let client = MockS3Client::default();
 
         let client = s3_init(&config, client);
 
@@ -255,10 +255,10 @@ mod test {
 
     fn expect_puts_and_gets(
         config: &Config,
-        mut client: S3Client,
+        mut client: MockS3Client,
         puts: usize,
         gets: usize,
-    ) -> S3Client {
+    ) -> MockS3Client {
         client
             .expect_put()
             .with(

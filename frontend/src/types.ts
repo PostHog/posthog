@@ -608,6 +608,9 @@ export interface ConversationsSettings {
 
 export interface LogsSettings {
     capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
 }
 
 export interface TeamType extends TeamBasicType {
@@ -5722,7 +5725,6 @@ export enum SidePanelTab {
     Support = 'support',
     Docs = 'docs',
     Changelog = 'changelog',
-    Activation = 'activation',
     Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',

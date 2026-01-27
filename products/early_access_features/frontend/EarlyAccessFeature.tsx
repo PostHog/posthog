@@ -68,6 +68,7 @@ export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? id : 'new',
     }),
+    productKey: ProductKey.EARLY_ACCESS_FEATURES,
 }
 
 export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.Element {
