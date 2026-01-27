@@ -214,6 +214,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#lockClause.
+    def visitLockClause(self, ctx:HogQLParser.LockClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#JoinExprOp.
     def visitJoinExprOp(self, ctx:HogQLParser.JoinExprOpContext):
         return self.visitChildren(ctx)

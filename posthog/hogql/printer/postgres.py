@@ -168,3 +168,12 @@ class PostgresPrinter(HogQLPrinter):
     def visit_type_cast(self, node):
         expr_sql = self.visit(node.expr)
         return f"CAST({expr_sql} AS {escape_postgres_identifier(node.type_name)})"
+
+    def visit_lock_clause(self, node):
+        sql = f"FOR {node.mode}"
+        if node.tables:
+            tables = ", ".join(self._print_escaped_string(self.visit(table)) for table in node.tables)
+            sql += f" OF {tables}"
+        if node.wait_policy:
+            sql += f" {node.wait_policy}"
+        return sql

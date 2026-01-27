@@ -264,6 +264,7 @@ class Resolver(CloningVisitor):
         )
         new_node.settings = node.settings.model_copy() if node.settings is not None else None
         new_node.view_name = node.view_name
+        new_node.lock = self.visit(node.lock)
 
         self.scopes.pop()
 

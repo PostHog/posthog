@@ -101,6 +101,8 @@ public:
 
     virtual std::any visitSettingsClause(HogQLParser::SettingsClauseContext *context) = 0;
 
+    virtual std::any visitLockClause(HogQLParser::LockClauseContext *context) = 0;
+
     virtual std::any visitJoinExprOp(HogQLParser::JoinExprOpContext *context) = 0;
 
     virtual std::any visitJoinExprTable(HogQLParser::JoinExprTableContext *context) = 0;

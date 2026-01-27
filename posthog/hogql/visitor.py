@@ -155,6 +155,7 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
+        self.visit(node.lock)
         for expr5 in (node.window_exprs or {}).values():
             self.visit(expr5)
 
@@ -382,6 +383,9 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_type_cast(self, node: ast.TypeCast):
         self.visit(node.expr)
+
+    def visit_lock_clause(self, node: ast.LockClause):
+        pass
 
 
 class CloningVisitor(Visitor[Any]):
@@ -647,6 +651,7 @@ class CloningVisitor(Visitor[Any]):
             ),
             settings=node.settings.model_copy() if node.settings is not None else None,
             view_name=node.view_name,
+            lock=self.visit(node.lock),
         )
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
@@ -848,4 +853,13 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             type_name=node.type_name,
+        )
+
+    def visit_lock_clause(self, node: ast.LockClause) -> ast.LockClause:
+        return ast.LockClause(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            tables=[self.visit(table) for table in node.tables],
+            wait_policy=node.wait_policy,
+            mode=node.mode,
         )

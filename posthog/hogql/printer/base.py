@@ -239,8 +239,11 @@ class HogQLPrinter(Visitor[str]):
         clauses.extend(
             self._get_extra_select_clauses(
                 node, is_top_level_query, part_of_select_union, is_last_query_in_union, space
-            )
+            ),
         )
+
+        if node.lock:
+            clauses.append(self.visit(node.lock))
 
         if self.pretty:
             response = "\n".join([f"{self.indent()}{clause}" for clause in clauses if clause is not None])
@@ -1412,3 +1415,6 @@ class HogQLPrinter(Visitor[str]):
                 return f"toDateTime({self.visit(node.expr)}, '{self._get_timezone()}')"
             case _:
                 raise QueryError(f"Unsupported type cast to '{node.type_name}'")
+
+    def visit_lock_clause(self, node: ast.LockClause):
+        raise ImpossibleASTError(f"Lock clause not supported in dialect '{self.dialect}'")

@@ -21,30 +21,31 @@ public:
     HAVING = 39, HOUR = 40, ID = 41, IF = 42, ILIKE = 43, IN = 44, INF = 45, 
     INNER = 46, INTERSECT = 47, INTERVAL = 48, IS = 49, JOIN = 50, KEY = 51, 
     LAST = 52, LEADING = 53, LEFT = 54, LET = 55, LIKE = 56, LIMIT = 57, 
-    MINUTE = 58, MONTH = 59, NAN_SQL = 60, NOT = 61, NULL_SQL = 62, NULLS = 63, 
-    OFFSET = 64, ON = 65, OR = 66, ORDER = 67, OUTER = 68, OVER = 69, PARTITION = 70, 
-    PRECEDING = 71, PREWHERE = 72, QUARTER = 73, RANGE = 74, RETURN = 75, 
-    RIGHT = 76, ROLLUP = 77, ROW = 78, ROWS = 79, SAMPLE = 80, SECOND = 81, 
-    SELECT = 82, SEMI = 83, SETTINGS = 84, SUBSTRING = 85, THEN = 86, THROW = 87, 
-    TIES = 88, TIMESTAMP = 89, TO = 90, TOP = 91, TOTALS = 92, TRAILING = 93, 
-    TRIM = 94, TRUNCATE = 95, TRY = 96, UNBOUNDED = 97, UNION = 98, USING = 99, 
-    WEEK = 100, WHEN = 101, WHERE = 102, WHILE = 103, WINDOW = 104, WITH = 105, 
-    YEAR = 106, ESCAPE_CHAR_COMMON = 107, ESCAPE_STRING_LITERAL = 108, IDENTIFIER = 109, 
-    FLOATING_LITERAL = 110, OCTAL_LITERAL = 111, DECIMAL_LITERAL = 112, 
-    HEXADECIMAL_LITERAL = 113, STRING_LITERAL = 114, ARROW = 115, ASTERISK = 116, 
-    BACKQUOTE = 117, BACKSLASH = 118, DOUBLECOLON = 119, COLON = 120, COMMA = 121, 
-    CONCAT = 122, DASH = 123, DOLLAR = 124, DOT = 125, EQ_DOUBLE = 126, 
-    EQ_SINGLE = 127, GT_EQ = 128, GT = 129, HASH = 130, IREGEX_SINGLE = 131, 
-    IREGEX_DOUBLE = 132, LBRACE = 133, LBRACKET = 134, LPAREN = 135, LT_EQ = 136, 
-    LT = 137, LT_SLASH = 138, NOT_EQ = 139, NOT_IREGEX = 140, NOT_REGEX = 141, 
-    NULL_PROPERTY = 142, NULLISH = 143, PERCENT = 144, PLUS = 145, QUERY = 146, 
-    QUOTE_DOUBLE = 147, QUOTE_SINGLE_TEMPLATE = 148, QUOTE_SINGLE_TEMPLATE_FULL = 149, 
-    QUOTE_SINGLE = 150, REGEX_SINGLE = 151, REGEX_DOUBLE = 152, RBRACE = 153, 
-    RBRACKET = 154, RPAREN = 155, SEMICOLON = 156, SLASH = 157, SLASH_GT = 158, 
-    UNDERSCORE = 159, MULTI_LINE_COMMENT = 160, SINGLE_LINE_COMMENT = 161, 
-    WHITESPACE = 162, STRING_TEXT = 163, STRING_ESCAPE_TRIGGER = 164, FULL_STRING_TEXT = 165, 
-    FULL_STRING_ESCAPE_TRIGGER = 166, TAG_WS = 167, TAGC_WS = 168, HOGQLX_TEXT_TEXT = 169, 
-    HOGQLX_TEXT_WS = 170
+    LOCKED = 58, MINUTE = 59, MONTH = 60, NAN_SQL = 61, NO = 62, NOT = 63, 
+    NOWAIT = 64, NULL_SQL = 65, NULLS = 66, OF = 67, OFFSET = 68, ON = 69, 
+    OR = 70, ORDER = 71, OUTER = 72, OVER = 73, PARTITION = 74, PRECEDING = 75, 
+    PREWHERE = 76, QUARTER = 77, RANGE = 78, RETURN = 79, RIGHT = 80, ROLLUP = 81, 
+    ROW = 82, ROWS = 83, SAMPLE = 84, SECOND = 85, SELECT = 86, SEMI = 87, 
+    SETTINGS = 88, SHARE = 89, SKIP_ = 90, SUBSTRING = 91, THEN = 92, THROW = 93, 
+    TIES = 94, TIMESTAMP = 95, TO = 96, TOP = 97, TOTALS = 98, TRAILING = 99, 
+    TRIM = 100, TRUNCATE = 101, TRY = 102, UNBOUNDED = 103, UNION = 104, 
+    UPDATE = 105, USING = 106, WEEK = 107, WHEN = 108, WHERE = 109, WHILE = 110, 
+    WINDOW = 111, WITH = 112, YEAR = 113, ESCAPE_CHAR_COMMON = 114, ESCAPE_STRING_LITERAL = 115, 
+    IDENTIFIER = 116, FLOATING_LITERAL = 117, OCTAL_LITERAL = 118, DECIMAL_LITERAL = 119, 
+    HEXADECIMAL_LITERAL = 120, STRING_LITERAL = 121, ARROW = 122, ASTERISK = 123, 
+    BACKQUOTE = 124, BACKSLASH = 125, DOUBLECOLON = 126, COLON = 127, COMMA = 128, 
+    CONCAT = 129, DASH = 130, DOLLAR = 131, DOT = 132, EQ_DOUBLE = 133, 
+    EQ_SINGLE = 134, GT_EQ = 135, GT = 136, HASH = 137, IREGEX_SINGLE = 138, 
+    IREGEX_DOUBLE = 139, LBRACE = 140, LBRACKET = 141, LPAREN = 142, LT_EQ = 143, 
+    LT = 144, LT_SLASH = 145, NOT_EQ = 146, NOT_IREGEX = 147, NOT_REGEX = 148, 
+    NULL_PROPERTY = 149, NULLISH = 150, PERCENT = 151, PLUS = 152, QUERY = 153, 
+    QUOTE_DOUBLE = 154, QUOTE_SINGLE_TEMPLATE = 155, QUOTE_SINGLE_TEMPLATE_FULL = 156, 
+    QUOTE_SINGLE = 157, REGEX_SINGLE = 158, REGEX_DOUBLE = 159, RBRACE = 160, 
+    RBRACKET = 161, RPAREN = 162, SEMICOLON = 163, SLASH = 164, SLASH_GT = 165, 
+    UNDERSCORE = 166, MULTI_LINE_COMMENT = 167, SINGLE_LINE_COMMENT = 168, 
+    WHITESPACE = 169, STRING_TEXT = 170, STRING_ESCAPE_TRIGGER = 171, FULL_STRING_TEXT = 172, 
+    FULL_STRING_ESCAPE_TRIGGER = 173, TAG_WS = 174, TAGC_WS = 175, HOGQLX_TEXT_TEXT = 176, 
+    HOGQLX_TEXT_WS = 177
   };
 
   enum {
@@ -59,22 +60,22 @@ public:
     RuleWindowClause = 30, RulePrewhereClause = 31, RuleWhereClause = 32, 
     RuleGroupByClause = 33, RuleHavingClause = 34, RuleOrderByClause = 35, 
     RuleProjectionOrderByClause = 36, RuleLimitByClause = 37, RuleLimitAndOffsetClause = 38, 
-    RuleOffsetOnlyClause = 39, RuleSettingsClause = 40, RuleJoinExpr = 41, 
-    RuleJoinOp = 42, RuleJoinOpCross = 43, RuleJoinConstraintClause = 44, 
-    RuleSampleClause = 45, RuleLimitExpr = 46, RuleOrderExprList = 47, RuleOrderExpr = 48, 
-    RuleRatioExpr = 49, RuleSettingExprList = 50, RuleSettingExpr = 51, 
-    RuleWindowExpr = 52, RuleWinPartitionByClause = 53, RuleWinOrderByClause = 54, 
-    RuleWinFrameClause = 55, RuleWinFrameExtend = 56, RuleWinFrameBound = 57, 
-    RuleExpr = 58, RuleColumnTypeExpr = 59, RuleColumnExprList = 60, RuleColumnExpr = 61, 
-    RuleColumnLambdaExpr = 62, RuleHogqlxChildElement = 63, RuleHogqlxText = 64, 
-    RuleHogqlxTagElement = 65, RuleHogqlxTagAttribute = 66, RuleWithExprList = 67, 
-    RuleWithExpr = 68, RuleColumnIdentifier = 69, RuleNestedIdentifier = 70, 
-    RuleTableExpr = 71, RuleTableFunctionExpr = 72, RuleTableIdentifier = 73, 
-    RuleTableArgList = 74, RuleDatabaseIdentifier = 75, RuleFloatingLiteral = 76, 
-    RuleNumberLiteral = 77, RuleLiteral = 78, RuleInterval = 79, RuleKeyword = 80, 
-    RuleKeywordForAlias = 81, RuleAlias = 82, RuleIdentifier = 83, RuleEnumValue = 84, 
-    RulePlaceholder = 85, RuleString = 86, RuleTemplateString = 87, RuleStringContents = 88, 
-    RuleFullTemplateString = 89, RuleStringContentsFull = 90
+    RuleOffsetOnlyClause = 39, RuleSettingsClause = 40, RuleLockClause = 41, 
+    RuleJoinExpr = 42, RuleJoinOp = 43, RuleJoinOpCross = 44, RuleJoinConstraintClause = 45, 
+    RuleSampleClause = 46, RuleLimitExpr = 47, RuleOrderExprList = 48, RuleOrderExpr = 49, 
+    RuleRatioExpr = 50, RuleSettingExprList = 51, RuleSettingExpr = 52, 
+    RuleWindowExpr = 53, RuleWinPartitionByClause = 54, RuleWinOrderByClause = 55, 
+    RuleWinFrameClause = 56, RuleWinFrameExtend = 57, RuleWinFrameBound = 58, 
+    RuleExpr = 59, RuleColumnTypeExpr = 60, RuleColumnExprList = 61, RuleColumnExpr = 62, 
+    RuleColumnLambdaExpr = 63, RuleHogqlxChildElement = 64, RuleHogqlxText = 65, 
+    RuleHogqlxTagElement = 66, RuleHogqlxTagAttribute = 67, RuleWithExprList = 68, 
+    RuleWithExpr = 69, RuleColumnIdentifier = 70, RuleNestedIdentifier = 71, 
+    RuleTableExpr = 72, RuleTableFunctionExpr = 73, RuleTableIdentifier = 74, 
+    RuleTableArgList = 75, RuleDatabaseIdentifier = 76, RuleFloatingLiteral = 77, 
+    RuleNumberLiteral = 78, RuleLiteral = 79, RuleInterval = 80, RuleKeyword = 81, 
+    RuleKeywordForAlias = 82, RuleAlias = 83, RuleIdentifier = 84, RuleEnumValue = 85, 
+    RulePlaceholder = 86, RuleString = 87, RuleTemplateString = 88, RuleStringContents = 89, 
+    RuleFullTemplateString = 90, RuleStringContentsFull = 91
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -135,6 +136,7 @@ public:
   class LimitAndOffsetClauseContext;
   class OffsetOnlyClauseContext;
   class SettingsClauseContext;
+  class LockClauseContext;
   class JoinExprContext;
   class JoinOpContext;
   class JoinOpCrossContext;
@@ -649,6 +651,7 @@ public:
     LimitAndOffsetClauseContext *limitAndOffsetClause();
     OffsetOnlyClauseContext *offsetOnlyClause();
     SettingsClauseContext *settingsClause();
+    LockClauseContext *lockClause();
     WithClauseContext *withClause();
     FromClauseContext *fromClause();
     WhereClauseContext *whereClause();
@@ -901,6 +904,31 @@ public:
   };
 
   SettingsClauseContext* settingsClause();
+
+  class  LockClauseContext : public antlr4::ParserRuleContext {
+  public:
+    LockClauseContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *FOR();
+    antlr4::tree::TerminalNode *UPDATE();
+    antlr4::tree::TerminalNode *NO();
+    antlr4::tree::TerminalNode *KEY();
+    antlr4::tree::TerminalNode *SHARE();
+    antlr4::tree::TerminalNode *OF();
+    std::vector<TableExprContext *> tableExpr();
+    TableExprContext* tableExpr(size_t i);
+    antlr4::tree::TerminalNode *NOWAIT();
+    antlr4::tree::TerminalNode *SKIP_();
+    antlr4::tree::TerminalNode *LOCKED();
+    std::vector<antlr4::tree::TerminalNode *> COMMA();
+    antlr4::tree::TerminalNode* COMMA(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  LockClauseContext* lockClause();
 
   class  JoinExprContext : public antlr4::ParserRuleContext {
   public:
@@ -2446,6 +2474,7 @@ public:
     antlr4::tree::TerminalNode *TOP();
     antlr4::tree::TerminalNode *UNBOUNDED();
     antlr4::tree::TerminalNode *UNION();
+    antlr4::tree::TerminalNode *UPDATE();
     antlr4::tree::TerminalNode *USING();
     antlr4::tree::TerminalNode *WHEN();
     antlr4::tree::TerminalNode *WHERE();

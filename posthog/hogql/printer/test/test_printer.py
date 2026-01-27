@@ -44,7 +44,12 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    ImpossibleASTError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
@@ -3979,7 +3984,7 @@ class TestPostgresPrinter(BaseTest):
         dialect: HogQLDialect = "postgres",
     ) -> str:
         return prepare_and_print_ast(
-            parse_select(query, placeholders=placeholders),
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect,
         )[0]
@@ -4168,3 +4173,42 @@ class TestPostgresPrinter(BaseTest):
             type_name=type_name,
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    @parameterized.expand(
+        [
+            # Lock strengths
+            ("for_update", "SELECT 1 FOR UPDATE", "FOR UPDATE"),
+            ("for_no_key_update", "SELECT 1 FOR NO KEY UPDATE", "FOR NO KEY UPDATE"),
+            ("for_share", "SELECT 1 FOR SHARE", "FOR SHARE"),
+            ("for_key_share", "SELECT 1 FOR KEY SHARE", "FOR KEY SHARE"),
+            # OF clause
+            ("for_update_of_table", "SELECT 1 FROM events FOR UPDATE OF events", "FOR UPDATE OF 'events'"),
+            (
+                "for_update_of_multiple_tables",
+                "SELECT 1 FROM events FOR UPDATE OF events, persons",
+                "FOR UPDATE OF 'events', 'persons'",
+            ),
+            # Wait policies
+            ("for_update_nowait", "SELECT 1 FOR UPDATE NOWAIT", "FOR UPDATE NOWAIT"),
+            ("for_update_skip_locked", "SELECT 1 FOR UPDATE SKIP LOCKED", "FOR UPDATE SKIP LOCKED"),
+            # Combinations
+            (
+                "for_share_of_table_nowait",
+                "SELECT 1 FROM events FOR SHARE OF events NOWAIT",
+                "FOR SHARE OF 'events' NOWAIT",
+            ),
+            (
+                "for_update_of_table_skip_locked",
+                "SELECT 1 FROM events FOR UPDATE OF events SKIP LOCKED",
+                "FOR UPDATE OF 'events' SKIP LOCKED",
+            ),
+        ]
+    )
+    def test_lock_clause(self, _name: str, query: str, expected: str):
+        printed = self._select(query)
+        self.assertIn(expected, printed)
+
+    def test_lock_clause_simple_table_names_only(self):
+        with self.assertRaises(HogQLSyntaxError) as context:
+            self._select("SELECT 1 FROM events FOR UPDATE OF events AS e")
+            self.assertIn("FOR UPDATE must specify unqualified relation name", str(context.exception))
