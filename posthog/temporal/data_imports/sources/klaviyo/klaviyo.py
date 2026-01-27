@@ -13,8 +13,8 @@ def get_resource(
     name: str, should_use_incremental_field: bool, db_incremental_field_last_value: Any = None
 ) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
-        "Email Campaigns": {
-            "name": "Email Campaigns",
+        "email_campaigns": {
+            "name": "email_campaigns",
             "table_name": "email_campaigns",
             "primary_key": "id",
             "write_disposition": {
@@ -34,8 +34,8 @@ def get_resource(
             },
             "table_format": "delta",
         },
-        "SMS Campaigns": {
-            "name": "SMS Campaigns",
+        "sms_campaigns": {
+            "name": "sms_campaigns",
             "table_name": "sms_campaigns",
             "primary_key": "id",
             "write_disposition": {
@@ -55,8 +55,8 @@ def get_resource(
             },
             "table_format": "delta",
         },
-        "Events": {
-            "name": "Events",
+        "events": {
+            "name": "events",
             "table_name": "events",
             "primary_key": "id",
             "write_disposition": {
@@ -77,8 +77,8 @@ def get_resource(
             },
             "table_format": "delta",
         },
-        "Flows": {
-            "name": "Flows",
+        "flows": {
+            "name": "flows",
             "table_name": "flows",
             "primary_key": "id",
             "write_disposition": {
@@ -99,8 +99,8 @@ def get_resource(
             },
             "table_format": "delta",
         },
-        "Lists": {
-            "name": "Lists",
+        "lists": {
+            "name": "lists",
             "table_name": "lists",
             "primary_key": "id",
             "write_disposition": {
@@ -120,8 +120,8 @@ def get_resource(
             },
             "table_format": "delta",
         },
-        "Metrics": {
-            "name": "Metrics",
+        "metrics": {
+            "name": "metrics",
             "table_name": "metrics",
             "primary_key": "id",
             "write_disposition": "replace",
@@ -132,8 +132,8 @@ def get_resource(
             },
             "table_format": "delta",
         },
-        "Profiles": {
-            "name": "Profiles",
+        "profiles": {
+            "name": "profiles",
             "table_name": "profiles",
             "primary_key": "id",
             "write_disposition": {
