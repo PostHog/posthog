@@ -47,15 +47,14 @@ def get_incremental_field_value(
     if schema is None or schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
         return None
 
-    incremental_field_name: str | None = schema.sync_type_config.get("incremental_field")
+    incremental_field_name: str | list[str] | None = schema.sync_type_config.get("incremental_field")
     if incremental_field_name is None:
         return None
 
-    # Check if this is a nested path (e.g., "attributes__updated_at")
-    if "__" in incremental_field_name:
-        parts = incremental_field_name.split("__")
-        column_name = normalize_column_name(parts[0])
-        nested_keys = parts[1:]
+    # Check if this is a nested path as an array (e.g., ["attributes", "updated_at"])
+    if isinstance(incremental_field_name, list):
+        column_name = normalize_column_name(incremental_field_name[0])
+        nested_keys = incremental_field_name[1:]
 
         column = table[column_name]
         values = [_extract_nested_value(val, nested_keys) for val in column.to_pylist()]
