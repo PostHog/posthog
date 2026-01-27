@@ -92,13 +92,20 @@ const Component = ({
             duckExecution.media?.length ||
             duckExecution.traceback?.length)
 
-    // Reset height to auto when execution changes (so it re-fits to new content)
+    // Clear any stored height on mount and when execution changes (for auto-sizing)
     const executionCodeHash = attributes.duckExecutionCodeHash ?? null
     const lastExecutionCodeHashRef = useRef<number | null>(null)
+    const hasClearedInitialHeightRef = useRef(false)
     useEffect(() => {
+        // Clear height on initial mount if it was stored from before
+        if (!hasClearedInitialHeightRef.current && attributes.height !== undefined) {
+            hasClearedInitialHeightRef.current = true
+            updateAttributes({ height: undefined } as any)
+            return
+        }
+        // Also clear when execution changes
         if (executionCodeHash !== lastExecutionCodeHashRef.current) {
             lastExecutionCodeHashRef.current = executionCodeHash
-            // Clear any manual height so CSS auto-sizing takes over
             if (attributes.height !== undefined) {
                 updateAttributes({ height: undefined } as any)
             }
