@@ -35,11 +35,17 @@ Store memories pre-emptively - you don't need to be asked specifically to store 
 
 
 class CreateMemoryArgs(BaseModel):
+    """Store a new memory with content and optional metadata tags."""
+
+    action: Literal["create"]
     contents: str = Field(description="The content of the memory to store")
     metadata: dict | None = Field(default=None, description="Optional metadata tags for the memory")
 
 
 class QueryMemoryArgs(BaseModel):
+    """Search memories using semantic similarity and optional filters."""
+
+    action: Literal["query"]
     query_text: str = Field(description="The search query for finding relevant memories")
     metadata_filter: dict | None = Field(
         default=None, description="Filter by metadata key-value pairs, e.g. {'type': 'preference'}"
@@ -49,21 +55,31 @@ class QueryMemoryArgs(BaseModel):
 
 
 class UpdateMemoryArgs(BaseModel):
+    """Update an existing memory's content or metadata."""
+
+    action: Literal["update"]
     memory_id: str = Field(description="The ID of the memory to update")
     contents: str | None = Field(default=None, description="New content for the memory")
     metadata: dict | None = Field(default=None, description="New metadata for the memory")
 
 
 class DeleteMemoryArgs(BaseModel):
+    """Remove a memory by its ID."""
+
+    action: Literal["delete"]
     memory_id_to_delete: str = Field(description="The ID of the memory to delete")
 
 
+class ListMetadataKeysArgs(BaseModel):
+    """Get all available metadata keys across memories."""
+
+    action: Literal["list_metadata_keys"]
+
+
 class ManageMemoriesToolArgs(BaseModel):
-    action: Literal["create", "query", "update", "delete", "list_metadata_keys"] = Field(
-        description="The action to perform: create (store new memory), query (search memories), update (modify existing), delete (remove memory), or list_metadata_keys (get available filter keys)"
-    )
-    args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | None = Field(
-        default=None, description="Arguments for the action (not needed for list_metadata_keys)"
+    args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | ListMetadataKeysArgs = Field(
+        discriminator="action",
+        description="Arguments for the memory action, with 'action' determining the operation type",
     )
 
 
@@ -81,29 +97,18 @@ class ManageMemoriesTool(MaxTool):
 
     async def _arun_impl(
         self,
-        action: Literal["create", "query", "update", "delete", "list_metadata_keys"],
-        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | None = None,
+        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | ListMetadataKeysArgs,
     ) -> tuple[str, dict[str, Any]]:
-        if action == "create":
-            if not isinstance(args, CreateMemoryArgs):
-                raise MaxToolRetryableError("CreateMemoryArgs required for create action")
+        if isinstance(args, CreateMemoryArgs):
             return await self._create_memory(args.contents, args.metadata)
-        elif action == "query":
-            if not isinstance(args, QueryMemoryArgs):
-                raise MaxToolRetryableError("QueryMemoryArgs required for query action")
+        elif isinstance(args, QueryMemoryArgs):
             return await self._query_memories(args.query_text, args.metadata_filter, args.user_only, args.limit)
-        elif action == "update":
-            if not isinstance(args, UpdateMemoryArgs):
-                raise MaxToolRetryableError("UpdateMemoryArgs required for update action")
+        elif isinstance(args, UpdateMemoryArgs):
             return await self._update_memory(args.memory_id, args.contents, args.metadata)
-        elif action == "delete":
-            if not isinstance(args, DeleteMemoryArgs):
-                raise MaxToolRetryableError("DeleteMemoryArgs required for delete action")
+        elif isinstance(args, DeleteMemoryArgs):
             return await self._delete_memory(args.memory_id_to_delete)
-        elif action == "list_metadata_keys":
+        elif isinstance(args, ListMetadataKeysArgs):
             return await self._list_metadata_keys()
-        else:
-            raise MaxToolRetryableError(f"Unknown action: {action}")
 
     async def _create_memory(self, contents: str, metadata: dict | None) -> tuple[str, dict[str, Any]]:
         @database_sync_to_async
