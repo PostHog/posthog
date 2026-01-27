@@ -52,6 +52,7 @@ class RecordReplayToFileOptions:
     screenshot_width: Optional[int] = None
     screenshot_height: Optional[int] = None
     playback_speed: int = 1
+    use_puppeteer: bool = False
 
     def __post_init__(self) -> None:
         if self.recording_duration <= 0:
@@ -694,9 +695,9 @@ def record_replay_to_file(
         record_dir = temp_dir_ctx.name
         tmp_webm = os.path.join(record_dir, f"{uuid.uuid4()}.webm")
         logger.warning(f"Output path: {tmp_webm}")
-        # Choose recording backend: Node.js (Puppeteer) or Python (Playwright)
-        use_nodejs = os.getenv("USE_NODEJS_RECORDER") == "1"
-        if use_nodejs:
+        # Choose recording method: Puppeteer or Playwright
+        use_puppeteer = opts.use_puppeteer
+        if use_puppeteer:
             # ============ Node.js + Puppeteer recording ============
             logger.info("video_exporter.using_nodejs_recorder")
             result = PuppeteerRecorder(

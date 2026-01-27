@@ -108,6 +108,7 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
                 screenshot_height=build.get("height"),  # None if not provided
                 recording_duration=build["duration"],
                 playback_speed=build.get("playback_speed", 1),  # default to 1 if not provided
+                use_puppeteer=build.get("use_puppeteer", False),
             ),
         )
         return {
