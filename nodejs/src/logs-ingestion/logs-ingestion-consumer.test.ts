@@ -9,6 +9,7 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { PostgresUse } from '../../src/utils/db/postgres'
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { parseJSON } from '../utils/json-parse'
 import {
@@ -299,7 +300,8 @@ describe('LogsIngestionConsumer', () => {
 
         it('should use custom logs_settings when set', async () => {
             // Update team with custom logs settings
-            await hub.db.postgres.query(
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team
                  SET logs_settings = $1
                  WHERE id = $2`,
