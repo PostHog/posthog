@@ -3,7 +3,6 @@ import { convertHogToJS } from '@posthog/hogvm'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { Hub } from '~/types'
-import { logger } from '~/utils/logger'
 
 import {
     HogFunctionInputSchemaType,
@@ -207,6 +206,23 @@ export class HogInputsService {
             return {}
         }
 
+        // Validate that integrationInputs is present when we have push subscription inputs
+        if (!integrationInputs) {
+            throw new Error(
+                `firebase_account integration is required for push subscription inputs. ` +
+                    `Please configure the firebase_account integration in your hog function.`
+            )
+        }
+
+        // Validate that firebase_account integration is present
+        const firebaseAccountInput = integrationInputs['firebase_account']
+        if (!firebaseAccountInput || !firebaseAccountInput.value) {
+            throw new Error(
+                `firebase_account integration is required for push subscription inputs but was not found. ` +
+                    `Please configure the firebase_account integration in your hog function.`
+            )
+        }
+
         const returnInputs: Record<string, { value: string | null }> = {}
 
         for (const [key, { rawValue, schema }] of Object.entries(inputsToLoad)) {
@@ -229,26 +245,21 @@ export class HogInputsService {
 
             const distinctId = resolvedValue
 
-            // Get firebase_app_id from firebase_account integration if available
-            let firebaseAppId: string | undefined = undefined
-            let provider: 'fcm' | 'apns' | undefined = undefined
-            if (integrationInputs) {
-                const firebaseAccountInput = integrationInputs['firebase_account']
-                if (firebaseAccountInput?.value) {
-                    firebaseAppId = firebaseAccountInput.value.key_info?.project_id ?? undefined
+            // Get firebase_app_id from firebase_account integration
+            const firebaseAppId = firebaseAccountInput.value.key_info?.project_id ?? undefined
 
-                    if (!firebaseAppId) {
-                        logger.warn('[HogInputsService]', 'Could not find Firebase app ID in integration', {
-                            hogFunctionId: hogFunction.id,
-                            distinctId,
-                            availableKeys: Object.keys(firebaseAccountInput.value),
-                        })
-                    }
-
-                    // For firebase-push-notifications destination, filter by provider="fcm"
-                    provider = 'fcm'
-                }
+            // If firebase_account integration is present but firebase_app_id is missing,
+            // skip querying and throw an error that will be logged in the UI
+            if (!firebaseAppId) {
+                throw new Error(
+                    `Firebase app ID (project_id) not found in firebase_account integration. ` +
+                        `Cannot resolve push subscription for distinct_id: ${distinctId}. ` +
+                        `Please ensure the Firebase service account key contains a valid project_id.`
+                )
             }
+
+            // For firebase-push-notifications destination, filter by provider="fcm"
+            const provider: 'fcm' | 'apns' = 'fcm'
 
             // Step 1: Look up subscription by distinct_id directly
             const subscriptions = await this.pushSubscriptionsManager.get({

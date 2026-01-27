@@ -792,7 +792,6 @@ export class HogExecutorService {
             if (fcmToken) {
                 try {
                     await this.pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken(teamId, fcmToken)
-                    addLog('debug', `Updated last_successfully_used_at for FCM token`)
                 } catch (error) {
                     addLog('warn', `Failed to update last_successfully_used_at for FCM token: ${error}`)
                 }
