@@ -56,8 +56,8 @@ class TestSnapchatDateRangeManager:
         start_dt = datetime.fromisoformat(start_date)
         end_dt = datetime.fromisoformat(end_date)
 
-        assert end_dt.date() == datetime.now().date()
-        assert (end_dt - start_dt).days <= expected_max_days + 1
+        assert end_dt.date() == (datetime.now() + timedelta(days=1)).date()
+        assert (end_dt - start_dt).days <= expected_max_days + 2
         assert start_date.endswith("T00:00:00")
 
     @parameterized.expand(
@@ -80,7 +80,89 @@ class TestSnapchatDateRangeManager:
 
 
 class TestSnapchatStatsResourceTransforms:
-    def test_transform_stats_reports_flattens_nested_structure(self):
+    def test_transform_stats_reports_flattens_breakdown_structure(self):
+        reports = [
+            {
+                "timeseries_stat": {
+                    "id": "account_123",
+                    "type": "AD_ACCOUNT",
+                    "breakdown_stats": {
+                        "campaign": [
+                            {
+                                "id": "campaign_123",
+                                "type": "CAMPAIGN",
+                                "timeseries": [
+                                    {
+                                        "start_time": "2024-01-01T00:00:00.000Z",
+                                        "end_time": "2024-01-02T00:00:00.000Z",
+                                        "stats": {"impressions": 1234, "swipes": 56},
+                                    },
+                                    {
+                                        "start_time": "2024-01-02T00:00:00.000Z",
+                                        "end_time": "2024-01-03T00:00:00.000Z",
+                                        "stats": {"impressions": 2000, "swipes": 80},
+                                    },
+                                ],
+                            }
+                        ]
+                    },
+                }
+            }
+        ]
+
+        result = SnapchatStatsResource.transform_stats_reports(reports)
+
+        assert len(result) == 2
+        assert result[0]["id"] == "campaign_123"
+        assert result[0]["type"] == "CAMPAIGN"
+        assert result[0]["impressions"] == 1234
+        assert result[1]["impressions"] == 2000
+
+    def test_transform_stats_reports_handles_multiple_entities_in_breakdown(self):
+        reports = [
+            {
+                "timeseries_stat": {
+                    "id": "account_123",
+                    "type": "AD_ACCOUNT",
+                    "breakdown_stats": {
+                        "campaign": [
+                            {
+                                "id": "campaign_1",
+                                "type": "CAMPAIGN",
+                                "timeseries": [
+                                    {
+                                        "start_time": "2024-01-01T00:00:00.000Z",
+                                        "end_time": "2024-01-02T00:00:00.000Z",
+                                        "stats": {"impressions": 100},
+                                    },
+                                ],
+                            },
+                            {
+                                "id": "campaign_2",
+                                "type": "CAMPAIGN",
+                                "timeseries": [
+                                    {
+                                        "start_time": "2024-01-01T00:00:00.000Z",
+                                        "end_time": "2024-01-02T00:00:00.000Z",
+                                        "stats": {"impressions": 200},
+                                    },
+                                ],
+                            },
+                        ]
+                    },
+                }
+            }
+        ]
+
+        result = SnapchatStatsResource.transform_stats_reports(reports)
+
+        assert len(result) == 2
+        assert result[0]["id"] == "campaign_1"
+        assert result[0]["impressions"] == 100
+        assert result[1]["id"] == "campaign_2"
+        assert result[1]["impressions"] == 200
+
+    def test_transform_stats_reports_handles_non_breakdown_fallback(self):
         reports = [
             {
                 "timeseries_stat": {
@@ -92,11 +174,6 @@ class TestSnapchatStatsResourceTransforms:
                             "end_time": "2024-01-01T23:59:59",
                             "stats": {"impressions": 1234, "swipes": 56},
                         },
-                        {
-                            "start_time": "2024-01-02T00:00:00",
-                            "end_time": "2024-01-02T23:59:59",
-                            "stats": {"impressions": 2000, "swipes": 80},
-                        },
                     ],
                 }
             }
@@ -104,10 +181,9 @@ class TestSnapchatStatsResourceTransforms:
 
         result = SnapchatStatsResource.transform_stats_reports(reports)
 
-        assert len(result) == 2
+        assert len(result) == 1
         assert result[0]["id"] == "campaign_123"
         assert result[0]["impressions"] == 1234
-        assert result[1]["impressions"] == 2000
 
     def test_transform_entity_reports_unwraps_entities(self):
         reports = [
@@ -133,7 +209,15 @@ class TestSnapchatStatsResourceTransforms:
     def test_apply_stream_transformations_routes_correctly(self, name, endpoint_type):
         reports: list[dict[str, Any]]
         if endpoint_type == EndpointType.STATS:
-            reports = [{"timeseries_stat": {"id": "1", "type": "CAMPAIGN", "timeseries": []}}]
+            reports = [
+                {
+                    "timeseries_stat": {
+                        "id": "account_1",
+                        "type": "AD_ACCOUNT",
+                        "breakdown_stats": {"campaign": []},
+                    }
+                }
+            ]
         elif endpoint_type == EndpointType.ENTITY:
             reports = [{"campaign": {"id": "1"}}]
         else:

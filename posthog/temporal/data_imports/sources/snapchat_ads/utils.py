@@ -57,7 +57,7 @@ class SnapchatDateRangeManager:
         should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any] = None
     ) -> tuple[str, str]:
         """Calculate date range for incremental sync based on last synced value."""
-        ends_at = datetime.now().strftime(SNAPCHAT_DATE_FORMAT)
+        ends_at = (datetime.now() + timedelta(days=1)).strftime(SNAPCHAT_DATE_FORMAT)
 
         if should_use_incremental_field and db_incremental_field_last_value:
             try:
@@ -124,25 +124,36 @@ class SnapchatStatsResource:
 
     @staticmethod
     def transform_stats_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Flatten nested timeseries_stat structure to individual daily records."""
+        """Flatten nested timeseries_stat structure to individual daily records.
+
+        Handles the breakdown response format where stats are nested inside
+        breakdown_stats.<breakdown_key>[].timeseries rather than directly
+        in timeseries_stat.timeseries.
+        """
         processed_reports = []
 
         for report in reports:
             timeseries_stat = report.get("timeseries_stat", report)
-            entity_id = timeseries_stat.get("id")
-            entity_type = timeseries_stat.get("type")
+            breakdown_stats = timeseries_stat.get("breakdown_stats")
 
-            timeseries = timeseries_stat.get("timeseries", [])
+            if breakdown_stats:
+                entities = [entity for entities in breakdown_stats.values() for entity in entities]
+            else:
+                entities = [timeseries_stat]
 
-            for ts_entry in timeseries:
-                flat_record = {
-                    "id": entity_id,
-                    "type": entity_type,
-                    "start_time": ts_entry.get("start_time"),
-                    "end_time": ts_entry.get("end_time"),
-                    **ts_entry.get("stats", {}),
-                }
-                processed_reports.append(flat_record)
+            for entity in entities:
+                entity_id = entity.get("id")
+                entity_type = entity.get("type")
+
+                for ts_entry in entity.get("timeseries", []):
+                    flat_record = {
+                        "id": entity_id,
+                        "type": entity_type,
+                        "start_time": ts_entry.get("start_time"),
+                        "end_time": ts_entry.get("end_time"),
+                        **ts_entry.get("stats", {}),
+                    }
+                    processed_reports.append(flat_record)
 
         return processed_reports
 
