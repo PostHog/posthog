@@ -99,7 +99,7 @@ class ValidationResult:
 class QueryContext:
     """Context needed for query building"""
 
-    date_range: QueryDateRange
+    date_range: Optional[QueryDateRange]
     team: Team
     global_filters: list[Any] = field(default_factory=list)
     base_currency: str = DEFAULT_CURRENCY

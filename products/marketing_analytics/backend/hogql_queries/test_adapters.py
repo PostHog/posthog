@@ -1948,6 +1948,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         )
         adapter = AWSAdapter(config=config, context=self.context)
         query = adapter.build_query()
+        assert query is not None
         hogql_query = query.to_hogql()
         assert "toString('linkedin')" in hogql_query
 
@@ -1963,6 +1964,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         )
         adapter = AWSAdapter(config=config, context=self.context)
         query = adapter.build_query()
+        assert query is not None
         hogql_query = query.to_hogql()
         assert "toString(utm_source)" in hogql_query
 
@@ -1984,6 +1986,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         )
         adapter = AWSAdapter(config=config, context=self.context)
         query = adapter.build_query()
+        assert query is not None
         hogql_query = query.to_hogql()
         assert "convertCurrency" in hogql_query
         assert expected_in_query in hogql_query
