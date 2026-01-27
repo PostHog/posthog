@@ -11,6 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
@@ -21,6 +22,7 @@ export const scene: SceneExport<MessageTemplateLogicProps> = {
         id: id || 'new',
         messageId,
     }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
 export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element {

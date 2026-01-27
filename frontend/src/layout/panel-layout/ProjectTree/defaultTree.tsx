@@ -17,6 +17,7 @@ import {
     IconFolder,
     IconFolderOpen,
     IconFunnels,
+    IconGear,
     IconGraph,
     IconHogQL,
     IconHome,
@@ -272,6 +273,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     toolbar: {
         icon: <IconToolbar />,
+    },
+    settings: {
+        icon: <IconGear />,
     },
 }
 

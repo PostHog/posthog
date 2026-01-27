@@ -5,11 +5,19 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
 
-import { SurveyTemplate, defaultSurveyAppearance, defaultSurveyTemplates, surveyThemes } from '../constants'
+import {
+    SURVEY_CREATED_SOURCE,
+    SurveyTemplate,
+    defaultSurveyAppearance,
+    defaultSurveyTemplates,
+    surveyThemes,
+} from '../constants'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
 import type { surveyWizardLogicType } from './surveyWizardLogicType'
@@ -46,6 +54,8 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             ['loadSurveys'],
             eventUsageLogic,
             ['reportSurveyCreated', 'reportSurveyEdited'],
+            teamLogic,
+            ['addProductIntent'],
         ],
         values: [surveyLogic({ id: props.id }), ['survey', 'surveyLoading']],
     })),
@@ -289,6 +299,22 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             lemonToast.success(`Survey ${survey.name} created`)
             actions.loadSurveys()
             actions.reportSurveyCreated(survey, false, 'wizard')
+            actions.addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_CREATED,
+                metadata: {
+                    survey_id: survey.id,
+                    source: SURVEY_CREATED_SOURCE.SURVEY_WIZARD,
+                },
+            })
+            actions.addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_LAUNCHED,
+                metadata: {
+                    survey_id: survey.id,
+                    source: SURVEY_CREATED_SOURCE.SURVEY_WIZARD,
+                },
+            })
             actions.setStep('success')
         },
         saveDraft: async () => {
@@ -308,6 +334,14 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             lemonToast.success(`Survey "${survey.name}" saved as draft`)
             actions.loadSurveys()
             actions.reportSurveyCreated(survey, false, 'wizard')
+            actions.addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_CREATED,
+                metadata: {
+                    survey_id: survey.id,
+                    source: SURVEY_CREATED_SOURCE.SURVEY_WIZARD,
+                },
+            })
             router.actions.push(urls.survey(survey.id))
         },
         updateSurvey: async () => {

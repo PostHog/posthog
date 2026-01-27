@@ -167,7 +167,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        build: .
+        build:
+            context: .
+            dockerfile: Dockerfile.node
         volumes:
             - .:/app/posthog
         environment:

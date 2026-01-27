@@ -119,7 +119,6 @@ export const scene: SceneExport<FeatureFlagLogicProps> = {
     paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
-    settingSectionId: 'environment-feature-flags',
 }
 
 export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {

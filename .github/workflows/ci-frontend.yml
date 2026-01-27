@@ -222,6 +222,9 @@ jobs:
             - name: Check if mobile replay "schema.json" is up to date
               run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
 
+            - name: Validate SetupTaskId completions
+              run: node bin/validate-setup-tasks.mjs
+
     jest:
         runs-on: depot-ubuntu-24.04
         needs: changes

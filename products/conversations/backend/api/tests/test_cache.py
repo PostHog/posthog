@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import TestCase
 
@@ -9,8 +9,6 @@ from products.conversations.backend.cache import (
     get_cached_tickets,
     get_messages_cache_key,
     get_tickets_cache_key,
-    invalidate_messages_cache,
-    invalidate_tickets_cache,
     set_cached_messages,
     set_cached_tickets,
 )
@@ -78,29 +76,6 @@ class TestMessagesCacheOperations(TestCase):
         # Should not raise
         set_cached_messages(team_id=1, ticket_id="abc", response_data={})
 
-    @patch("products.conversations.backend.cache.cache")
-    def test_invalidate_messages_uses_delete_pattern(self, mock_cache):
-        mock_cache.delete_pattern = MagicMock()
-
-        invalidate_messages_cache(team_id=1, ticket_id="abc")
-
-        mock_cache.delete_pattern.assert_called_once_with("conversations:messages:1:abc:*")
-
-    @patch("products.conversations.backend.cache.cache")
-    def test_invalidate_messages_falls_back_to_delete(self, mock_cache):
-        del mock_cache.delete_pattern
-
-        invalidate_messages_cache(team_id=1, ticket_id="abc")
-
-        mock_cache.delete.assert_called_once_with("conversations:messages:1:abc:initial")
-
-    @patch("products.conversations.backend.cache.cache")
-    def test_invalidate_messages_swallows_exception(self, mock_cache):
-        mock_cache.delete_pattern = MagicMock(side_effect=Exception("Redis error"))
-
-        # Should not raise
-        invalidate_messages_cache(team_id=1, ticket_id="abc")
-
 
 class TestTicketsCacheOperations(TestCase):
     @patch("products.conversations.backend.cache.cache")
@@ -144,26 +119,3 @@ class TestTicketsCacheOperations(TestCase):
 
         # Should not raise
         set_cached_tickets(team_id=1, widget_session_id="session", response_data={})
-
-    @patch("products.conversations.backend.cache.cache")
-    def test_invalidate_tickets_uses_delete_pattern(self, mock_cache):
-        mock_cache.delete_pattern = MagicMock()
-
-        invalidate_tickets_cache(team_id=1, widget_session_id="session")
-
-        mock_cache.delete_pattern.assert_called_once_with("conversations:tickets:1:session:*")
-
-    @patch("products.conversations.backend.cache.cache")
-    def test_invalidate_tickets_falls_back_to_delete(self, mock_cache):
-        del mock_cache.delete_pattern
-
-        invalidate_tickets_cache(team_id=1, widget_session_id="session")
-
-        mock_cache.delete.assert_called_once_with("conversations:tickets:1:session:all")
-
-    @patch("products.conversations.backend.cache.cache")
-    def test_invalidate_tickets_swallows_exception(self, mock_cache):
-        mock_cache.delete_pattern = MagicMock(side_effect=Exception("Redis error"))
-
-        # Should not raise
-        invalidate_tickets_cache(team_id=1, widget_session_id="session")

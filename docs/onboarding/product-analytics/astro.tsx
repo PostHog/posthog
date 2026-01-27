@@ -1,7 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getAstroSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
+export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -25,8 +28,8 @@ export const getAstroSteps = (CodeBlock: any, Markdown: any, dedent: any, snippe
                         ]}
                     />
                     <Markdown>
-                        In this file, add your PostHog web snippet. Be sure to include the `is:inline` directive to prevent
-                        Astro from processing it:
+                        In this file, add your PostHog web snippet. Be sure to include the `is:inline` directive to
+                        prevent Astro from processing it:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -57,8 +60,8 @@ export const getAstroSteps = (CodeBlock: any, Markdown: any, dedent: any, snippe
             content: (
                 <>
                     <Markdown>
-                        Create a layout where we will use `posthog.astro`. Create a new file `PostHogLayout.astro` in your
-                        `src/layouts` folder:
+                        Create a layout where we will use `posthog.astro`. Create a new file `PostHogLayout.astro` in
+                        your `src/layouts` folder:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -125,17 +128,4 @@ export const getAstroSteps = (CodeBlock: any, Markdown: any, dedent: any, snippe
     ]
 }
 
-export const AstroInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getAstroSteps(CodeBlock, Markdown, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const AstroInstallation = createInstallation(getAstroSteps)

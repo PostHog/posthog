@@ -75,3 +75,9 @@ pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label
 pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
+
+// DB operations per request metric
+// Tracks the count of DB operations per request, labeled by team_id and operation_type.
+// This surfaces teams generating excessive DB load regardless of individual query latency.
+// Labels: team_id, operation_type (person_query, cohort_query, group_query)
+pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";
