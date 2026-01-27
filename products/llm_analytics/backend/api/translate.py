@@ -8,8 +8,6 @@ Endpoint:
 import time
 from typing import cast
 
-from django.conf import settings
-
 import structlog
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
@@ -84,12 +82,6 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         text = serializer.validated_data["text"]
         target_language = serializer.validated_data.get("target_language", DEFAULT_TARGET_LANGUAGE)
 
-        if not getattr(settings, "OPENAI_API_KEY", None):
-            raise exceptions.APIException(
-                detail="Translation service is not configured. OPENAI_API_KEY is required.",
-                code="translation_not_configured",
-            )
-
         try:
             logger.info(
                 "translation_requested",
@@ -97,7 +89,7 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 text_length=len(text),
             )
             start_time = time.time()
-            translation = translate_text(text, target_language)
+            translation = translate_text(text, target_language, user_distinct_id=request.user.distinct_id)
             duration_seconds = time.time() - start_time
             logger.info(
                 "translation_completed",
