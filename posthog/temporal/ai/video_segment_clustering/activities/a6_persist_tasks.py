@@ -120,7 +120,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
                 )
 
                 task.relevant_user_count = relevant_user_count
-                task.occurrence_count += len(new_segments)
+                task.occurrence_count = (task.occurrence_count or 0) + len(new_segments)
 
                 # Find most recent occurrence from new segments
                 for segment in new_segments:
