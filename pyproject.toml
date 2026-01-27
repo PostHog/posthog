@@ -237,6 +237,7 @@ dev = [
     "pytest-icdiff~=0.9",
     "pytest-mock~=3.15.1",
     "pytest-split~=0.10.0",
+    "pytest-timeout~=2.4.0",
     "pytest-watch==4.2.0",
     "pytest-xdist~=3.8.0",
     "python-dateutil~=2.9.0",
