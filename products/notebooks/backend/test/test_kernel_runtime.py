@@ -12,7 +12,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.notebooks.backend.kernel_runtime import KernelRuntimeService, _KernelHandle, build_notebook_sandbox_config
+from products.notebooks.backend.kernel_runtime import (
+    KernelRuntimeService,
+    _KernelHandle,
+    _NotebookBridgeParser,
+    build_notebook_sandbox_config,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook
 
 
@@ -237,3 +242,50 @@ class TestKernelRuntimeService(BaseTest):
         assert execution_result.variables == {"answer": {"status": "ok", "type": "int"}}
         assert handle.execution_count == 3
         assert sandbox.timeout_seconds == 5
+
+    @parameterized.expand(
+        [
+            (
+                "no_marker_immediate",
+                "__NOTEBOOK_BRIDGE__",
+                ["hello12\n"],
+                ["hello12\n"],
+                [],
+            ),
+            (
+                "partial_marker_prefix",
+                "__NOTEBOOK_BRIDGE__",
+                ["hello__NOTEBOOK", " rest"],
+                ["hello", "__NOTEBOOK rest"],
+                [],
+            ),
+            (
+                "payload_extraction",
+                "__NOTEBOOK_BRIDGE__",
+                [
+                    'hello__NOTEBOOK_BRIDGE__18 {"query":"select"}\nworld',
+                ],
+                ["helloworld"],
+                ['{"query":"select"}'],
+            ),
+        ]
+    )
+    def test_notebook_bridge_parser_streaming(
+        self,
+        _name: str,
+        marker: str,
+        chunks: list[str],
+        expected_outputs: list[str],
+        expected_payloads: list[str],
+    ) -> None:
+        parser = _NotebookBridgeParser(marker=marker)
+        outputs: list[str] = []
+        payloads: list[str] = []
+        for chunk in chunks:
+            output, new_payloads = parser.feed(chunk)
+            outputs.append(output)
+            payloads.extend(new_payloads)
+
+        assert outputs == expected_outputs
+        assert payloads == expected_payloads
+        assert parser.buffer == ""

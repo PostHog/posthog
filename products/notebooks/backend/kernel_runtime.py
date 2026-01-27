@@ -75,6 +75,15 @@ class _NotebookBridgeParser:
     marker: str
     buffer: str = ""
 
+    def _marker_suffix_length(self) -> int:
+        if len(self.marker) <= 1:
+            return 0
+        max_len = min(len(self.buffer), len(self.marker) - 1)
+        for length in range(max_len, 0, -1):
+            if self.marker.startswith(self.buffer[-length:]):
+                return length
+        return 0
+
     def feed(self, text: str) -> tuple[str, list[str]]:
         self.buffer += text
         output_parts: list[str] = []
@@ -83,9 +92,13 @@ class _NotebookBridgeParser:
         while True:
             marker_index = self.buffer.find(self.marker)
             if marker_index == -1:
-                if len(self.buffer) > len(self.marker):
-                    output_parts.append(self.buffer[: -len(self.marker)])
-                    self.buffer = self.buffer[-len(self.marker) :]
+                suffix_len = self._marker_suffix_length()
+                if suffix_len:
+                    output_parts.append(self.buffer[:-suffix_len])
+                    self.buffer = self.buffer[-suffix_len:]
+                else:
+                    output_parts.append(self.buffer)
+                    self.buffer = ""
                 return "".join(output_parts), payloads
 
             if marker_index > 0:
