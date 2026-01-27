@@ -10,8 +10,14 @@ from posthog.temporal.data_imports.sources.common.rest_source.typing import Endp
 
 
 def get_resource(
-    name: str, should_use_incremental_field: bool, db_incremental_field_last_value: Any = None
+    name: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
 ) -> EndpointResource:
+    # Extract API filter field name from incremental_field (e.g., "attributes__created_at" -> "created_at")
+    api_filter_field = incremental_field.split("__")[-1] if incremental_field else "updated_at"
+
     resources: dict[str, EndpointResource] = {
         "email_campaigns": {
             "name": "email_campaigns",
@@ -27,7 +33,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/campaigns",
                 "params": {
-                    "filter": f"and(equals(messages.channel,'email'),greater-than(updated_at,{db_incremental_field_last_value}))"
+                    "filter": f"and(equals(messages.channel,'email'),greater-than({api_filter_field},{db_incremental_field_last_value}))"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else "equals(messages.channel,'email')",
                 },
@@ -48,7 +54,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/campaigns",
                 "params": {
-                    "filter": f"and(equals(messages.channel,'sms'),greater-than(updated_at,{db_incremental_field_last_value}))"
+                    "filter": f"and(equals(messages.channel,'sms'),greater-than({api_filter_field},{db_incremental_field_last_value}))"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else "equals(messages.channel,'sms')",
                 },
@@ -92,7 +98,7 @@ def get_resource(
                 "path": "/flows",
                 "params": {
                     "page[size]": 50,  # Flows endpoint max is 50
-                    "filter": f"greater-than(updated,{db_incremental_field_last_value})"
+                    "filter": f"greater-than({api_filter_field},{db_incremental_field_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
                 },
@@ -113,7 +119,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/lists",
                 "params": {
-                    "filter": f"greater-than(updated,{db_incremental_field_last_value})"
+                    "filter": f"greater-than({api_filter_field},{db_incremental_field_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
                 },
@@ -147,7 +153,7 @@ def get_resource(
                 "path": "/profiles",
                 "params": {
                     "page[size]": 100,
-                    "filter": f"greater-than(updated,{db_incremental_field_last_value})"
+                    "filter": f"greater-than({api_filter_field},{db_incremental_field_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
                 },
@@ -206,6 +212,7 @@ def klaviyo_source(
     job_id: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
 ):
     config: RESTAPIConfig = {
         "client": {
@@ -236,6 +243,7 @@ def klaviyo_source(
                 endpoint,
                 should_use_incremental_field,
                 db_incremental_field_last_value,
+                incremental_field,
             )
         ],
     }

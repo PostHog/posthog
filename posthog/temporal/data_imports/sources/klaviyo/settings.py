@@ -10,11 +10,6 @@ ENDPOINTS = (
     "profiles",
 )
 
-INCREMENTAL_ENDPOINTS = (
-    "events",
-    "profiles",
-)
-
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "email_campaigns": [
         {
@@ -23,12 +18,24 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field": "attributes__updated_at",
             "field_type": IncrementalFieldType.DateTime,
         },
+        {
+            "label": "attributes__created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "attributes__created_at",
+            "field_type": IncrementalFieldType.DateTime,
+        },
     ],
     "sms_campaigns": [
         {
             "label": "attributes__updated_at",
             "type": IncrementalFieldType.DateTime,
             "field": "attributes__updated_at",
+            "field_type": IncrementalFieldType.DateTime,
+        },
+        {
+            "label": "attributes__created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "attributes__created_at",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
@@ -47,6 +54,12 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field": "attributes__updated",
             "field_type": IncrementalFieldType.DateTime,
         },
+        {
+            "label": "attributes__created",
+            "type": IncrementalFieldType.DateTime,
+            "field": "attributes__created",
+            "field_type": IncrementalFieldType.DateTime,
+        },
     ],
     "lists": [
         {
@@ -55,12 +68,24 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field": "attributes__updated",
             "field_type": IncrementalFieldType.DateTime,
         },
+        {
+            "label": "attributes__created",
+            "type": IncrementalFieldType.DateTime,
+            "field": "attributes__created",
+            "field_type": IncrementalFieldType.DateTime,
+        },
     ],
     "profiles": [
         {
             "label": "attributes__updated",
             "type": IncrementalFieldType.DateTime,
             "field": "attributes__updated",
+            "field_type": IncrementalFieldType.DateTime,
+        },
+        {
+            "label": "attributes__created",
+            "type": IncrementalFieldType.DateTime,
+            "field": "attributes__created",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
