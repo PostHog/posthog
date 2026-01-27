@@ -224,4 +224,4 @@ def klaviyo_source(
         ],
     }
 
-    yield from rest_api_resources(config)
+    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
