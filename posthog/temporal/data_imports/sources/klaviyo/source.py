@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -38,6 +38,7 @@ class KlaviyoSource(SimpleSource[KlaviyoSourceConfig]):
 You can create a private API key in your [Klaviyo account settings](https://www.klaviyo.com/settings/account/api-keys).
 
 Make sure to grant the following read permissions:
+- Accounts
 - Campaigns
 - Events
 - Flows
@@ -73,7 +74,9 @@ Make sure to grant the following read permissions:
             for endpoint in list(ENDPOINTS)
         ]
 
-    def validate_credentials(self, config: KlaviyoSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: KlaviyoSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if validate_klaviyo_credentials(config.api_key):
             return True, None
 

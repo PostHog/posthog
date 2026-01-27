@@ -17,12 +17,20 @@ def get_resource(
             "name": "Campaigns",
             "table_name": "campaigns",
             "primary_key": "id",
-            "write_disposition": "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
             "endpoint": {
                 "data_selector": "data",
                 "path": "/campaigns",
                 "params": {
                     "page[size]": 100,
+                    "filter": f"greater-than(updated_at,{db_incremental_field_last_value})"
+                    if should_use_incremental_field and db_incremental_field_last_value
+                    else None,
                 },
             },
             "table_format": "delta",
@@ -53,12 +61,20 @@ def get_resource(
             "name": "Flows",
             "table_name": "flows",
             "primary_key": "id",
-            "write_disposition": "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
             "endpoint": {
                 "data_selector": "data",
                 "path": "/flows",
                 "params": {
                     "page[size]": 100,
+                    "filter": f"greater-than(updated,{db_incremental_field_last_value})"
+                    if should_use_incremental_field and db_incremental_field_last_value
+                    else None,
                 },
             },
             "table_format": "delta",
@@ -67,12 +83,20 @@ def get_resource(
             "name": "Lists",
             "table_name": "lists",
             "primary_key": "id",
-            "write_disposition": "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
             "endpoint": {
                 "data_selector": "data",
                 "path": "/lists",
                 "params": {
                     "page[size]": 100,
+                    "filter": f"greater-than(updated,{db_incremental_field_last_value})"
+                    if should_use_incremental_field and db_incremental_field_last_value
+                    else None,
                 },
             },
             "table_format": "delta",
