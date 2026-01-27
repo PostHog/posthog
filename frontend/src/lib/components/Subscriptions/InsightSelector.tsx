@@ -32,7 +32,8 @@ export function InsightSelector({
             onChange(defaultSelection)
             onDefaultsApplied?.(defaultSelection)
         }
-    }, [insightTiles.length, selectedInsightIds.length, userHasInteracted, insightTiles, onChange, onDefaultsApplied])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [insightTiles, selectedInsightIds.length, userHasInteracted])
 
     if (insightTiles.length === 0) {
         return <div className="text-secondary text-sm">No insights found in this dashboard.</div>

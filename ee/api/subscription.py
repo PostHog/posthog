@@ -150,9 +150,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
 
         invite_message = validated_data.pop("invite_message", "")
+        dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         instance: Subscription = super().create(validated_data)
 
-        dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
@@ -176,9 +176,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         previous_value = instance.target_value
         invite_message = validated_data.pop("invite_message", "")
+        dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         instance = super().update(instance, validated_data)
 
-        dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
