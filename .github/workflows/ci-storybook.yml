@@ -46,6 +46,7 @@ jobs:
                         - 'playwright.config.ts'
                         - 'test-runner-jest.config.js'
                         - 'test-runner-jest-environment.js'
+                        - 'test-runner-snapshot-resolver.js'
 
     build-storybook:
         name: Build Storybook
