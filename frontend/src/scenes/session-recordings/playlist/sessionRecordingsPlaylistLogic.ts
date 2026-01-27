@@ -40,6 +40,7 @@ import {
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
+    ActionFilter,
     AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
@@ -47,6 +48,7 @@ import {
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingUniversalFilters,
@@ -252,8 +254,32 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
 }
 
 /**
+ * Normalizes a single property filter's value if it has a multi-select operator.
+ */
+function normalizePropertyFilter<T extends { operator?: unknown; value?: unknown; type?: unknown }>(filter: T): T {
+    if (
+        !filter ||
+        typeof filter !== 'object' ||
+        !('operator' in filter) ||
+        !('value' in filter) ||
+        ('type' in filter && filter.type === 'cohort')
+    ) {
+        return filter
+    }
+    const normalizedValue = normalizePropertyFilterValue(
+        filter.value as PropertyFilterValue,
+        filter.operator as PropertyOperator | null
+    )
+    if (normalizedValue !== filter.value) {
+        return { ...filter, value: normalizedValue }
+    }
+    return filter
+}
+
+/**
  * Normalizes filter values from URL to ensure multi-select operators have array values.
  * This fixes issues with saved/bookmarked URLs that may have string values instead of arrays.
+ * Handles both top-level property filters and properties nested inside event/action filters.
  */
 function normalizeFiltersFromUrl(filters: Partial<RecordingUniversalFilters>): Partial<RecordingUniversalFilters> {
     if (!filters.filter_group?.values) {
@@ -269,25 +295,25 @@ function normalizeFiltersFromUrl(filters: Partial<RecordingUniversalFilters>): P
             return {
                 ...group,
                 values: group.values.map((filter): UniversalFilterValue => {
-                    // Only normalize property filters that have both operator and value properties
-                    // Skip cohort filters (value is number) and action/event filters (no value property)
-                    if (
-                        !filter ||
-                        typeof filter !== 'object' ||
-                        !('operator' in filter) ||
-                        !('value' in filter) ||
-                        ('type' in filter && filter.type === 'cohort')
-                    ) {
+                    if (!filter || typeof filter !== 'object') {
                         return filter as UniversalFilterValue
                     }
-                    const normalizedValue = normalizePropertyFilterValue(
-                        filter.value,
-                        filter.operator as PropertyOperator | null
-                    )
-                    if (normalizedValue !== filter.value) {
-                        return { ...filter, value: normalizedValue } as UniversalFilterValue
+
+                    // Handle event/action filters with nested properties
+                    if (
+                        'type' in filter &&
+                        (filter.type === 'events' || filter.type === 'actions') &&
+                        'properties' in filter &&
+                        Array.isArray(filter.properties)
+                    ) {
+                        const normalizedProperties = filter.properties.map((prop: AnyPropertyFilter) =>
+                            normalizePropertyFilter(prop)
+                        )
+                        return { ...filter, properties: normalizedProperties } as UniversalFilterValue
                     }
-                    return filter as UniversalFilterValue
+
+                    // Handle top-level property filters
+                    return normalizePropertyFilter(filter) as UniversalFilterValue
                 }),
             }
         }),
@@ -323,9 +349,44 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     filters.forEach((f) => {
         if (isEventFilter(f)) {
-            events.push(f)
+            // Normalize properties inside event filters
+            if (f.properties && Array.isArray(f.properties)) {
+                const normalizedProperties = f.properties.map((prop) => {
+                    if (prop && 'operator' in prop && 'value' in prop && prop.type !== 'cohort') {
+                        const normalizedValue = normalizePropertyFilterValue(
+                            prop.value,
+                            prop.operator as PropertyOperator | null
+                        )
+                        if (normalizedValue !== prop.value) {
+                            return { ...prop, value: normalizedValue }
+                        }
+                    }
+                    return prop
+                })
+                events.push({ ...f, properties: normalizedProperties })
+            } else {
+                events.push(f)
+            }
         } else if (isActionFilter(f)) {
-            actions.push(f)
+            // Normalize properties inside action filters
+            const actionFilter = f as ActionFilter & { properties?: AnyPropertyFilter[] }
+            if (actionFilter.properties && Array.isArray(actionFilter.properties)) {
+                const normalizedProperties = actionFilter.properties.map((prop: AnyPropertyFilter) => {
+                    if (prop && 'operator' in prop && 'value' in prop && prop.type !== 'cohort') {
+                        const normalizedValue = normalizePropertyFilterValue(
+                            prop.value,
+                            prop.operator as PropertyOperator | null
+                        )
+                        if (normalizedValue !== prop.value) {
+                            return { ...prop, value: normalizedValue }
+                        }
+                    }
+                    return prop
+                })
+                actions.push({ ...actionFilter, properties: normalizedProperties } as ActionFilter)
+            } else {
+                actions.push(f)
+            }
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
         } else if (isHogQLPropertyFilter(f)) {
