@@ -39,7 +39,9 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="task",
             name="occurrence_count",
-            field=models.IntegerField(default=0, help_text="Total number of video segment occurrences (cases)"),
+            field=models.IntegerField(
+                null=True, blank=True, help_text="Total number of video segment occurrences (cases)"
+            ),
         ),
         migrations.AddField(
             model_name="task",
@@ -49,7 +51,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="task",
             name="relevant_user_count",
-            field=models.IntegerField(default=0, help_text="Number of unique users affected by this issue"),
+            field=models.IntegerField(null=True, blank=True, help_text="Number of unique users affected by this issue"),
         ),
         migrations.CreateModel(
             name="TaskReference",

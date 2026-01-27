@@ -81,11 +81,13 @@ class Task(DeletedMetaFields, models.Model):
         help_text="Calculated priority score for ranking tasks",
     )
     relevant_user_count = models.IntegerField(
-        default=0,
+        null=True,
+        blank=True,
         help_text="Number of unique users affected by this issue",
     )
     occurrence_count = models.IntegerField(
-        default=0,
+        null=True,
+        blank=True,
         help_text="Total number of video segment occurrences (cases)",
     )
     last_occurrence_at = models.DateTimeField(
