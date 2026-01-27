@@ -1,10 +1,12 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import equal from 'fast-deep-equal'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { PEOPLE_LIST_CONTEXT_KEY, defaultQuery } from 'scenes/persons/personsSceneLogic'
 
 import { ActorsQuery, EventsQuery, GroupsQuery } from '~/queries/schema/schema-general'
 
@@ -231,4 +233,12 @@ export const tableViewLogic = kea<tableViewLogicType>([
             lemonToast.error('Error creating view')
         },
     })),
+
+    afterMount(({ values, actions, props }) => {
+        const contextKeyMatch = props.contextKey === PEOPLE_LIST_CONTEXT_KEY
+        const queryMatch = equal(props.query, defaultQuery.source)
+        if (contextKeyMatch && queryMatch && values.currentView) {
+            actions.applyView(values.currentView)
+        }
+    }),
 ])

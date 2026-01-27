@@ -789,7 +789,7 @@ export function DataTable({
         ) : null,
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
-            <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
+            <ColumnConfigurator key="column-configurator" query={queryWithDefaults} setQuery={setQuery} />
         ) : null,
         <DataTableViewReplays key="data-table-view-replays" />,
         showExport ? (

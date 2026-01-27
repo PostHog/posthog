@@ -18,6 +18,7 @@ export interface ColumnConfiguratorLogicProps {
     setColumns: (columns: string[]) => void
     isPersistent?: boolean
     contextKey?: string
+    showTableViews?: boolean
     context?: {
         type: 'event_definition' | 'groups' | 'team_columns'
         eventDefinitionId?: string
@@ -182,7 +183,8 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (props.contextKey) {
+        // Only load saved column configuration if table views aren't handling persistence
+        if (props.contextKey && !props.showTableViews) {
             actions.loadSavedColumnConfiguration()
         }
     }),

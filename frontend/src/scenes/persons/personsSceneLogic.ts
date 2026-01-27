@@ -17,7 +17,9 @@ import { Breadcrumb } from '~/types'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
-const defaultQuery = {
+export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
+
+export const defaultQuery = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
@@ -25,7 +27,7 @@ const defaultQuery = {
     },
     full: true,
     propertiesViaUrl: true,
-    contextKey: 'people-list',
+    contextKey: PEOPLE_LIST_CONTEXT_KEY,
 } as DataTableNode
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
