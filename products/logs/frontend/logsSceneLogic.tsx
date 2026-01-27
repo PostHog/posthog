@@ -37,11 +37,12 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 
 import { zoomDateRange } from './components/LogsViewer/Filters/zoom-utils'
 import type { logsSceneLogicType } from './logsSceneLogicType'
-import { LogsFilters, LogsFiltersHistoryEntry, LogsOrderBy, ParsedLogMessage } from './types'
+import { LogsFilters, LogsFiltersHistoryEntry, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
@@ -50,7 +51,6 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
     VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
-const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
@@ -93,10 +93,14 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 'fetchNextPageSuccess',
                 'fetchNextPageFailure',
             ],
+            logsViewerConfigLogic({ id: props.tabId }),
+            ['setOrderBy'],
         ],
         values: [
             logsViewerDataLogic({ id: props.tabId }),
             ['logs', 'logsAbortController', 'hasMoreLogsToLoad', 'nextCursor', 'logsLoading'],
+            logsViewerConfigLogic({ id: props.tabId }),
+            ['orderBy'],
         ],
     })),
     tabAwareUrlToAction(({ actions, values }) => {
@@ -174,7 +178,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
-                updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                updateSearchParams(params, 'orderBy', values.orderBy, 'latest')
                 actions.runQuery()
                 return params
             })
@@ -212,7 +216,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             liveTailAbortController,
         }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
-        setOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar' = 'toolbar') => ({ orderBy, source }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
@@ -281,12 +284,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 setDateRange: (_, { dateRange }) => dateRange,
                 setFilters: (state, { filters }) => filters.dateRange ?? state,
                 setFiltersFromUrl: (state, { filters }) => filters.dateRange ?? state,
-            },
-        ],
-        orderBy: [
-            DEFAULT_ORDER_BY,
-            {
-                setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
         searchTerm: [

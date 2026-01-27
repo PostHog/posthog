@@ -11,4 +11,5 @@ export interface LogsViewerFilters {
 
 export interface LogsViewerConfig {
     filters: LogsViewerFilters
+    orderBy: LogsQuery['orderBy']
 }
