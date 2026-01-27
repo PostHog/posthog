@@ -243,7 +243,7 @@
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "4.0.7",
         "ts-pattern": "4.3",
-        "typescript": "5.2.2",
+        "typescript": "5.4.5",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
         "vite": "^7.1.9",
