@@ -42,7 +42,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models import DataWarehouseTable
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
@@ -3038,7 +3037,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         )
 
     mock_produce.assert_called_with(
-        topic=KAFKA_DWH_CDP_RAW_TABLE,
+        topic="",
         data={
             "team_id": team.id,
             "properties": {
