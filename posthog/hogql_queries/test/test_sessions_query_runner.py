@@ -497,3 +497,88 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Should be ordered by display_name (email) descending
             display_names = [row[1]["display_name"] for row in response.results]
             assert display_names == ["userC@posthog.com", "userB@posthog.com", "userA@posthog.com"]
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_multiple_persons(self):
+        """Test person_display_name correctly resolves different persons for different sessions."""
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+                ("charlie", "session3", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+                orderBy=["person_display_name -- Person ASC"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 3
+
+            display_names = [row[1]["display_name"] for row in response.results]
+            assert display_names == ["alice@posthog.com", "bob@posthog.com", "charlie@posthog.com"]
+            for row in response.results:
+                assert isinstance(row[1], dict)
+                assert row[1]["id"] is not None
+                assert row[1]["distinct_id"] is not None
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_with_star_select(self):
+        """Test person_display_name works alongside star select."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["*", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            row = response.results[0]
+            assert isinstance(row[0], dict)  # star select returns dict
+            assert isinstance(row[1], dict)  # person_display_name returns dict
+            assert row[1]["display_name"] == "user1@posthog.com"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_without_person_join_no_regression(self):
+        """Test queries without person_display_name don't include person joins."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "$session_duration", "$start_timestamp"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            assert not runner._needs_person_join()
+
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
