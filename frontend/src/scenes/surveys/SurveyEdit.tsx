@@ -234,6 +234,30 @@ function SurveyCompletionConditions(): JSX.Element {
     )
 }
 
+// Helper to format field names for display
+function formatFieldName(field: string): string {
+    const fieldNameMap: Record<string, string> = {
+        name: 'Survey name',
+        description: 'Survey description',
+        thankYouMessageHeader: 'Thank you message header',
+        thankYouMessageDescription: 'Thank you message description',
+        thankYouMessageCloseButtonText: 'Thank you close button text',
+        question: 'Question text',
+        buttonText: 'Button text',
+        lowerBoundLabel: 'Lower bound label',
+        upperBoundLabel: 'Upper bound label',
+        link: 'Link URL',
+    }
+
+    // Handle choices[n] format
+    const choiceMatch = field.match(/^choices\[(\d+)\]$/)
+    if (choiceMatch) {
+        return `Choice ${parseInt(choiceMatch[1]) + 1}`
+    }
+
+    return fieldNameMap[field] || field
+}
+
 export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const {
         survey,
@@ -444,19 +468,19 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                 />
                 <div className="sticky top-[34px] z-[100] bg-bg-3000">
                     {hasTranslationValidationErrors ? (
-                        <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
                         <LemonCollapse
                             embedded
-                            defaultActiveKey="validation-errors"
+                            className="my-2 bg-warning-highlight rounded"
                             panels={[
                                 {
                                     key: 'validation-errors',
                                     header: {
                                         children: (
-                                            <span className="text-sm font-semibold">
+                                            <span className="text-sm">
                                                 ⚠️ Translation validation issues ({translationValidationErrors.length})
                                             </span>
                                         ),
+                                        className: 'bg-warning-highlight',
                                     },
                                     content: (
                                         <div className="text-sm">
@@ -477,9 +501,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                 return Object.entries(errorsByLanguage).map(([lang, errors]) => (
                                                     <div key={lang} className="mb-2">
                                                         <button
-                                                            onClick={() =>
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
                                                                 setEditingLanguage(lang === 'default' ? null : lang)
-                                                            }
+                                                            }}
                                                             className="font-semibold hover:underline cursor-pointer"
                                                         >
                                                             {lang === 'default'
@@ -503,11 +528,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                             })()}
                                         </div>
                                     ),
+                                    className: 'bg-warning-highlight',
                                 },
                             ]}
                         />
-                    </div>
-                ) : editingLanguage ? (
+                    ) : editingLanguage ? (
                     <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
                         <span className="text-sm">
                             Editing translation for{' '}

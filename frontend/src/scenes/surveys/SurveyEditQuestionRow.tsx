@@ -358,180 +358,164 @@ export function SurveyEditQuestionGroup({
                 question.type === SurveyQuestionType.SingleChoice;
               const isNewMultipleChoice =
                 newType === SurveyQuestionType.MultipleChoice ||
-                newType === SurveyQuestionType.SingleChoice;
+                newType === SurveyQuestionType.SingleChoice
 
-              // Same multiple choice type - just update type
-              if (isCurrentMultipleChoice && isNewMultipleChoice) {
-                setMultipleSurveyQuestion(index, question, newType);
-                resetBranchingForQuestion(index);
-                return;
-              }
-              if (isCurrentMultipleChoice && !isNewMultipleChoice) {
-                confirmQuestionTypeChange(index, question, newType);
-                return;
-              }
-              // Check if question has translations
-              if (hasTranslations) {
-                confirmQuestionTypeChangeWithTranslations(
-                  index,
-                  question,
-                  newType
-                );
-                return;
-              }
-              setDefaultForQuestionType(index, question, newType);
-              resetBranchingForQuestion(index);
-            }}
-            options={[
-              {
-                label: SurveyQuestionLabel[SurveyQuestionType.Open],
-                value: SurveyQuestionType.Open,
-                "data-attr": `survey-question-type-${index}-${SurveyQuestionType.Open}`,
-              },
-              {
-                label: "Link/Notification",
-                value: SurveyQuestionType.Link,
-                "data-attr": `survey-question-type-${index}-${SurveyQuestionType.Link}`,
-              },
-              {
-                label: "Rating",
-                value: SurveyQuestionType.Rating,
-                "data-attr": `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
-              },
-              {
-                label: "Single choice select",
-                value: SurveyQuestionType.SingleChoice,
-                "data-attr": `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
-              },
-              {
-                label: "Multiple choice select",
-                value: SurveyQuestionType.MultipleChoice,
-                "data-attr": `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
-              },
-            ]}
-          />
-        </LemonField>
-        <LemonField name={getFieldName("question")} label="Label">
-          <LemonInput
-            data-attr={`survey-question-label-${index}`}
-            value={displayQuestion.question || ""}
-            placeholder={editingLanguage ? question.question : undefined}
-          />
-        </LemonField>
-        <LemonField
-          name={getFieldName("description")}
-          label="Description (optional)"
-        >
-          {({ value, onChange }) => (
-            <HTMLEditor
-              value={value}
-              onChange={(val) => {
-                onChange(val);
-                handleQuestionValueChange("description", val);
-              }}
-              onTabChange={handleTabChange}
-              activeTab={initialDescriptionContentType}
-            />
-          )}
-        </LemonField>
-        {survey.questions.length > 1 && (
-          <LemonField name="optional" className="my-2">
-            <LemonCheckbox
-              label="Optional"
-              checked={!!question.optional}
-              disabled={!!editingLanguage}
-              disabledReason={
-                editingLanguage
-                  ? "Question settings can only be changed in the default language"
-                  : undefined
-              }
-            />
-          </LemonField>
-        )}
-        {question.type === SurveyQuestionType.Open && (
-          <LemonField name="validation">
-            {({ value, onChange }) => (
-              <ValidationRulesEditor
-                value={(question as BasicSurveyQuestion).validation ?? value}
-                onChange={onChange}
-              />
-            )}
-          </LemonField>
-        )}
-        {question.type === SurveyQuestionType.Link && (
-          <LemonField
-            name={getFieldName("link")}
-            label="Link"
-            info="Only https:// or mailto: links are supported."
-          >
-            <LemonInput
-              value={displayQuestion.link || ""}
-              placeholder={
-                editingLanguage
-                  ? question.link || "https://posthog.com"
-                  : "https://posthog.com"
-              }
-            />
-          </LemonField>
-        )}
-        {question.type === SurveyQuestionType.Rating && (
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-row gap-4">
-              <LemonField name="display" label="Display type" className="w-1/2">
-                <LemonSelect
-                  disabled={!!editingLanguage}
-                  disabledReason={
-                    editingLanguage
-                      ? "Display type can only be changed in the default language"
-                      : undefined
-                  }
-                  options={[
-                    { label: "Number", value: "number" },
-                    { label: "Emoji", value: "emoji" },
-                  ]}
-                  onChange={(val) => {
-                    const newQuestion = {
-                      ...survey.questions[index],
-                      display: val,
-                      scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
-                    };
-                    const newQuestions = [...survey.questions];
-                    newQuestions[index] = newQuestion;
-                    setSurveyValue("questions", newQuestions);
-                    setSurveyValue(
-                      "appearance.ratingButtonColor",
-                      val === "emoji" ? "#939393" : "white"
-                    );
-                    resetBranchingForQuestion(index);
-                  }}
-                />
-              </LemonField>
-              <LemonField name="scale" label="Scale" className="w-1/2">
-                <LemonSelect
-                  disabled={!!editingLanguage}
-                  disabledReason={
-                    editingLanguage
-                      ? "Rating scale can only be changed in the default language"
-                      : undefined
-                  }
-                  options={
-                    question.display === "emoji"
-                      ? SCALE_OPTIONS.EMOJI
-                      : SCALE_OPTIONS.NUMBER
-                  }
-                  onChange={(val) => {
-                    const newQuestion = {
-                      ...survey.questions[index],
-                      scale: val,
-                    };
-                    const newQuestions = [...survey.questions];
-                    newQuestions[index] = newQuestion;
-                    setSurveyValue("questions", newQuestions);
-                    resetBranchingForQuestion(index);
-                  }}
-                />
-              </LemonField>
-            </div>
+                            // Same multiple choice type - just update type
+                            if (isCurrentMultipleChoice && isNewMultipleChoice) {
+                                setMultipleSurveyQuestion(index, question, newType)
+                                resetBranchingForQuestion(index)
+                                return
+                            }
+                            if (isCurrentMultipleChoice && !isNewMultipleChoice) {
+                                confirmQuestionTypeChange(index, question, newType)
+                                return
+                            }
+                            // Check if question has translations
+                            if (hasTranslations) {
+                                confirmQuestionTypeChangeWithTranslations(index, question, newType)
+                                return
+                            }
+                            setDefaultForQuestionType(index, question, newType)
+                            resetBranchingForQuestion(index)
+                        }}
+                        options={[
+                            {
+                                label: SurveyQuestionLabel[SurveyQuestionType.Open],
+                                value: SurveyQuestionType.Open,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Open}`,
+                            },
+                            {
+                                label: 'Link/Notification',
+                                value: SurveyQuestionType.Link,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Link}`,
+                            },
+                            {
+                                label: 'Rating',
+                                value: SurveyQuestionType.Rating,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
+                            },
+                            {
+                                label: 'Single choice select',
+                                value: SurveyQuestionType.SingleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
+                            },
+                            {
+                                label: 'Multiple choice select',
+                                value: SurveyQuestionType.MultipleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
+                            },
+                        ]}
+                    />
+                </LemonField>
+                <LemonField name={getFieldName('question')} label="Label">
+                    <LemonInput
+                        data-attr={`survey-question-label-${index}`}
+                        value={displayQuestion.question || ''}
+                        placeholder={editingLanguage ? question.question : undefined}
+                    />
+                </LemonField>
+                <LemonField name={getFieldName('description')} label="Description (optional)">
+                    {({ value, onChange }) => (
+                        <HTMLEditor
+                            value={value}
+                            onChange={(val) => {
+                                onChange(val)
+                                handleQuestionValueChange('description', val)
+                            }}
+                            onTabChange={handleTabChange}
+                            activeTab={initialDescriptionContentType}
+                        />
+                    )}
+                </LemonField>
+                {survey.questions.length > 1 && (
+                    <LemonField name="optional" className="my-2">
+                        <LemonCheckbox
+                            label="Optional"
+                            checked={!!question.optional}
+                            disabled={!!editingLanguage}
+                            disabledReason={
+                                editingLanguage
+                                    ? 'Question settings can only be changed in the default language'
+                                    : undefined
+                            }
+                        />
+                    </LemonField>
+                )}
+                {question.type === SurveyQuestionType.Open && (
+                    <LemonField name="validation">
+                        {({ value, onChange }) => (
+                            <ValidationRulesEditor
+                                value={(question as BasicSurveyQuestion).validation ?? value}
+                                onChange={onChange}
+                            />
+                        )}
+                    </LemonField>
+                )}
+                {question.type === SurveyQuestionType.Link && (
+                    <LemonField
+                        name={getFieldName('link')}
+                        label="Link"
+                        info="Only https:// or mailto: links are supported."
+                    >
+                        <LemonInput
+                            value={displayQuestion.link || ''}
+                            placeholder={
+                                editingLanguage ? question.link || 'https://posthog.com' : 'https://posthog.com'
+                            }
+                        />
+                    </LemonField>
+                )}
+                {question.type === SurveyQuestionType.Rating && (
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-row gap-4">
+                            <LemonField name="display" label="Display type" className="w-1/2">
+                                <LemonSelect
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Display type can only be changed in the default language'
+                                            : undefined
+                                    }
+                                    options={[
+                                        { label: 'Number', value: 'number' },
+                                        { label: 'Emoji', value: 'emoji' },
+                                    ]}
+                                    onChange={(val) => {
+                                        const newQuestion = {
+                                            ...survey.questions[index],
+                                            display: val,
+                                            scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                        }
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = newQuestion
+                                        setSurveyValue('questions', newQuestions)
+                                        setSurveyValue(
+                                            'appearance.ratingButtonColor',
+                                            val === 'emoji' ? '#939393' : 'white'
+                                        )
+                                        resetBranchingForQuestion(index)
+                                    }}
+                                />
+                            </LemonField>
+                            <LemonField name="scale" label="Scale" className="w-1/2">
+                                <LemonSelect
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Rating scale can only be changed in the default language'
+                                            : undefined
+                                    }
+                                    options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
+                                    onChange={(val) => {
+                                        const newQuestion = { ...survey.questions[index], scale: val }
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = newQuestion
+                                        setSurveyValue('questions', newQuestions)
+                                        resetBranchingForQuestion(index)
+                                    }}
+                                />
+                            </LemonField>
+                        </div>
             {!isThumbQuestion(question) && (
               <div className="flex flex-row gap-4">
                 <LemonField

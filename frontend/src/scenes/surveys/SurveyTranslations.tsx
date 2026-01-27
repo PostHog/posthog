@@ -74,7 +74,10 @@ export function SurveyTranslations(): JSX.Element {
         setSurveyValue('questions', updatedQuestions)
         setSurveyValue('translations', {
             ...currentTranslations,
-            [lang]: {},
+            [lang]: {
+                name: survey.name || '',
+                description: survey.description || '',
+            },
         })
         setEditingLanguage(lang)
     }
@@ -160,7 +163,7 @@ export function SurveyTranslations(): JSX.Element {
                                             <strong>
                                                 {COMMON_LANGUAGES.find((l) => l.value === lang)?.label || lang}
                                             </strong>
-                                            ? This action cannot be undone.
+                                            ? All translated content for this language will be permanently lost.
                                         </p>
                                     ),
                                     primaryButton: {
