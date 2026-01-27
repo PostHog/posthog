@@ -5,10 +5,27 @@ import { logger } from '~/utils/logger'
 
 const HEADER_NAME = 'X-Internal-Api-Secret'
 
-export function createInternalApiAuthMiddleware(secret: string) {
+// Paths that don't require authentication
+const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/metrics']
+
+export interface InternalApiAuthOptions {
+    secret: string
+    excludedPathPrefixes?: string[]
+}
+
+export function createInternalApiAuthMiddleware(options: InternalApiAuthOptions) {
+    const { secret, excludedPathPrefixes = [] } = options
+    const allExcludedPrefixes = [...PUBLIC_PATH_PREFIXES, ...excludedPathPrefixes]
+
     return (req: Request, res: Response, next: NextFunction): void => {
         // Skip auth if no secret is configured (for backwards compatibility and local dev)
         if (!secret) {
+            next()
+            return
+        }
+
+        // Skip auth for excluded paths
+        if (allExcludedPrefixes.some((prefix) => req.path.startsWith(prefix))) {
             next()
             return
         }

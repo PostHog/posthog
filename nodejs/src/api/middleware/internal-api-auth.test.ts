@@ -10,93 +10,144 @@ describe('createInternalApiAuthMiddleware', () => {
         return res
     }
 
-    const mockRequest = (headers: Record<string, string> = {}) => {
+    const mockRequest = (path: string, headers: Record<string, string> = {}) => {
         return {
             headers,
-            path: '/api/test',
+            path,
             method: 'GET',
         } as unknown as Request
     }
 
-    it.each([
-        ['no secret configured', '', undefined],
-        ['empty secret configured', '', ''],
-    ])('should allow request when %s', (_, configuredSecret, providedHeader) => {
-        const middleware = createInternalApiAuthMiddleware(configuredSecret)
-        const req = mockRequest(providedHeader ? { 'x-internal-api-secret': providedHeader } : {})
-        const res = mockResponse()
-        const next = jest.fn()
+    describe('when no secret configured', () => {
+        it.each([
+            ['no secret configured', ''],
+            ['empty secret configured', ''],
+        ])('should allow request when %s', (_, configuredSecret) => {
+            const middleware = createInternalApiAuthMiddleware({ secret: configuredSecret })
+            const req = mockRequest('/api/test')
+            const res = mockResponse()
+            const next = jest.fn()
 
-        middleware(req, res, next)
+            middleware(req, res, next)
 
-        expect(next).toHaveBeenCalled()
-        expect(res.status).not.toHaveBeenCalled()
+            expect(next).toHaveBeenCalled()
+            expect(res.status).not.toHaveBeenCalled()
+        })
     })
 
-    it('should reject request when secret is configured but header is missing', () => {
-        const middleware = createInternalApiAuthMiddleware('test-secret')
-        const req = mockRequest({})
-        const res = mockResponse()
-        const next = jest.fn()
+    describe('when secret configured', () => {
+        it('should reject request when header is missing', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
+            const req = mockRequest('/api/test', {})
+            const res = mockResponse()
+            const next = jest.fn()
 
-        middleware(req, res, next)
+            middleware(req, res, next)
 
-        expect(next).not.toHaveBeenCalled()
-        expect(res.status).toHaveBeenCalledWith(401)
-        expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorized: Missing authentication header' })
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+            expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorized: Missing authentication header' })
+        })
+
+        it('should reject request when secret does not match', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'correct-secret' })
+            const req = mockRequest('/api/test', { 'x-internal-api-secret': 'wrong-secret' })
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+            expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorized: Invalid authentication' })
+        })
+
+        it('should allow request when secret matches', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'correct-secret' })
+            const req = mockRequest('/api/test', { 'x-internal-api-secret': 'correct-secret' })
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).toHaveBeenCalled()
+            expect(res.status).not.toHaveBeenCalled()
+        })
+
+        it('should reject when secrets have different lengths', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'short' })
+            const req = mockRequest('/api/test', { 'x-internal-api-secret': 'much-longer-secret' })
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+        })
+
+        it('should reject when header value is not a string', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
+            const req = {
+                headers: { 'x-internal-api-secret': ['array', 'of', 'values'] },
+                path: '/api/test',
+                method: 'GET',
+            } as unknown as Request
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+            expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorized: Missing authentication header' })
+        })
     })
 
-    it('should reject request when secret does not match', () => {
-        const middleware = createInternalApiAuthMiddleware('correct-secret')
-        const req = mockRequest({ 'x-internal-api-secret': 'wrong-secret' })
-        const res = mockResponse()
-        const next = jest.fn()
+    describe('path exclusions', () => {
+        it.each([
+            ['/public/webhooks/123', 'public path'],
+            ['/_health', 'health check'],
+            ['/_ready', 'ready check'],
+            ['/_metrics', 'metrics'],
+            ['/metrics', 'prometheus metrics'],
+        ])('should skip auth for %s (%s)', (path) => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
+            const req = mockRequest(path, {})
+            const res = mockResponse()
+            const next = jest.fn()
 
-        middleware(req, res, next)
+            middleware(req, res, next)
 
-        expect(next).not.toHaveBeenCalled()
-        expect(res.status).toHaveBeenCalledWith(401)
-        expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorized: Invalid authentication' })
-    })
+            expect(next).toHaveBeenCalled()
+            expect(res.status).not.toHaveBeenCalled()
+        })
 
-    it('should allow request when secret matches', () => {
-        const middleware = createInternalApiAuthMiddleware('correct-secret')
-        const req = mockRequest({ 'x-internal-api-secret': 'correct-secret' })
-        const res = mockResponse()
-        const next = jest.fn()
+        it('should allow custom excluded path prefixes', () => {
+            const middleware = createInternalApiAuthMiddleware({
+                secret: 'test-secret',
+                excludedPathPrefixes: ['/custom/'],
+            })
+            const req = mockRequest('/custom/endpoint', {})
+            const res = mockResponse()
+            const next = jest.fn()
 
-        middleware(req, res, next)
+            middleware(req, res, next)
 
-        expect(next).toHaveBeenCalled()
-        expect(res.status).not.toHaveBeenCalled()
-    })
+            expect(next).toHaveBeenCalled()
+            expect(res.status).not.toHaveBeenCalled()
+        })
 
-    it('should reject when secrets have different lengths', () => {
-        const middleware = createInternalApiAuthMiddleware('short')
-        const req = mockRequest({ 'x-internal-api-secret': 'much-longer-secret' })
-        const res = mockResponse()
-        const next = jest.fn()
+        it('should still require auth for non-excluded paths', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
+            const req = mockRequest('/api/some/endpoint', {})
+            const res = mockResponse()
+            const next = jest.fn()
 
-        middleware(req, res, next)
+            middleware(req, res, next)
 
-        expect(next).not.toHaveBeenCalled()
-        expect(res.status).toHaveBeenCalledWith(401)
-    })
-
-    it('should reject when header value is not a string', () => {
-        const middleware = createInternalApiAuthMiddleware('test-secret')
-        const req = {
-            headers: { 'x-internal-api-secret': ['array', 'of', 'values'] },
-            path: '/api/test',
-            method: 'GET',
-        } as unknown as Request
-        const res = mockResponse()
-        const next = jest.fn()
-
-        middleware(req, res, next)
-
-        expect(next).not.toHaveBeenCalled()
-        expect(res.status).toHaveBeenCalledWith(401)
-        expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorized: Missing authentication header' })
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+        })
     })
 })

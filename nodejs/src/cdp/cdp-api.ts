@@ -3,7 +3,6 @@ import express from 'ultimate-express'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { createInternalApiAuthMiddleware } from '~/api/middleware/internal-api-auth'
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
@@ -53,7 +52,6 @@ export type CdpApiHub = CdpSourceWebhooksConsumerHub &
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
-        | 'INTERNAL_API_SECRET'
     >
 
 export class CdpApi {
@@ -149,48 +147,21 @@ export class CdpApi {
             (req: ModifiedRequest, res: express.Response, next: express.NextFunction): Promise<void> =>
                 fn(req, res).catch(next)
 
-        const internalApiAuth = createInternalApiAuthMiddleware(this.hub.INTERNAL_API_SECRET)
-
-        // Protected /api/ routes - require internal API authentication
-        router.post(
-            '/api/projects/:team_id/hog_functions/:id/invocations',
-            internalApiAuth,
-            asyncHandler(this.postFunctionInvocation)
-        )
-        router.post(
-            '/api/projects/:team_id/hog_flows/:id/invocations',
-            internalApiAuth,
-            asyncHandler(this.postHogflowInvocation)
-        )
+        // API routes (authentication handled globally by middleware)
+        router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
+        router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
         router.post(
             '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
-            internalApiAuth,
             asyncHandler(this.postHogFlowBatchInvocation)
         )
-        router.get(
-            '/api/projects/:team_id/hog_functions/:id/status',
-            internalApiAuth,
-            asyncHandler(this.getFunctionStatus())
-        )
-        router.patch(
-            '/api/projects/:team_id/hog_functions/:id/status',
-            internalApiAuth,
-            asyncHandler(this.patchFunctionStatus())
-        )
-        router.get('/api/hog_functions/states', internalApiAuth, asyncHandler(this.getFunctionStates()))
-        router.get('/api/hog_function_templates', internalApiAuth, this.getHogFunctionTemplates)
-        router.post(
-            '/api/messaging/generate_preferences_token',
-            internalApiAuth,
-            asyncHandler(this.generatePreferencesToken())
-        )
-        router.get(
-            '/api/messaging/validate_preferences_token/:token',
-            internalApiAuth,
-            asyncHandler(this.validatePreferencesToken())
-        )
+        router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
+        router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
+        router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
+        router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
+        router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
 
-        // Public routes - no authentication required
+        // Public routes (excluded from authentication by middleware)
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
