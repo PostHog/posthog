@@ -42,7 +42,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models import DataWarehouseTable
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -50,6 +49,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import FakeKafka
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -3023,7 +3023,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     )
 
     with (
-        mock.patch.object(_KafkaProducer, "produce") as mock_produce,
+        mock.patch.object(FakeKafka, "produce") as mock_produce,
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
