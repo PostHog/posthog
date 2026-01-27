@@ -45,6 +45,14 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                     return null
                 }
 
+                // Don't show banner if the most recent SDK version being used is already current.
+                // webSdk.needsUpdating can be true due to older versions with significant traffic,
+                // but showing "update from X to X" is confusing. The SDK Doctor panel handles
+                // displaying details about those older versions instead.
+                if (latestRelease.isCurrentOrNewer) {
+                    return null
+                }
+
                 // Map SDK doctor's isOutdated/isOld to our warning levels
                 let level: 'warning' | 'info' | 'error' = 'warning'
                 if (webSdk.isOutdated) {
