@@ -74,7 +74,7 @@ export function NotebookPanel(): JSX.Element | null {
                                 )}
 
                                 <NotebookMenu shortId={selectedNotebook} />
-                                {contentWidthHasEffect && <NotebookExpandButton size="small" />}
+                                {contentWidthHasEffect && <NotebookExpandButton size="small" inPanel={true} />}
                                 {isRemovingSidePanelFlag ? (
                                     <Link
                                         buttonProps={{
@@ -123,7 +123,7 @@ export function NotebookPanel(): JSX.Element | null {
                                     })}
                                 >
                                     <NotebookMenu shortId={selectedNotebook} />
-                                    {contentWidthHasEffect && <NotebookExpandButton size="small" />}
+                                    {contentWidthHasEffect && <NotebookExpandButton size="small" inPanel={true} />}
                                     {isRemovingSidePanelFlag ? (
                                         <Link
                                             buttonProps={{

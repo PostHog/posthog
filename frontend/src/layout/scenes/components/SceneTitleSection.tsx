@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconSidebarClose, IconSidebarOpen, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -19,8 +19,7 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { Breadcrumb, FileSystemIconColor } from '~/types'
-import { SidePanelTab } from '~/types'
+import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
@@ -44,7 +43,6 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
     if (isRemovingSidePanelFlag) {
         return (
             <>
-                <div className="flex-1" />
                 <AppShortcut
                     name="OpenSidePanel"
                     keybind={[keyBinds.openSidePanel]}
@@ -67,12 +65,9 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
                         tooltipPlacement="bottom-end"
                         tooltipCloseDelayMs={0}
                         iconOnly
+                        active={sidePanelOpen}
                     >
-                        {sidePanelOpen ? (
-                            <IconSidebarClose className="!ml-0" fontSize={14} />
-                        ) : (
-                            <IconSidebarOpen className="!ml-0" fontSize={14} />
-                        )}
+                        <IconEllipsis className="!ml-0 size-4" />
                     </ButtonPrimitive>
                 </AppShortcut>
             </>
