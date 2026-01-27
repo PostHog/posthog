@@ -22,6 +22,9 @@ export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 # services start simultaneously via mprocs (they share a build lock anyway)
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
+# Use sccache for Rust compilation caching (requires sccache in PATH via flox)
+export RUSTC_WRAPPER="${RUSTC_WRAPPER:-sccache}"
+
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
 export API_QUERIES_PER_TEAM='{"1": 100}'
 

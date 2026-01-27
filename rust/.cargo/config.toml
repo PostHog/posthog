@@ -2,3 +2,8 @@
 # Force SQLX to run in offline mode for CI. Devs can change this if they want, to live code against the DB,
 # but we use it at the workspace level here to allow use of sqlx macros across all crates
 SQLX_OFFLINE = "true"
+
+# Use lld linker on macOS for faster linking (2-4x speedup)
+# Only affects local dev; CI runs on Linux and ignores this
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
