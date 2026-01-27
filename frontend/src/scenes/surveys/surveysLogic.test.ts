@@ -13,7 +13,7 @@ import {
     SurveyType,
 } from '~/types'
 
-import { SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, SurveyTemplateType } from './constants'
+import { SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, SurveyTemplate, SurveyTemplateType } from './constants'
 import { surveysLogic } from './surveysLogic'
 
 const createTestSurvey = (id: string, name: string): Survey => ({
@@ -234,7 +234,7 @@ describe('surveysLogic', () => {
         })
 
         it('should track SURVEY_CREATED intent when creating survey from template', async () => {
-            const mockTemplate = {
+            const mockTemplate: SurveyTemplate = {
                 templateType: SurveyTemplateType.NPS,
                 questions: [
                     {
