@@ -148,6 +148,9 @@ export const productTourLogic = kea<productTourLogicType>([
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
+        openToolbarModal: true,
+        closeToolbarModal: true,
+        submitAndOpenToolbar: true,
     }),
     loaders(({ props, values }) => ({
         productTour: {
@@ -382,8 +385,32 @@ export const productTourLogic = kea<productTourLogicType>([
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
+        pendingToolbarOpen: [
+            false,
+            {
+                submitAndOpenToolbar: () => true,
+                openToolbarModal: () => false,
+                closeToolbarModal: () => false,
+                submitProductTourFormFailure: () => false,
+            },
+        ],
+        isToolbarModalOpen: [
+            false,
+            {
+                openToolbarModal: () => true,
+                closeToolbarModal: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
+        submitAndOpenToolbar: () => {
+            actions.submitProductTourForm()
+        },
+        submitProductTourFormSuccess: () => {
+            if (values.pendingToolbarOpen) {
+                actions.openToolbarModal()
+            }
+        },
         launchProductTour: async () => {
             if (values.productTour) {
                 await api.productTours.update(values.productTour.id, {

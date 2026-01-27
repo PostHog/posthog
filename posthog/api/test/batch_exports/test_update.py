@@ -11,7 +11,11 @@ from django.test.client import Client as HttpClient
 from asgiref.sync import async_to_sync
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import describe_schedule
+from posthog.api.test.batch_exports.conftest import (
+    assert_is_daily_schedule,
+    assert_is_weekly_schedule,
+    describe_schedule,
+)
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
@@ -65,6 +69,7 @@ def test_can_put_config(client: HttpClient, temporal, organization, team, user):
     assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     old_schedule = describe_schedule(temporal, batch_export["id"])
+    assert old_schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
 
     # We should be able to update if we specify all fields
     new_destination_data = {**destination_data}
@@ -83,14 +88,17 @@ def test_can_put_config(client: HttpClient, temporal, organization, team, user):
     # get the batch export and validate e.g. that interval has been updated to day
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export["interval"] == "day"
+    assert batch_export["timezone"] == "UTC"
+    assert batch_export["offset_day"] is None
+    assert batch_export["offset_hour"] == 0
 
     # validate the underlying temporal schedule has been updated
     codec = EncryptionCodec(settings=settings)
     new_schedule = describe_schedule(temporal, batch_export["id"])
-    assert old_schedule.schedule.spec.intervals[0].every != new_schedule.schedule.spec.intervals[0].every
-    assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
+    assert_is_daily_schedule(new_schedule, 0)
     assert new_schedule.schedule.spec.start_at == dt.datetime(2022, 7, 19, 0, 0, 0, tzinfo=dt.UTC)
     assert new_schedule.schedule.spec.end_at == dt.datetime(2023, 7, 20, 0, 0, 0, tzinfo=dt.UTC)
+    assert new_schedule.schedule.spec.time_zone_name == "UTC"  # UTC is the default timezone if not provided
 
     decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
@@ -99,11 +107,10 @@ def test_can_put_config(client: HttpClient, temporal, organization, team, user):
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
-@pytest.mark.parametrize(
-    "timezone",
-    ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Katmandu"],
-)
-def test_can_patch_config(client: HttpClient, interval, timezone, temporal, organization, team, user):
+def test_can_patch_config(client: HttpClient, interval, temporal, organization, team, user):
+    timezone = "Europe/Berlin"
+    # use offset of 1 hour for daily exports and None for hourly exports (these don't support offsets)
+    offset_hour = None if interval == "hour" else 1
     destination_data = {
         "type": "S3",
         "config": {
@@ -119,10 +126,13 @@ def test_can_patch_config(client: HttpClient, interval, timezone, temporal, orga
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": interval,
+        "timezone": timezone,
     }
+    if offset_hour is not None:
+        batch_export_data["offset_hour"] = offset_hour
 
-    # Update team timezone for this test
-    team.timezone = timezone
+    # create a team with a timezone different to the one we are testing to ensure this has no effect on the batch export
+    team.timezone = "Asia/Seoul"
     team.save()
 
     client.force_login(user)
@@ -157,16 +167,297 @@ def test_can_patch_config(client: HttpClient, interval, timezone, temporal, orga
     # has been preserved.
     batch_export_data = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export_data["interval"] == interval
+    assert batch_export_data["timezone"] == timezone
+    if interval == "day":
+        assert batch_export_data["offset_hour"] == offset_hour
+        assert batch_export_data["offset_day"] is None
+    else:
+        assert batch_export_data["offset_hour"] is None
+        assert batch_export_data["offset_day"] is None
     assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
     # validate the underlying temporal schedule has been updated
     codec = EncryptionCodec(settings=settings)
     new_schedule = describe_schedule(temporal, batch_export["id"])
-    assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
+    if interval == "day":
+        expected_hour = offset_hour if offset_hour is not None else 0
+        assert_is_daily_schedule(old_schedule, expected_hour)
+        assert_is_daily_schedule(new_schedule, expected_hour)
+    else:
+        assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
+        assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
     decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
-    assert new_schedule.schedule.spec.time_zone_name == old_schedule.schedule.spec.time_zone_name == timezone
+    assert new_schedule.schedule.spec.time_zone_name == timezone
+
+
+@pytest.mark.parametrize(
+    "initial_state,patch_data,expected_state,expected_error",
+    [
+        pytest.param(
+            {
+                "interval": "hour",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 0,
+                "offset_hour": 0,
+            },
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 0,
+                "offset_hour": 0,
+                "interval_offset": 0,
+            },
+            None,
+            id="Changing from hourly to weekly",
+        ),
+        pytest.param(
+            {
+                "interval": "hour",
+                "timezone": None,
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "week",
+            },
+            {
+                "interval": "week",
+                "timezone": "UTC",  # should default to UTC if not provided
+                "offset_day": 0,
+                "offset_hour": 0,
+                "interval_offset": None,  # should default to None if not provided
+            },
+            None,
+            id="Changing from hourly to weekly (timezone and offset are not provided in update)",
+        ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 1,
+            },
+            {
+                "interval": "hour",
+            },
+            {
+                "interval": "hour",
+                "timezone": "Europe/Berlin",  # timezone should be preserved
+                "offset_day": None,  # should be reset to None as hourly exports don't support offsets
+                "offset_hour": None,  # should be reset to None as hourly exports don't support offsets
+                "interval_offset": None,  # should be reset to None as hourly exports don't support offsets
+            },
+            None,
+            id="Changing from daily to hourly (timezone and offset are not provided in update)",
+        ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 1,
+            },
+            {
+                "interval": "day",
+                "timezone": None,
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "day",
+                "timezone": "UTC",  # if None is provided, we should default to UTC
+                "offset_day": None,  # if None is provided, we should reset the offset to None
+                "offset_hour": 0,  # if None is provided, we should reset the offset to 0
+                "interval_offset": None,  # if None is provided, we should reset the offset to None
+            },
+            None,
+            id="Resetting timezone and offset to default values",
+        ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 1,
+            },
+            {
+                "interval": None,
+                "timezone": None,
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            None,
+            "This field may not be null.",
+            id="Interval is None in update data",
+        ),
+        pytest.param(
+            {
+                "interval": "hour",
+                "timezone": None,
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "day",
+                "timezone": "US/Pacific",
+                "offset_hour": 2,
+            },
+            {
+                "interval": "day",
+                "timezone": "US/Pacific",
+                "offset_day": None,
+                "offset_hour": 2,
+                "interval_offset": 7200,  # 2 hours = 7200 seconds
+            },
+            None,
+            id="Changing from hourly to daily and updating timezone and offset",
+        ),
+        pytest.param(
+            {
+                "interval": "hour",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "day",
+                "timezone": "US/Pacific",
+                "offset_hour": 24,
+            },
+            None,
+            "Ensure this value is less than or equal to 23.",
+            id="24 hour offset is invalid for a daily export",
+        ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "US/Pacific",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 7,
+                "offset_hour": 0,
+            },
+            None,
+            "Ensure this value is less than or equal to 6.",
+            id="7 day offset is invalid for a weekly export",
+        ),
+        pytest.param(
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {"interval": "hour", "timezone": "Europe/Berlin", "offset_hour": 1},
+            None,
+            "offset_hour is not applicable for non-daily/weekly intervals",
+        ),
+    ],
+)
+def test_can_patch_schedule_configuration(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    initial_state,
+    patch_data,
+    expected_state,
+    expected_error,
+):
+    """Test patching schedule configuration (interval, timezone, offset) updates the schedule spec correctly.
+
+    NOTE: When patching the configuration, there is a difference between including a field with a None value and not
+    including it at all. If provided, we should use the provided value (or set it to the default if None). If not
+    provided, we should keep the existing value.
+    """
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": initial_state["interval"],
+        "timezone": initial_state["timezone"],
+    }
+    if "offset_day" in initial_state:
+        batch_export_data["offset_day"] = initial_state["offset_day"]
+    if "offset_hour" in initial_state:
+        batch_export_data["offset_hour"] = initial_state["offset_hour"]
+
+    client.force_login(user)
+
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    new_batch_export_data = {}
+    if "interval" in patch_data:
+        new_batch_export_data["interval"] = patch_data["interval"]
+    if "timezone" in patch_data:
+        new_batch_export_data["timezone"] = patch_data["timezone"]
+    if "offset_day" in patch_data:
+        new_batch_export_data["offset_day"] = patch_data["offset_day"]
+    if "offset_hour" in patch_data:
+        new_batch_export_data["offset_hour"] = patch_data["offset_hour"]
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    if expected_error:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in response.json()["detail"]
+        return
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["interval"] == expected_state["interval"]
+    assert batch_export["timezone"] == expected_state["timezone"]
+    assert batch_export["offset_day"] == expected_state["offset_day"]
+    assert batch_export["offset_hour"] == expected_state["offset_hour"]
+
+    new_schedule = describe_schedule(temporal, batch_export["id"])
+    batch_export_model = BatchExport.objects.get(id=batch_export["id"])
+
+    # Verify interval_offset in the database matches expected value
+    assert batch_export_model.interval_offset == expected_state["interval_offset"]
+
+    assert new_schedule.schedule.spec.time_zone_name == expected_state["timezone"]
+
+    # Verify the schedule spec matches the new interval type
+    if expected_state["interval"] == "day":
+        # Daily exports use ScheduleCalendarSpec
+        expected_hour = expected_state["offset_hour"] if expected_state["offset_hour"] is not None else 0
+        assert_is_daily_schedule(new_schedule, expected_hour)
+    elif expected_state["interval"] == "week":
+        # Weekly exports use ScheduleCalendarSpec
+        day_offset = expected_state["offset_day"] if expected_state["offset_day"] is not None else 0
+        hour_offset = expected_state["offset_hour"] if expected_state["offset_hour"] is not None else 0
+        assert_is_weekly_schedule(new_schedule, day_offset, hour_offset)
+    else:
+        # Other intervals use ScheduleIntervalSpec
+        assert len(new_schedule.schedule.spec.intervals) == 1
+        assert new_schedule.schedule.spec.intervals[0].every == batch_export_model.interval_time_delta
 
 
 @pytest.mark.django_db

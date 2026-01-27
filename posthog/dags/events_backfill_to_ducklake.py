@@ -106,7 +106,7 @@ DEFAULT_CLICKHOUSE_SETTINGS = {
 # Note: We use toInt64(team_id) as project_id since they're equivalent in PostHog.
 # Materialized columns (dmat_*) are ClickHouse-specific and not present in DuckLake.
 EVENTS_COLUMNS = """
-    uuid,
+    toString(uuid) as uuid,
     event,
     properties,
     timestamp,
@@ -115,7 +115,7 @@ EVENTS_COLUMNS = """
     distinct_id,
     elements_chain,
     created_at,
-    person_id,
+    toString(person_id) as person_id,
     person_created_at,
     person_properties,
     group0_properties,

@@ -3405,6 +3405,8 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
+    /** When true, SDK uses selector directly instead of inferenceData for element matching */
+    useManualSelector?: boolean
     /** Button configuration for tour steps (modals / announcements) */
     buttons?: ProductTourStepButtons
     /** Banner configuration (only for banner steps) */
@@ -5483,7 +5485,7 @@ export type BatchExportService =
     | BatchExportServiceAzureBlob
     | BatchExportRealtimeDestinationBackfill
 
-export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
+export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes'
 
 export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
 export type OrNever = 'never'
@@ -5495,7 +5497,10 @@ export type BatchExportConfiguration = {
     team_id: number
     name: string
     destination: BatchExportService
-    interval: PipelineInterval
+    interval: BatchExportInterval
+    timezone: string | null
+    offset_day: number | null
+    offset_hour: number | null
     created_at: string
     start_at: string | null
     end_at: string | null
