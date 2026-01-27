@@ -168,6 +168,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                 exitAIOnlyMode()
                 startNewConversation()
             }}
+            showCloseButton={true}
         >
             <div className="flex flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center flex-1 min-w-0">

@@ -5733,6 +5733,7 @@ export enum SidePanelTab {
     AccessControl = 'access-control',
     SdkDoctor = 'sdk-doctor',
     Health = 'health',
+    Info = 'info',
 }
 
 export interface ProductPricingTierSubrows {

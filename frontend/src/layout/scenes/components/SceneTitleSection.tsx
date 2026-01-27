@@ -51,6 +51,7 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
                     intent="Open side panel"
                     interaction="click"
                 >
+                    {/* Size to mimc lemon button small */}
                     <ButtonPrimitive
                         className="-mr-2 size-[33px]"
                         onClick={(e) => {
@@ -59,7 +60,7 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
                             if (sidePanelOpen) {
                                 closeSidePanel()
                             } else {
-                                openSidePanel(SidePanelTab.Notebooks)
+                                openSidePanel(SidePanelTab.Info)
                             }
                         }}
                         tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}

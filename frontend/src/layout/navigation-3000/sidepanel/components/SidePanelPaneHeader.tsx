@@ -4,6 +4,7 @@ import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
@@ -13,9 +14,16 @@ export type SidePanelPaneHeaderProps = {
     children?: React.ReactNode
     className?: string
     onClose?: () => void
+    showCloseButton?: boolean
 }
 
-export function SidePanelPaneHeader({ children, title, className, onClose }: SidePanelPaneHeaderProps): JSX.Element {
+export function SidePanelPaneHeader({
+    children,
+    title,
+    className,
+    onClose,
+    showCloseButton = false,
+}: SidePanelPaneHeaderProps): JSX.Element {
     const { modalMode } = useValues(sidePanelStateLogic)
     const { closeSidePanel } = useActions(sidePanelStateLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
@@ -41,6 +49,21 @@ export function SidePanelPaneHeader({ children, title, className, onClose }: Sid
             ) : null}
 
             {children}
+
+            {isRemovingSidePanelFlag && (
+                <>
+                    {showCloseButton && (
+                        <ButtonPrimitive
+                            onClick={() => {
+                                closeSidePanel()
+                                onClose?.()
+                            }}
+                        >
+                            <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                        </ButtonPrimitive>
+                    )}
+                </>
+            )}
 
             {!isRemovingSidePanelFlag && (
                 <LemonButton
