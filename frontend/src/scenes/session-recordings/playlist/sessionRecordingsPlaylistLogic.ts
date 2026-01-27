@@ -8,7 +8,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { formatPropertyLabel, isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import {
+    formatPropertyLabel,
+    isAnyPropertyfilter,
+    isHogQLPropertyFilter,
+    normalizePropertyFilterValue,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
@@ -288,7 +293,34 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     comment_text = f
                 }
             } else {
-                properties.push(f)
+                // Normalize filter value to ensure multi-select operators have array values
+                // Skip cohort filters as they have a different value type (number)
+                const normalizedValue =
+                    f.type !== 'cohort' ? normalizePropertyFilterValue(f.value, f.operator) : f.value
+
+                // Debug logging for replay filter value type investigation
+                // TODO: Remove after debugging
+                if (
+                    f.type === 'feature' ||
+                    (f.type === 'event' && typeof f.key === 'string' && f.key.includes('$feature'))
+                ) {
+                    posthog.capture('debug_replay_filter_value_type', {
+                        filter_type: f.type,
+                        filter_key: f.key,
+                        original_value: f.value,
+                        normalized_value: normalizedValue,
+                        value_type: typeof f.value,
+                        is_array: Array.isArray(f.value),
+                        operator: f.operator,
+                    })
+                }
+
+                // Only create a new object if the value actually changed
+                if (normalizedValue !== f.value) {
+                    properties.push({ ...f, value: normalizedValue } as typeof f)
+                } else {
+                    properties.push(f)
+                }
             }
         }
     })

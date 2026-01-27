@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
+import structlog
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -53,6 +54,8 @@ from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+
+logger = structlog.get_logger(__name__)
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -730,6 +733,22 @@ def property_to_expr(
                     ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
                     ast.Constant(value="Array(String)"),
                 ],
+            )
+
+        # Debug logging for replay filter value type investigation
+        # TODO: Remove after debugging
+        if property.type == "feature" or (
+            property.type == "event" and property.key and "$feature" in str(property.key)
+        ):
+            logger.info(
+                "property_to_expr_feature_filter_debug",
+                property_type=property.type,
+                property_key=property.key,
+                value=value,
+                value_type=type(value).__name__,
+                is_list=isinstance(value, list),
+                operator=str(operator),
+                scope=scope,
             )
 
         if isinstance(value, list) and operator not in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
