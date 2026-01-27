@@ -162,37 +162,6 @@ def dev_intents() -> None:
         click.echo("")
 
 
-@cli.command(name="dev:profile", help="Show current dev environment config")
-def dev_profile() -> None:
-    """Display the current dev environment configuration."""
-    output_path = get_generated_mprocs_path()
-    config = load_devenv_config(output_path)
-
-    if config is None:
-        click.echo("No dev environment config found.")
-        click.echo("")
-        click.echo("Run 'hogli dev:setup' to create one.")
-        return
-
-    click.echo("Current config:")
-    click.echo(f"  Path: {output_path}")
-    click.echo("")
-
-    if config.intents:
-        click.echo(f"  Products: {', '.join(config.intents)}")
-    else:
-        click.echo("  No products configured")
-
-    if config.include_units:
-        click.echo(f"  Include: {', '.join(config.include_units)}")
-    if config.exclude_units:
-        click.echo(f"  Exclude: {', '.join(config.exclude_units)}")
-    if config.skip_autostart:
-        click.echo(f"  Manual start: {', '.join(config.skip_autostart)}")
-    if config.enable_autostart:
-        click.echo(f"  Auto-start: {', '.join(config.enable_autostart)}")
-
-
 @cli.command(name="dev:setup", help="Interactive wizard to configure your dev environment")
 @click.option("--log", "log_to_files", is_flag=True, help="Log process output to /tmp/posthog-*.log files")
 def dev_setup(log_to_files: bool) -> None:

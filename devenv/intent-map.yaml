@@ -170,13 +170,13 @@ intents:
         capabilities: [dev_tools]
 
 # Always-required processes regardless of intent
-# This is the "core" stack - what minimal preset provides
+# This is the core stack needed for any development
 always_required:
     - backend
     - frontend
     - typegen
     - docker-compose
-    # Core services (minimal preset baseline)
+    # Core services
     - celery-worker
     - celery-beat
     - nodejs

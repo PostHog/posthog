@@ -89,8 +89,6 @@ devenv:
     dev:generate:
     dev:explain:
     dev:intents:
-    dev:presets:
-    dev:profile:
 core:
     categories:
         description: Show all available commands grouped by category
