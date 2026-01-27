@@ -13,6 +13,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { Workflow } from './Workflow'
@@ -30,6 +31,7 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
         id: id || 'new',
         tab: tab || 'workflow',
     }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {

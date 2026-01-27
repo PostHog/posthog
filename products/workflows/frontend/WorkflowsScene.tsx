@@ -93,7 +93,8 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
 export const scene: SceneExport<WorkflowsSceneProps> = {
     component: WorkflowsScene,
     logic: workflowSceneLogic,
-    paramsToProps: ({ params: { tab } }) => ({ tab: tab as WorkflowsSceneTab | undefined }),
+    paramsToProps: ({ params: { tab } }) => ({ tab }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {

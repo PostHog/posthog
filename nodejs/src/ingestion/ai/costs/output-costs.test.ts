@@ -23,7 +23,8 @@ function createModel(
     model: string,
     provider?: string,
     promptTokenCost?: number,
-    completionTokenCost?: number
+    completionTokenCost?: number,
+    imageOutputCost?: number
 ): ResolvedModelCost {
     return {
         model,
@@ -31,6 +32,7 @@ function createModel(
         cost: {
             prompt_token: promptTokenCost ?? 0.000001,
             completion_token: completionTokenCost ?? 0.000002,
+            ...(imageOutputCost !== undefined && { image_output: imageOutputCost }),
         },
     }
 }
@@ -247,6 +249,131 @@ describe('calculateOutputCost()', () => {
                 expectCost(result, expectedCost)
             }
         )
+    })
+
+    describe('image output tokens - multimodal cost calculation', () => {
+        // Gemini 2.5 Flash Image pricing (from Google pricing page):
+        // Input: $0.30/1M tokens ($0.0000003/token)
+        // Text output: $2.50/1M tokens ($0.0000025/token) - same as 2.5 Flash
+        // Image output: $30/1M tokens ($0.00003/token)
+        // 1290 tokens per 1024x1024 image = $0.039/image
+        const geminiImageModel = createModel(
+            'gemini-2.5-flash-image',
+            'google',
+            0.0000003, // prompt ($0.30/1M)
+            0.0000025, // completion/text ($2.50/1M)
+            0.00003 // image_output ($30/1M)
+        )
+
+        it('calculates separate costs for text and image output tokens', () => {
+            // Example: 10 text tokens + 1290 image tokens (1 image)
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-2.5-flash-image',
+                $ai_output_tokens: 1300, // Total: 10 text + 1290 image
+                $ai_image_output_tokens: 1290,
+                $ai_text_output_tokens: 10,
+            })
+
+            const result = calculateOutputCost(event, geminiImageModel)
+
+            // Expected: (10 * 0.0000025) + (1290 * 0.00003) = 0.000025 + 0.0387 = 0.038725
+            expectCost(result, 0.038725, 6)
+        })
+
+        it('calculates text tokens from total minus image when text tokens not explicit', () => {
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-2.5-flash-image',
+                $ai_output_tokens: 1300, // Total
+                $ai_image_output_tokens: 1290, // Image tokens only
+                // $ai_text_output_tokens not set
+            })
+
+            const result = calculateOutputCost(event, geminiImageModel)
+
+            // Text tokens calculated as: 1300 - 1290 = 10
+            // Expected: (10 * 0.0000025) + (1290 * 0.00003) = 0.038725
+            expectCost(result, 0.038725, 6)
+        })
+
+        it('handles only image output (no text)', () => {
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-2.5-flash-image',
+                $ai_output_tokens: 1290,
+                $ai_image_output_tokens: 1290,
+            })
+
+            const result = calculateOutputCost(event, geminiImageModel)
+
+            // Text tokens: 1290 - 1290 = 0
+            // Expected: (0 * 0.0000025) + (1290 * 0.00003) = 0.0387
+            expectCost(result, 0.0387, 6)
+        })
+
+        it('falls back to standard calculation when no image pricing available', () => {
+            const modelWithoutImagePricing = createModel('some-model', 'some-provider', 0.000001, 0.0000025)
+            const event = createAIEvent({
+                $ai_provider: 'some-provider',
+                $ai_model: 'some-model',
+                $ai_output_tokens: 1300,
+                $ai_image_output_tokens: 1290, // Has image tokens but no image pricing
+            })
+
+            const result = calculateOutputCost(event, modelWithoutImagePricing)
+
+            // Falls back to: 1300 * 0.0000025 = 0.00325
+            expectCost(result, 0.00325, 6)
+        })
+
+        it('handles image output with reasoning tokens for gemini-2.5', () => {
+            // Gemini 2.5 Flash Image model with reasoning
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-2.5-flash-image',
+                $ai_output_tokens: 1500, // Total
+                $ai_image_output_tokens: 1290, // Image
+                $ai_text_output_tokens: 10, // Text
+                $ai_reasoning_tokens: 200, // Reasoning (added to text for Gemini 2.5)
+            })
+
+            const result = calculateOutputCost(event, geminiImageModel)
+
+            // Text tokens with reasoning: 10 + 200 = 210
+            // Expected: (210 * 0.0000025) + (1290 * 0.00003) = 0.000525 + 0.0387 = 0.039225
+            expectCost(result, 0.039225, 6)
+        })
+
+        it('handles zero image tokens with image pricing (text only)', () => {
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-2.5-flash-image',
+                $ai_output_tokens: 500,
+                $ai_image_output_tokens: 0, // Explicitly zero
+            })
+
+            const result = calculateOutputCost(event, geminiImageModel)
+
+            // Falls back to standard: 500 * 0.0000025 = 0.00125
+            expectCost(result, 0.00125, 6)
+        })
+
+        it('handles multiple images (large image token count)', () => {
+            // 3 images = 3 * 1290 = 3870 tokens
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-2.5-flash-image',
+                $ai_output_tokens: 3880, // 10 text + 3870 image
+                $ai_image_output_tokens: 3870,
+                $ai_text_output_tokens: 10,
+            })
+
+            const result = calculateOutputCost(event, geminiImageModel)
+
+            // Expected: (10 * 0.0000025) + (3870 * 0.00003) = 0.000025 + 0.1161 = 0.116125
+            expectCost(result, 0.116125, 6)
+        })
     })
 
     describe('edge cases', () => {

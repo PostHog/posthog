@@ -7,7 +7,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { formatPropertyLabel, isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import {
+    formatPropertyLabel,
+    isAnyPropertyfilter,
+    isHogQLPropertyFilter,
+    normalizePropertyFilterValue,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
@@ -25,7 +31,6 @@ import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { groupsModel } from '~/models/groupsModel'
 import {
     NodeKind,
@@ -35,6 +40,7 @@ import {
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
+    AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
     LegacyRecordingFilters,
@@ -245,6 +251,54 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     return true
 }
 
+/**
+ * Normalizes filter values from URL to ensure multi-select operators have array values.
+ * This fixes issues with saved/bookmarked URLs that may have string values instead of arrays.
+ */
+function normalizeFiltersFromUrl(filters: Partial<RecordingUniversalFilters>): Partial<RecordingUniversalFilters> {
+    if (!filters.filter_group?.values) {
+        return filters
+    }
+
+    const normalizedFilterGroup: UniversalFiltersGroup = {
+        ...filters.filter_group,
+        values: filters.filter_group.values.map((group): UniversalFiltersGroup => {
+            if (!('values' in group) || !Array.isArray(group.values)) {
+                return group as UniversalFiltersGroup
+            }
+            return {
+                ...group,
+                values: group.values.map((filter): UniversalFilterValue => {
+                    // Only normalize property filters that have both operator and value properties
+                    // Skip cohort filters (value is number) and action/event filters (no value property)
+                    if (
+                        !filter ||
+                        typeof filter !== 'object' ||
+                        !('operator' in filter) ||
+                        !('value' in filter) ||
+                        ('type' in filter && filter.type === 'cohort')
+                    ) {
+                        return filter as UniversalFilterValue
+                    }
+                    const normalizedValue = normalizePropertyFilterValue(
+                        filter.value,
+                        filter.operator as PropertyOperator | null
+                    )
+                    if (normalizedValue !== filter.value) {
+                        return { ...filter, value: normalizedValue } as UniversalFilterValue
+                    }
+                    return filter as UniversalFilterValue
+                }),
+            }
+        }),
+    }
+
+    return {
+        ...filters,
+        filter_group: normalizedFilterGroup,
+    }
+}
+
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
     const filters = filtersFromUniversalFilterGroups(universalFilters)
 
@@ -288,7 +342,34 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     comment_text = f
                 }
             } else {
-                properties.push(f)
+                // Normalize filter value to ensure multi-select operators have array values
+                // Skip cohort filters as they have a different value type (number)
+                const normalizedValue =
+                    f.type !== 'cohort' ? normalizePropertyFilterValue(f.value, f.operator) : f.value
+
+                // Debug logging for replay filter value type investigation
+                // TODO: Remove after debugging
+                if (
+                    f.type === 'feature' ||
+                    (f.type === 'event' && typeof f.key === 'string' && f.key.includes('$feature'))
+                ) {
+                    posthog.capture('debug_replay_filter_value_type', {
+                        filter_type: f.type,
+                        filter_key: f.key,
+                        original_value: f.value,
+                        normalized_value: normalizedValue,
+                        value_type: typeof f.value,
+                        is_array: Array.isArray(f.value),
+                        operator: f.operator,
+                    })
+                }
+
+                // Only create a new object if the value actually changed
+                if (normalizedValue !== f.value) {
+                    properties.push({ ...f, value: normalizedValue } as AnyPropertyFilter)
+                } else {
+                    properties.push(f)
+                }
             }
         }
     })
@@ -993,7 +1074,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.maybeLoadSessionRecordings('older')
             }
 
-            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.WatchSessionRecording)
         },
 
         setHideViewedRecordings: () => {
@@ -1438,7 +1519,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Event,
                     operator: PropertyOperator.Exact,
                     key: params.eventProperty,
-                    value: params.eventPropertyValue,
+                    value: normalizePropertyFilterValue(params.eventPropertyValue, PropertyOperator.Exact),
                 }
             }
 
@@ -1447,7 +1528,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Person,
                     operator: PropertyOperator.Exact,
                     key: params.personProperty,
-                    value: params.personPropertyValue,
+                    value: normalizePropertyFilterValue(params.personPropertyValue, PropertyOperator.Exact),
                 }
             }
 
@@ -1470,8 +1551,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
+                // Normalize filters from URL to fix string values that should be arrays
+                const normalizedUrlFilters = params.filters ? normalizeFiltersFromUrl(params.filters) : undefined
                 const updatedFilters = {
-                    ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
+                    ...(normalizedUrlFilters && !equal(normalizedUrlFilters, values.filters)
+                        ? normalizedUrlFilters
+                        : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
                         ? { order_direction: params.order_direction }

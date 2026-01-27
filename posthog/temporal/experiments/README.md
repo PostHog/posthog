@@ -24,6 +24,11 @@ Each team can configure when their experiments should be recalculated (default: 
 
 ## Workflow structure
 
+There are two parallel workflow systems:
+
+- **Regular metrics** (`ExperimentRegularMetricsWorkflow`): Processes metrics defined inline in `experiment.metrics` and `experiment.metrics_secondary`
+- **Saved metrics** (`ExperimentSavedMetricsWorkflow`): Processes reusable metrics linked via `ExperimentToSavedMetric`
+
 When a schedule triggers, it starts a workflow that:
 
 1. Discovers which experiment-metric pairs need calculation
@@ -62,6 +67,12 @@ When a schedule triggers, it starts a workflow that:
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
+The `ExperimentSavedMetricsWorkflow` follows the same structure but:
+
+- Uses `get_experiment_saved_metrics_for_hour` to discover metrics from `experimenttosavedmetric_set`
+- Uses `calculate_experiment_saved_metric` to process each saved metric
+- Does not filter on empty `metrics`/`metrics_secondary` arrays (saved metrics are separate)
+
 ## Key concepts
 
 **Workflow**: A durable function that orchestrates the calculation. If it fails partway through, Temporal can resume it from where it left off.
@@ -74,7 +85,7 @@ When a schedule triggers, it starts a workflow that:
 
 **Temporal UI:** http://localhost:8081
 
-**Create schedules locally** (paste into `python manage.py shell`):
+**Create regular metrics schedules locally** (paste into `python manage.py shell`):
 
 ```python
 import asyncio
@@ -99,6 +110,22 @@ async def main():
     await delete_old_schedules(client)
     print("Creating new schedules...")
     await create_experiment_regular_metrics_schedules(client)
+    print("Done!")
+
+asyncio.run(main())
+```
+
+**Create saved metrics schedules locally** (paste into `python manage.py shell`):
+
+```python
+import asyncio
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.experiments.schedule import create_experiment_saved_metrics_schedules
+
+async def main():
+    client = await async_connect()
+    print("Creating saved metrics schedules...")
+    await create_experiment_saved_metrics_schedules(client)
     print("Done!")
 
 asyncio.run(main())

@@ -11,3 +11,9 @@ export const aiErrorNormalizationCounter = new Counter({
     help: 'AI error normalization outcomes',
     labelNames: ['status'],
 })
+
+export const aiCostModalityExtractionCounter = new Counter({
+    name: 'ai_cost_modality_extraction_total',
+    help: 'AI cost modality token extraction outcomes',
+    labelNames: ['status'],
+})
