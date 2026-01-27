@@ -2261,6 +2261,7 @@ export interface ProjectBackwardCompatApi {
     /** @nullable */
     conversations_enabled?: boolean | null
     conversations_settings?: unknown
+    logs_settings?: unknown
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2382,6 +2383,7 @@ export interface PatchedProjectBackwardCompatApi {
     /** @nullable */
     conversations_enabled?: boolean | null
     conversations_settings?: unknown
+    logs_settings?: unknown
 }
 
 export interface RoleApi {
