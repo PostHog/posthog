@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { TAGS_TO_IGNORE } from 'lib/actionUtils'
@@ -268,6 +269,14 @@ export function inferSelector(
         }
 
         if (notextMap.size === 0 && textMap.size === 0) {
+            posthog.captureException(new Error('No selectors found for element during inference'), {
+                feature: 'product-tours',
+                action: 'element-inference-no-selectors',
+                element_tag: element.tagName?.toLowerCase(),
+                element_id: element.id || null,
+                element_class: element.className || null,
+                element_text: text?.substring(0, 100) || null,
+            })
             console.warn('[ElementInference] No selectors found for element', element)
             return null
         }
@@ -293,6 +302,13 @@ export function inferSelector(
             },
         }
     } catch (error) {
+        posthog.captureException(error instanceof Error ? error : new Error(String(error)), {
+            feature: 'product-tours',
+            action: 'element-inference-error',
+            element_tag: element.tagName?.toLowerCase(),
+            element_id: element.id || null,
+            element_class: element.className || null,
+        })
         console.error('[ElementInference] Error inferring selector:', error)
         return null
     }

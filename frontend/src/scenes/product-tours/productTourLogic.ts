@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -276,6 +277,11 @@ export const productTourLogic = kea<productTourLogicType>([
                         stepStats,
                     }
                 } catch (error) {
+                    posthog.captureException(error instanceof Error ? error : new Error(String(error)), {
+                        feature: 'product-tours',
+                        action: 'load-tour-stats',
+                        tour_id: props.id,
+                    })
                     console.error('Failed to load tour stats:', error)
                     return null
                 }
@@ -417,37 +423,69 @@ export const productTourLogic = kea<productTourLogicType>([
                 actions.openToolbarModal()
             }
         },
-        submitProductTourFormFailure: () => {
+        submitProductTourFormFailure: ({ error }) => {
+            posthog.captureException(error instanceof Error ? error : new Error(String(error)), {
+                feature: 'product-tours',
+                action: 'save-tour-form',
+                tour_id: values.productTour?.id ?? null,
+            })
             lemonToast.error('Failed to save product tour')
         },
         launchProductTour: async () => {
             if (values.productTour) {
-                await api.productTours.update(values.productTour.id, {
-                    start_date: new Date().toISOString(),
-                })
-                lemonToast.success('Product tour launched')
-                actions.loadProductTour()
-                actions.loadProductTours()
+                try {
+                    await api.productTours.update(values.productTour.id, {
+                        start_date: new Date().toISOString(),
+                    })
+                    lemonToast.success('Product tour launched')
+                    actions.loadProductTour()
+                    actions.loadProductTours()
+                } catch (error) {
+                    posthog.captureException(error instanceof Error ? error : new Error(String(error)), {
+                        feature: 'product-tours',
+                        action: 'launch-tour',
+                        tour_id: values.productTour.id,
+                    })
+                    lemonToast.error('Failed to launch product tour')
+                }
             }
         },
         stopProductTour: async () => {
             if (values.productTour) {
-                await api.productTours.update(values.productTour.id, {
-                    end_date: new Date().toISOString(),
-                })
-                lemonToast.success('Product tour stopped')
-                actions.loadProductTour()
-                actions.loadProductTours()
+                try {
+                    await api.productTours.update(values.productTour.id, {
+                        end_date: new Date().toISOString(),
+                    })
+                    lemonToast.success('Product tour stopped')
+                    actions.loadProductTour()
+                    actions.loadProductTours()
+                } catch (error) {
+                    posthog.captureException(error instanceof Error ? error : new Error(String(error)), {
+                        feature: 'product-tours',
+                        action: 'stop-tour',
+                        tour_id: values.productTour.id,
+                    })
+                    lemonToast.error('Failed to stop product tour')
+                }
             }
         },
         resumeProductTour: async () => {
             if (values.productTour) {
-                await api.productTours.update(values.productTour.id, {
-                    end_date: null,
-                })
-                lemonToast.success('Product tour resumed')
-                actions.loadProductTour()
-                actions.loadProductTours()
+                try {
+                    await api.productTours.update(values.productTour.id, {
+                        end_date: null,
+                    })
+                    lemonToast.success('Product tour resumed')
+                    actions.loadProductTour()
+                    actions.loadProductTours()
+                } catch (error) {
+                    posthog.captureException(error instanceof Error ? error : new Error(String(error)), {
+                        feature: 'product-tours',
+                        action: 'resume-tour',
+                        tour_id: values.productTour.id,
+                    })
+                    lemonToast.error('Failed to resume product tour')
+                }
             }
         },
         loadProductTourSuccess: ({ productTour }) => {

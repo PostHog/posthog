@@ -2,6 +2,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 import { findElement } from 'posthog-js/dist/element-inference'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -183,6 +184,11 @@ export const productToursLogic = kea<productToursLogicType>([
                 loadTours: async () => {
                     const response = await toolbarFetch('/api/projects/@current/product_tours/')
                     if (!response.ok) {
+                        posthog.captureException(new Error('Failed to load product tours'), {
+                            feature: 'product-tours',
+                            action: 'load-tours',
+                            response_status: response.status,
+                        })
                         return []
                     }
                     const data = await response.json()
@@ -334,8 +340,18 @@ export const productToursLogic = kea<productToursLogicType>([
 
                 if (!response.ok) {
                     const error = await response.json()
-                    lemonToast.error(error.detail || 'Failed to save tour')
-                    throw new Error(error.detail || 'Failed to save tour')
+                    const errorMessage = error.detail || 'Failed to save tour'
+                    posthog.captureException(new Error(errorMessage), {
+                        feature: 'product-tours',
+                        action: 'save-tour',
+                        tour_id: id ?? null,
+                        tour_name: name,
+                        step_count: steps.length,
+                        is_update: isUpdate,
+                        response_status: response.status,
+                    })
+                    lemonToast.error(errorMessage)
+                    throw new Error(errorMessage)
                 }
 
                 const savedTour = await response.json()
@@ -449,8 +465,29 @@ export const productToursLogic = kea<productToursLogicType>([
 
             const { stepIndex } = editorState
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
-            const inferenceData = inferSelector(element)?.selector
+            const inferenceResult = inferSelector(element)
+            const inferenceData = inferenceResult?.selector
+
+            if (!inferenceData) {
+                posthog.captureException(new Error('Failed to infer element selector'), {
+                    feature: 'product-tours',
+                    action: 'element-inference-failed',
+                    tour_id: tourForm?.id ?? null,
+                    step_index: stepIndex,
+                    element_tag: element.tagName?.toLowerCase(),
+                    element_id: element.id || null,
+                    element_class: element.className || null,
+                    fallback_selector: selector,
+                })
+            }
+
             const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
+                posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
+                    feature: 'product-tours',
+                    action: 'screenshot-capture-failed',
+                    tour_id: tourForm?.id ?? null,
+                    step_index: stepIndex,
+                })
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
                 return null
             })
@@ -588,6 +625,16 @@ export const productToursLogic = kea<productToursLogicType>([
             // Check if the first element step's target exists on this page
             const firstElementStep = tourForm.steps.find((step) => step.type === 'element' && step.selector)
             if (firstElementStep && !getStepElement(firstElementStep)) {
+                posthog.captureException(new Error('Preview failed: element not found on page'), {
+                    feature: 'product-tours',
+                    action: 'preview-element-not-found',
+                    tour_id: tourForm.id ?? null,
+                    step_selector: firstElementStep.selector,
+                    step_type: firstElementStep.type,
+                    has_inference_data: !!firstElementStep.inferenceData,
+                    use_manual_selector: firstElementStep.useManualSelector ?? false,
+                    current_url: window.location.href,
+                })
                 // eslint-disable-next-line no-alert
                 alert(
                     "Can't preview tour: the first step targets an element not found on this page.\n\nNavigate to a page where this element exists, or update the selector."
@@ -666,6 +713,12 @@ export const productToursLogic = kea<productToursLogicType>([
                 actions.loadTours()
                 actions.selectTour(null)
             } else {
+                posthog.captureException(new Error('Failed to delete tour'), {
+                    feature: 'product-tours',
+                    action: 'delete-tour',
+                    tour_id: id,
+                    response_status: response.status,
+                })
                 lemonToast.error('Failed to delete tour')
             }
         },
