@@ -9,4 +9,7 @@ fi
 
 pnpm install --frozen-lockfile
 
+# Build UI apps (required for ext-apps visualization support)
+pnpm run build:ui-apps
+
 exec pnpm run dev

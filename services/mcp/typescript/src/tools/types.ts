@@ -46,11 +46,23 @@ export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
         openWorldHint: boolean
         readOnlyHint: boolean
     }
+    _meta?: ToolMeta
 }
 
 export type ToolBase<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = Omit<
     Tool<TSchema>,
     'title' | 'description' | 'scopes' | 'annotations'
->
+> & {
+    _meta?: ToolMeta
+}
 
 export type ZodObjectAny = z.ZodObject<any, any, any, any, any>
+
+export type ToolUiMeta = {
+    resourceUri: string
+    visibility?: ('model' | 'app')[]
+}
+
+export type ToolMeta = {
+    ui?: ToolUiMeta
+}

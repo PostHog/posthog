@@ -35,6 +35,11 @@
             "globs": ["**/*.md"],
             "fallthrough": true,
         },
+        {
+            "type": "Text",
+            "globs": ["ui-apps-dist/**/*.html"],
+            "fallthrough": true,
+        },
     ],
     /**
      * Smart Placement

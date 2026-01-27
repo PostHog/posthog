@@ -35,6 +35,7 @@ golangci-lint = { pkg-path = "golangci-lint", pkg-group = "go" }
 air = { pkg-path = "air" }
 # CLI tools
 mprocs = { pkg-path = "mprocs" }
+cloudflared = { pkg-path = "cloudflared" }
 util-linux = { pkg-path = "util-linux" } # flock
 cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx

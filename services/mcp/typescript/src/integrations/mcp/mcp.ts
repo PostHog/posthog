@@ -19,6 +19,7 @@ import { StateManager } from '@/lib/utils/StateManager'
 import { DurableObjectCache } from '@/lib/utils/cache/DurableObjectCache'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
+import { registerUiAppResources } from '@/resources/ui-apps'
 import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 
@@ -29,19 +30,6 @@ const INSTRUCTIONS = `
 `
 
 export type RequestProperties = {
-    /**
-     * PBKDF2 hash of the API token, used to namespace per-user data in Durable Object storage.
-     *
-     * Durable Objects provide a single shared SQLite storage instance. To isolate users,
-     * the DurableObjectCache prefixes all storage keys with `user:${userHash}:`. For example:
-     *   - User A's region → `user:abc123:region`
-     *   - User B's region → `user:def456:region`
-     *
-     * This ensures users can't access each other's cached data while sharing the same
-     * Durable Object infrastructure.
-     *
-     * See: src/lib/utils/helper-functions.ts for the PBKDF2 hash implementation.
-     */
     userHash: string
     apiToken: string
     sessionId?: string
@@ -70,18 +58,6 @@ export class MCP extends McpAgent<Env> {
         return this.props as RequestProperties
     }
 
-    /**
-     * Per-user cache backed by Durable Object SQLite storage.
-     *
-     * Durable Objects provide a single shared storage instance (`this.ctx.storage`).
-     * To isolate users, we pass `userHash` to DurableObjectCache, which prefixes
-     * all keys with `user:${userHash}:`. For example:
-     *
-     *   cache.set('region', 'us')  →  storage.put('user:abc123:region', 'us')
-     *
-     * This ensures User A (hash abc123) and User B (hash def456) have completely
-     * separate data within the same underlying storage.
-     */
     get cache(): DurableObjectCache<State> {
         if (!this.requestProperties.userHash) {
             throw new Error('User hash is required to use the cache')
@@ -262,6 +238,7 @@ export class MCP extends McpAgent<Env> {
                 description: tool.description,
                 inputSchema: tool.schema.shape,
                 annotations: tool.annotations,
+                ...(tool._meta ? { _meta: tool._meta } : {}),
             },
             wrappedHandler as unknown as ToolCallback<TSchema>
         )
@@ -284,6 +261,7 @@ export class MCP extends McpAgent<Env> {
         // Register prompts and resources
         await registerPrompts(this.server, context)
         await registerResources(this.server, context)
+        await registerUiAppResources(this.server)
 
         // Register tools
         const features = this.requestProperties.features
