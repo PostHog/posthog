@@ -243,7 +243,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 )
             )
 
-        return ast.Or(exprs=exprs)
+        return ast.Or(exprs=exprs) if len(exprs) > 1 else exprs[0]
 
     def period_aggregate(
         self,

@@ -71,6 +71,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                             }}
                             fullWidth={true}
                             label="Include mobile events"
+                            tooltip="When enabled, $screen events from mobile apps are included in analytics. Disable to see only web pageviews."
                         />
                     ),
                 },
