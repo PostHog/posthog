@@ -225,7 +225,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception as e:
             logger.exception(f"Failed to run video segment clustering workflow for team {self.team.id}")
             return Response(
-                {"error": str(e)},
+                {"error": "Failed to run video segment clustering workflow"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
