@@ -10,20 +10,15 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     DataModelingJobApi,
+    DataModelingJobsList2Params,
     DataModelingJobsListParams,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryDraftApi,
-    EnvironmentsDataModelingJobsListParams,
-    EnvironmentsExternalDataSchemasListParams,
-    EnvironmentsExternalDataSourcesListParams,
-    EnvironmentsWarehouseSavedQueriesListParams,
-    EnvironmentsWarehouseSavedQueryDraftsListParams,
-    EnvironmentsWarehouseTablesListParams,
-    EnvironmentsWarehouseViewLinkListParams,
-    EnvironmentsWarehouseViewLinksListParams,
     ExternalDataSchemaApi,
+    ExternalDataSchemasList2Params,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourcesList2Params,
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
@@ -44,9 +39,14 @@ import type {
     ViewLinkApi,
     ViewLinkValidationApi,
     WarehouseModelPathsListParams,
+    WarehouseSavedQueriesList2Params,
     WarehouseSavedQueriesListParams,
+    WarehouseSavedQueryDraftsListParams,
+    WarehouseTablesList2Params,
     WarehouseTablesListParams,
+    WarehouseViewLinkList2Params,
     WarehouseViewLinkListParams,
+    WarehouseViewLinksList2Params,
     WarehouseViewLinksListParams,
 } from './api.schemas'
 
@@ -66,2039 +66,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-/**
- * List data modeling jobs which are "runs" for our saved queries.
- */
-export type environmentsDataModelingJobsListResponse200 = {
-    data: PaginatedDataModelingJobListApi
-    status: 200
-}
-
-export type environmentsDataModelingJobsListResponseSuccess = environmentsDataModelingJobsListResponse200 & {
-    headers: Headers
-}
-export type environmentsDataModelingJobsListResponse = environmentsDataModelingJobsListResponseSuccess
-
-export const getEnvironmentsDataModelingJobsListUrl = (
-    projectId: string,
-    params?: EnvironmentsDataModelingJobsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/data_modeling_jobs/?${stringifiedParams}`
-        : `/api/environments/${projectId}/data_modeling_jobs/`
-}
-
-export const environmentsDataModelingJobsList = async (
-    projectId: string,
-    params?: EnvironmentsDataModelingJobsListParams,
-    options?: RequestInit
-): Promise<environmentsDataModelingJobsListResponse> => {
-    return apiMutator<environmentsDataModelingJobsListResponse>(
-        getEnvironmentsDataModelingJobsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * List data modeling jobs which are "runs" for our saved queries.
- */
-export type environmentsDataModelingJobsRetrieveResponse200 = {
-    data: DataModelingJobApi
-    status: 200
-}
-
-export type environmentsDataModelingJobsRetrieveResponseSuccess = environmentsDataModelingJobsRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsDataModelingJobsRetrieveResponse = environmentsDataModelingJobsRetrieveResponseSuccess
-
-export const getEnvironmentsDataModelingJobsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_jobs/${id}/`
-}
-
-export const environmentsDataModelingJobsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsDataModelingJobsRetrieveResponse> => {
-    return apiMutator<environmentsDataModelingJobsRetrieveResponse>(
-        getEnvironmentsDataModelingJobsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Returns completed/non-running activities (jobs with status 'Completed').
-Supports pagination and cutoff time filtering.
- */
-export type environmentsDataWarehouseCompletedActivityRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsDataWarehouseCompletedActivityRetrieveResponseSuccess =
-    environmentsDataWarehouseCompletedActivityRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsDataWarehouseCompletedActivityRetrieveResponse =
-    environmentsDataWarehouseCompletedActivityRetrieveResponseSuccess
-
-export const getEnvironmentsDataWarehouseCompletedActivityRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_warehouse/completed_activity/`
-}
-
-export const environmentsDataWarehouseCompletedActivityRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsDataWarehouseCompletedActivityRetrieveResponse> => {
-    return apiMutator<environmentsDataWarehouseCompletedActivityRetrieveResponse>(
-        getEnvironmentsDataWarehouseCompletedActivityRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Returns failed/disabled data pipeline items for the Pipeline status side panel.
-Includes: materializations, syncs, sources, destinations, and transformations.
- */
-export type environmentsDataWarehouseDataHealthIssuesRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsDataWarehouseDataHealthIssuesRetrieveResponseSuccess =
-    environmentsDataWarehouseDataHealthIssuesRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsDataWarehouseDataHealthIssuesRetrieveResponse =
-    environmentsDataWarehouseDataHealthIssuesRetrieveResponseSuccess
-
-export const getEnvironmentsDataWarehouseDataHealthIssuesRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_warehouse/data_health_issues/`
-}
-
-export const environmentsDataWarehouseDataHealthIssuesRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsDataWarehouseDataHealthIssuesRetrieveResponse> => {
-    return apiMutator<environmentsDataWarehouseDataHealthIssuesRetrieveResponse>(
-        getEnvironmentsDataWarehouseDataHealthIssuesRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Returns success and failed job statistics for the last 1, 7, or 30 days.
-Query parameter 'days' can be 1, 7, or 30 (default: 7).
- */
-export type environmentsDataWarehouseJobStatsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsDataWarehouseJobStatsRetrieveResponseSuccess =
-    environmentsDataWarehouseJobStatsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsDataWarehouseJobStatsRetrieveResponse = environmentsDataWarehouseJobStatsRetrieveResponseSuccess
-
-export const getEnvironmentsDataWarehouseJobStatsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_warehouse/job_stats/`
-}
-
-export const environmentsDataWarehouseJobStatsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsDataWarehouseJobStatsRetrieveResponse> => {
-    return apiMutator<environmentsDataWarehouseJobStatsRetrieveResponse>(
-        getEnvironmentsDataWarehouseJobStatsRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * API endpoints for data warehouse aggregate statistics and operations.
- */
-export type environmentsDataWarehousePropertyValuesRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsDataWarehousePropertyValuesRetrieveResponseSuccess =
-    environmentsDataWarehousePropertyValuesRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsDataWarehousePropertyValuesRetrieveResponse =
-    environmentsDataWarehousePropertyValuesRetrieveResponseSuccess
-
-export const getEnvironmentsDataWarehousePropertyValuesRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_warehouse/property_values/`
-}
-
-export const environmentsDataWarehousePropertyValuesRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsDataWarehousePropertyValuesRetrieveResponse> => {
-    return apiMutator<environmentsDataWarehousePropertyValuesRetrieveResponse>(
-        getEnvironmentsDataWarehousePropertyValuesRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Returns currently running activities (jobs with status 'Running').
-Supports pagination and cutoff time filtering.
- */
-export type environmentsDataWarehouseRunningActivityRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsDataWarehouseRunningActivityRetrieveResponseSuccess =
-    environmentsDataWarehouseRunningActivityRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsDataWarehouseRunningActivityRetrieveResponse =
-    environmentsDataWarehouseRunningActivityRetrieveResponseSuccess
-
-export const getEnvironmentsDataWarehouseRunningActivityRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_warehouse/running_activity/`
-}
-
-export const environmentsDataWarehouseRunningActivityRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsDataWarehouseRunningActivityRetrieveResponse> => {
-    return apiMutator<environmentsDataWarehouseRunningActivityRetrieveResponse>(
-        getEnvironmentsDataWarehouseRunningActivityRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
-Used by the frontend data warehouse scene to display usage information.
- */
-export type environmentsDataWarehouseTotalRowsStatsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsDataWarehouseTotalRowsStatsRetrieveResponseSuccess =
-    environmentsDataWarehouseTotalRowsStatsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsDataWarehouseTotalRowsStatsRetrieveResponse =
-    environmentsDataWarehouseTotalRowsStatsRetrieveResponseSuccess
-
-export const getEnvironmentsDataWarehouseTotalRowsStatsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_warehouse/total_rows_stats/`
-}
-
-export const environmentsDataWarehouseTotalRowsStatsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsDataWarehouseTotalRowsStatsRetrieveResponse> => {
-    return apiMutator<environmentsDataWarehouseTotalRowsStatsRetrieveResponse>(
-        getEnvironmentsDataWarehouseTotalRowsStatsRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type environmentsExternalDataSchemasListResponse200 = {
-    data: PaginatedExternalDataSchemaListApi
-    status: 200
-}
-
-export type environmentsExternalDataSchemasListResponseSuccess = environmentsExternalDataSchemasListResponse200 & {
-    headers: Headers
-}
-export type environmentsExternalDataSchemasListResponse = environmentsExternalDataSchemasListResponseSuccess
-
-export const getEnvironmentsExternalDataSchemasListUrl = (
-    projectId: string,
-    params?: EnvironmentsExternalDataSchemasListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/external_data_schemas/?${stringifiedParams}`
-        : `/api/environments/${projectId}/external_data_schemas/`
-}
-
-export const environmentsExternalDataSchemasList = async (
-    projectId: string,
-    params?: EnvironmentsExternalDataSchemasListParams,
-    options?: RequestInit
-): Promise<environmentsExternalDataSchemasListResponse> => {
-    return apiMutator<environmentsExternalDataSchemasListResponse>(
-        getEnvironmentsExternalDataSchemasListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type environmentsExternalDataSchemasCreateResponse201 = {
-    data: ExternalDataSchemaApi
-    status: 201
-}
-
-export type environmentsExternalDataSchemasCreateResponseSuccess = environmentsExternalDataSchemasCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsExternalDataSchemasCreateResponse = environmentsExternalDataSchemasCreateResponseSuccess
-
-export const getEnvironmentsExternalDataSchemasCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/external_data_schemas/`
-}
-
-export const environmentsExternalDataSchemasCreate = async (
-    projectId: string,
-    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<environmentsExternalDataSchemasCreateResponse> => {
-    return apiMutator<environmentsExternalDataSchemasCreateResponse>(
-        getEnvironmentsExternalDataSchemasCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSchemaApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesListResponse200 = {
-    data: PaginatedExternalDataSourceSerializersListApi
-    status: 200
-}
-
-export type environmentsExternalDataSourcesListResponseSuccess = environmentsExternalDataSourcesListResponse200 & {
-    headers: Headers
-}
-export type environmentsExternalDataSourcesListResponse = environmentsExternalDataSourcesListResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesListUrl = (
-    projectId: string,
-    params?: EnvironmentsExternalDataSourcesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/external_data_sources/?${stringifiedParams}`
-        : `/api/environments/${projectId}/external_data_sources/`
-}
-
-export const environmentsExternalDataSourcesList = async (
-    projectId: string,
-    params?: EnvironmentsExternalDataSourcesListParams,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesListResponse> => {
-    return apiMutator<environmentsExternalDataSourcesListResponse>(
-        getEnvironmentsExternalDataSourcesListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesCreateResponse201 = {
-    data: ExternalDataSourceSerializersApi
-    status: 201
-}
-
-export type environmentsExternalDataSourcesCreateResponseSuccess = environmentsExternalDataSourcesCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsExternalDataSourcesCreateResponse = environmentsExternalDataSourcesCreateResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/external_data_sources/`
-}
-
-export const environmentsExternalDataSourcesCreate = async (
-    projectId: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesCreateResponse> => {
-    return apiMutator<environmentsExternalDataSourcesCreateResponse>(
-        getEnvironmentsExternalDataSourcesCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesRetrieveResponse200 = {
-    data: ExternalDataSourceSerializersApi
-    status: 200
-}
-
-export type environmentsExternalDataSourcesRetrieveResponseSuccess =
-    environmentsExternalDataSourcesRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesRetrieveResponse = environmentsExternalDataSourcesRetrieveResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/external_data_sources/${id}/`
-}
-
-export const environmentsExternalDataSourcesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesRetrieveResponse> => {
-    return apiMutator<environmentsExternalDataSourcesRetrieveResponse>(
-        getEnvironmentsExternalDataSourcesRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesUpdateResponse200 = {
-    data: ExternalDataSourceSerializersApi
-    status: 200
-}
-
-export type environmentsExternalDataSourcesUpdateResponseSuccess = environmentsExternalDataSourcesUpdateResponse200 & {
-    headers: Headers
-}
-export type environmentsExternalDataSourcesUpdateResponse = environmentsExternalDataSourcesUpdateResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/external_data_sources/${id}/`
-}
-
-export const environmentsExternalDataSourcesUpdate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesUpdateResponse> => {
-    return apiMutator<environmentsExternalDataSourcesUpdateResponse>(
-        getEnvironmentsExternalDataSourcesUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesPartialUpdateResponse200 = {
-    data: ExternalDataSourceSerializersApi
-    status: 200
-}
-
-export type environmentsExternalDataSourcesPartialUpdateResponseSuccess =
-    environmentsExternalDataSourcesPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesPartialUpdateResponse =
-    environmentsExternalDataSourcesPartialUpdateResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/external_data_sources/${id}/`
-}
-
-export const environmentsExternalDataSourcesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedExternalDataSourceSerializersApi: NonReadonly<PatchedExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesPartialUpdateResponse> => {
-    return apiMutator<environmentsExternalDataSourcesPartialUpdateResponse>(
-        getEnvironmentsExternalDataSourcesPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSourceSerializersApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type environmentsExternalDataSourcesDestroyResponseSuccess =
-    environmentsExternalDataSourcesDestroyResponse204 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesDestroyResponse = environmentsExternalDataSourcesDestroyResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/external_data_sources/${id}/`
-}
-
-export const environmentsExternalDataSourcesDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesDestroyResponse> => {
-    return apiMutator<environmentsExternalDataSourcesDestroyResponse>(
-        getEnvironmentsExternalDataSourcesDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesJobsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsExternalDataSourcesJobsRetrieveResponseSuccess =
-    environmentsExternalDataSourcesJobsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesJobsRetrieveResponse =
-    environmentsExternalDataSourcesJobsRetrieveResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/external_data_sources/${id}/jobs/`
-}
-
-export const environmentsExternalDataSourcesJobsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesJobsRetrieveResponse> => {
-    return apiMutator<environmentsExternalDataSourcesJobsRetrieveResponse>(
-        getEnvironmentsExternalDataSourcesJobsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesReloadCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsExternalDataSourcesReloadCreateResponseSuccess =
-    environmentsExternalDataSourcesReloadCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesReloadCreateResponse =
-    environmentsExternalDataSourcesReloadCreateResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesReloadCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/external_data_sources/${id}/reload/`
-}
-
-export const environmentsExternalDataSourcesReloadCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesReloadCreateResponse> => {
-    return apiMutator<environmentsExternalDataSourcesReloadCreateResponse>(
-        getEnvironmentsExternalDataSourcesReloadCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
-        }
-    )
-}
-
-/**
- * Update the revenue analytics configuration and return the full external data source.
- */
-export type environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponseSuccess =
-    environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse =
-    environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (
-    projectId: string,
-    id: string
-) => {
-    return `/api/environments/${projectId}/external_data_sources/${id}/revenue_analytics_config/`
-}
-
-export const environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedExternalDataSourceSerializersApi: NonReadonly<PatchedExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse> => {
-    return apiMutator<environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse>(
-        getEnvironmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSourceSerializersApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesDatabaseSchemaCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsExternalDataSourcesDatabaseSchemaCreateResponseSuccess =
-    environmentsExternalDataSourcesDatabaseSchemaCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesDatabaseSchemaCreateResponse =
-    environmentsExternalDataSourcesDatabaseSchemaCreateResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/external_data_sources/database_schema/`
-}
-
-export const environmentsExternalDataSourcesDatabaseSchemaCreate = async (
-    projectId: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesDatabaseSchemaCreateResponse> => {
-    return apiMutator<environmentsExternalDataSourcesDatabaseSchemaCreateResponse>(
-        getEnvironmentsExternalDataSourcesDatabaseSchemaCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesSourcePrefixCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsExternalDataSourcesSourcePrefixCreateResponseSuccess =
-    environmentsExternalDataSourcesSourcePrefixCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesSourcePrefixCreateResponse =
-    environmentsExternalDataSourcesSourcePrefixCreateResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesSourcePrefixCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/external_data_sources/source_prefix/`
-}
-
-export const environmentsExternalDataSourcesSourcePrefixCreate = async (
-    projectId: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesSourcePrefixCreateResponse> => {
-    return apiMutator<environmentsExternalDataSourcesSourcePrefixCreateResponse>(
-        getEnvironmentsExternalDataSourcesSourcePrefixCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export type environmentsExternalDataSourcesWizardRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsExternalDataSourcesWizardRetrieveResponseSuccess =
-    environmentsExternalDataSourcesWizardRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsExternalDataSourcesWizardRetrieveResponse =
-    environmentsExternalDataSourcesWizardRetrieveResponseSuccess
-
-export const getEnvironmentsExternalDataSourcesWizardRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/external_data_sources/wizard/`
-}
-
-export const environmentsExternalDataSourcesWizardRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsExternalDataSourcesWizardRetrieveResponse> => {
-    return apiMutator<environmentsExternalDataSourcesWizardRetrieveResponse>(
-        getEnvironmentsExternalDataSourcesWizardRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type environmentsFixHogqlRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsFixHogqlRetrieveResponseSuccess = environmentsFixHogqlRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsFixHogqlRetrieveResponse = environmentsFixHogqlRetrieveResponseSuccess
-
-export const getEnvironmentsFixHogqlRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/fix_hogql/`
-}
-
-export const environmentsFixHogqlRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsFixHogqlRetrieveResponse> => {
-    return apiMutator<environmentsFixHogqlRetrieveResponse>(getEnvironmentsFixHogqlRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type environmentsFixHogqlCreateResponse201 = {
-    data: void
-    status: 201
-}
-
-export type environmentsFixHogqlCreateResponseSuccess = environmentsFixHogqlCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsFixHogqlCreateResponse = environmentsFixHogqlCreateResponseSuccess
-
-export const getEnvironmentsFixHogqlCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/fix_hogql/`
-}
-
-export const environmentsFixHogqlCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsFixHogqlCreateResponse> => {
-    return apiMutator<environmentsFixHogqlCreateResponse>(getEnvironmentsFixHogqlCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export type environmentsLineageGetUpstreamRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsLineageGetUpstreamRetrieveResponseSuccess =
-    environmentsLineageGetUpstreamRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsLineageGetUpstreamRetrieveResponse = environmentsLineageGetUpstreamRetrieveResponseSuccess
-
-export const getEnvironmentsLineageGetUpstreamRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/lineage/get_upstream/`
-}
-
-export const environmentsLineageGetUpstreamRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsLineageGetUpstreamRetrieveResponse> => {
-    return apiMutator<environmentsLineageGetUpstreamRetrieveResponse>(
-        getEnvironmentsLineageGetUpstreamRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Get all views associated with a specific managed viewset.
-GET /api/environments/{team_id}/managed_viewsets/{kind}/
- */
-export type environmentsManagedViewsetsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsManagedViewsetsRetrieveResponseSuccess = environmentsManagedViewsetsRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsManagedViewsetsRetrieveResponse = environmentsManagedViewsetsRetrieveResponseSuccess
-
-export const getEnvironmentsManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
-    return `/api/environments/${projectId}/managed_viewsets/${kind}/`
-}
-
-export const environmentsManagedViewsetsRetrieve = async (
-    projectId: string,
-    kind: 'revenue_analytics',
-    options?: RequestInit
-): Promise<environmentsManagedViewsetsRetrieveResponse> => {
-    return apiMutator<environmentsManagedViewsetsRetrieveResponse>(
-        getEnvironmentsManagedViewsetsRetrieveUrl(projectId, kind),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Enable or disable a managed viewset by kind.
-PUT /api/environments/{team_id}/managed_viewsets/{kind}/ with body {"enabled": true/false}
- */
-export type environmentsManagedViewsetsUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsManagedViewsetsUpdateResponseSuccess = environmentsManagedViewsetsUpdateResponse200 & {
-    headers: Headers
-}
-export type environmentsManagedViewsetsUpdateResponse = environmentsManagedViewsetsUpdateResponseSuccess
-
-export const getEnvironmentsManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics') => {
-    return `/api/environments/${projectId}/managed_viewsets/${kind}/`
-}
-
-export const environmentsManagedViewsetsUpdate = async (
-    projectId: string,
-    kind: 'revenue_analytics',
-    options?: RequestInit
-): Promise<environmentsManagedViewsetsUpdateResponse> => {
-    return apiMutator<environmentsManagedViewsetsUpdateResponse>(
-        getEnvironmentsManagedViewsetsUpdateUrl(projectId, kind),
-        {
-            ...options,
-            method: 'PUT',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseSavedQueriesListResponse200 = {
-    data: PaginatedDataWarehouseSavedQueryMinimalListApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesListResponseSuccess = environmentsWarehouseSavedQueriesListResponse200 & {
-    headers: Headers
-}
-export type environmentsWarehouseSavedQueriesListResponse = environmentsWarehouseSavedQueriesListResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesListUrl = (
-    projectId: string,
-    params?: EnvironmentsWarehouseSavedQueriesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/warehouse_saved_queries/?${stringifiedParams}`
-        : `/api/environments/${projectId}/warehouse_saved_queries/`
-}
-
-export const environmentsWarehouseSavedQueriesList = async (
-    projectId: string,
-    params?: EnvironmentsWarehouseSavedQueriesListParams,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesListResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesListResponse>(
-        getEnvironmentsWarehouseSavedQueriesListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseSavedQueriesCreateResponse201 = {
-    data: DataWarehouseSavedQueryApi
-    status: 201
-}
-
-export type environmentsWarehouseSavedQueriesCreateResponseSuccess =
-    environmentsWarehouseSavedQueriesCreateResponse201 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesCreateResponse = environmentsWarehouseSavedQueriesCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/`
-}
-
-export const environmentsWarehouseSavedQueriesCreate = async (
-    projectId: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesCreateResponse>(
-        getEnvironmentsWarehouseSavedQueriesCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseSavedQueriesRetrieveResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesRetrieveResponseSuccess =
-    environmentsWarehouseSavedQueriesRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesRetrieveResponse = environmentsWarehouseSavedQueriesRetrieveResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/`
-}
-
-export const environmentsWarehouseSavedQueriesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesRetrieveResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesRetrieveResponse>(
-        getEnvironmentsWarehouseSavedQueriesRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseSavedQueriesUpdateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesUpdateResponseSuccess =
-    environmentsWarehouseSavedQueriesUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesUpdateResponse = environmentsWarehouseSavedQueriesUpdateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/`
-}
-
-export const environmentsWarehouseSavedQueriesUpdate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesUpdateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesUpdateResponse>(
-        getEnvironmentsWarehouseSavedQueriesUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseSavedQueriesPartialUpdateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesPartialUpdateResponseSuccess =
-    environmentsWarehouseSavedQueriesPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesPartialUpdateResponse =
-    environmentsWarehouseSavedQueriesPartialUpdateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/`
-}
-
-export const environmentsWarehouseSavedQueriesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDataWarehouseSavedQueryApi: NonReadonly<PatchedDataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesPartialUpdateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesPartialUpdateResponse>(
-        getEnvironmentsWarehouseSavedQueriesPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseSavedQueriesDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type environmentsWarehouseSavedQueriesDestroyResponseSuccess =
-    environmentsWarehouseSavedQueriesDestroyResponse204 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesDestroyResponse = environmentsWarehouseSavedQueriesDestroyResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/`
-}
-
-export const environmentsWarehouseSavedQueriesDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesDestroyResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesDestroyResponse>(
-        getEnvironmentsWarehouseSavedQueriesDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseSavedQueriesActivityRetrieveResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesActivityRetrieveResponseSuccess =
-    environmentsWarehouseSavedQueriesActivityRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesActivityRetrieveResponse =
-    environmentsWarehouseSavedQueriesActivityRetrieveResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesActivityRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/activity/`
-}
-
-export const environmentsWarehouseSavedQueriesActivityRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesActivityRetrieveResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesActivityRetrieveResponse>(
-        getEnvironmentsWarehouseSavedQueriesActivityRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Return the ancestors of this saved query.
-
-By default, we return the immediate parents. The `level` parameter can be used to
-look further back into the ancestor tree. If `level` overshoots (i.e. points to only
-ancestors beyond the root), we return an empty list.
- */
-export type environmentsWarehouseSavedQueriesAncestorsCreateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesAncestorsCreateResponseSuccess =
-    environmentsWarehouseSavedQueriesAncestorsCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesAncestorsCreateResponse =
-    environmentsWarehouseSavedQueriesAncestorsCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesAncestorsCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/ancestors/`
-}
-
-export const environmentsWarehouseSavedQueriesAncestorsCreate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesAncestorsCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesAncestorsCreateResponse>(
-        getEnvironmentsWarehouseSavedQueriesAncestorsCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Cancel a running saved query workflow.
- */
-export type environmentsWarehouseSavedQueriesCancelCreateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesCancelCreateResponseSuccess =
-    environmentsWarehouseSavedQueriesCancelCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesCancelCreateResponse =
-    environmentsWarehouseSavedQueriesCancelCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesCancelCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/cancel/`
-}
-
-export const environmentsWarehouseSavedQueriesCancelCreate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesCancelCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesCancelCreateResponse>(
-        getEnvironmentsWarehouseSavedQueriesCancelCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Return the count of immediate upstream and downstream dependencies for this saved query.
- */
-export type environmentsWarehouseSavedQueriesDependenciesRetrieveResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesDependenciesRetrieveResponseSuccess =
-    environmentsWarehouseSavedQueriesDependenciesRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesDependenciesRetrieveResponse =
-    environmentsWarehouseSavedQueriesDependenciesRetrieveResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesDependenciesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/dependencies/`
-}
-
-export const environmentsWarehouseSavedQueriesDependenciesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesDependenciesRetrieveResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesDependenciesRetrieveResponse>(
-        getEnvironmentsWarehouseSavedQueriesDependenciesRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Return the descendants of this saved query.
-
-By default, we return the immediate children. The `level` parameter can be used to
-look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
-descendants further than a leaf), we return an empty list.
- */
-export type environmentsWarehouseSavedQueriesDescendantsCreateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesDescendantsCreateResponseSuccess =
-    environmentsWarehouseSavedQueriesDescendantsCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesDescendantsCreateResponse =
-    environmentsWarehouseSavedQueriesDescendantsCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesDescendantsCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/descendants/`
-}
-
-export const environmentsWarehouseSavedQueriesDescendantsCreate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesDescendantsCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesDescendantsCreateResponse>(
-        getEnvironmentsWarehouseSavedQueriesDescendantsCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Enable materialization for this saved query with a 24-hour sync frequency.
- */
-export type environmentsWarehouseSavedQueriesMaterializeCreateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesMaterializeCreateResponseSuccess =
-    environmentsWarehouseSavedQueriesMaterializeCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesMaterializeCreateResponse =
-    environmentsWarehouseSavedQueriesMaterializeCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesMaterializeCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/materialize/`
-}
-
-export const environmentsWarehouseSavedQueriesMaterializeCreate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesMaterializeCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesMaterializeCreateResponse>(
-        getEnvironmentsWarehouseSavedQueriesMaterializeCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Undo materialization, revert back to the original view.
-(i.e. delete the materialized table and the schedule)
- */
-export type environmentsWarehouseSavedQueriesRevertMaterializationCreateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesRevertMaterializationCreateResponseSuccess =
-    environmentsWarehouseSavedQueriesRevertMaterializationCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesRevertMaterializationCreateResponse =
-    environmentsWarehouseSavedQueriesRevertMaterializationCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesRevertMaterializationCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/revert_materialization/`
-}
-
-export const environmentsWarehouseSavedQueriesRevertMaterializationCreate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesRevertMaterializationCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesRevertMaterializationCreateResponse>(
-        getEnvironmentsWarehouseSavedQueriesRevertMaterializationCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Run this saved query.
- */
-export type environmentsWarehouseSavedQueriesRunCreateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesRunCreateResponseSuccess =
-    environmentsWarehouseSavedQueriesRunCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesRunCreateResponse =
-    environmentsWarehouseSavedQueriesRunCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/run/`
-}
-
-export const environmentsWarehouseSavedQueriesRunCreate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesRunCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesRunCreateResponse>(
-        getEnvironmentsWarehouseSavedQueriesRunCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-/**
- * Return the recent run history (up to 5 most recent) for this materialized view.
- */
-export type environmentsWarehouseSavedQueriesRunHistoryRetrieveResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesRunHistoryRetrieveResponseSuccess =
-    environmentsWarehouseSavedQueriesRunHistoryRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesRunHistoryRetrieveResponse =
-    environmentsWarehouseSavedQueriesRunHistoryRetrieveResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesRunHistoryRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/run_history/`
-}
-
-export const environmentsWarehouseSavedQueriesRunHistoryRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesRunHistoryRetrieveResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesRunHistoryRetrieveResponse>(
-        getEnvironmentsWarehouseSavedQueriesRunHistoryRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Resume paused materialization schedules for multiple matviews.
-
-Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
-This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
- */
-export type environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse200 = {
-    data: DataWarehouseSavedQueryApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueriesResumeSchedulesCreateResponseSuccess =
-    environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse =
-    environmentsWarehouseSavedQueriesResumeSchedulesCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueriesResumeSchedulesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_queries/resume_schedules/`
-}
-
-export const environmentsWarehouseSavedQueriesResumeSchedulesCreate = async (
-    projectId: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse>(
-        getEnvironmentsWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryApi),
-        }
-    )
-}
-
-export type environmentsWarehouseSavedQueryDraftsListResponse200 = {
-    data: PaginatedDataWarehouseSavedQueryDraftListApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueryDraftsListResponseSuccess =
-    environmentsWarehouseSavedQueryDraftsListResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueryDraftsListResponse = environmentsWarehouseSavedQueryDraftsListResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueryDraftsListUrl = (
-    projectId: string,
-    params?: EnvironmentsWarehouseSavedQueryDraftsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/warehouse_saved_query_drafts/?${stringifiedParams}`
-        : `/api/environments/${projectId}/warehouse_saved_query_drafts/`
-}
-
-export const environmentsWarehouseSavedQueryDraftsList = async (
-    projectId: string,
-    params?: EnvironmentsWarehouseSavedQueryDraftsListParams,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueryDraftsListResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueryDraftsListResponse>(
-        getEnvironmentsWarehouseSavedQueryDraftsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type environmentsWarehouseSavedQueryDraftsCreateResponse201 = {
-    data: DataWarehouseSavedQueryDraftApi
-    status: 201
-}
-
-export type environmentsWarehouseSavedQueryDraftsCreateResponseSuccess =
-    environmentsWarehouseSavedQueryDraftsCreateResponse201 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueryDraftsCreateResponse =
-    environmentsWarehouseSavedQueryDraftsCreateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueryDraftsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/`
-}
-
-export const environmentsWarehouseSavedQueryDraftsCreate = async (
-    projectId: string,
-    dataWarehouseSavedQueryDraftApi: NonReadonly<DataWarehouseSavedQueryDraftApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueryDraftsCreateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueryDraftsCreateResponse>(
-        getEnvironmentsWarehouseSavedQueryDraftsCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
-        }
-    )
-}
-
-export type environmentsWarehouseSavedQueryDraftsRetrieveResponse200 = {
-    data: DataWarehouseSavedQueryDraftApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueryDraftsRetrieveResponseSuccess =
-    environmentsWarehouseSavedQueryDraftsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueryDraftsRetrieveResponse =
-    environmentsWarehouseSavedQueryDraftsRetrieveResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueryDraftsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
-}
-
-export const environmentsWarehouseSavedQueryDraftsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueryDraftsRetrieveResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueryDraftsRetrieveResponse>(
-        getEnvironmentsWarehouseSavedQueryDraftsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type environmentsWarehouseSavedQueryDraftsUpdateResponse200 = {
-    data: DataWarehouseSavedQueryDraftApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueryDraftsUpdateResponseSuccess =
-    environmentsWarehouseSavedQueryDraftsUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueryDraftsUpdateResponse =
-    environmentsWarehouseSavedQueryDraftsUpdateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueryDraftsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
-}
-
-export const environmentsWarehouseSavedQueryDraftsUpdate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryDraftApi: NonReadonly<DataWarehouseSavedQueryDraftApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueryDraftsUpdateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueryDraftsUpdateResponse>(
-        getEnvironmentsWarehouseSavedQueryDraftsUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
-        }
-    )
-}
-
-export type environmentsWarehouseSavedQueryDraftsPartialUpdateResponse200 = {
-    data: DataWarehouseSavedQueryDraftApi
-    status: 200
-}
-
-export type environmentsWarehouseSavedQueryDraftsPartialUpdateResponseSuccess =
-    environmentsWarehouseSavedQueryDraftsPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueryDraftsPartialUpdateResponse =
-    environmentsWarehouseSavedQueryDraftsPartialUpdateResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueryDraftsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
-}
-
-export const environmentsWarehouseSavedQueryDraftsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDataWarehouseSavedQueryDraftApi: NonReadonly<PatchedDataWarehouseSavedQueryDraftApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueryDraftsPartialUpdateResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueryDraftsPartialUpdateResponse>(
-        getEnvironmentsWarehouseSavedQueryDraftsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDataWarehouseSavedQueryDraftApi),
-        }
-    )
-}
-
-export type environmentsWarehouseSavedQueryDraftsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type environmentsWarehouseSavedQueryDraftsDestroyResponseSuccess =
-    environmentsWarehouseSavedQueryDraftsDestroyResponse204 & {
-        headers: Headers
-    }
-export type environmentsWarehouseSavedQueryDraftsDestroyResponse =
-    environmentsWarehouseSavedQueryDraftsDestroyResponseSuccess
-
-export const getEnvironmentsWarehouseSavedQueryDraftsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
-}
-
-export const environmentsWarehouseSavedQueryDraftsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsWarehouseSavedQueryDraftsDestroyResponse> => {
-    return apiMutator<environmentsWarehouseSavedQueryDraftsDestroyResponse>(
-        getEnvironmentsWarehouseSavedQueryDraftsDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseTablesListResponse200 = {
-    data: PaginatedTableListApi
-    status: 200
-}
-
-export type environmentsWarehouseTablesListResponseSuccess = environmentsWarehouseTablesListResponse200 & {
-    headers: Headers
-}
-export type environmentsWarehouseTablesListResponse = environmentsWarehouseTablesListResponseSuccess
-
-export const getEnvironmentsWarehouseTablesListUrl = (
-    projectId: string,
-    params?: EnvironmentsWarehouseTablesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/warehouse_tables/?${stringifiedParams}`
-        : `/api/environments/${projectId}/warehouse_tables/`
-}
-
-export const environmentsWarehouseTablesList = async (
-    projectId: string,
-    params?: EnvironmentsWarehouseTablesListParams,
-    options?: RequestInit
-): Promise<environmentsWarehouseTablesListResponse> => {
-    return apiMutator<environmentsWarehouseTablesListResponse>(
-        getEnvironmentsWarehouseTablesListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseTablesCreateResponse201 = {
-    data: TableApi
-    status: 201
-}
-
-export type environmentsWarehouseTablesCreateResponseSuccess = environmentsWarehouseTablesCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsWarehouseTablesCreateResponse = environmentsWarehouseTablesCreateResponseSuccess
-
-export const getEnvironmentsWarehouseTablesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_tables/`
-}
-
-export const environmentsWarehouseTablesCreate = async (
-    projectId: string,
-    tableApi: NonReadonly<TableApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseTablesCreateResponse> => {
-    return apiMutator<environmentsWarehouseTablesCreateResponse>(getEnvironmentsWarehouseTablesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(tableApi),
-    })
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export type environmentsWarehouseTablesFileCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsWarehouseTablesFileCreateResponseSuccess = environmentsWarehouseTablesFileCreateResponse200 & {
-    headers: Headers
-}
-export type environmentsWarehouseTablesFileCreateResponse = environmentsWarehouseTablesFileCreateResponseSuccess
-
-export const getEnvironmentsWarehouseTablesFileCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_tables/file/`
-}
-
-export const environmentsWarehouseTablesFileCreate = async (
-    projectId: string,
-    tableApi: NonReadonly<TableApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseTablesFileCreateResponse> => {
-    const formData = new FormData()
-    if (tableApi.deleted !== undefined && tableApi.deleted !== null) {
-        formData.append(`deleted`, tableApi.deleted.toString())
-    }
-    formData.append(`name`, tableApi.name)
-    formData.append(`format`, tableApi.format)
-    formData.append(`url_pattern`, tableApi.url_pattern)
-    formData.append(`credential`, JSON.stringify(tableApi.credential))
-
-    return apiMutator<environmentsWarehouseTablesFileCreateResponse>(
-        getEnvironmentsWarehouseTablesFileCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            body: formData,
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete View Columns.
- */
-export type environmentsWarehouseViewLinkListResponse200 = {
-    data: PaginatedViewLinkListApi
-    status: 200
-}
-
-export type environmentsWarehouseViewLinkListResponseSuccess = environmentsWarehouseViewLinkListResponse200 & {
-    headers: Headers
-}
-export type environmentsWarehouseViewLinkListResponse = environmentsWarehouseViewLinkListResponseSuccess
-
-export const getEnvironmentsWarehouseViewLinkListUrl = (
-    projectId: string,
-    params?: EnvironmentsWarehouseViewLinkListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/warehouse_view_link/?${stringifiedParams}`
-        : `/api/environments/${projectId}/warehouse_view_link/`
-}
-
-export const environmentsWarehouseViewLinkList = async (
-    projectId: string,
-    params?: EnvironmentsWarehouseViewLinkListParams,
-    options?: RequestInit
-): Promise<environmentsWarehouseViewLinkListResponse> => {
-    return apiMutator<environmentsWarehouseViewLinkListResponse>(
-        getEnvironmentsWarehouseViewLinkListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete View Columns.
- */
-export type environmentsWarehouseViewLinkCreateResponse201 = {
-    data: ViewLinkApi
-    status: 201
-}
-
-export type environmentsWarehouseViewLinkCreateResponseSuccess = environmentsWarehouseViewLinkCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsWarehouseViewLinkCreateResponse = environmentsWarehouseViewLinkCreateResponseSuccess
-
-export const getEnvironmentsWarehouseViewLinkCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_view_link/`
-}
-
-export const environmentsWarehouseViewLinkCreate = async (
-    projectId: string,
-    viewLinkApi: NonReadonly<ViewLinkApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseViewLinkCreateResponse> => {
-    return apiMutator<environmentsWarehouseViewLinkCreateResponse>(
-        getEnvironmentsWarehouseViewLinkCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLinkApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete View Columns.
- */
-export type environmentsWarehouseViewLinkValidateCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsWarehouseViewLinkValidateCreateResponseSuccess =
-    environmentsWarehouseViewLinkValidateCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseViewLinkValidateCreateResponse =
-    environmentsWarehouseViewLinkValidateCreateResponseSuccess
-
-export const getEnvironmentsWarehouseViewLinkValidateCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_view_link/validate/`
-}
-
-export const environmentsWarehouseViewLinkValidateCreate = async (
-    projectId: string,
-    viewLinkValidationApi: ViewLinkValidationApi,
-    options?: RequestInit
-): Promise<environmentsWarehouseViewLinkValidateCreateResponse> => {
-    return apiMutator<environmentsWarehouseViewLinkValidateCreateResponse>(
-        getEnvironmentsWarehouseViewLinkValidateCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLinkValidationApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete View Columns.
- */
-export type environmentsWarehouseViewLinksListResponse200 = {
-    data: PaginatedViewLinkListApi
-    status: 200
-}
-
-export type environmentsWarehouseViewLinksListResponseSuccess = environmentsWarehouseViewLinksListResponse200 & {
-    headers: Headers
-}
-export type environmentsWarehouseViewLinksListResponse = environmentsWarehouseViewLinksListResponseSuccess
-
-export const getEnvironmentsWarehouseViewLinksListUrl = (
-    projectId: string,
-    params?: EnvironmentsWarehouseViewLinksListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/warehouse_view_links/?${stringifiedParams}`
-        : `/api/environments/${projectId}/warehouse_view_links/`
-}
-
-export const environmentsWarehouseViewLinksList = async (
-    projectId: string,
-    params?: EnvironmentsWarehouseViewLinksListParams,
-    options?: RequestInit
-): Promise<environmentsWarehouseViewLinksListResponse> => {
-    return apiMutator<environmentsWarehouseViewLinksListResponse>(
-        getEnvironmentsWarehouseViewLinksListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete View Columns.
- */
-export type environmentsWarehouseViewLinksCreateResponse201 = {
-    data: ViewLinkApi
-    status: 201
-}
-
-export type environmentsWarehouseViewLinksCreateResponseSuccess = environmentsWarehouseViewLinksCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsWarehouseViewLinksCreateResponse = environmentsWarehouseViewLinksCreateResponseSuccess
-
-export const getEnvironmentsWarehouseViewLinksCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_view_links/`
-}
-
-export const environmentsWarehouseViewLinksCreate = async (
-    projectId: string,
-    viewLinkApi: NonReadonly<ViewLinkApi>,
-    options?: RequestInit
-): Promise<environmentsWarehouseViewLinksCreateResponse> => {
-    return apiMutator<environmentsWarehouseViewLinksCreateResponse>(
-        getEnvironmentsWarehouseViewLinksCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLinkApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete View Columns.
- */
-export type environmentsWarehouseViewLinksValidateCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsWarehouseViewLinksValidateCreateResponseSuccess =
-    environmentsWarehouseViewLinksValidateCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsWarehouseViewLinksValidateCreateResponse =
-    environmentsWarehouseViewLinksValidateCreateResponseSuccess
-
-export const getEnvironmentsWarehouseViewLinksValidateCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_view_links/validate/`
-}
-
-export const environmentsWarehouseViewLinksValidateCreate = async (
-    projectId: string,
-    viewLinkValidationApi: ViewLinkValidationApi,
-    options?: RequestInit
-): Promise<environmentsWarehouseViewLinksValidateCreateResponse> => {
-    return apiMutator<environmentsWarehouseViewLinksValidateCreateResponse>(
-        getEnvironmentsWarehouseViewLinksValidateCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLinkValidationApi),
-        }
-    )
-}
 
 /**
  * List data modeling jobs which are "runs" for our saved queries.
@@ -2125,8 +92,8 @@ export const getDataModelingJobsListUrl = (projectId: string, params?: DataModel
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_modeling_jobs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_modeling_jobs/`
+        ? `/api/environments/${projectId}/data_modeling_jobs/?${stringifiedParams}`
+        : `/api/environments/${projectId}/data_modeling_jobs/`
 }
 
 export const dataModelingJobsList = async (
@@ -2154,7 +121,7 @@ export type dataModelingJobsRetrieveResponseSuccess = dataModelingJobsRetrieveRe
 export type dataModelingJobsRetrieveResponse = dataModelingJobsRetrieveResponseSuccess
 
 export const getDataModelingJobsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_modeling_jobs/${id}/`
+    return `/api/environments/${projectId}/data_modeling_jobs/${id}/`
 }
 
 export const dataModelingJobsRetrieve = async (
@@ -2184,7 +151,7 @@ export type dataWarehouseCompletedActivityRetrieveResponseSuccess =
 export type dataWarehouseCompletedActivityRetrieveResponse = dataWarehouseCompletedActivityRetrieveResponseSuccess
 
 export const getDataWarehouseCompletedActivityRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/completed_activity/`
+    return `/api/environments/${projectId}/data_warehouse/completed_activity/`
 }
 
 export const dataWarehouseCompletedActivityRetrieve = async (
@@ -2215,7 +182,7 @@ export type dataWarehouseDataHealthIssuesRetrieveResponseSuccess = dataWarehouse
 export type dataWarehouseDataHealthIssuesRetrieveResponse = dataWarehouseDataHealthIssuesRetrieveResponseSuccess
 
 export const getDataWarehouseDataHealthIssuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/data_health_issues/`
+    return `/api/environments/${projectId}/data_warehouse/data_health_issues/`
 }
 
 export const dataWarehouseDataHealthIssuesRetrieve = async (
@@ -2246,7 +213,7 @@ export type dataWarehouseJobStatsRetrieveResponseSuccess = dataWarehouseJobStats
 export type dataWarehouseJobStatsRetrieveResponse = dataWarehouseJobStatsRetrieveResponseSuccess
 
 export const getDataWarehouseJobStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/job_stats/`
+    return `/api/environments/${projectId}/data_warehouse/job_stats/`
 }
 
 export const dataWarehouseJobStatsRetrieve = async (
@@ -2273,7 +240,7 @@ export type dataWarehousePropertyValuesRetrieveResponseSuccess = dataWarehousePr
 export type dataWarehousePropertyValuesRetrieveResponse = dataWarehousePropertyValuesRetrieveResponseSuccess
 
 export const getDataWarehousePropertyValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/property_values/`
+    return `/api/environments/${projectId}/data_warehouse/property_values/`
 }
 
 export const dataWarehousePropertyValuesRetrieve = async (
@@ -2304,7 +271,7 @@ export type dataWarehouseRunningActivityRetrieveResponseSuccess = dataWarehouseR
 export type dataWarehouseRunningActivityRetrieveResponse = dataWarehouseRunningActivityRetrieveResponseSuccess
 
 export const getDataWarehouseRunningActivityRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/running_activity/`
+    return `/api/environments/${projectId}/data_warehouse/running_activity/`
 }
 
 export const dataWarehouseRunningActivityRetrieve = async (
@@ -2335,7 +302,7 @@ export type dataWarehouseTotalRowsStatsRetrieveResponseSuccess = dataWarehouseTo
 export type dataWarehouseTotalRowsStatsRetrieveResponse = dataWarehouseTotalRowsStatsRetrieveResponseSuccess
 
 export const getDataWarehouseTotalRowsStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/total_rows_stats/`
+    return `/api/environments/${projectId}/data_warehouse/total_rows_stats/`
 }
 
 export const dataWarehouseTotalRowsStatsRetrieve = async (
@@ -2373,8 +340,8 @@ export const getExternalDataSchemasListUrl = (projectId: string, params?: Extern
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_schemas/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_schemas/`
+        ? `/api/environments/${projectId}/external_data_schemas/?${stringifiedParams}`
+        : `/api/environments/${projectId}/external_data_schemas/`
 }
 
 export const externalDataSchemasList = async (
@@ -2399,7 +366,7 @@ export type externalDataSchemasCreateResponseSuccess = externalDataSchemasCreate
 export type externalDataSchemasCreateResponse = externalDataSchemasCreateResponseSuccess
 
 export const getExternalDataSchemasCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/`
+    return `/api/environments/${projectId}/external_data_schemas/`
 }
 
 export const externalDataSchemasCreate = async (
@@ -2440,8 +407,8 @@ export const getExternalDataSourcesListUrl = (projectId: string, params?: Extern
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/`
+        ? `/api/environments/${projectId}/external_data_sources/?${stringifiedParams}`
+        : `/api/environments/${projectId}/external_data_sources/`
 }
 
 export const externalDataSourcesList = async (
@@ -2469,7 +436,7 @@ export type externalDataSourcesCreateResponseSuccess = externalDataSourcesCreate
 export type externalDataSourcesCreateResponse = externalDataSourcesCreateResponseSuccess
 
 export const getExternalDataSourcesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/`
+    return `/api/environments/${projectId}/external_data_sources/`
 }
 
 export const externalDataSourcesCreate = async (
@@ -2499,7 +466,7 @@ export type externalDataSourcesRetrieveResponseSuccess = externalDataSourcesRetr
 export type externalDataSourcesRetrieveResponse = externalDataSourcesRetrieveResponseSuccess
 
 export const getExternalDataSourcesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
+    return `/api/environments/${projectId}/external_data_sources/${id}/`
 }
 
 export const externalDataSourcesRetrieve = async (
@@ -2527,7 +494,7 @@ export type externalDataSourcesUpdateResponseSuccess = externalDataSourcesUpdate
 export type externalDataSourcesUpdateResponse = externalDataSourcesUpdateResponseSuccess
 
 export const getExternalDataSourcesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
+    return `/api/environments/${projectId}/external_data_sources/${id}/`
 }
 
 export const externalDataSourcesUpdate = async (
@@ -2558,7 +525,7 @@ export type externalDataSourcesPartialUpdateResponseSuccess = externalDataSource
 export type externalDataSourcesPartialUpdateResponse = externalDataSourcesPartialUpdateResponseSuccess
 
 export const getExternalDataSourcesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
+    return `/api/environments/${projectId}/external_data_sources/${id}/`
 }
 
 export const externalDataSourcesPartialUpdate = async (
@@ -2589,7 +556,7 @@ export type externalDataSourcesDestroyResponseSuccess = externalDataSourcesDestr
 export type externalDataSourcesDestroyResponse = externalDataSourcesDestroyResponseSuccess
 
 export const getExternalDataSourcesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
+    return `/api/environments/${projectId}/external_data_sources/${id}/`
 }
 
 export const externalDataSourcesDestroy = async (
@@ -2617,7 +584,7 @@ export type externalDataSourcesJobsRetrieveResponseSuccess = externalDataSources
 export type externalDataSourcesJobsRetrieveResponse = externalDataSourcesJobsRetrieveResponseSuccess
 
 export const getExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
+    return `/api/environments/${projectId}/external_data_sources/${id}/jobs/`
 }
 
 export const externalDataSourcesJobsRetrieve = async (
@@ -2645,7 +612,7 @@ export type externalDataSourcesReloadCreateResponseSuccess = externalDataSources
 export type externalDataSourcesReloadCreateResponse = externalDataSourcesReloadCreateResponseSuccess
 
 export const getExternalDataSourcesReloadCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/reload/`
+    return `/api/environments/${projectId}/external_data_sources/${id}/reload/`
 }
 
 export const externalDataSourcesReloadCreate = async (
@@ -2678,7 +645,7 @@ export type externalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse =
     externalDataSourcesRevenueAnalyticsConfigPartialUpdateResponseSuccess
 
 export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/revenue_analytics_config/`
+    return `/api/environments/${projectId}/external_data_sources/${id}/revenue_analytics_config/`
 }
 
 export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
@@ -2713,7 +680,7 @@ export type externalDataSourcesDatabaseSchemaCreateResponseSuccess =
 export type externalDataSourcesDatabaseSchemaCreateResponse = externalDataSourcesDatabaseSchemaCreateResponseSuccess
 
 export const getExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/database_schema/`
+    return `/api/environments/${projectId}/external_data_sources/database_schema/`
 }
 
 export const externalDataSourcesDatabaseSchemaCreate = async (
@@ -2746,7 +713,7 @@ export type externalDataSourcesSourcePrefixCreateResponseSuccess = externalDataS
 export type externalDataSourcesSourcePrefixCreateResponse = externalDataSourcesSourcePrefixCreateResponseSuccess
 
 export const getExternalDataSourcesSourcePrefixCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/source_prefix/`
+    return `/api/environments/${projectId}/external_data_sources/source_prefix/`
 }
 
 export const externalDataSourcesSourcePrefixCreate = async (
@@ -2779,7 +746,7 @@ export type externalDataSourcesWizardRetrieveResponseSuccess = externalDataSourc
 export type externalDataSourcesWizardRetrieveResponse = externalDataSourcesWizardRetrieveResponseSuccess
 
 export const getExternalDataSourcesWizardRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/wizard/`
+    return `/api/environments/${projectId}/external_data_sources/wizard/`
 }
 
 export const externalDataSourcesWizardRetrieve = async (
@@ -2787,6 +754,1853 @@ export const externalDataSourcesWizardRetrieve = async (
     options?: RequestInit
 ): Promise<externalDataSourcesWizardRetrieveResponse> => {
     return apiMutator<externalDataSourcesWizardRetrieveResponse>(getExternalDataSourcesWizardRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type fixHogqlRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type fixHogqlRetrieveResponseSuccess = fixHogqlRetrieveResponse200 & {
+    headers: Headers
+}
+export type fixHogqlRetrieveResponse = fixHogqlRetrieveResponseSuccess
+
+export const getFixHogqlRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/fix_hogql/`
+}
+
+export const fixHogqlRetrieve = async (projectId: string, options?: RequestInit): Promise<fixHogqlRetrieveResponse> => {
+    return apiMutator<fixHogqlRetrieveResponse>(getFixHogqlRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type fixHogqlCreateResponse201 = {
+    data: void
+    status: 201
+}
+
+export type fixHogqlCreateResponseSuccess = fixHogqlCreateResponse201 & {
+    headers: Headers
+}
+export type fixHogqlCreateResponse = fixHogqlCreateResponseSuccess
+
+export const getFixHogqlCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/fix_hogql/`
+}
+
+export const fixHogqlCreate = async (projectId: string, options?: RequestInit): Promise<fixHogqlCreateResponse> => {
+    return apiMutator<fixHogqlCreateResponse>(getFixHogqlCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export type lineageGetUpstreamRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type lineageGetUpstreamRetrieveResponseSuccess = lineageGetUpstreamRetrieveResponse200 & {
+    headers: Headers
+}
+export type lineageGetUpstreamRetrieveResponse = lineageGetUpstreamRetrieveResponseSuccess
+
+export const getLineageGetUpstreamRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/lineage/get_upstream/`
+}
+
+export const lineageGetUpstreamRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<lineageGetUpstreamRetrieveResponse> => {
+    return apiMutator<lineageGetUpstreamRetrieveResponse>(getLineageGetUpstreamRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get all views associated with a specific managed viewset.
+GET /api/environments/{team_id}/managed_viewsets/{kind}/
+ */
+export type managedViewsetsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type managedViewsetsRetrieveResponseSuccess = managedViewsetsRetrieveResponse200 & {
+    headers: Headers
+}
+export type managedViewsetsRetrieveResponse = managedViewsetsRetrieveResponseSuccess
+
+export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
+    return `/api/environments/${projectId}/managed_viewsets/${kind}/`
+}
+
+export const managedViewsetsRetrieve = async (
+    projectId: string,
+    kind: 'revenue_analytics',
+    options?: RequestInit
+): Promise<managedViewsetsRetrieveResponse> => {
+    return apiMutator<managedViewsetsRetrieveResponse>(getManagedViewsetsRetrieveUrl(projectId, kind), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Enable or disable a managed viewset by kind.
+PUT /api/environments/{team_id}/managed_viewsets/{kind}/ with body {"enabled": true/false}
+ */
+export type managedViewsetsUpdateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type managedViewsetsUpdateResponseSuccess = managedViewsetsUpdateResponse200 & {
+    headers: Headers
+}
+export type managedViewsetsUpdateResponse = managedViewsetsUpdateResponseSuccess
+
+export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics') => {
+    return `/api/environments/${projectId}/managed_viewsets/${kind}/`
+}
+
+export const managedViewsetsUpdate = async (
+    projectId: string,
+    kind: 'revenue_analytics',
+    options?: RequestInit
+): Promise<managedViewsetsUpdateResponse> => {
+    return apiMutator<managedViewsetsUpdateResponse>(getManagedViewsetsUpdateUrl(projectId, kind), {
+        ...options,
+        method: 'PUT',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseSavedQueriesListResponse200 = {
+    data: PaginatedDataWarehouseSavedQueryMinimalListApi
+    status: 200
+}
+
+export type warehouseSavedQueriesListResponseSuccess = warehouseSavedQueriesListResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesListResponse = warehouseSavedQueriesListResponseSuccess
+
+export const getWarehouseSavedQueriesListUrl = (projectId: string, params?: WarehouseSavedQueriesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/warehouse_saved_queries/?${stringifiedParams}`
+        : `/api/environments/${projectId}/warehouse_saved_queries/`
+}
+
+export const warehouseSavedQueriesList = async (
+    projectId: string,
+    params?: WarehouseSavedQueriesListParams,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesListResponse> => {
+    return apiMutator<warehouseSavedQueriesListResponse>(getWarehouseSavedQueriesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseSavedQueriesCreateResponse201 = {
+    data: DataWarehouseSavedQueryApi
+    status: 201
+}
+
+export type warehouseSavedQueriesCreateResponseSuccess = warehouseSavedQueriesCreateResponse201 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesCreateResponse = warehouseSavedQueriesCreateResponseSuccess
+
+export const getWarehouseSavedQueriesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/`
+}
+
+export const warehouseSavedQueriesCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesCreateResponse>(getWarehouseSavedQueriesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseSavedQueriesRetrieveResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesRetrieveResponseSuccess = warehouseSavedQueriesRetrieveResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesRetrieveResponse = warehouseSavedQueriesRetrieveResponseSuccess
+
+export const getWarehouseSavedQueriesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/`
+}
+
+export const warehouseSavedQueriesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesRetrieveResponse> => {
+    return apiMutator<warehouseSavedQueriesRetrieveResponse>(getWarehouseSavedQueriesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseSavedQueriesUpdateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesUpdateResponseSuccess = warehouseSavedQueriesUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesUpdateResponse = warehouseSavedQueriesUpdateResponseSuccess
+
+export const getWarehouseSavedQueriesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/`
+}
+
+export const warehouseSavedQueriesUpdate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesUpdateResponse> => {
+    return apiMutator<warehouseSavedQueriesUpdateResponse>(getWarehouseSavedQueriesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseSavedQueriesPartialUpdateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesPartialUpdateResponseSuccess = warehouseSavedQueriesPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesPartialUpdateResponse = warehouseSavedQueriesPartialUpdateResponseSuccess
+
+export const getWarehouseSavedQueriesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/`
+}
+
+export const warehouseSavedQueriesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDataWarehouseSavedQueryApi: NonReadonly<PatchedDataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesPartialUpdateResponse> => {
+    return apiMutator<warehouseSavedQueriesPartialUpdateResponse>(
+        getWarehouseSavedQueriesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedDataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseSavedQueriesDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type warehouseSavedQueriesDestroyResponseSuccess = warehouseSavedQueriesDestroyResponse204 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesDestroyResponse = warehouseSavedQueriesDestroyResponseSuccess
+
+export const getWarehouseSavedQueriesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/`
+}
+
+export const warehouseSavedQueriesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesDestroyResponse> => {
+    return apiMutator<warehouseSavedQueriesDestroyResponse>(getWarehouseSavedQueriesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseSavedQueriesActivityRetrieveResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesActivityRetrieveResponseSuccess = warehouseSavedQueriesActivityRetrieveResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesActivityRetrieveResponse = warehouseSavedQueriesActivityRetrieveResponseSuccess
+
+export const getWarehouseSavedQueriesActivityRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/activity/`
+}
+
+export const warehouseSavedQueriesActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesActivityRetrieveResponse> => {
+    return apiMutator<warehouseSavedQueriesActivityRetrieveResponse>(
+        getWarehouseSavedQueriesActivityRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Return the ancestors of this saved query.
+
+By default, we return the immediate parents. The `level` parameter can be used to
+look further back into the ancestor tree. If `level` overshoots (i.e. points to only
+ancestors beyond the root), we return an empty list.
+ */
+export type warehouseSavedQueriesAncestorsCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesAncestorsCreateResponseSuccess = warehouseSavedQueriesAncestorsCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesAncestorsCreateResponse = warehouseSavedQueriesAncestorsCreateResponseSuccess
+
+export const getWarehouseSavedQueriesAncestorsCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/ancestors/`
+}
+
+export const warehouseSavedQueriesAncestorsCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesAncestorsCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesAncestorsCreateResponse>(
+        getWarehouseSavedQueriesAncestorsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
+ * Cancel a running saved query workflow.
+ */
+export type warehouseSavedQueriesCancelCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesCancelCreateResponseSuccess = warehouseSavedQueriesCancelCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesCancelCreateResponse = warehouseSavedQueriesCancelCreateResponseSuccess
+
+export const getWarehouseSavedQueriesCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/cancel/`
+}
+
+export const warehouseSavedQueriesCancelCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesCancelCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesCancelCreateResponse>(
+        getWarehouseSavedQueriesCancelCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
+ * Return the count of immediate upstream and downstream dependencies for this saved query.
+ */
+export type warehouseSavedQueriesDependenciesRetrieveResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesDependenciesRetrieveResponseSuccess =
+    warehouseSavedQueriesDependenciesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesDependenciesRetrieveResponse = warehouseSavedQueriesDependenciesRetrieveResponseSuccess
+
+export const getWarehouseSavedQueriesDependenciesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/dependencies/`
+}
+
+export const warehouseSavedQueriesDependenciesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesDependenciesRetrieveResponse> => {
+    return apiMutator<warehouseSavedQueriesDependenciesRetrieveResponse>(
+        getWarehouseSavedQueriesDependenciesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Return the descendants of this saved query.
+
+By default, we return the immediate children. The `level` parameter can be used to
+look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
+descendants further than a leaf), we return an empty list.
+ */
+export type warehouseSavedQueriesDescendantsCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesDescendantsCreateResponseSuccess =
+    warehouseSavedQueriesDescendantsCreateResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesDescendantsCreateResponse = warehouseSavedQueriesDescendantsCreateResponseSuccess
+
+export const getWarehouseSavedQueriesDescendantsCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/descendants/`
+}
+
+export const warehouseSavedQueriesDescendantsCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesDescendantsCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesDescendantsCreateResponse>(
+        getWarehouseSavedQueriesDescendantsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
+ * Enable materialization for this saved query with a 24-hour sync frequency.
+ */
+export type warehouseSavedQueriesMaterializeCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesMaterializeCreateResponseSuccess =
+    warehouseSavedQueriesMaterializeCreateResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesMaterializeCreateResponse = warehouseSavedQueriesMaterializeCreateResponseSuccess
+
+export const getWarehouseSavedQueriesMaterializeCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/materialize/`
+}
+
+export const warehouseSavedQueriesMaterializeCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesMaterializeCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesMaterializeCreateResponse>(
+        getWarehouseSavedQueriesMaterializeCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
+ * Undo materialization, revert back to the original view.
+(i.e. delete the materialized table and the schedule)
+ */
+export type warehouseSavedQueriesRevertMaterializationCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesRevertMaterializationCreateResponseSuccess =
+    warehouseSavedQueriesRevertMaterializationCreateResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesRevertMaterializationCreateResponse =
+    warehouseSavedQueriesRevertMaterializationCreateResponseSuccess
+
+export const getWarehouseSavedQueriesRevertMaterializationCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/revert_materialization/`
+}
+
+export const warehouseSavedQueriesRevertMaterializationCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesRevertMaterializationCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesRevertMaterializationCreateResponse>(
+        getWarehouseSavedQueriesRevertMaterializationCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
+ * Run this saved query.
+ */
+export type warehouseSavedQueriesRunCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesRunCreateResponseSuccess = warehouseSavedQueriesRunCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueriesRunCreateResponse = warehouseSavedQueriesRunCreateResponseSuccess
+
+export const getWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/run/`
+}
+
+export const warehouseSavedQueriesRunCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesRunCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesRunCreateResponse>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryApi),
+    })
+}
+
+/**
+ * Return the recent run history (up to 5 most recent) for this materialized view.
+ */
+export type warehouseSavedQueriesRunHistoryRetrieveResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesRunHistoryRetrieveResponseSuccess =
+    warehouseSavedQueriesRunHistoryRetrieveResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesRunHistoryRetrieveResponse = warehouseSavedQueriesRunHistoryRetrieveResponseSuccess
+
+export const getWarehouseSavedQueriesRunHistoryRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/run_history/`
+}
+
+export const warehouseSavedQueriesRunHistoryRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesRunHistoryRetrieveResponse> => {
+    return apiMutator<warehouseSavedQueriesRunHistoryRetrieveResponse>(
+        getWarehouseSavedQueriesRunHistoryRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Resume paused materialization schedules for multiple matviews.
+
+Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
+This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+ */
+export type warehouseSavedQueriesResumeSchedulesCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesResumeSchedulesCreateResponseSuccess =
+    warehouseSavedQueriesResumeSchedulesCreateResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesResumeSchedulesCreateResponse =
+    warehouseSavedQueriesResumeSchedulesCreateResponseSuccess
+
+export const getWarehouseSavedQueriesResumeSchedulesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/resume_schedules/`
+}
+
+export const warehouseSavedQueriesResumeSchedulesCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesResumeSchedulesCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesResumeSchedulesCreateResponse>(
+        getWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+export type warehouseSavedQueryDraftsListResponse200 = {
+    data: PaginatedDataWarehouseSavedQueryDraftListApi
+    status: 200
+}
+
+export type warehouseSavedQueryDraftsListResponseSuccess = warehouseSavedQueryDraftsListResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueryDraftsListResponse = warehouseSavedQueryDraftsListResponseSuccess
+
+export const getWarehouseSavedQueryDraftsListUrl = (
+    projectId: string,
+    params?: WarehouseSavedQueryDraftsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/warehouse_saved_query_drafts/?${stringifiedParams}`
+        : `/api/environments/${projectId}/warehouse_saved_query_drafts/`
+}
+
+export const warehouseSavedQueryDraftsList = async (
+    projectId: string,
+    params?: WarehouseSavedQueryDraftsListParams,
+    options?: RequestInit
+): Promise<warehouseSavedQueryDraftsListResponse> => {
+    return apiMutator<warehouseSavedQueryDraftsListResponse>(getWarehouseSavedQueryDraftsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type warehouseSavedQueryDraftsCreateResponse201 = {
+    data: DataWarehouseSavedQueryDraftApi
+    status: 201
+}
+
+export type warehouseSavedQueryDraftsCreateResponseSuccess = warehouseSavedQueryDraftsCreateResponse201 & {
+    headers: Headers
+}
+export type warehouseSavedQueryDraftsCreateResponse = warehouseSavedQueryDraftsCreateResponseSuccess
+
+export const getWarehouseSavedQueryDraftsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_query_drafts/`
+}
+
+export const warehouseSavedQueryDraftsCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryDraftApi: NonReadonly<DataWarehouseSavedQueryDraftApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueryDraftsCreateResponse> => {
+    return apiMutator<warehouseSavedQueryDraftsCreateResponse>(getWarehouseSavedQueryDraftsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
+    })
+}
+
+export type warehouseSavedQueryDraftsRetrieveResponse200 = {
+    data: DataWarehouseSavedQueryDraftApi
+    status: 200
+}
+
+export type warehouseSavedQueryDraftsRetrieveResponseSuccess = warehouseSavedQueryDraftsRetrieveResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueryDraftsRetrieveResponse = warehouseSavedQueryDraftsRetrieveResponseSuccess
+
+export const getWarehouseSavedQueryDraftsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
+}
+
+export const warehouseSavedQueryDraftsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseSavedQueryDraftsRetrieveResponse> => {
+    return apiMutator<warehouseSavedQueryDraftsRetrieveResponse>(
+        getWarehouseSavedQueryDraftsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type warehouseSavedQueryDraftsUpdateResponse200 = {
+    data: DataWarehouseSavedQueryDraftApi
+    status: 200
+}
+
+export type warehouseSavedQueryDraftsUpdateResponseSuccess = warehouseSavedQueryDraftsUpdateResponse200 & {
+    headers: Headers
+}
+export type warehouseSavedQueryDraftsUpdateResponse = warehouseSavedQueryDraftsUpdateResponseSuccess
+
+export const getWarehouseSavedQueryDraftsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
+}
+
+export const warehouseSavedQueryDraftsUpdate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryDraftApi: NonReadonly<DataWarehouseSavedQueryDraftApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueryDraftsUpdateResponse> => {
+    return apiMutator<warehouseSavedQueryDraftsUpdateResponse>(getWarehouseSavedQueryDraftsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
+    })
+}
+
+export type warehouseSavedQueryDraftsPartialUpdateResponse200 = {
+    data: DataWarehouseSavedQueryDraftApi
+    status: 200
+}
+
+export type warehouseSavedQueryDraftsPartialUpdateResponseSuccess =
+    warehouseSavedQueryDraftsPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueryDraftsPartialUpdateResponse = warehouseSavedQueryDraftsPartialUpdateResponseSuccess
+
+export const getWarehouseSavedQueryDraftsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
+}
+
+export const warehouseSavedQueryDraftsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDataWarehouseSavedQueryDraftApi: NonReadonly<PatchedDataWarehouseSavedQueryDraftApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueryDraftsPartialUpdateResponse> => {
+    return apiMutator<warehouseSavedQueryDraftsPartialUpdateResponse>(
+        getWarehouseSavedQueryDraftsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedDataWarehouseSavedQueryDraftApi),
+        }
+    )
+}
+
+export type warehouseSavedQueryDraftsDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type warehouseSavedQueryDraftsDestroyResponseSuccess = warehouseSavedQueryDraftsDestroyResponse204 & {
+    headers: Headers
+}
+export type warehouseSavedQueryDraftsDestroyResponse = warehouseSavedQueryDraftsDestroyResponseSuccess
+
+export const getWarehouseSavedQueryDraftsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
+}
+
+export const warehouseSavedQueryDraftsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<warehouseSavedQueryDraftsDestroyResponse> => {
+    return apiMutator<warehouseSavedQueryDraftsDestroyResponse>(getWarehouseSavedQueryDraftsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesListResponse200 = {
+    data: PaginatedTableListApi
+    status: 200
+}
+
+export type warehouseTablesListResponseSuccess = warehouseTablesListResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesListResponse = warehouseTablesListResponseSuccess
+
+export const getWarehouseTablesListUrl = (projectId: string, params?: WarehouseTablesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/warehouse_tables/?${stringifiedParams}`
+        : `/api/environments/${projectId}/warehouse_tables/`
+}
+
+export const warehouseTablesList = async (
+    projectId: string,
+    params?: WarehouseTablesListParams,
+    options?: RequestInit
+): Promise<warehouseTablesListResponse> => {
+    return apiMutator<warehouseTablesListResponse>(getWarehouseTablesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesCreateResponse201 = {
+    data: TableApi
+    status: 201
+}
+
+export type warehouseTablesCreateResponseSuccess = warehouseTablesCreateResponse201 & {
+    headers: Headers
+}
+export type warehouseTablesCreateResponse = warehouseTablesCreateResponseSuccess
+
+export const getWarehouseTablesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/`
+}
+
+export const warehouseTablesCreate = async (
+    projectId: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<warehouseTablesCreateResponse> => {
+    return apiMutator<warehouseTablesCreateResponse>(getWarehouseTablesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tableApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export type warehouseTablesFileCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type warehouseTablesFileCreateResponseSuccess = warehouseTablesFileCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseTablesFileCreateResponse = warehouseTablesFileCreateResponseSuccess
+
+export const getWarehouseTablesFileCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_tables/file/`
+}
+
+export const warehouseTablesFileCreate = async (
+    projectId: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<warehouseTablesFileCreateResponse> => {
+    const formData = new FormData()
+    if (tableApi.deleted !== undefined && tableApi.deleted !== null) {
+        formData.append(`deleted`, tableApi.deleted.toString())
+    }
+    formData.append(`name`, tableApi.name)
+    formData.append(`format`, tableApi.format)
+    formData.append(`url_pattern`, tableApi.url_pattern)
+    formData.append(`credential`, JSON.stringify(tableApi.credential))
+
+    return apiMutator<warehouseTablesFileCreateResponse>(getWarehouseTablesFileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkListResponse200 = {
+    data: PaginatedViewLinkListApi
+    status: 200
+}
+
+export type warehouseViewLinkListResponseSuccess = warehouseViewLinkListResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinkListResponse = warehouseViewLinkListResponseSuccess
+
+export const getWarehouseViewLinkListUrl = (projectId: string, params?: WarehouseViewLinkListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/warehouse_view_link/?${stringifiedParams}`
+        : `/api/environments/${projectId}/warehouse_view_link/`
+}
+
+export const warehouseViewLinkList = async (
+    projectId: string,
+    params?: WarehouseViewLinkListParams,
+    options?: RequestInit
+): Promise<warehouseViewLinkListResponse> => {
+    return apiMutator<warehouseViewLinkListResponse>(getWarehouseViewLinkListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkCreateResponse201 = {
+    data: ViewLinkApi
+    status: 201
+}
+
+export type warehouseViewLinkCreateResponseSuccess = warehouseViewLinkCreateResponse201 & {
+    headers: Headers
+}
+export type warehouseViewLinkCreateResponse = warehouseViewLinkCreateResponseSuccess
+
+export const getWarehouseViewLinkCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_view_link/`
+}
+
+export const warehouseViewLinkCreate = async (
+    projectId: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<warehouseViewLinkCreateResponse> => {
+    return apiMutator<warehouseViewLinkCreateResponse>(getWarehouseViewLinkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinkValidateCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type warehouseViewLinkValidateCreateResponseSuccess = warehouseViewLinkValidateCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinkValidateCreateResponse = warehouseViewLinkValidateCreateResponseSuccess
+
+export const getWarehouseViewLinkValidateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_view_link/validate/`
+}
+
+export const warehouseViewLinkValidateCreate = async (
+    projectId: string,
+    viewLinkValidationApi: ViewLinkValidationApi,
+    options?: RequestInit
+): Promise<warehouseViewLinkValidateCreateResponse> => {
+    return apiMutator<warehouseViewLinkValidateCreateResponse>(getWarehouseViewLinkValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkValidationApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksListResponse200 = {
+    data: PaginatedViewLinkListApi
+    status: 200
+}
+
+export type warehouseViewLinksListResponseSuccess = warehouseViewLinksListResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinksListResponse = warehouseViewLinksListResponseSuccess
+
+export const getWarehouseViewLinksListUrl = (projectId: string, params?: WarehouseViewLinksListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/warehouse_view_links/?${stringifiedParams}`
+        : `/api/environments/${projectId}/warehouse_view_links/`
+}
+
+export const warehouseViewLinksList = async (
+    projectId: string,
+    params?: WarehouseViewLinksListParams,
+    options?: RequestInit
+): Promise<warehouseViewLinksListResponse> => {
+    return apiMutator<warehouseViewLinksListResponse>(getWarehouseViewLinksListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksCreateResponse201 = {
+    data: ViewLinkApi
+    status: 201
+}
+
+export type warehouseViewLinksCreateResponseSuccess = warehouseViewLinksCreateResponse201 & {
+    headers: Headers
+}
+export type warehouseViewLinksCreateResponse = warehouseViewLinksCreateResponseSuccess
+
+export const getWarehouseViewLinksCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_view_links/`
+}
+
+export const warehouseViewLinksCreate = async (
+    projectId: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<warehouseViewLinksCreateResponse> => {
+    return apiMutator<warehouseViewLinksCreateResponse>(getWarehouseViewLinksCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export type warehouseViewLinksValidateCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type warehouseViewLinksValidateCreateResponseSuccess = warehouseViewLinksValidateCreateResponse200 & {
+    headers: Headers
+}
+export type warehouseViewLinksValidateCreateResponse = warehouseViewLinksValidateCreateResponseSuccess
+
+export const getWarehouseViewLinksValidateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_view_links/validate/`
+}
+
+export const warehouseViewLinksValidateCreate = async (
+    projectId: string,
+    viewLinkValidationApi: ViewLinkValidationApi,
+    options?: RequestInit
+): Promise<warehouseViewLinksValidateCreateResponse> => {
+    return apiMutator<warehouseViewLinksValidateCreateResponse>(getWarehouseViewLinksValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkValidationApi),
+    })
+}
+
+/**
+ * List data modeling jobs which are "runs" for our saved queries.
+ */
+export type dataModelingJobsList2Response200 = {
+    data: PaginatedDataModelingJobListApi
+    status: 200
+}
+
+export type dataModelingJobsList2ResponseSuccess = dataModelingJobsList2Response200 & {
+    headers: Headers
+}
+export type dataModelingJobsList2Response = dataModelingJobsList2ResponseSuccess
+
+export const getDataModelingJobsList2Url = (projectId: string, params?: DataModelingJobsList2Params) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_modeling_jobs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_jobs/`
+}
+
+export const dataModelingJobsList2 = async (
+    projectId: string,
+    params?: DataModelingJobsList2Params,
+    options?: RequestInit
+): Promise<dataModelingJobsList2Response> => {
+    return apiMutator<dataModelingJobsList2Response>(getDataModelingJobsList2Url(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * List data modeling jobs which are "runs" for our saved queries.
+ */
+export type dataModelingJobsRetrieve2Response200 = {
+    data: DataModelingJobApi
+    status: 200
+}
+
+export type dataModelingJobsRetrieve2ResponseSuccess = dataModelingJobsRetrieve2Response200 & {
+    headers: Headers
+}
+export type dataModelingJobsRetrieve2Response = dataModelingJobsRetrieve2ResponseSuccess
+
+export const getDataModelingJobsRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_jobs/${id}/`
+}
+
+export const dataModelingJobsRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<dataModelingJobsRetrieve2Response> => {
+    return apiMutator<dataModelingJobsRetrieve2Response>(getDataModelingJobsRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Returns completed/non-running activities (jobs with status 'Completed').
+Supports pagination and cutoff time filtering.
+ */
+export type dataWarehouseCompletedActivityRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseCompletedActivityRetrieve2ResponseSuccess =
+    dataWarehouseCompletedActivityRetrieve2Response200 & {
+        headers: Headers
+    }
+export type dataWarehouseCompletedActivityRetrieve2Response = dataWarehouseCompletedActivityRetrieve2ResponseSuccess
+
+export const getDataWarehouseCompletedActivityRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/completed_activity/`
+}
+
+export const dataWarehouseCompletedActivityRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseCompletedActivityRetrieve2Response> => {
+    return apiMutator<dataWarehouseCompletedActivityRetrieve2Response>(
+        getDataWarehouseCompletedActivityRetrieve2Url(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns failed/disabled data pipeline items for the Pipeline status side panel.
+Includes: materializations, syncs, sources, destinations, and transformations.
+ */
+export type dataWarehouseDataHealthIssuesRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseDataHealthIssuesRetrieve2ResponseSuccess =
+    dataWarehouseDataHealthIssuesRetrieve2Response200 & {
+        headers: Headers
+    }
+export type dataWarehouseDataHealthIssuesRetrieve2Response = dataWarehouseDataHealthIssuesRetrieve2ResponseSuccess
+
+export const getDataWarehouseDataHealthIssuesRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/data_health_issues/`
+}
+
+export const dataWarehouseDataHealthIssuesRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseDataHealthIssuesRetrieve2Response> => {
+    return apiMutator<dataWarehouseDataHealthIssuesRetrieve2Response>(
+        getDataWarehouseDataHealthIssuesRetrieve2Url(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns success and failed job statistics for the last 1, 7, or 30 days.
+Query parameter 'days' can be 1, 7, or 30 (default: 7).
+ */
+export type dataWarehouseJobStatsRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseJobStatsRetrieve2ResponseSuccess = dataWarehouseJobStatsRetrieve2Response200 & {
+    headers: Headers
+}
+export type dataWarehouseJobStatsRetrieve2Response = dataWarehouseJobStatsRetrieve2ResponseSuccess
+
+export const getDataWarehouseJobStatsRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/job_stats/`
+}
+
+export const dataWarehouseJobStatsRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseJobStatsRetrieve2Response> => {
+    return apiMutator<dataWarehouseJobStatsRetrieve2Response>(getDataWarehouseJobStatsRetrieve2Url(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * API endpoints for data warehouse aggregate statistics and operations.
+ */
+export type dataWarehousePropertyValuesRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehousePropertyValuesRetrieve2ResponseSuccess = dataWarehousePropertyValuesRetrieve2Response200 & {
+    headers: Headers
+}
+export type dataWarehousePropertyValuesRetrieve2Response = dataWarehousePropertyValuesRetrieve2ResponseSuccess
+
+export const getDataWarehousePropertyValuesRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/property_values/`
+}
+
+export const dataWarehousePropertyValuesRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehousePropertyValuesRetrieve2Response> => {
+    return apiMutator<dataWarehousePropertyValuesRetrieve2Response>(
+        getDataWarehousePropertyValuesRetrieve2Url(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns currently running activities (jobs with status 'Running').
+Supports pagination and cutoff time filtering.
+ */
+export type dataWarehouseRunningActivityRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseRunningActivityRetrieve2ResponseSuccess = dataWarehouseRunningActivityRetrieve2Response200 & {
+    headers: Headers
+}
+export type dataWarehouseRunningActivityRetrieve2Response = dataWarehouseRunningActivityRetrieve2ResponseSuccess
+
+export const getDataWarehouseRunningActivityRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/running_activity/`
+}
+
+export const dataWarehouseRunningActivityRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseRunningActivityRetrieve2Response> => {
+    return apiMutator<dataWarehouseRunningActivityRetrieve2Response>(
+        getDataWarehouseRunningActivityRetrieve2Url(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
+Used by the frontend data warehouse scene to display usage information.
+ */
+export type dataWarehouseTotalRowsStatsRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type dataWarehouseTotalRowsStatsRetrieve2ResponseSuccess = dataWarehouseTotalRowsStatsRetrieve2Response200 & {
+    headers: Headers
+}
+export type dataWarehouseTotalRowsStatsRetrieve2Response = dataWarehouseTotalRowsStatsRetrieve2ResponseSuccess
+
+export const getDataWarehouseTotalRowsStatsRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/total_rows_stats/`
+}
+
+export const dataWarehouseTotalRowsStatsRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<dataWarehouseTotalRowsStatsRetrieve2Response> => {
+    return apiMutator<dataWarehouseTotalRowsStatsRetrieve2Response>(
+        getDataWarehouseTotalRowsStatsRetrieve2Url(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type externalDataSchemasList2Response200 = {
+    data: PaginatedExternalDataSchemaListApi
+    status: 200
+}
+
+export type externalDataSchemasList2ResponseSuccess = externalDataSchemasList2Response200 & {
+    headers: Headers
+}
+export type externalDataSchemasList2Response = externalDataSchemasList2ResponseSuccess
+
+export const getExternalDataSchemasList2Url = (projectId: string, params?: ExternalDataSchemasList2Params) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_schemas/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_schemas/`
+}
+
+export const externalDataSchemasList2 = async (
+    projectId: string,
+    params?: ExternalDataSchemasList2Params,
+    options?: RequestInit
+): Promise<externalDataSchemasList2Response> => {
+    return apiMutator<externalDataSchemasList2Response>(getExternalDataSchemasList2Url(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type externalDataSchemasCreate2Response201 = {
+    data: ExternalDataSchemaApi
+    status: 201
+}
+
+export type externalDataSchemasCreate2ResponseSuccess = externalDataSchemasCreate2Response201 & {
+    headers: Headers
+}
+export type externalDataSchemasCreate2Response = externalDataSchemasCreate2ResponseSuccess
+
+export const getExternalDataSchemasCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/`
+}
+
+export const externalDataSchemasCreate2 = async (
+    projectId: string,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
+    options?: RequestInit
+): Promise<externalDataSchemasCreate2Response> => {
+    return apiMutator<externalDataSchemasCreate2Response>(getExternalDataSchemasCreate2Url(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesList2Response200 = {
+    data: PaginatedExternalDataSourceSerializersListApi
+    status: 200
+}
+
+export type externalDataSourcesList2ResponseSuccess = externalDataSourcesList2Response200 & {
+    headers: Headers
+}
+export type externalDataSourcesList2Response = externalDataSourcesList2ResponseSuccess
+
+export const getExternalDataSourcesList2Url = (projectId: string, params?: ExternalDataSourcesList2Params) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/`
+}
+
+export const externalDataSourcesList2 = async (
+    projectId: string,
+    params?: ExternalDataSourcesList2Params,
+    options?: RequestInit
+): Promise<externalDataSourcesList2Response> => {
+    return apiMutator<externalDataSourcesList2Response>(getExternalDataSourcesList2Url(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesCreate2Response201 = {
+    data: ExternalDataSourceSerializersApi
+    status: 201
+}
+
+export type externalDataSourcesCreate2ResponseSuccess = externalDataSourcesCreate2Response201 & {
+    headers: Headers
+}
+export type externalDataSourcesCreate2Response = externalDataSourcesCreate2ResponseSuccess
+
+export const getExternalDataSourcesCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/`
+}
+
+export const externalDataSourcesCreate2 = async (
+    projectId: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<externalDataSourcesCreate2Response> => {
+    return apiMutator<externalDataSourcesCreate2Response>(getExternalDataSourcesCreate2Url(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesRetrieve2Response200 = {
+    data: ExternalDataSourceSerializersApi
+    status: 200
+}
+
+export type externalDataSourcesRetrieve2ResponseSuccess = externalDataSourcesRetrieve2Response200 & {
+    headers: Headers
+}
+export type externalDataSourcesRetrieve2Response = externalDataSourcesRetrieve2ResponseSuccess
+
+export const getExternalDataSourcesRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/`
+}
+
+export const externalDataSourcesRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<externalDataSourcesRetrieve2Response> => {
+    return apiMutator<externalDataSourcesRetrieve2Response>(getExternalDataSourcesRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesUpdate2Response200 = {
+    data: ExternalDataSourceSerializersApi
+    status: 200
+}
+
+export type externalDataSourcesUpdate2ResponseSuccess = externalDataSourcesUpdate2Response200 & {
+    headers: Headers
+}
+export type externalDataSourcesUpdate2Response = externalDataSourcesUpdate2ResponseSuccess
+
+export const getExternalDataSourcesUpdate2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/`
+}
+
+export const externalDataSourcesUpdate2 = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<externalDataSourcesUpdate2Response> => {
+    return apiMutator<externalDataSourcesUpdate2Response>(getExternalDataSourcesUpdate2Url(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesPartialUpdate2Response200 = {
+    data: ExternalDataSourceSerializersApi
+    status: 200
+}
+
+export type externalDataSourcesPartialUpdate2ResponseSuccess = externalDataSourcesPartialUpdate2Response200 & {
+    headers: Headers
+}
+export type externalDataSourcesPartialUpdate2Response = externalDataSourcesPartialUpdate2ResponseSuccess
+
+export const getExternalDataSourcesPartialUpdate2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/`
+}
+
+export const externalDataSourcesPartialUpdate2 = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataSourceSerializersApi: NonReadonly<PatchedExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<externalDataSourcesPartialUpdate2Response> => {
+    return apiMutator<externalDataSourcesPartialUpdate2Response>(
+        getExternalDataSourcesPartialUpdate2Url(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceSerializersApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesDestroy2Response204 = {
+    data: void
+    status: 204
+}
+
+export type externalDataSourcesDestroy2ResponseSuccess = externalDataSourcesDestroy2Response204 & {
+    headers: Headers
+}
+export type externalDataSourcesDestroy2Response = externalDataSourcesDestroy2ResponseSuccess
+
+export const getExternalDataSourcesDestroy2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/`
+}
+
+export const externalDataSourcesDestroy2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<externalDataSourcesDestroy2Response> => {
+    return apiMutator<externalDataSourcesDestroy2Response>(getExternalDataSourcesDestroy2Url(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesJobsRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type externalDataSourcesJobsRetrieve2ResponseSuccess = externalDataSourcesJobsRetrieve2Response200 & {
+    headers: Headers
+}
+export type externalDataSourcesJobsRetrieve2Response = externalDataSourcesJobsRetrieve2ResponseSuccess
+
+export const getExternalDataSourcesJobsRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
+}
+
+export const externalDataSourcesJobsRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<externalDataSourcesJobsRetrieve2Response> => {
+    return apiMutator<externalDataSourcesJobsRetrieve2Response>(getExternalDataSourcesJobsRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesReloadCreate2Response200 = {
+    data: void
+    status: 200
+}
+
+export type externalDataSourcesReloadCreate2ResponseSuccess = externalDataSourcesReloadCreate2Response200 & {
+    headers: Headers
+}
+export type externalDataSourcesReloadCreate2Response = externalDataSourcesReloadCreate2ResponseSuccess
+
+export const getExternalDataSourcesReloadCreate2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/reload/`
+}
+
+export const externalDataSourcesReloadCreate2 = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<externalDataSourcesReloadCreate2Response> => {
+    return apiMutator<externalDataSourcesReloadCreate2Response>(getExternalDataSourcesReloadCreate2Url(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Update the revenue analytics configuration and return the full external data source.
+ */
+export type externalDataSourcesRevenueAnalyticsConfigPartialUpdate2Response200 = {
+    data: void
+    status: 200
+}
+
+export type externalDataSourcesRevenueAnalyticsConfigPartialUpdate2ResponseSuccess =
+    externalDataSourcesRevenueAnalyticsConfigPartialUpdate2Response200 & {
+        headers: Headers
+    }
+export type externalDataSourcesRevenueAnalyticsConfigPartialUpdate2Response =
+    externalDataSourcesRevenueAnalyticsConfigPartialUpdate2ResponseSuccess
+
+export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdate2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/revenue_analytics_config/`
+}
+
+export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate2 = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataSourceSerializersApi: NonReadonly<PatchedExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<externalDataSourcesRevenueAnalyticsConfigPartialUpdate2Response> => {
+    return apiMutator<externalDataSourcesRevenueAnalyticsConfigPartialUpdate2Response>(
+        getExternalDataSourcesRevenueAnalyticsConfigPartialUpdate2Url(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceSerializersApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesDatabaseSchemaCreate2Response200 = {
+    data: void
+    status: 200
+}
+
+export type externalDataSourcesDatabaseSchemaCreate2ResponseSuccess =
+    externalDataSourcesDatabaseSchemaCreate2Response200 & {
+        headers: Headers
+    }
+export type externalDataSourcesDatabaseSchemaCreate2Response = externalDataSourcesDatabaseSchemaCreate2ResponseSuccess
+
+export const getExternalDataSourcesDatabaseSchemaCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/database_schema/`
+}
+
+export const externalDataSourcesDatabaseSchemaCreate2 = async (
+    projectId: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<externalDataSourcesDatabaseSchemaCreate2Response> => {
+    return apiMutator<externalDataSourcesDatabaseSchemaCreate2Response>(
+        getExternalDataSourcesDatabaseSchemaCreate2Url(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(externalDataSourceSerializersApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesSourcePrefixCreate2Response200 = {
+    data: void
+    status: 200
+}
+
+export type externalDataSourcesSourcePrefixCreate2ResponseSuccess =
+    externalDataSourcesSourcePrefixCreate2Response200 & {
+        headers: Headers
+    }
+export type externalDataSourcesSourcePrefixCreate2Response = externalDataSourcesSourcePrefixCreate2ResponseSuccess
+
+export const getExternalDataSourcesSourcePrefixCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/source_prefix/`
+}
+
+export const externalDataSourcesSourcePrefixCreate2 = async (
+    projectId: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<externalDataSourcesSourcePrefixCreate2Response> => {
+    return apiMutator<externalDataSourcesSourcePrefixCreate2Response>(
+        getExternalDataSourcesSourcePrefixCreate2Url(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(externalDataSourceSerializersApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export type externalDataSourcesWizardRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type externalDataSourcesWizardRetrieve2ResponseSuccess = externalDataSourcesWizardRetrieve2Response200 & {
+    headers: Headers
+}
+export type externalDataSourcesWizardRetrieve2Response = externalDataSourcesWizardRetrieve2ResponseSuccess
+
+export const getExternalDataSourcesWizardRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/wizard/`
+}
+
+export const externalDataSourcesWizardRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<externalDataSourcesWizardRetrieve2Response> => {
+    return apiMutator<externalDataSourcesWizardRetrieve2Response>(getExternalDataSourcesWizardRetrieve2Url(projectId), {
         ...options,
         method: 'GET',
     })
@@ -3074,17 +2888,17 @@ export const warehouseModelPathsList = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseSavedQueriesListResponse200 = {
+export type warehouseSavedQueriesList2Response200 = {
     data: PaginatedDataWarehouseSavedQueryMinimalListApi
     status: 200
 }
 
-export type warehouseSavedQueriesListResponseSuccess = warehouseSavedQueriesListResponse200 & {
+export type warehouseSavedQueriesList2ResponseSuccess = warehouseSavedQueriesList2Response200 & {
     headers: Headers
 }
-export type warehouseSavedQueriesListResponse = warehouseSavedQueriesListResponseSuccess
+export type warehouseSavedQueriesList2Response = warehouseSavedQueriesList2ResponseSuccess
 
-export const getWarehouseSavedQueriesListUrl = (projectId: string, params?: WarehouseSavedQueriesListParams) => {
+export const getWarehouseSavedQueriesList2Url = (projectId: string, params?: WarehouseSavedQueriesList2Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -3100,12 +2914,12 @@ export const getWarehouseSavedQueriesListUrl = (projectId: string, params?: Ware
         : `/api/projects/${projectId}/warehouse_saved_queries/`
 }
 
-export const warehouseSavedQueriesList = async (
+export const warehouseSavedQueriesList2 = async (
     projectId: string,
-    params?: WarehouseSavedQueriesListParams,
+    params?: WarehouseSavedQueriesList2Params,
     options?: RequestInit
-): Promise<warehouseSavedQueriesListResponse> => {
-    return apiMutator<warehouseSavedQueriesListResponse>(getWarehouseSavedQueriesListUrl(projectId, params), {
+): Promise<warehouseSavedQueriesList2Response> => {
+    return apiMutator<warehouseSavedQueriesList2Response>(getWarehouseSavedQueriesList2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -3114,26 +2928,26 @@ export const warehouseSavedQueriesList = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseSavedQueriesCreateResponse201 = {
+export type warehouseSavedQueriesCreate2Response201 = {
     data: DataWarehouseSavedQueryApi
     status: 201
 }
 
-export type warehouseSavedQueriesCreateResponseSuccess = warehouseSavedQueriesCreateResponse201 & {
+export type warehouseSavedQueriesCreate2ResponseSuccess = warehouseSavedQueriesCreate2Response201 & {
     headers: Headers
 }
-export type warehouseSavedQueriesCreateResponse = warehouseSavedQueriesCreateResponseSuccess
+export type warehouseSavedQueriesCreate2Response = warehouseSavedQueriesCreate2ResponseSuccess
 
-export const getWarehouseSavedQueriesCreateUrl = (projectId: string) => {
+export const getWarehouseSavedQueriesCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/`
 }
 
-export const warehouseSavedQueriesCreate = async (
+export const warehouseSavedQueriesCreate2 = async (
     projectId: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesCreateResponse> => {
-    return apiMutator<warehouseSavedQueriesCreateResponse>(getWarehouseSavedQueriesCreateUrl(projectId), {
+): Promise<warehouseSavedQueriesCreate2Response> => {
+    return apiMutator<warehouseSavedQueriesCreate2Response>(getWarehouseSavedQueriesCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3144,26 +2958,26 @@ export const warehouseSavedQueriesCreate = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseSavedQueriesRetrieveResponse200 = {
+export type warehouseSavedQueriesRetrieve2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesRetrieveResponseSuccess = warehouseSavedQueriesRetrieveResponse200 & {
+export type warehouseSavedQueriesRetrieve2ResponseSuccess = warehouseSavedQueriesRetrieve2Response200 & {
     headers: Headers
 }
-export type warehouseSavedQueriesRetrieveResponse = warehouseSavedQueriesRetrieveResponseSuccess
+export type warehouseSavedQueriesRetrieve2Response = warehouseSavedQueriesRetrieve2ResponseSuccess
 
-export const getWarehouseSavedQueriesRetrieveUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesRetrieve2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/`
 }
 
-export const warehouseSavedQueriesRetrieve = async (
+export const warehouseSavedQueriesRetrieve2 = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<warehouseSavedQueriesRetrieveResponse> => {
-    return apiMutator<warehouseSavedQueriesRetrieveResponse>(getWarehouseSavedQueriesRetrieveUrl(projectId, id), {
+): Promise<warehouseSavedQueriesRetrieve2Response> => {
+    return apiMutator<warehouseSavedQueriesRetrieve2Response>(getWarehouseSavedQueriesRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -3172,27 +2986,27 @@ export const warehouseSavedQueriesRetrieve = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseSavedQueriesUpdateResponse200 = {
+export type warehouseSavedQueriesUpdate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesUpdateResponseSuccess = warehouseSavedQueriesUpdateResponse200 & {
+export type warehouseSavedQueriesUpdate2ResponseSuccess = warehouseSavedQueriesUpdate2Response200 & {
     headers: Headers
 }
-export type warehouseSavedQueriesUpdateResponse = warehouseSavedQueriesUpdateResponseSuccess
+export type warehouseSavedQueriesUpdate2Response = warehouseSavedQueriesUpdate2ResponseSuccess
 
-export const getWarehouseSavedQueriesUpdateUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesUpdate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/`
 }
 
-export const warehouseSavedQueriesUpdate = async (
+export const warehouseSavedQueriesUpdate2 = async (
     projectId: string,
     id: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesUpdateResponse> => {
-    return apiMutator<warehouseSavedQueriesUpdateResponse>(getWarehouseSavedQueriesUpdateUrl(projectId, id), {
+): Promise<warehouseSavedQueriesUpdate2Response> => {
+    return apiMutator<warehouseSavedQueriesUpdate2Response>(getWarehouseSavedQueriesUpdate2Url(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3203,28 +3017,28 @@ export const warehouseSavedQueriesUpdate = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseSavedQueriesPartialUpdateResponse200 = {
+export type warehouseSavedQueriesPartialUpdate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesPartialUpdateResponseSuccess = warehouseSavedQueriesPartialUpdateResponse200 & {
+export type warehouseSavedQueriesPartialUpdate2ResponseSuccess = warehouseSavedQueriesPartialUpdate2Response200 & {
     headers: Headers
 }
-export type warehouseSavedQueriesPartialUpdateResponse = warehouseSavedQueriesPartialUpdateResponseSuccess
+export type warehouseSavedQueriesPartialUpdate2Response = warehouseSavedQueriesPartialUpdate2ResponseSuccess
 
-export const getWarehouseSavedQueriesPartialUpdateUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesPartialUpdate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/`
 }
 
-export const warehouseSavedQueriesPartialUpdate = async (
+export const warehouseSavedQueriesPartialUpdate2 = async (
     projectId: string,
     id: string,
     patchedDataWarehouseSavedQueryApi: NonReadonly<PatchedDataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesPartialUpdateResponse> => {
-    return apiMutator<warehouseSavedQueriesPartialUpdateResponse>(
-        getWarehouseSavedQueriesPartialUpdateUrl(projectId, id),
+): Promise<warehouseSavedQueriesPartialUpdate2Response> => {
+    return apiMutator<warehouseSavedQueriesPartialUpdate2Response>(
+        getWarehouseSavedQueriesPartialUpdate2Url(projectId, id),
         {
             ...options,
             method: 'PATCH',
@@ -3237,26 +3051,26 @@ export const warehouseSavedQueriesPartialUpdate = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseSavedQueriesDestroyResponse204 = {
+export type warehouseSavedQueriesDestroy2Response204 = {
     data: void
     status: 204
 }
 
-export type warehouseSavedQueriesDestroyResponseSuccess = warehouseSavedQueriesDestroyResponse204 & {
+export type warehouseSavedQueriesDestroy2ResponseSuccess = warehouseSavedQueriesDestroy2Response204 & {
     headers: Headers
 }
-export type warehouseSavedQueriesDestroyResponse = warehouseSavedQueriesDestroyResponseSuccess
+export type warehouseSavedQueriesDestroy2Response = warehouseSavedQueriesDestroy2ResponseSuccess
 
-export const getWarehouseSavedQueriesDestroyUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesDestroy2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/`
 }
 
-export const warehouseSavedQueriesDestroy = async (
+export const warehouseSavedQueriesDestroy2 = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<warehouseSavedQueriesDestroyResponse> => {
-    return apiMutator<warehouseSavedQueriesDestroyResponse>(getWarehouseSavedQueriesDestroyUrl(projectId, id), {
+): Promise<warehouseSavedQueriesDestroy2Response> => {
+    return apiMutator<warehouseSavedQueriesDestroy2Response>(getWarehouseSavedQueriesDestroy2Url(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -3265,27 +3079,28 @@ export const warehouseSavedQueriesDestroy = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseSavedQueriesActivityRetrieveResponse200 = {
+export type warehouseSavedQueriesActivityRetrieve2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesActivityRetrieveResponseSuccess = warehouseSavedQueriesActivityRetrieveResponse200 & {
-    headers: Headers
-}
-export type warehouseSavedQueriesActivityRetrieveResponse = warehouseSavedQueriesActivityRetrieveResponseSuccess
+export type warehouseSavedQueriesActivityRetrieve2ResponseSuccess =
+    warehouseSavedQueriesActivityRetrieve2Response200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesActivityRetrieve2Response = warehouseSavedQueriesActivityRetrieve2ResponseSuccess
 
-export const getWarehouseSavedQueriesActivityRetrieveUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesActivityRetrieve2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/activity/`
 }
 
-export const warehouseSavedQueriesActivityRetrieve = async (
+export const warehouseSavedQueriesActivityRetrieve2 = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<warehouseSavedQueriesActivityRetrieveResponse> => {
-    return apiMutator<warehouseSavedQueriesActivityRetrieveResponse>(
-        getWarehouseSavedQueriesActivityRetrieveUrl(projectId, id),
+): Promise<warehouseSavedQueriesActivityRetrieve2Response> => {
+    return apiMutator<warehouseSavedQueriesActivityRetrieve2Response>(
+        getWarehouseSavedQueriesActivityRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -3300,28 +3115,28 @@ By default, we return the immediate parents. The `level` parameter can be used t
 look further back into the ancestor tree. If `level` overshoots (i.e. points to only
 ancestors beyond the root), we return an empty list.
  */
-export type warehouseSavedQueriesAncestorsCreateResponse200 = {
+export type warehouseSavedQueriesAncestorsCreate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesAncestorsCreateResponseSuccess = warehouseSavedQueriesAncestorsCreateResponse200 & {
+export type warehouseSavedQueriesAncestorsCreate2ResponseSuccess = warehouseSavedQueriesAncestorsCreate2Response200 & {
     headers: Headers
 }
-export type warehouseSavedQueriesAncestorsCreateResponse = warehouseSavedQueriesAncestorsCreateResponseSuccess
+export type warehouseSavedQueriesAncestorsCreate2Response = warehouseSavedQueriesAncestorsCreate2ResponseSuccess
 
-export const getWarehouseSavedQueriesAncestorsCreateUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesAncestorsCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/ancestors/`
 }
 
-export const warehouseSavedQueriesAncestorsCreate = async (
+export const warehouseSavedQueriesAncestorsCreate2 = async (
     projectId: string,
     id: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesAncestorsCreateResponse> => {
-    return apiMutator<warehouseSavedQueriesAncestorsCreateResponse>(
-        getWarehouseSavedQueriesAncestorsCreateUrl(projectId, id),
+): Promise<warehouseSavedQueriesAncestorsCreate2Response> => {
+    return apiMutator<warehouseSavedQueriesAncestorsCreate2Response>(
+        getWarehouseSavedQueriesAncestorsCreate2Url(projectId, id),
         {
             ...options,
             method: 'POST',
@@ -3334,28 +3149,28 @@ export const warehouseSavedQueriesAncestorsCreate = async (
 /**
  * Cancel a running saved query workflow.
  */
-export type warehouseSavedQueriesCancelCreateResponse200 = {
+export type warehouseSavedQueriesCancelCreate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesCancelCreateResponseSuccess = warehouseSavedQueriesCancelCreateResponse200 & {
+export type warehouseSavedQueriesCancelCreate2ResponseSuccess = warehouseSavedQueriesCancelCreate2Response200 & {
     headers: Headers
 }
-export type warehouseSavedQueriesCancelCreateResponse = warehouseSavedQueriesCancelCreateResponseSuccess
+export type warehouseSavedQueriesCancelCreate2Response = warehouseSavedQueriesCancelCreate2ResponseSuccess
 
-export const getWarehouseSavedQueriesCancelCreateUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesCancelCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/cancel/`
 }
 
-export const warehouseSavedQueriesCancelCreate = async (
+export const warehouseSavedQueriesCancelCreate2 = async (
     projectId: string,
     id: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesCancelCreateResponse> => {
-    return apiMutator<warehouseSavedQueriesCancelCreateResponse>(
-        getWarehouseSavedQueriesCancelCreateUrl(projectId, id),
+): Promise<warehouseSavedQueriesCancelCreate2Response> => {
+    return apiMutator<warehouseSavedQueriesCancelCreate2Response>(
+        getWarehouseSavedQueriesCancelCreate2Url(projectId, id),
         {
             ...options,
             method: 'POST',
@@ -3368,28 +3183,29 @@ export const warehouseSavedQueriesCancelCreate = async (
 /**
  * Return the count of immediate upstream and downstream dependencies for this saved query.
  */
-export type warehouseSavedQueriesDependenciesRetrieveResponse200 = {
+export type warehouseSavedQueriesDependenciesRetrieve2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesDependenciesRetrieveResponseSuccess =
-    warehouseSavedQueriesDependenciesRetrieveResponse200 & {
+export type warehouseSavedQueriesDependenciesRetrieve2ResponseSuccess =
+    warehouseSavedQueriesDependenciesRetrieve2Response200 & {
         headers: Headers
     }
-export type warehouseSavedQueriesDependenciesRetrieveResponse = warehouseSavedQueriesDependenciesRetrieveResponseSuccess
+export type warehouseSavedQueriesDependenciesRetrieve2Response =
+    warehouseSavedQueriesDependenciesRetrieve2ResponseSuccess
 
-export const getWarehouseSavedQueriesDependenciesRetrieveUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesDependenciesRetrieve2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/dependencies/`
 }
 
-export const warehouseSavedQueriesDependenciesRetrieve = async (
+export const warehouseSavedQueriesDependenciesRetrieve2 = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<warehouseSavedQueriesDependenciesRetrieveResponse> => {
-    return apiMutator<warehouseSavedQueriesDependenciesRetrieveResponse>(
-        getWarehouseSavedQueriesDependenciesRetrieveUrl(projectId, id),
+): Promise<warehouseSavedQueriesDependenciesRetrieve2Response> => {
+    return apiMutator<warehouseSavedQueriesDependenciesRetrieve2Response>(
+        getWarehouseSavedQueriesDependenciesRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -3404,29 +3220,29 @@ By default, we return the immediate children. The `level` parameter can be used 
 look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
 descendants further than a leaf), we return an empty list.
  */
-export type warehouseSavedQueriesDescendantsCreateResponse200 = {
+export type warehouseSavedQueriesDescendantsCreate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesDescendantsCreateResponseSuccess =
-    warehouseSavedQueriesDescendantsCreateResponse200 & {
+export type warehouseSavedQueriesDescendantsCreate2ResponseSuccess =
+    warehouseSavedQueriesDescendantsCreate2Response200 & {
         headers: Headers
     }
-export type warehouseSavedQueriesDescendantsCreateResponse = warehouseSavedQueriesDescendantsCreateResponseSuccess
+export type warehouseSavedQueriesDescendantsCreate2Response = warehouseSavedQueriesDescendantsCreate2ResponseSuccess
 
-export const getWarehouseSavedQueriesDescendantsCreateUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesDescendantsCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/descendants/`
 }
 
-export const warehouseSavedQueriesDescendantsCreate = async (
+export const warehouseSavedQueriesDescendantsCreate2 = async (
     projectId: string,
     id: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesDescendantsCreateResponse> => {
-    return apiMutator<warehouseSavedQueriesDescendantsCreateResponse>(
-        getWarehouseSavedQueriesDescendantsCreateUrl(projectId, id),
+): Promise<warehouseSavedQueriesDescendantsCreate2Response> => {
+    return apiMutator<warehouseSavedQueriesDescendantsCreate2Response>(
+        getWarehouseSavedQueriesDescendantsCreate2Url(projectId, id),
         {
             ...options,
             method: 'POST',
@@ -3439,29 +3255,29 @@ export const warehouseSavedQueriesDescendantsCreate = async (
 /**
  * Enable materialization for this saved query with a 24-hour sync frequency.
  */
-export type warehouseSavedQueriesMaterializeCreateResponse200 = {
+export type warehouseSavedQueriesMaterializeCreate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesMaterializeCreateResponseSuccess =
-    warehouseSavedQueriesMaterializeCreateResponse200 & {
+export type warehouseSavedQueriesMaterializeCreate2ResponseSuccess =
+    warehouseSavedQueriesMaterializeCreate2Response200 & {
         headers: Headers
     }
-export type warehouseSavedQueriesMaterializeCreateResponse = warehouseSavedQueriesMaterializeCreateResponseSuccess
+export type warehouseSavedQueriesMaterializeCreate2Response = warehouseSavedQueriesMaterializeCreate2ResponseSuccess
 
-export const getWarehouseSavedQueriesMaterializeCreateUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesMaterializeCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/materialize/`
 }
 
-export const warehouseSavedQueriesMaterializeCreate = async (
+export const warehouseSavedQueriesMaterializeCreate2 = async (
     projectId: string,
     id: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesMaterializeCreateResponse> => {
-    return apiMutator<warehouseSavedQueriesMaterializeCreateResponse>(
-        getWarehouseSavedQueriesMaterializeCreateUrl(projectId, id),
+): Promise<warehouseSavedQueriesMaterializeCreate2Response> => {
+    return apiMutator<warehouseSavedQueriesMaterializeCreate2Response>(
+        getWarehouseSavedQueriesMaterializeCreate2Url(projectId, id),
         {
             ...options,
             method: 'POST',
@@ -3475,30 +3291,30 @@ export const warehouseSavedQueriesMaterializeCreate = async (
  * Undo materialization, revert back to the original view.
 (i.e. delete the materialized table and the schedule)
  */
-export type warehouseSavedQueriesRevertMaterializationCreateResponse200 = {
+export type warehouseSavedQueriesRevertMaterializationCreate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesRevertMaterializationCreateResponseSuccess =
-    warehouseSavedQueriesRevertMaterializationCreateResponse200 & {
+export type warehouseSavedQueriesRevertMaterializationCreate2ResponseSuccess =
+    warehouseSavedQueriesRevertMaterializationCreate2Response200 & {
         headers: Headers
     }
-export type warehouseSavedQueriesRevertMaterializationCreateResponse =
-    warehouseSavedQueriesRevertMaterializationCreateResponseSuccess
+export type warehouseSavedQueriesRevertMaterializationCreate2Response =
+    warehouseSavedQueriesRevertMaterializationCreate2ResponseSuccess
 
-export const getWarehouseSavedQueriesRevertMaterializationCreateUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesRevertMaterializationCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/revert_materialization/`
 }
 
-export const warehouseSavedQueriesRevertMaterializationCreate = async (
+export const warehouseSavedQueriesRevertMaterializationCreate2 = async (
     projectId: string,
     id: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesRevertMaterializationCreateResponse> => {
-    return apiMutator<warehouseSavedQueriesRevertMaterializationCreateResponse>(
-        getWarehouseSavedQueriesRevertMaterializationCreateUrl(projectId, id),
+): Promise<warehouseSavedQueriesRevertMaterializationCreate2Response> => {
+    return apiMutator<warehouseSavedQueriesRevertMaterializationCreate2Response>(
+        getWarehouseSavedQueriesRevertMaterializationCreate2Url(projectId, id),
         {
             ...options,
             method: 'POST',
@@ -3511,27 +3327,27 @@ export const warehouseSavedQueriesRevertMaterializationCreate = async (
 /**
  * Run this saved query.
  */
-export type warehouseSavedQueriesRunCreateResponse200 = {
+export type warehouseSavedQueriesRunCreate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesRunCreateResponseSuccess = warehouseSavedQueriesRunCreateResponse200 & {
+export type warehouseSavedQueriesRunCreate2ResponseSuccess = warehouseSavedQueriesRunCreate2Response200 & {
     headers: Headers
 }
-export type warehouseSavedQueriesRunCreateResponse = warehouseSavedQueriesRunCreateResponseSuccess
+export type warehouseSavedQueriesRunCreate2Response = warehouseSavedQueriesRunCreate2ResponseSuccess
 
-export const getWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesRunCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/run/`
 }
 
-export const warehouseSavedQueriesRunCreate = async (
+export const warehouseSavedQueriesRunCreate2 = async (
     projectId: string,
     id: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesRunCreateResponse> => {
-    return apiMutator<warehouseSavedQueriesRunCreateResponse>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
+): Promise<warehouseSavedQueriesRunCreate2Response> => {
+    return apiMutator<warehouseSavedQueriesRunCreate2Response>(getWarehouseSavedQueriesRunCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3542,28 +3358,28 @@ export const warehouseSavedQueriesRunCreate = async (
 /**
  * Return the recent run history (up to 5 most recent) for this materialized view.
  */
-export type warehouseSavedQueriesRunHistoryRetrieveResponse200 = {
+export type warehouseSavedQueriesRunHistoryRetrieve2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesRunHistoryRetrieveResponseSuccess =
-    warehouseSavedQueriesRunHistoryRetrieveResponse200 & {
+export type warehouseSavedQueriesRunHistoryRetrieve2ResponseSuccess =
+    warehouseSavedQueriesRunHistoryRetrieve2Response200 & {
         headers: Headers
     }
-export type warehouseSavedQueriesRunHistoryRetrieveResponse = warehouseSavedQueriesRunHistoryRetrieveResponseSuccess
+export type warehouseSavedQueriesRunHistoryRetrieve2Response = warehouseSavedQueriesRunHistoryRetrieve2ResponseSuccess
 
-export const getWarehouseSavedQueriesRunHistoryRetrieveUrl = (projectId: string, id: string) => {
+export const getWarehouseSavedQueriesRunHistoryRetrieve2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/run_history/`
 }
 
-export const warehouseSavedQueriesRunHistoryRetrieve = async (
+export const warehouseSavedQueriesRunHistoryRetrieve2 = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<warehouseSavedQueriesRunHistoryRetrieveResponse> => {
-    return apiMutator<warehouseSavedQueriesRunHistoryRetrieveResponse>(
-        getWarehouseSavedQueriesRunHistoryRetrieveUrl(projectId, id),
+): Promise<warehouseSavedQueriesRunHistoryRetrieve2Response> => {
+    return apiMutator<warehouseSavedQueriesRunHistoryRetrieve2Response>(
+        getWarehouseSavedQueriesRunHistoryRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -3577,29 +3393,29 @@ export const warehouseSavedQueriesRunHistoryRetrieve = async (
 Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
 This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
  */
-export type warehouseSavedQueriesResumeSchedulesCreateResponse200 = {
+export type warehouseSavedQueriesResumeSchedulesCreate2Response200 = {
     data: DataWarehouseSavedQueryApi
     status: 200
 }
 
-export type warehouseSavedQueriesResumeSchedulesCreateResponseSuccess =
-    warehouseSavedQueriesResumeSchedulesCreateResponse200 & {
+export type warehouseSavedQueriesResumeSchedulesCreate2ResponseSuccess =
+    warehouseSavedQueriesResumeSchedulesCreate2Response200 & {
         headers: Headers
     }
-export type warehouseSavedQueriesResumeSchedulesCreateResponse =
-    warehouseSavedQueriesResumeSchedulesCreateResponseSuccess
+export type warehouseSavedQueriesResumeSchedulesCreate2Response =
+    warehouseSavedQueriesResumeSchedulesCreate2ResponseSuccess
 
-export const getWarehouseSavedQueriesResumeSchedulesCreateUrl = (projectId: string) => {
+export const getWarehouseSavedQueriesResumeSchedulesCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/resume_schedules/`
 }
 
-export const warehouseSavedQueriesResumeSchedulesCreate = async (
+export const warehouseSavedQueriesResumeSchedulesCreate2 = async (
     projectId: string,
     dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
-): Promise<warehouseSavedQueriesResumeSchedulesCreateResponse> => {
-    return apiMutator<warehouseSavedQueriesResumeSchedulesCreateResponse>(
-        getWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId),
+): Promise<warehouseSavedQueriesResumeSchedulesCreate2Response> => {
+    return apiMutator<warehouseSavedQueriesResumeSchedulesCreate2Response>(
+        getWarehouseSavedQueriesResumeSchedulesCreate2Url(projectId),
         {
             ...options,
             method: 'POST',
@@ -3612,17 +3428,17 @@ export const warehouseSavedQueriesResumeSchedulesCreate = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseTablesListResponse200 = {
+export type warehouseTablesList2Response200 = {
     data: PaginatedTableListApi
     status: 200
 }
 
-export type warehouseTablesListResponseSuccess = warehouseTablesListResponse200 & {
+export type warehouseTablesList2ResponseSuccess = warehouseTablesList2Response200 & {
     headers: Headers
 }
-export type warehouseTablesListResponse = warehouseTablesListResponseSuccess
+export type warehouseTablesList2Response = warehouseTablesList2ResponseSuccess
 
-export const getWarehouseTablesListUrl = (projectId: string, params?: WarehouseTablesListParams) => {
+export const getWarehouseTablesList2Url = (projectId: string, params?: WarehouseTablesList2Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -3638,12 +3454,12 @@ export const getWarehouseTablesListUrl = (projectId: string, params?: WarehouseT
         : `/api/projects/${projectId}/warehouse_tables/`
 }
 
-export const warehouseTablesList = async (
+export const warehouseTablesList2 = async (
     projectId: string,
-    params?: WarehouseTablesListParams,
+    params?: WarehouseTablesList2Params,
     options?: RequestInit
-): Promise<warehouseTablesListResponse> => {
-    return apiMutator<warehouseTablesListResponse>(getWarehouseTablesListUrl(projectId, params), {
+): Promise<warehouseTablesList2Response> => {
+    return apiMutator<warehouseTablesList2Response>(getWarehouseTablesList2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -3652,26 +3468,26 @@ export const warehouseTablesList = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseTablesCreateResponse201 = {
+export type warehouseTablesCreate2Response201 = {
     data: TableApi
     status: 201
 }
 
-export type warehouseTablesCreateResponseSuccess = warehouseTablesCreateResponse201 & {
+export type warehouseTablesCreate2ResponseSuccess = warehouseTablesCreate2Response201 & {
     headers: Headers
 }
-export type warehouseTablesCreateResponse = warehouseTablesCreateResponseSuccess
+export type warehouseTablesCreate2Response = warehouseTablesCreate2ResponseSuccess
 
-export const getWarehouseTablesCreateUrl = (projectId: string) => {
+export const getWarehouseTablesCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_tables/`
 }
 
-export const warehouseTablesCreate = async (
+export const warehouseTablesCreate2 = async (
     projectId: string,
     tableApi: NonReadonly<TableApi>,
     options?: RequestInit
-): Promise<warehouseTablesCreateResponse> => {
-    return apiMutator<warehouseTablesCreateResponse>(getWarehouseTablesCreateUrl(projectId), {
+): Promise<warehouseTablesCreate2Response> => {
+    return apiMutator<warehouseTablesCreate2Response>(getWarehouseTablesCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3682,25 +3498,25 @@ export const warehouseTablesCreate = async (
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export type warehouseTablesFileCreateResponse200 = {
+export type warehouseTablesFileCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type warehouseTablesFileCreateResponseSuccess = warehouseTablesFileCreateResponse200 & {
+export type warehouseTablesFileCreate2ResponseSuccess = warehouseTablesFileCreate2Response200 & {
     headers: Headers
 }
-export type warehouseTablesFileCreateResponse = warehouseTablesFileCreateResponseSuccess
+export type warehouseTablesFileCreate2Response = warehouseTablesFileCreate2ResponseSuccess
 
-export const getWarehouseTablesFileCreateUrl = (projectId: string) => {
+export const getWarehouseTablesFileCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_tables/file/`
 }
 
-export const warehouseTablesFileCreate = async (
+export const warehouseTablesFileCreate2 = async (
     projectId: string,
     tableApi: NonReadonly<TableApi>,
     options?: RequestInit
-): Promise<warehouseTablesFileCreateResponse> => {
+): Promise<warehouseTablesFileCreate2Response> => {
     const formData = new FormData()
     if (tableApi.deleted !== undefined && tableApi.deleted !== null) {
         formData.append(`deleted`, tableApi.deleted.toString())
@@ -3710,7 +3526,7 @@ export const warehouseTablesFileCreate = async (
     formData.append(`url_pattern`, tableApi.url_pattern)
     formData.append(`credential`, JSON.stringify(tableApi.credential))
 
-    return apiMutator<warehouseTablesFileCreateResponse>(getWarehouseTablesFileCreateUrl(projectId), {
+    return apiMutator<warehouseTablesFileCreate2Response>(getWarehouseTablesFileCreate2Url(projectId), {
         ...options,
         method: 'POST',
         body: formData,
@@ -3720,17 +3536,17 @@ export const warehouseTablesFileCreate = async (
 /**
  * Create, Read, Update and Delete View Columns.
  */
-export type warehouseViewLinkListResponse200 = {
+export type warehouseViewLinkList2Response200 = {
     data: PaginatedViewLinkListApi
     status: 200
 }
 
-export type warehouseViewLinkListResponseSuccess = warehouseViewLinkListResponse200 & {
+export type warehouseViewLinkList2ResponseSuccess = warehouseViewLinkList2Response200 & {
     headers: Headers
 }
-export type warehouseViewLinkListResponse = warehouseViewLinkListResponseSuccess
+export type warehouseViewLinkList2Response = warehouseViewLinkList2ResponseSuccess
 
-export const getWarehouseViewLinkListUrl = (projectId: string, params?: WarehouseViewLinkListParams) => {
+export const getWarehouseViewLinkList2Url = (projectId: string, params?: WarehouseViewLinkList2Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -3746,12 +3562,12 @@ export const getWarehouseViewLinkListUrl = (projectId: string, params?: Warehous
         : `/api/projects/${projectId}/warehouse_view_link/`
 }
 
-export const warehouseViewLinkList = async (
+export const warehouseViewLinkList2 = async (
     projectId: string,
-    params?: WarehouseViewLinkListParams,
+    params?: WarehouseViewLinkList2Params,
     options?: RequestInit
-): Promise<warehouseViewLinkListResponse> => {
-    return apiMutator<warehouseViewLinkListResponse>(getWarehouseViewLinkListUrl(projectId, params), {
+): Promise<warehouseViewLinkList2Response> => {
+    return apiMutator<warehouseViewLinkList2Response>(getWarehouseViewLinkList2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -3760,26 +3576,26 @@ export const warehouseViewLinkList = async (
 /**
  * Create, Read, Update and Delete View Columns.
  */
-export type warehouseViewLinkCreateResponse201 = {
+export type warehouseViewLinkCreate2Response201 = {
     data: ViewLinkApi
     status: 201
 }
 
-export type warehouseViewLinkCreateResponseSuccess = warehouseViewLinkCreateResponse201 & {
+export type warehouseViewLinkCreate2ResponseSuccess = warehouseViewLinkCreate2Response201 & {
     headers: Headers
 }
-export type warehouseViewLinkCreateResponse = warehouseViewLinkCreateResponseSuccess
+export type warehouseViewLinkCreate2Response = warehouseViewLinkCreate2ResponseSuccess
 
-export const getWarehouseViewLinkCreateUrl = (projectId: string) => {
+export const getWarehouseViewLinkCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_view_link/`
 }
 
-export const warehouseViewLinkCreate = async (
+export const warehouseViewLinkCreate2 = async (
     projectId: string,
     viewLinkApi: NonReadonly<ViewLinkApi>,
     options?: RequestInit
-): Promise<warehouseViewLinkCreateResponse> => {
-    return apiMutator<warehouseViewLinkCreateResponse>(getWarehouseViewLinkCreateUrl(projectId), {
+): Promise<warehouseViewLinkCreate2Response> => {
+    return apiMutator<warehouseViewLinkCreate2Response>(getWarehouseViewLinkCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3790,26 +3606,26 @@ export const warehouseViewLinkCreate = async (
 /**
  * Create, Read, Update and Delete View Columns.
  */
-export type warehouseViewLinkValidateCreateResponse200 = {
+export type warehouseViewLinkValidateCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type warehouseViewLinkValidateCreateResponseSuccess = warehouseViewLinkValidateCreateResponse200 & {
+export type warehouseViewLinkValidateCreate2ResponseSuccess = warehouseViewLinkValidateCreate2Response200 & {
     headers: Headers
 }
-export type warehouseViewLinkValidateCreateResponse = warehouseViewLinkValidateCreateResponseSuccess
+export type warehouseViewLinkValidateCreate2Response = warehouseViewLinkValidateCreate2ResponseSuccess
 
-export const getWarehouseViewLinkValidateCreateUrl = (projectId: string) => {
+export const getWarehouseViewLinkValidateCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_view_link/validate/`
 }
 
-export const warehouseViewLinkValidateCreate = async (
+export const warehouseViewLinkValidateCreate2 = async (
     projectId: string,
     viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
-): Promise<warehouseViewLinkValidateCreateResponse> => {
-    return apiMutator<warehouseViewLinkValidateCreateResponse>(getWarehouseViewLinkValidateCreateUrl(projectId), {
+): Promise<warehouseViewLinkValidateCreate2Response> => {
+    return apiMutator<warehouseViewLinkValidateCreate2Response>(getWarehouseViewLinkValidateCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3820,17 +3636,17 @@ export const warehouseViewLinkValidateCreate = async (
 /**
  * Create, Read, Update and Delete View Columns.
  */
-export type warehouseViewLinksListResponse200 = {
+export type warehouseViewLinksList2Response200 = {
     data: PaginatedViewLinkListApi
     status: 200
 }
 
-export type warehouseViewLinksListResponseSuccess = warehouseViewLinksListResponse200 & {
+export type warehouseViewLinksList2ResponseSuccess = warehouseViewLinksList2Response200 & {
     headers: Headers
 }
-export type warehouseViewLinksListResponse = warehouseViewLinksListResponseSuccess
+export type warehouseViewLinksList2Response = warehouseViewLinksList2ResponseSuccess
 
-export const getWarehouseViewLinksListUrl = (projectId: string, params?: WarehouseViewLinksListParams) => {
+export const getWarehouseViewLinksList2Url = (projectId: string, params?: WarehouseViewLinksList2Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -3846,12 +3662,12 @@ export const getWarehouseViewLinksListUrl = (projectId: string, params?: Warehou
         : `/api/projects/${projectId}/warehouse_view_links/`
 }
 
-export const warehouseViewLinksList = async (
+export const warehouseViewLinksList2 = async (
     projectId: string,
-    params?: WarehouseViewLinksListParams,
+    params?: WarehouseViewLinksList2Params,
     options?: RequestInit
-): Promise<warehouseViewLinksListResponse> => {
-    return apiMutator<warehouseViewLinksListResponse>(getWarehouseViewLinksListUrl(projectId, params), {
+): Promise<warehouseViewLinksList2Response> => {
+    return apiMutator<warehouseViewLinksList2Response>(getWarehouseViewLinksList2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -3860,26 +3676,26 @@ export const warehouseViewLinksList = async (
 /**
  * Create, Read, Update and Delete View Columns.
  */
-export type warehouseViewLinksCreateResponse201 = {
+export type warehouseViewLinksCreate2Response201 = {
     data: ViewLinkApi
     status: 201
 }
 
-export type warehouseViewLinksCreateResponseSuccess = warehouseViewLinksCreateResponse201 & {
+export type warehouseViewLinksCreate2ResponseSuccess = warehouseViewLinksCreate2Response201 & {
     headers: Headers
 }
-export type warehouseViewLinksCreateResponse = warehouseViewLinksCreateResponseSuccess
+export type warehouseViewLinksCreate2Response = warehouseViewLinksCreate2ResponseSuccess
 
-export const getWarehouseViewLinksCreateUrl = (projectId: string) => {
+export const getWarehouseViewLinksCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_view_links/`
 }
 
-export const warehouseViewLinksCreate = async (
+export const warehouseViewLinksCreate2 = async (
     projectId: string,
     viewLinkApi: NonReadonly<ViewLinkApi>,
     options?: RequestInit
-): Promise<warehouseViewLinksCreateResponse> => {
-    return apiMutator<warehouseViewLinksCreateResponse>(getWarehouseViewLinksCreateUrl(projectId), {
+): Promise<warehouseViewLinksCreate2Response> => {
+    return apiMutator<warehouseViewLinksCreate2Response>(getWarehouseViewLinksCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3890,26 +3706,26 @@ export const warehouseViewLinksCreate = async (
 /**
  * Create, Read, Update and Delete View Columns.
  */
-export type warehouseViewLinksValidateCreateResponse200 = {
+export type warehouseViewLinksValidateCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type warehouseViewLinksValidateCreateResponseSuccess = warehouseViewLinksValidateCreateResponse200 & {
+export type warehouseViewLinksValidateCreate2ResponseSuccess = warehouseViewLinksValidateCreate2Response200 & {
     headers: Headers
 }
-export type warehouseViewLinksValidateCreateResponse = warehouseViewLinksValidateCreateResponseSuccess
+export type warehouseViewLinksValidateCreate2Response = warehouseViewLinksValidateCreate2ResponseSuccess
 
-export const getWarehouseViewLinksValidateCreateUrl = (projectId: string) => {
+export const getWarehouseViewLinksValidateCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_view_links/validate/`
 }
 
-export const warehouseViewLinksValidateCreate = async (
+export const warehouseViewLinksValidateCreate2 = async (
     projectId: string,
     viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
-): Promise<warehouseViewLinksValidateCreateResponse> => {
-    return apiMutator<warehouseViewLinksValidateCreateResponse>(getWarehouseViewLinksValidateCreateUrl(projectId), {
+): Promise<warehouseViewLinksValidateCreate2Response> => {
+    return apiMutator<warehouseViewLinksValidateCreate2Response>(getWarehouseViewLinksValidateCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

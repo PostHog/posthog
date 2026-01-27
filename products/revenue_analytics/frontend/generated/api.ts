@@ -9,28 +9,27 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
-export type environmentsRevenueAnalyticsTaxonomyValuesRetrieveResponse200 = {
+export type revenueAnalyticsTaxonomyValuesRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsRevenueAnalyticsTaxonomyValuesRetrieveResponseSuccess =
-    environmentsRevenueAnalyticsTaxonomyValuesRetrieveResponse200 & {
+export type revenueAnalyticsTaxonomyValuesRetrieveResponseSuccess =
+    revenueAnalyticsTaxonomyValuesRetrieveResponse200 & {
         headers: Headers
     }
-export type environmentsRevenueAnalyticsTaxonomyValuesRetrieveResponse =
-    environmentsRevenueAnalyticsTaxonomyValuesRetrieveResponseSuccess
+export type revenueAnalyticsTaxonomyValuesRetrieveResponse = revenueAnalyticsTaxonomyValuesRetrieveResponseSuccess
 
-export const getEnvironmentsRevenueAnalyticsTaxonomyValuesRetrieveUrl = (projectId: string) => {
+export const getRevenueAnalyticsTaxonomyValuesRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/revenue_analytics/taxonomy/values/`
 }
 
-export const environmentsRevenueAnalyticsTaxonomyValuesRetrieve = async (
+export const revenueAnalyticsTaxonomyValuesRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<environmentsRevenueAnalyticsTaxonomyValuesRetrieveResponse> => {
-    return apiMutator<environmentsRevenueAnalyticsTaxonomyValuesRetrieveResponse>(
-        getEnvironmentsRevenueAnalyticsTaxonomyValuesRetrieveUrl(projectId),
+): Promise<revenueAnalyticsTaxonomyValuesRetrieveResponse> => {
+    return apiMutator<revenueAnalyticsTaxonomyValuesRetrieveResponse>(
+        getRevenueAnalyticsTaxonomyValuesRetrieveUrl(projectId),
         {
             ...options,
             method: 'GET',

@@ -9,10 +9,10 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    EnvironmentsMessagingCategoriesListParams,
-    EnvironmentsMessagingTemplatesListParams,
     MessageCategoryApi,
     MessageTemplateApi,
+    MessagingCategoriesListParams,
+    MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageTemplateListApi,
 } from './api.schemas'
@@ -34,20 +34,17 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type environmentsMessagingCategoriesListResponse200 = {
+export type messagingCategoriesListResponse200 = {
     data: PaginatedMessageCategoryListApi
     status: 200
 }
 
-export type environmentsMessagingCategoriesListResponseSuccess = environmentsMessagingCategoriesListResponse200 & {
+export type messagingCategoriesListResponseSuccess = messagingCategoriesListResponse200 & {
     headers: Headers
 }
-export type environmentsMessagingCategoriesListResponse = environmentsMessagingCategoriesListResponseSuccess
+export type messagingCategoriesListResponse = messagingCategoriesListResponseSuccess
 
-export const getEnvironmentsMessagingCategoriesListUrl = (
-    projectId: string,
-    params?: EnvironmentsMessagingCategoriesListParams
-) => {
+export const getMessagingCategoriesListUrl = (projectId: string, params?: MessagingCategoriesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -63,76 +60,70 @@ export const getEnvironmentsMessagingCategoriesListUrl = (
         : `/api/environments/${projectId}/messaging_categories/`
 }
 
-export const environmentsMessagingCategoriesList = async (
+export const messagingCategoriesList = async (
     projectId: string,
-    params?: EnvironmentsMessagingCategoriesListParams,
+    params?: MessagingCategoriesListParams,
     options?: RequestInit
-): Promise<environmentsMessagingCategoriesListResponse> => {
-    return apiMutator<environmentsMessagingCategoriesListResponse>(
-        getEnvironmentsMessagingCategoriesListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<messagingCategoriesListResponse> => {
+    return apiMutator<messagingCategoriesListResponse>(getMessagingCategoriesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsMessagingCategoriesCreateResponse201 = {
+export type messagingCategoriesCreateResponse201 = {
     data: MessageCategoryApi
     status: 201
 }
 
-export type environmentsMessagingCategoriesCreateResponseSuccess = environmentsMessagingCategoriesCreateResponse201 & {
+export type messagingCategoriesCreateResponseSuccess = messagingCategoriesCreateResponse201 & {
     headers: Headers
 }
-export type environmentsMessagingCategoriesCreateResponse = environmentsMessagingCategoriesCreateResponseSuccess
+export type messagingCategoriesCreateResponse = messagingCategoriesCreateResponseSuccess
 
-export const getEnvironmentsMessagingCategoriesCreateUrl = (projectId: string) => {
+export const getMessagingCategoriesCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/`
 }
 
-export const environmentsMessagingCategoriesCreate = async (
+export const messagingCategoriesCreate = async (
     projectId: string,
     messageCategoryApi: NonReadonly<MessageCategoryApi>,
     options?: RequestInit
-): Promise<environmentsMessagingCategoriesCreateResponse> => {
-    return apiMutator<environmentsMessagingCategoriesCreateResponse>(
-        getEnvironmentsMessagingCategoriesCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(messageCategoryApi),
-        }
-    )
+): Promise<messagingCategoriesCreateResponse> => {
+    return apiMutator<messagingCategoriesCreateResponse>(getMessagingCategoriesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(messageCategoryApi),
+    })
 }
 
 /**
  * Import subscription topics and globally unsubscribed users from Customer.io API
  */
-export type environmentsMessagingCategoriesImportFromCustomerioCreateResponse200 = {
+export type messagingCategoriesImportFromCustomerioCreateResponse200 = {
     data: MessageCategoryApi
     status: 200
 }
 
-export type environmentsMessagingCategoriesImportFromCustomerioCreateResponseSuccess =
-    environmentsMessagingCategoriesImportFromCustomerioCreateResponse200 & {
+export type messagingCategoriesImportFromCustomerioCreateResponseSuccess =
+    messagingCategoriesImportFromCustomerioCreateResponse200 & {
         headers: Headers
     }
-export type environmentsMessagingCategoriesImportFromCustomerioCreateResponse =
-    environmentsMessagingCategoriesImportFromCustomerioCreateResponseSuccess
+export type messagingCategoriesImportFromCustomerioCreateResponse =
+    messagingCategoriesImportFromCustomerioCreateResponseSuccess
 
-export const getEnvironmentsMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: string) => {
+export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/import_from_customerio/`
 }
 
-export const environmentsMessagingCategoriesImportFromCustomerioCreate = async (
+export const messagingCategoriesImportFromCustomerioCreate = async (
     projectId: string,
     messageCategoryApi: NonReadonly<MessageCategoryApi>,
     options?: RequestInit
-): Promise<environmentsMessagingCategoriesImportFromCustomerioCreateResponse> => {
-    return apiMutator<environmentsMessagingCategoriesImportFromCustomerioCreateResponse>(
-        getEnvironmentsMessagingCategoriesImportFromCustomerioCreateUrl(projectId),
+): Promise<messagingCategoriesImportFromCustomerioCreateResponse> => {
+    return apiMutator<messagingCategoriesImportFromCustomerioCreateResponse>(
+        getMessagingCategoriesImportFromCustomerioCreateUrl(projectId),
         {
             ...options,
             method: 'POST',
@@ -146,27 +137,27 @@ export const environmentsMessagingCategoriesImportFromCustomerioCreate = async (
  * Import customer preferences from CSV file
 Expected CSV columns: id, email, cio_subscription_preferences
  */
-export type environmentsMessagingCategoriesImportPreferencesCsvCreateResponse200 = {
+export type messagingCategoriesImportPreferencesCsvCreateResponse200 = {
     data: MessageCategoryApi
     status: 200
 }
 
-export type environmentsMessagingCategoriesImportPreferencesCsvCreateResponseSuccess =
-    environmentsMessagingCategoriesImportPreferencesCsvCreateResponse200 & {
+export type messagingCategoriesImportPreferencesCsvCreateResponseSuccess =
+    messagingCategoriesImportPreferencesCsvCreateResponse200 & {
         headers: Headers
     }
-export type environmentsMessagingCategoriesImportPreferencesCsvCreateResponse =
-    environmentsMessagingCategoriesImportPreferencesCsvCreateResponseSuccess
+export type messagingCategoriesImportPreferencesCsvCreateResponse =
+    messagingCategoriesImportPreferencesCsvCreateResponseSuccess
 
-export const getEnvironmentsMessagingCategoriesImportPreferencesCsvCreateUrl = (projectId: string) => {
+export const getMessagingCategoriesImportPreferencesCsvCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/import_preferences_csv/`
 }
 
-export const environmentsMessagingCategoriesImportPreferencesCsvCreate = async (
+export const messagingCategoriesImportPreferencesCsvCreate = async (
     projectId: string,
     messageCategoryApi: NonReadonly<MessageCategoryApi>,
     options?: RequestInit
-): Promise<environmentsMessagingCategoriesImportPreferencesCsvCreateResponse> => {
+): Promise<messagingCategoriesImportPreferencesCsvCreateResponse> => {
     const formData = new FormData()
     formData.append(`key`, messageCategoryApi.key)
     formData.append(`name`, messageCategoryApi.name)
@@ -183,8 +174,8 @@ export const environmentsMessagingCategoriesImportPreferencesCsvCreate = async (
         formData.append(`deleted`, messageCategoryApi.deleted.toString())
     }
 
-    return apiMutator<environmentsMessagingCategoriesImportPreferencesCsvCreateResponse>(
-        getEnvironmentsMessagingCategoriesImportPreferencesCsvCreateUrl(projectId),
+    return apiMutator<messagingCategoriesImportPreferencesCsvCreateResponse>(
+        getMessagingCategoriesImportPreferencesCsvCreateUrl(projectId),
         {
             ...options,
             method: 'POST',
@@ -196,28 +187,27 @@ export const environmentsMessagingCategoriesImportPreferencesCsvCreate = async (
 /**
  * Generate an unsubscribe link for the current user's email address
  */
-export type environmentsMessagingPreferencesGenerateLinkCreateResponse200 = {
+export type messagingPreferencesGenerateLinkCreateResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsMessagingPreferencesGenerateLinkCreateResponseSuccess =
-    environmentsMessagingPreferencesGenerateLinkCreateResponse200 & {
+export type messagingPreferencesGenerateLinkCreateResponseSuccess =
+    messagingPreferencesGenerateLinkCreateResponse200 & {
         headers: Headers
     }
-export type environmentsMessagingPreferencesGenerateLinkCreateResponse =
-    environmentsMessagingPreferencesGenerateLinkCreateResponseSuccess
+export type messagingPreferencesGenerateLinkCreateResponse = messagingPreferencesGenerateLinkCreateResponseSuccess
 
-export const getEnvironmentsMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
+export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_preferences/generate_link/`
 }
 
-export const environmentsMessagingPreferencesGenerateLinkCreate = async (
+export const messagingPreferencesGenerateLinkCreate = async (
     projectId: string,
     options?: RequestInit
-): Promise<environmentsMessagingPreferencesGenerateLinkCreateResponse> => {
-    return apiMutator<environmentsMessagingPreferencesGenerateLinkCreateResponse>(
-        getEnvironmentsMessagingPreferencesGenerateLinkCreateUrl(projectId),
+): Promise<messagingPreferencesGenerateLinkCreateResponse> => {
+    return apiMutator<messagingPreferencesGenerateLinkCreateResponse>(
+        getMessagingPreferencesGenerateLinkCreateUrl(projectId),
         {
             ...options,
             method: 'POST',
@@ -228,28 +218,26 @@ export const environmentsMessagingPreferencesGenerateLinkCreate = async (
 /**
  * Get opt-outs filtered by category or overall opt-outs if no category specified
  */
-export type environmentsMessagingPreferencesOptOutsRetrieveResponse200 = {
+export type messagingPreferencesOptOutsRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsMessagingPreferencesOptOutsRetrieveResponseSuccess =
-    environmentsMessagingPreferencesOptOutsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsMessagingPreferencesOptOutsRetrieveResponse =
-    environmentsMessagingPreferencesOptOutsRetrieveResponseSuccess
+export type messagingPreferencesOptOutsRetrieveResponseSuccess = messagingPreferencesOptOutsRetrieveResponse200 & {
+    headers: Headers
+}
+export type messagingPreferencesOptOutsRetrieveResponse = messagingPreferencesOptOutsRetrieveResponseSuccess
 
-export const getEnvironmentsMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => {
+export const getMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_preferences/opt_outs/`
 }
 
-export const environmentsMessagingPreferencesOptOutsRetrieve = async (
+export const messagingPreferencesOptOutsRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<environmentsMessagingPreferencesOptOutsRetrieveResponse> => {
-    return apiMutator<environmentsMessagingPreferencesOptOutsRetrieveResponse>(
-        getEnvironmentsMessagingPreferencesOptOutsRetrieveUrl(projectId),
+): Promise<messagingPreferencesOptOutsRetrieveResponse> => {
+    return apiMutator<messagingPreferencesOptOutsRetrieveResponse>(
+        getMessagingPreferencesOptOutsRetrieveUrl(projectId),
         {
             ...options,
             method: 'GET',
@@ -257,20 +245,17 @@ export const environmentsMessagingPreferencesOptOutsRetrieve = async (
     )
 }
 
-export type environmentsMessagingTemplatesListResponse200 = {
+export type messagingTemplatesListResponse200 = {
     data: PaginatedMessageTemplateListApi
     status: 200
 }
 
-export type environmentsMessagingTemplatesListResponseSuccess = environmentsMessagingTemplatesListResponse200 & {
+export type messagingTemplatesListResponseSuccess = messagingTemplatesListResponse200 & {
     headers: Headers
 }
-export type environmentsMessagingTemplatesListResponse = environmentsMessagingTemplatesListResponseSuccess
+export type messagingTemplatesListResponse = messagingTemplatesListResponseSuccess
 
-export const getEnvironmentsMessagingTemplatesListUrl = (
-    projectId: string,
-    params?: EnvironmentsMessagingTemplatesListParams
-) => {
+export const getMessagingTemplatesListUrl = (projectId: string, params?: MessagingTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -286,46 +271,40 @@ export const getEnvironmentsMessagingTemplatesListUrl = (
         : `/api/environments/${projectId}/messaging_templates/`
 }
 
-export const environmentsMessagingTemplatesList = async (
+export const messagingTemplatesList = async (
     projectId: string,
-    params?: EnvironmentsMessagingTemplatesListParams,
+    params?: MessagingTemplatesListParams,
     options?: RequestInit
-): Promise<environmentsMessagingTemplatesListResponse> => {
-    return apiMutator<environmentsMessagingTemplatesListResponse>(
-        getEnvironmentsMessagingTemplatesListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<messagingTemplatesListResponse> => {
+    return apiMutator<messagingTemplatesListResponse>(getMessagingTemplatesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsMessagingTemplatesCreateResponse201 = {
+export type messagingTemplatesCreateResponse201 = {
     data: MessageTemplateApi
     status: 201
 }
 
-export type environmentsMessagingTemplatesCreateResponseSuccess = environmentsMessagingTemplatesCreateResponse201 & {
+export type messagingTemplatesCreateResponseSuccess = messagingTemplatesCreateResponse201 & {
     headers: Headers
 }
-export type environmentsMessagingTemplatesCreateResponse = environmentsMessagingTemplatesCreateResponseSuccess
+export type messagingTemplatesCreateResponse = messagingTemplatesCreateResponseSuccess
 
-export const getEnvironmentsMessagingTemplatesCreateUrl = (projectId: string) => {
+export const getMessagingTemplatesCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_templates/`
 }
 
-export const environmentsMessagingTemplatesCreate = async (
+export const messagingTemplatesCreate = async (
     projectId: string,
     messageTemplateApi: NonReadonly<MessageTemplateApi>,
     options?: RequestInit
-): Promise<environmentsMessagingTemplatesCreateResponse> => {
-    return apiMutator<environmentsMessagingTemplatesCreateResponse>(
-        getEnvironmentsMessagingTemplatesCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(messageTemplateApi),
-        }
-    )
+): Promise<messagingTemplatesCreateResponse> => {
+    return apiMutator<messagingTemplatesCreateResponse>(getMessagingTemplatesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(messageTemplateApi),
+    })
 }

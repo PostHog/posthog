@@ -261,30 +261,6 @@ export interface PatchedSessionRecordingApi {
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
 }
 
-export type EnvironmentsSessionRecordingPlaylistsListParams = {
-    created_by?: number
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    short_id?: string
-}
-
-export type EnvironmentsSessionRecordingsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type SessionRecordingPlaylistsListParams = {
     created_by?: number
     /**
@@ -299,6 +275,30 @@ export type SessionRecordingPlaylistsListParams = {
 }
 
 export type SessionRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SessionRecordingPlaylistsList2Params = {
+    created_by?: number
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    short_id?: string
+}
+
+export type SessionRecordingsList2Params = {
     /**
      * Number of results to return per page.
      */

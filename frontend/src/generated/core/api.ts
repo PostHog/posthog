@@ -18,21 +18,20 @@ import type {
     DomainsListParams,
     EnterpriseEventDefinitionApi,
     EnterprisePropertyDefinitionApi,
-    EnvironmentsExportsListParams,
-    EnvironmentsFileSystemListParams,
-    EnvironmentsIntegrationsListParams,
-    EnvironmentsSubscriptionsListParams,
     EventDefinitionsListParams,
     ExportedAssetApi,
+    ExportsList2Params,
     ExportsListParams,
     FileSystemApi,
+    FileSystemList2Params,
     FileSystemListParams,
     FlagValueValuesRetrieve200Item,
     FlagValueValuesRetrieve400,
     FlagValueValuesRetrieve404,
     FlagValueValuesRetrieveParams,
     IntegrationApi,
-    IntegrationsList2Params,
+    IntegrationsList3Params,
+    IntegrationsListParams,
     InvitesListParams,
     List2Params,
     MembersListParams,
@@ -77,6 +76,7 @@ import type {
     ScheduledChangesListParams,
     SharingConfigurationApi,
     SubscriptionApi,
+    SubscriptionsList2Params,
     SubscriptionsListParams,
     UserApi,
     UsersListParams,
@@ -99,17 +99,17 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type environmentsExportsListResponse200 = {
+export type exportsListResponse200 = {
     data: PaginatedExportedAssetListApi
     status: 200
 }
 
-export type environmentsExportsListResponseSuccess = environmentsExportsListResponse200 & {
+export type exportsListResponseSuccess = exportsListResponse200 & {
     headers: Headers
 }
-export type environmentsExportsListResponse = environmentsExportsListResponseSuccess
+export type exportsListResponse = exportsListResponseSuccess
 
-export const getEnvironmentsExportsListUrl = (projectId: string, params?: EnvironmentsExportsListParams) => {
+export const getExportsListUrl = (projectId: string, params?: ExportsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -125,37 +125,37 @@ export const getEnvironmentsExportsListUrl = (projectId: string, params?: Enviro
         : `/api/environments/${projectId}/exports/`
 }
 
-export const environmentsExportsList = async (
+export const exportsList = async (
     projectId: string,
-    params?: EnvironmentsExportsListParams,
+    params?: ExportsListParams,
     options?: RequestInit
-): Promise<environmentsExportsListResponse> => {
-    return apiMutator<environmentsExportsListResponse>(getEnvironmentsExportsListUrl(projectId, params), {
+): Promise<exportsListResponse> => {
+    return apiMutator<exportsListResponse>(getExportsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsExportsCreateResponse201 = {
+export type exportsCreateResponse201 = {
     data: ExportedAssetApi
     status: 201
 }
 
-export type environmentsExportsCreateResponseSuccess = environmentsExportsCreateResponse201 & {
+export type exportsCreateResponseSuccess = exportsCreateResponse201 & {
     headers: Headers
 }
-export type environmentsExportsCreateResponse = environmentsExportsCreateResponseSuccess
+export type exportsCreateResponse = exportsCreateResponseSuccess
 
-export const getEnvironmentsExportsCreateUrl = (projectId: string) => {
+export const getExportsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/exports/`
 }
 
-export const environmentsExportsCreate = async (
+export const exportsCreate = async (
     projectId: string,
     exportedAssetApi: NonReadonly<ExportedAssetApi>,
     options?: RequestInit
-): Promise<environmentsExportsCreateResponse> => {
-    return apiMutator<environmentsExportsCreateResponse>(getEnvironmentsExportsCreateUrl(projectId), {
+): Promise<exportsCreateResponse> => {
+    return apiMutator<exportsCreateResponse>(getExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -163,70 +163,67 @@ export const environmentsExportsCreate = async (
     })
 }
 
-export type environmentsExportsRetrieveResponse200 = {
+export type exportsRetrieveResponse200 = {
     data: ExportedAssetApi
     status: 200
 }
 
-export type environmentsExportsRetrieveResponseSuccess = environmentsExportsRetrieveResponse200 & {
+export type exportsRetrieveResponseSuccess = exportsRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsExportsRetrieveResponse = environmentsExportsRetrieveResponseSuccess
+export type exportsRetrieveResponse = exportsRetrieveResponseSuccess
 
-export const getEnvironmentsExportsRetrieveUrl = (projectId: string, id: number) => {
+export const getExportsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/exports/${id}/`
 }
 
-export const environmentsExportsRetrieve = async (
+export const exportsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsExportsRetrieveResponse> => {
-    return apiMutator<environmentsExportsRetrieveResponse>(getEnvironmentsExportsRetrieveUrl(projectId, id), {
+): Promise<exportsRetrieveResponse> => {
+    return apiMutator<exportsRetrieveResponse>(getExportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsExportsContentRetrieveResponse200 = {
+export type exportsContentRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsExportsContentRetrieveResponseSuccess = environmentsExportsContentRetrieveResponse200 & {
+export type exportsContentRetrieveResponseSuccess = exportsContentRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsExportsContentRetrieveResponse = environmentsExportsContentRetrieveResponseSuccess
+export type exportsContentRetrieveResponse = exportsContentRetrieveResponseSuccess
 
-export const getEnvironmentsExportsContentRetrieveUrl = (projectId: string, id: number) => {
+export const getExportsContentRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/exports/${id}/content/`
 }
 
-export const environmentsExportsContentRetrieve = async (
+export const exportsContentRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsExportsContentRetrieveResponse> => {
-    return apiMutator<environmentsExportsContentRetrieveResponse>(
-        getEnvironmentsExportsContentRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<exportsContentRetrieveResponse> => {
+    return apiMutator<exportsContentRetrieveResponse>(getExportsContentRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsFileSystemListResponse200 = {
+export type fileSystemListResponse200 = {
     data: PaginatedFileSystemListApi
     status: 200
 }
 
-export type environmentsFileSystemListResponseSuccess = environmentsFileSystemListResponse200 & {
+export type fileSystemListResponseSuccess = fileSystemListResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemListResponse = environmentsFileSystemListResponseSuccess
+export type fileSystemListResponse = fileSystemListResponseSuccess
 
-export const getEnvironmentsFileSystemListUrl = (projectId: string, params?: EnvironmentsFileSystemListParams) => {
+export const getFileSystemListUrl = (projectId: string, params?: FileSystemListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -242,37 +239,37 @@ export const getEnvironmentsFileSystemListUrl = (projectId: string, params?: Env
         : `/api/environments/${projectId}/file_system/`
 }
 
-export const environmentsFileSystemList = async (
+export const fileSystemList = async (
     projectId: string,
-    params?: EnvironmentsFileSystemListParams,
+    params?: FileSystemListParams,
     options?: RequestInit
-): Promise<environmentsFileSystemListResponse> => {
-    return apiMutator<environmentsFileSystemListResponse>(getEnvironmentsFileSystemListUrl(projectId, params), {
+): Promise<fileSystemListResponse> => {
+    return apiMutator<fileSystemListResponse>(getFileSystemListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsFileSystemCreateResponse201 = {
+export type fileSystemCreateResponse201 = {
     data: FileSystemApi
     status: 201
 }
 
-export type environmentsFileSystemCreateResponseSuccess = environmentsFileSystemCreateResponse201 & {
+export type fileSystemCreateResponseSuccess = fileSystemCreateResponse201 & {
     headers: Headers
 }
-export type environmentsFileSystemCreateResponse = environmentsFileSystemCreateResponseSuccess
+export type fileSystemCreateResponse = fileSystemCreateResponseSuccess
 
-export const getEnvironmentsFileSystemCreateUrl = (projectId: string) => {
+export const getFileSystemCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/file_system/`
 }
 
-export const environmentsFileSystemCreate = async (
+export const fileSystemCreate = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<environmentsFileSystemCreateResponse> => {
-    return apiMutator<environmentsFileSystemCreateResponse>(getEnvironmentsFileSystemCreateUrl(projectId), {
+): Promise<fileSystemCreateResponse> => {
+    return apiMutator<fileSystemCreateResponse>(getFileSystemCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -280,52 +277,52 @@ export const environmentsFileSystemCreate = async (
     })
 }
 
-export type environmentsFileSystemRetrieveResponse200 = {
+export type fileSystemRetrieveResponse200 = {
     data: FileSystemApi
     status: 200
 }
 
-export type environmentsFileSystemRetrieveResponseSuccess = environmentsFileSystemRetrieveResponse200 & {
+export type fileSystemRetrieveResponseSuccess = fileSystemRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemRetrieveResponse = environmentsFileSystemRetrieveResponseSuccess
+export type fileSystemRetrieveResponse = fileSystemRetrieveResponseSuccess
 
-export const getEnvironmentsFileSystemRetrieveUrl = (projectId: string, id: string) => {
+export const getFileSystemRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/file_system/${id}/`
 }
 
-export const environmentsFileSystemRetrieve = async (
+export const fileSystemRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<environmentsFileSystemRetrieveResponse> => {
-    return apiMutator<environmentsFileSystemRetrieveResponse>(getEnvironmentsFileSystemRetrieveUrl(projectId, id), {
+): Promise<fileSystemRetrieveResponse> => {
+    return apiMutator<fileSystemRetrieveResponse>(getFileSystemRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsFileSystemUpdateResponse200 = {
+export type fileSystemUpdateResponse200 = {
     data: FileSystemApi
     status: 200
 }
 
-export type environmentsFileSystemUpdateResponseSuccess = environmentsFileSystemUpdateResponse200 & {
+export type fileSystemUpdateResponseSuccess = fileSystemUpdateResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemUpdateResponse = environmentsFileSystemUpdateResponseSuccess
+export type fileSystemUpdateResponse = fileSystemUpdateResponseSuccess
 
-export const getEnvironmentsFileSystemUpdateUrl = (projectId: string, id: string) => {
+export const getFileSystemUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/file_system/${id}/`
 }
 
-export const environmentsFileSystemUpdate = async (
+export const fileSystemUpdate = async (
     projectId: string,
     id: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<environmentsFileSystemUpdateResponse> => {
-    return apiMutator<environmentsFileSystemUpdateResponse>(getEnvironmentsFileSystemUpdateUrl(projectId, id), {
+): Promise<fileSystemUpdateResponse> => {
+    return apiMutator<fileSystemUpdateResponse>(getFileSystemUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -333,57 +330,54 @@ export const environmentsFileSystemUpdate = async (
     })
 }
 
-export type environmentsFileSystemPartialUpdateResponse200 = {
+export type fileSystemPartialUpdateResponse200 = {
     data: FileSystemApi
     status: 200
 }
 
-export type environmentsFileSystemPartialUpdateResponseSuccess = environmentsFileSystemPartialUpdateResponse200 & {
+export type fileSystemPartialUpdateResponseSuccess = fileSystemPartialUpdateResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemPartialUpdateResponse = environmentsFileSystemPartialUpdateResponseSuccess
+export type fileSystemPartialUpdateResponse = fileSystemPartialUpdateResponseSuccess
 
-export const getEnvironmentsFileSystemPartialUpdateUrl = (projectId: string, id: string) => {
+export const getFileSystemPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/file_system/${id}/`
 }
 
-export const environmentsFileSystemPartialUpdate = async (
+export const fileSystemPartialUpdate = async (
     projectId: string,
     id: string,
     patchedFileSystemApi: NonReadonly<PatchedFileSystemApi>,
     options?: RequestInit
-): Promise<environmentsFileSystemPartialUpdateResponse> => {
-    return apiMutator<environmentsFileSystemPartialUpdateResponse>(
-        getEnvironmentsFileSystemPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedFileSystemApi),
-        }
-    )
+): Promise<fileSystemPartialUpdateResponse> => {
+    return apiMutator<fileSystemPartialUpdateResponse>(getFileSystemPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedFileSystemApi),
+    })
 }
 
-export type environmentsFileSystemDestroyResponse204 = {
+export type fileSystemDestroyResponse204 = {
     data: void
     status: 204
 }
 
-export type environmentsFileSystemDestroyResponseSuccess = environmentsFileSystemDestroyResponse204 & {
+export type fileSystemDestroyResponseSuccess = fileSystemDestroyResponse204 & {
     headers: Headers
 }
-export type environmentsFileSystemDestroyResponse = environmentsFileSystemDestroyResponseSuccess
+export type fileSystemDestroyResponse = fileSystemDestroyResponseSuccess
 
-export const getEnvironmentsFileSystemDestroyUrl = (projectId: string, id: string) => {
+export const getFileSystemDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/file_system/${id}/`
 }
 
-export const environmentsFileSystemDestroy = async (
+export const fileSystemDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<environmentsFileSystemDestroyResponse> => {
-    return apiMutator<environmentsFileSystemDestroyResponse>(getEnvironmentsFileSystemDestroyUrl(projectId, id), {
+): Promise<fileSystemDestroyResponse> => {
+    return apiMutator<fileSystemDestroyResponse>(getFileSystemDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -392,58 +386,27 @@ export const environmentsFileSystemDestroy = async (
 /**
  * Get count of all files in a folder.
  */
-export type environmentsFileSystemCountCreateResponse200 = {
+export type fileSystemCountCreateResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsFileSystemCountCreateResponseSuccess = environmentsFileSystemCountCreateResponse200 & {
+export type fileSystemCountCreateResponseSuccess = fileSystemCountCreateResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemCountCreateResponse = environmentsFileSystemCountCreateResponseSuccess
+export type fileSystemCountCreateResponse = fileSystemCountCreateResponseSuccess
 
-export const getEnvironmentsFileSystemCountCreateUrl = (projectId: string, id: string) => {
+export const getFileSystemCountCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/file_system/${id}/count/`
 }
 
-export const environmentsFileSystemCountCreate = async (
+export const fileSystemCountCreate = async (
     projectId: string,
     id: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<environmentsFileSystemCountCreateResponse> => {
-    return apiMutator<environmentsFileSystemCountCreateResponse>(
-        getEnvironmentsFileSystemCountCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystemApi),
-        }
-    )
-}
-
-export type environmentsFileSystemLinkCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsFileSystemLinkCreateResponseSuccess = environmentsFileSystemLinkCreateResponse200 & {
-    headers: Headers
-}
-export type environmentsFileSystemLinkCreateResponse = environmentsFileSystemLinkCreateResponseSuccess
-
-export const getEnvironmentsFileSystemLinkCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/file_system/${id}/link/`
-}
-
-export const environmentsFileSystemLinkCreate = async (
-    projectId: string,
-    id: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<environmentsFileSystemLinkCreateResponse> => {
-    return apiMutator<environmentsFileSystemLinkCreateResponse>(getEnvironmentsFileSystemLinkCreateUrl(projectId, id), {
+): Promise<fileSystemCountCreateResponse> => {
+    return apiMutator<fileSystemCountCreateResponse>(getFileSystemCountCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -451,27 +414,55 @@ export const environmentsFileSystemLinkCreate = async (
     })
 }
 
-export type environmentsFileSystemMoveCreateResponse200 = {
+export type fileSystemLinkCreateResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsFileSystemMoveCreateResponseSuccess = environmentsFileSystemMoveCreateResponse200 & {
+export type fileSystemLinkCreateResponseSuccess = fileSystemLinkCreateResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemMoveCreateResponse = environmentsFileSystemMoveCreateResponseSuccess
+export type fileSystemLinkCreateResponse = fileSystemLinkCreateResponseSuccess
 
-export const getEnvironmentsFileSystemMoveCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/file_system/${id}/move/`
+export const getFileSystemLinkCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/file_system/${id}/link/`
 }
 
-export const environmentsFileSystemMoveCreate = async (
+export const fileSystemLinkCreate = async (
     projectId: string,
     id: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<environmentsFileSystemMoveCreateResponse> => {
-    return apiMutator<environmentsFileSystemMoveCreateResponse>(getEnvironmentsFileSystemMoveCreateUrl(projectId, id), {
+): Promise<fileSystemLinkCreateResponse> => {
+    return apiMutator<fileSystemLinkCreateResponse>(getFileSystemLinkCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemApi),
+    })
+}
+
+export type fileSystemMoveCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type fileSystemMoveCreateResponseSuccess = fileSystemMoveCreateResponse200 & {
+    headers: Headers
+}
+export type fileSystemMoveCreateResponse = fileSystemMoveCreateResponseSuccess
+
+export const getFileSystemMoveCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/file_system/${id}/move/`
+}
+
+export const fileSystemMoveCreate = async (
+    projectId: string,
+    id: string,
+    fileSystemApi: NonReadonly<FileSystemApi>,
+    options?: RequestInit
+): Promise<fileSystemMoveCreateResponse> => {
+    return apiMutator<fileSystemMoveCreateResponse>(getFileSystemMoveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -482,207 +473,185 @@ export const environmentsFileSystemMoveCreate = async (
 /**
  * Get count of all files in a folder.
  */
-export type environmentsFileSystemCountByPathCreateResponse200 = {
+export type fileSystemCountByPathCreateResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsFileSystemCountByPathCreateResponseSuccess =
-    environmentsFileSystemCountByPathCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsFileSystemCountByPathCreateResponse = environmentsFileSystemCountByPathCreateResponseSuccess
+export type fileSystemCountByPathCreateResponseSuccess = fileSystemCountByPathCreateResponse200 & {
+    headers: Headers
+}
+export type fileSystemCountByPathCreateResponse = fileSystemCountByPathCreateResponseSuccess
 
-export const getEnvironmentsFileSystemCountByPathCreateUrl = (projectId: string) => {
+export const getFileSystemCountByPathCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/file_system/count_by_path/`
 }
 
-export const environmentsFileSystemCountByPathCreate = async (
+export const fileSystemCountByPathCreate = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<environmentsFileSystemCountByPathCreateResponse> => {
-    return apiMutator<environmentsFileSystemCountByPathCreateResponse>(
-        getEnvironmentsFileSystemCountByPathCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystemApi),
-        }
-    )
+): Promise<fileSystemCountByPathCreateResponse> => {
+    return apiMutator<fileSystemCountByPathCreateResponse>(getFileSystemCountByPathCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemApi),
+    })
 }
 
-export type environmentsFileSystemLogViewRetrieveResponse200 = {
+export type fileSystemLogViewRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsFileSystemLogViewRetrieveResponseSuccess = environmentsFileSystemLogViewRetrieveResponse200 & {
+export type fileSystemLogViewRetrieveResponseSuccess = fileSystemLogViewRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemLogViewRetrieveResponse = environmentsFileSystemLogViewRetrieveResponseSuccess
+export type fileSystemLogViewRetrieveResponse = fileSystemLogViewRetrieveResponseSuccess
 
-export const getEnvironmentsFileSystemLogViewRetrieveUrl = (projectId: string) => {
+export const getFileSystemLogViewRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/file_system/log_view/`
 }
 
-export const environmentsFileSystemLogViewRetrieve = async (
+export const fileSystemLogViewRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<environmentsFileSystemLogViewRetrieveResponse> => {
-    return apiMutator<environmentsFileSystemLogViewRetrieveResponse>(
-        getEnvironmentsFileSystemLogViewRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<fileSystemLogViewRetrieveResponse> => {
+    return apiMutator<fileSystemLogViewRetrieveResponse>(getFileSystemLogViewRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsFileSystemLogViewCreateResponse200 = {
+export type fileSystemLogViewCreateResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsFileSystemLogViewCreateResponseSuccess = environmentsFileSystemLogViewCreateResponse200 & {
+export type fileSystemLogViewCreateResponseSuccess = fileSystemLogViewCreateResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemLogViewCreateResponse = environmentsFileSystemLogViewCreateResponseSuccess
+export type fileSystemLogViewCreateResponse = fileSystemLogViewCreateResponseSuccess
 
-export const getEnvironmentsFileSystemLogViewCreateUrl = (projectId: string) => {
+export const getFileSystemLogViewCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/file_system/log_view/`
 }
 
-export const environmentsFileSystemLogViewCreate = async (
+export const fileSystemLogViewCreate = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<environmentsFileSystemLogViewCreateResponse> => {
-    return apiMutator<environmentsFileSystemLogViewCreateResponse>(
-        getEnvironmentsFileSystemLogViewCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystemApi),
-        }
-    )
+): Promise<fileSystemLogViewCreateResponse> => {
+    return apiMutator<fileSystemLogViewCreateResponse>(getFileSystemLogViewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemApi),
+    })
 }
 
-export type environmentsFileSystemUndoDeleteCreateResponse200 = {
+export type fileSystemUndoDeleteCreateResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsFileSystemUndoDeleteCreateResponseSuccess =
-    environmentsFileSystemUndoDeleteCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsFileSystemUndoDeleteCreateResponse = environmentsFileSystemUndoDeleteCreateResponseSuccess
+export type fileSystemUndoDeleteCreateResponseSuccess = fileSystemUndoDeleteCreateResponse200 & {
+    headers: Headers
+}
+export type fileSystemUndoDeleteCreateResponse = fileSystemUndoDeleteCreateResponseSuccess
 
-export const getEnvironmentsFileSystemUndoDeleteCreateUrl = (projectId: string) => {
+export const getFileSystemUndoDeleteCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/file_system/undo_delete/`
 }
 
-export const environmentsFileSystemUndoDeleteCreate = async (
+export const fileSystemUndoDeleteCreate = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<environmentsFileSystemUndoDeleteCreateResponse> => {
-    return apiMutator<environmentsFileSystemUndoDeleteCreateResponse>(
-        getEnvironmentsFileSystemUndoDeleteCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystemApi),
-        }
-    )
+): Promise<fileSystemUndoDeleteCreateResponse> => {
+    return apiMutator<fileSystemUndoDeleteCreateResponse>(getFileSystemUndoDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemApi),
+    })
 }
 
-export type environmentsFileSystemUnfiledRetrieveResponse200 = {
+export type fileSystemUnfiledRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsFileSystemUnfiledRetrieveResponseSuccess = environmentsFileSystemUnfiledRetrieveResponse200 & {
+export type fileSystemUnfiledRetrieveResponseSuccess = fileSystemUnfiledRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsFileSystemUnfiledRetrieveResponse = environmentsFileSystemUnfiledRetrieveResponseSuccess
+export type fileSystemUnfiledRetrieveResponse = fileSystemUnfiledRetrieveResponseSuccess
 
-export const getEnvironmentsFileSystemUnfiledRetrieveUrl = (projectId: string) => {
+export const getFileSystemUnfiledRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/file_system/unfiled/`
 }
 
-export const environmentsFileSystemUnfiledRetrieve = async (
+export const fileSystemUnfiledRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<environmentsFileSystemUnfiledRetrieveResponse> => {
-    return apiMutator<environmentsFileSystemUnfiledRetrieveResponse>(
-        getEnvironmentsFileSystemUnfiledRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<fileSystemUnfiledRetrieveResponse> => {
+    return apiMutator<fileSystemUnfiledRetrieveResponse>(getFileSystemUnfiledRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsInsightsSharingListResponse200 = {
+export type insightsSharingListResponse200 = {
     data: SharingConfigurationApi[]
     status: 200
 }
 
-export type environmentsInsightsSharingListResponseSuccess = environmentsInsightsSharingListResponse200 & {
+export type insightsSharingListResponseSuccess = insightsSharingListResponse200 & {
     headers: Headers
 }
-export type environmentsInsightsSharingListResponse = environmentsInsightsSharingListResponseSuccess
+export type insightsSharingListResponse = insightsSharingListResponseSuccess
 
-export const getEnvironmentsInsightsSharingListUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingListUrl = (projectId: string, insightId: number) => {
     return `/api/environments/${projectId}/insights/${insightId}/sharing/`
 }
 
-export const environmentsInsightsSharingList = async (
+export const insightsSharingList = async (
     projectId: string,
     insightId: number,
     options?: RequestInit
-): Promise<environmentsInsightsSharingListResponse> => {
-    return apiMutator<environmentsInsightsSharingListResponse>(
-        getEnvironmentsInsightsSharingListUrl(projectId, insightId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<insightsSharingListResponse> => {
+    return apiMutator<insightsSharingListResponse>(getInsightsSharingListUrl(projectId, insightId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
  * Create a new password for the sharing configuration.
  */
-export type environmentsInsightsSharingPasswordsCreateResponse200 = {
+export type insightsSharingPasswordsCreateResponse200 = {
     data: SharingConfigurationApi
     status: 200
 }
 
-export type environmentsInsightsSharingPasswordsCreateResponseSuccess =
-    environmentsInsightsSharingPasswordsCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsInsightsSharingPasswordsCreateResponse =
-    environmentsInsightsSharingPasswordsCreateResponseSuccess
+export type insightsSharingPasswordsCreateResponseSuccess = insightsSharingPasswordsCreateResponse200 & {
+    headers: Headers
+}
+export type insightsSharingPasswordsCreateResponse = insightsSharingPasswordsCreateResponseSuccess
 
-export const getEnvironmentsInsightsSharingPasswordsCreateUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingPasswordsCreateUrl = (projectId: string, insightId: number) => {
     return `/api/environments/${projectId}/insights/${insightId}/sharing/passwords/`
 }
 
-export const environmentsInsightsSharingPasswordsCreate = async (
+export const insightsSharingPasswordsCreate = async (
     projectId: string,
     insightId: number,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
-): Promise<environmentsInsightsSharingPasswordsCreateResponse> => {
-    return apiMutator<environmentsInsightsSharingPasswordsCreateResponse>(
-        getEnvironmentsInsightsSharingPasswordsCreateUrl(projectId, insightId),
+): Promise<insightsSharingPasswordsCreateResponse> => {
+    return apiMutator<insightsSharingPasswordsCreateResponse>(
+        getInsightsSharingPasswordsCreateUrl(projectId, insightId),
         {
             ...options,
             method: 'POST',
@@ -695,34 +664,28 @@ export const environmentsInsightsSharingPasswordsCreate = async (
 /**
  * Delete a password from the sharing configuration.
  */
-export type environmentsInsightsSharingPasswordsDestroyResponse204 = {
+export type insightsSharingPasswordsDestroyResponse204 = {
     data: void
     status: 204
 }
 
-export type environmentsInsightsSharingPasswordsDestroyResponseSuccess =
-    environmentsInsightsSharingPasswordsDestroyResponse204 & {
-        headers: Headers
-    }
-export type environmentsInsightsSharingPasswordsDestroyResponse =
-    environmentsInsightsSharingPasswordsDestroyResponseSuccess
+export type insightsSharingPasswordsDestroyResponseSuccess = insightsSharingPasswordsDestroyResponse204 & {
+    headers: Headers
+}
+export type insightsSharingPasswordsDestroyResponse = insightsSharingPasswordsDestroyResponseSuccess
 
-export const getEnvironmentsInsightsSharingPasswordsDestroyUrl = (
-    projectId: string,
-    insightId: number,
-    passwordId: string
-) => {
+export const getInsightsSharingPasswordsDestroyUrl = (projectId: string, insightId: number, passwordId: string) => {
     return `/api/environments/${projectId}/insights/${insightId}/sharing/passwords/${passwordId}/`
 }
 
-export const environmentsInsightsSharingPasswordsDestroy = async (
+export const insightsSharingPasswordsDestroy = async (
     projectId: string,
     insightId: number,
     passwordId: string,
     options?: RequestInit
-): Promise<environmentsInsightsSharingPasswordsDestroyResponse> => {
-    return apiMutator<environmentsInsightsSharingPasswordsDestroyResponse>(
-        getEnvironmentsInsightsSharingPasswordsDestroyUrl(projectId, insightId, passwordId),
+): Promise<insightsSharingPasswordsDestroyResponse> => {
+    return apiMutator<insightsSharingPasswordsDestroyResponse>(
+        getInsightsSharingPasswordsDestroyUrl(projectId, insightId, passwordId),
         {
             ...options,
             method: 'DELETE',
@@ -730,49 +693,45 @@ export const environmentsInsightsSharingPasswordsDestroy = async (
     )
 }
 
-export type environmentsInsightsSharingRefreshCreateResponse200 = {
+export type insightsSharingRefreshCreateResponse200 = {
     data: SharingConfigurationApi
     status: 200
 }
 
-export type environmentsInsightsSharingRefreshCreateResponseSuccess =
-    environmentsInsightsSharingRefreshCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsInsightsSharingRefreshCreateResponse = environmentsInsightsSharingRefreshCreateResponseSuccess
+export type insightsSharingRefreshCreateResponseSuccess = insightsSharingRefreshCreateResponse200 & {
+    headers: Headers
+}
+export type insightsSharingRefreshCreateResponse = insightsSharingRefreshCreateResponseSuccess
 
-export const getEnvironmentsInsightsSharingRefreshCreateUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingRefreshCreateUrl = (projectId: string, insightId: number) => {
     return `/api/environments/${projectId}/insights/${insightId}/sharing/refresh/`
 }
 
-export const environmentsInsightsSharingRefreshCreate = async (
+export const insightsSharingRefreshCreate = async (
     projectId: string,
     insightId: number,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
-): Promise<environmentsInsightsSharingRefreshCreateResponse> => {
-    return apiMutator<environmentsInsightsSharingRefreshCreateResponse>(
-        getEnvironmentsInsightsSharingRefreshCreateUrl(projectId, insightId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfigurationApi),
-        }
-    )
+): Promise<insightsSharingRefreshCreateResponse> => {
+    return apiMutator<insightsSharingRefreshCreateResponse>(getInsightsSharingRefreshCreateUrl(projectId, insightId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sharingConfigurationApi),
+    })
 }
 
-export type environmentsIntegrationsListResponse200 = {
+export type integrationsListResponse200 = {
     data: PaginatedIntegrationListApi
     status: 200
 }
 
-export type environmentsIntegrationsListResponseSuccess = environmentsIntegrationsListResponse200 & {
+export type integrationsListResponseSuccess = integrationsListResponse200 & {
     headers: Headers
 }
-export type environmentsIntegrationsListResponse = environmentsIntegrationsListResponseSuccess
+export type integrationsListResponse = integrationsListResponseSuccess
 
-export const getEnvironmentsIntegrationsListUrl = (projectId: string, params?: EnvironmentsIntegrationsListParams) => {
+export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -788,37 +747,37 @@ export const getEnvironmentsIntegrationsListUrl = (projectId: string, params?: E
         : `/api/environments/${projectId}/integrations/`
 }
 
-export const environmentsIntegrationsList = async (
+export const integrationsList = async (
     projectId: string,
-    params?: EnvironmentsIntegrationsListParams,
+    params?: IntegrationsListParams,
     options?: RequestInit
-): Promise<environmentsIntegrationsListResponse> => {
-    return apiMutator<environmentsIntegrationsListResponse>(getEnvironmentsIntegrationsListUrl(projectId, params), {
+): Promise<integrationsListResponse> => {
+    return apiMutator<integrationsListResponse>(getIntegrationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsIntegrationsCreateResponse201 = {
+export type integrationsCreateResponse201 = {
     data: IntegrationApi
     status: 201
 }
 
-export type environmentsIntegrationsCreateResponseSuccess = environmentsIntegrationsCreateResponse201 & {
+export type integrationsCreateResponseSuccess = integrationsCreateResponse201 & {
     headers: Headers
 }
-export type environmentsIntegrationsCreateResponse = environmentsIntegrationsCreateResponseSuccess
+export type integrationsCreateResponse = integrationsCreateResponseSuccess
 
-export const getEnvironmentsIntegrationsCreateUrl = (projectId: string) => {
+export const getIntegrationsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/integrations/`
 }
 
-export const environmentsIntegrationsCreate = async (
+export const integrationsCreate = async (
     projectId: string,
     integrationApi: NonReadonly<IntegrationApi>,
     options?: RequestInit
-): Promise<environmentsIntegrationsCreateResponse> => {
-    return apiMutator<environmentsIntegrationsCreateResponse>(getEnvironmentsIntegrationsCreateUrl(projectId), {
+): Promise<integrationsCreateResponse> => {
+    return apiMutator<integrationsCreateResponse>(getIntegrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -826,138 +785,127 @@ export const environmentsIntegrationsCreate = async (
     })
 }
 
-export type environmentsIntegrationsRetrieveResponse200 = {
+export type integrationsRetrieveResponse200 = {
     data: IntegrationApi
     status: 200
 }
 
-export type environmentsIntegrationsRetrieveResponseSuccess = environmentsIntegrationsRetrieveResponse200 & {
+export type integrationsRetrieveResponseSuccess = integrationsRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsIntegrationsRetrieveResponse = environmentsIntegrationsRetrieveResponseSuccess
+export type integrationsRetrieveResponse = integrationsRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/`
 }
 
-export const environmentsIntegrationsRetrieve = async (
+export const integrationsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsRetrieveResponse>(getEnvironmentsIntegrationsRetrieveUrl(projectId, id), {
+): Promise<integrationsRetrieveResponse> => {
+    return apiMutator<integrationsRetrieveResponse>(getIntegrationsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsIntegrationsDestroyResponse204 = {
+export type integrationsDestroyResponse204 = {
     data: void
     status: 204
 }
 
-export type environmentsIntegrationsDestroyResponseSuccess = environmentsIntegrationsDestroyResponse204 & {
+export type integrationsDestroyResponseSuccess = integrationsDestroyResponse204 & {
     headers: Headers
 }
-export type environmentsIntegrationsDestroyResponse = environmentsIntegrationsDestroyResponseSuccess
+export type integrationsDestroyResponse = integrationsDestroyResponseSuccess
 
-export const getEnvironmentsIntegrationsDestroyUrl = (projectId: string, id: number) => {
+export const getIntegrationsDestroyUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/`
 }
 
-export const environmentsIntegrationsDestroy = async (
+export const integrationsDestroy = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsDestroyResponse> => {
-    return apiMutator<environmentsIntegrationsDestroyResponse>(getEnvironmentsIntegrationsDestroyUrl(projectId, id), {
+): Promise<integrationsDestroyResponse> => {
+    return apiMutator<integrationsDestroyResponse>(getIntegrationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type environmentsIntegrationsChannelsRetrieveResponse200 = {
+export type integrationsChannelsRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsChannelsRetrieveResponseSuccess =
-    environmentsIntegrationsChannelsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsChannelsRetrieveResponse = environmentsIntegrationsChannelsRetrieveResponseSuccess
+export type integrationsChannelsRetrieveResponseSuccess = integrationsChannelsRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsChannelsRetrieveResponse = integrationsChannelsRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/channels/`
 }
 
-export const environmentsIntegrationsChannelsRetrieve = async (
+export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsChannelsRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsChannelsRetrieveResponse>(
-        getEnvironmentsIntegrationsChannelsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<integrationsChannelsRetrieveResponse> => {
+    return apiMutator<integrationsChannelsRetrieveResponse>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsIntegrationsClickupListsRetrieveResponse200 = {
+export type integrationsClickupListsRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsClickupListsRetrieveResponseSuccess =
-    environmentsIntegrationsClickupListsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsClickupListsRetrieveResponse =
-    environmentsIntegrationsClickupListsRetrieveResponseSuccess
+export type integrationsClickupListsRetrieveResponseSuccess = integrationsClickupListsRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsClickupListsRetrieveResponse = integrationsClickupListsRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsClickupListsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupListsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/clickup_lists/`
 }
 
-export const environmentsIntegrationsClickupListsRetrieve = async (
+export const integrationsClickupListsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsClickupListsRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsClickupListsRetrieveResponse>(
-        getEnvironmentsIntegrationsClickupListsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<integrationsClickupListsRetrieveResponse> => {
+    return apiMutator<integrationsClickupListsRetrieveResponse>(getIntegrationsClickupListsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsIntegrationsClickupSpacesRetrieveResponse200 = {
+export type integrationsClickupSpacesRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsClickupSpacesRetrieveResponseSuccess =
-    environmentsIntegrationsClickupSpacesRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsClickupSpacesRetrieveResponse =
-    environmentsIntegrationsClickupSpacesRetrieveResponseSuccess
+export type integrationsClickupSpacesRetrieveResponseSuccess = integrationsClickupSpacesRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsClickupSpacesRetrieveResponse = integrationsClickupSpacesRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsClickupSpacesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupSpacesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/clickup_spaces/`
 }
 
-export const environmentsIntegrationsClickupSpacesRetrieve = async (
+export const integrationsClickupSpacesRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsClickupSpacesRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsClickupSpacesRetrieveResponse>(
-        getEnvironmentsIntegrationsClickupSpacesRetrieveUrl(projectId, id),
+): Promise<integrationsClickupSpacesRetrieveResponse> => {
+    return apiMutator<integrationsClickupSpacesRetrieveResponse>(
+        getIntegrationsClickupSpacesRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -965,29 +913,27 @@ export const environmentsIntegrationsClickupSpacesRetrieve = async (
     )
 }
 
-export type environmentsIntegrationsClickupWorkspacesRetrieveResponse200 = {
+export type integrationsClickupWorkspacesRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsClickupWorkspacesRetrieveResponseSuccess =
-    environmentsIntegrationsClickupWorkspacesRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsClickupWorkspacesRetrieveResponse =
-    environmentsIntegrationsClickupWorkspacesRetrieveResponseSuccess
+export type integrationsClickupWorkspacesRetrieveResponseSuccess = integrationsClickupWorkspacesRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsClickupWorkspacesRetrieveResponse = integrationsClickupWorkspacesRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsClickupWorkspacesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupWorkspacesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/clickup_workspaces/`
 }
 
-export const environmentsIntegrationsClickupWorkspacesRetrieve = async (
+export const integrationsClickupWorkspacesRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsClickupWorkspacesRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsClickupWorkspacesRetrieveResponse>(
-        getEnvironmentsIntegrationsClickupWorkspacesRetrieveUrl(projectId, id),
+): Promise<integrationsClickupWorkspacesRetrieveResponse> => {
+    return apiMutator<integrationsClickupWorkspacesRetrieveResponse>(
+        getIntegrationsClickupWorkspacesRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -995,124 +941,110 @@ export const environmentsIntegrationsClickupWorkspacesRetrieve = async (
     )
 }
 
-export type environmentsIntegrationsEmailPartialUpdateResponse200 = {
+export type integrationsEmailPartialUpdateResponse200 = {
     data: IntegrationApi
     status: 200
 }
 
-export type environmentsIntegrationsEmailPartialUpdateResponseSuccess =
-    environmentsIntegrationsEmailPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsEmailPartialUpdateResponse =
-    environmentsIntegrationsEmailPartialUpdateResponseSuccess
+export type integrationsEmailPartialUpdateResponseSuccess = integrationsEmailPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type integrationsEmailPartialUpdateResponse = integrationsEmailPartialUpdateResponseSuccess
 
-export const getEnvironmentsIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
+export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/email/`
 }
 
-export const environmentsIntegrationsEmailPartialUpdate = async (
+export const integrationsEmailPartialUpdate = async (
     projectId: string,
     id: number,
     patchedIntegrationApi: NonReadonly<PatchedIntegrationApi>,
     options?: RequestInit
-): Promise<environmentsIntegrationsEmailPartialUpdateResponse> => {
-    return apiMutator<environmentsIntegrationsEmailPartialUpdateResponse>(
-        getEnvironmentsIntegrationsEmailPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedIntegrationApi),
-        }
-    )
+): Promise<integrationsEmailPartialUpdateResponse> => {
+    return apiMutator<integrationsEmailPartialUpdateResponse>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedIntegrationApi),
+    })
 }
 
-export type environmentsIntegrationsEmailVerifyCreateResponse200 = {
+export type integrationsEmailVerifyCreateResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsEmailVerifyCreateResponseSuccess =
-    environmentsIntegrationsEmailVerifyCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsEmailVerifyCreateResponse = environmentsIntegrationsEmailVerifyCreateResponseSuccess
+export type integrationsEmailVerifyCreateResponseSuccess = integrationsEmailVerifyCreateResponse200 & {
+    headers: Headers
+}
+export type integrationsEmailVerifyCreateResponse = integrationsEmailVerifyCreateResponseSuccess
 
-export const getEnvironmentsIntegrationsEmailVerifyCreateUrl = (projectId: string, id: number) => {
+export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/email/verify/`
 }
 
-export const environmentsIntegrationsEmailVerifyCreate = async (
+export const integrationsEmailVerifyCreate = async (
     projectId: string,
     id: number,
     integrationApi: NonReadonly<IntegrationApi>,
     options?: RequestInit
-): Promise<environmentsIntegrationsEmailVerifyCreateResponse> => {
-    return apiMutator<environmentsIntegrationsEmailVerifyCreateResponse>(
-        getEnvironmentsIntegrationsEmailVerifyCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(integrationApi),
-        }
-    )
+): Promise<integrationsEmailVerifyCreateResponse> => {
+    return apiMutator<integrationsEmailVerifyCreateResponse>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationApi),
+    })
 }
 
-export type environmentsIntegrationsGithubReposRetrieveResponse200 = {
+export type integrationsGithubReposRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsGithubReposRetrieveResponseSuccess =
-    environmentsIntegrationsGithubReposRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsGithubReposRetrieveResponse =
-    environmentsIntegrationsGithubReposRetrieveResponseSuccess
+export type integrationsGithubReposRetrieveResponseSuccess = integrationsGithubReposRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsGithubReposRetrieveResponse = integrationsGithubReposRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsGithubReposRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsGithubReposRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/github_repos/`
 }
 
-export const environmentsIntegrationsGithubReposRetrieve = async (
+export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsGithubReposRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsGithubReposRetrieveResponse>(
-        getEnvironmentsIntegrationsGithubReposRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<integrationsGithubReposRetrieveResponse> => {
+    return apiMutator<integrationsGithubReposRetrieveResponse>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsIntegrationsGoogleAccessibleAccountsRetrieveResponse200 = {
+export type integrationsGoogleAccessibleAccountsRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsGoogleAccessibleAccountsRetrieveResponseSuccess =
-    environmentsIntegrationsGoogleAccessibleAccountsRetrieveResponse200 & {
+export type integrationsGoogleAccessibleAccountsRetrieveResponseSuccess =
+    integrationsGoogleAccessibleAccountsRetrieveResponse200 & {
         headers: Headers
     }
-export type environmentsIntegrationsGoogleAccessibleAccountsRetrieveResponse =
-    environmentsIntegrationsGoogleAccessibleAccountsRetrieveResponseSuccess
+export type integrationsGoogleAccessibleAccountsRetrieveResponse =
+    integrationsGoogleAccessibleAccountsRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/google_accessible_accounts/`
 }
 
-export const environmentsIntegrationsGoogleAccessibleAccountsRetrieve = async (
+export const integrationsGoogleAccessibleAccountsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsGoogleAccessibleAccountsRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsGoogleAccessibleAccountsRetrieveResponse>(
-        getEnvironmentsIntegrationsGoogleAccessibleAccountsRetrieveUrl(projectId, id),
+): Promise<integrationsGoogleAccessibleAccountsRetrieveResponse> => {
+    return apiMutator<integrationsGoogleAccessibleAccountsRetrieveResponse>(
+        getIntegrationsGoogleAccessibleAccountsRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -1120,29 +1052,29 @@ export const environmentsIntegrationsGoogleAccessibleAccountsRetrieve = async (
     )
 }
 
-export type environmentsIntegrationsGoogleConversionActionsRetrieveResponse200 = {
+export type integrationsGoogleConversionActionsRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsGoogleConversionActionsRetrieveResponseSuccess =
-    environmentsIntegrationsGoogleConversionActionsRetrieveResponse200 & {
+export type integrationsGoogleConversionActionsRetrieveResponseSuccess =
+    integrationsGoogleConversionActionsRetrieveResponse200 & {
         headers: Headers
     }
-export type environmentsIntegrationsGoogleConversionActionsRetrieveResponse =
-    environmentsIntegrationsGoogleConversionActionsRetrieveResponseSuccess
+export type integrationsGoogleConversionActionsRetrieveResponse =
+    integrationsGoogleConversionActionsRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsGoogleConversionActionsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsGoogleConversionActionsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/google_conversion_actions/`
 }
 
-export const environmentsIntegrationsGoogleConversionActionsRetrieve = async (
+export const integrationsGoogleConversionActionsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsGoogleConversionActionsRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsGoogleConversionActionsRetrieveResponse>(
-        getEnvironmentsIntegrationsGoogleConversionActionsRetrieveUrl(projectId, id),
+): Promise<integrationsGoogleConversionActionsRetrieveResponse> => {
+    return apiMutator<integrationsGoogleConversionActionsRetrieveResponse>(
+        getIntegrationsGoogleConversionActionsRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -1150,87 +1082,78 @@ export const environmentsIntegrationsGoogleConversionActionsRetrieve = async (
     )
 }
 
-export type environmentsIntegrationsJiraRetrieveResponse200 = {
+export type integrationsJiraRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsJiraRetrieveResponseSuccess = environmentsIntegrationsJiraRetrieveResponse200 & {
+export type integrationsJiraRetrieveResponseSuccess = integrationsJiraRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsIntegrationsJiraRetrieveResponse = environmentsIntegrationsJiraRetrieveResponseSuccess
+export type integrationsJiraRetrieveResponse = integrationsJiraRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsJiraRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsJiraRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/jira_projects/`
 }
 
-export const environmentsIntegrationsJiraRetrieve = async (
+export const integrationsJiraRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsJiraRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsJiraRetrieveResponse>(
-        getEnvironmentsIntegrationsJiraRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<integrationsJiraRetrieveResponse> => {
+    return apiMutator<integrationsJiraRetrieveResponse>(getIntegrationsJiraRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsIntegrationsLinearTeamsRetrieveResponse200 = {
+export type integrationsLinearTeamsRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsLinearTeamsRetrieveResponseSuccess =
-    environmentsIntegrationsLinearTeamsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsLinearTeamsRetrieveResponse =
-    environmentsIntegrationsLinearTeamsRetrieveResponseSuccess
+export type integrationsLinearTeamsRetrieveResponseSuccess = integrationsLinearTeamsRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsLinearTeamsRetrieveResponse = integrationsLinearTeamsRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/linear_teams/`
 }
 
-export const environmentsIntegrationsLinearTeamsRetrieve = async (
+export const integrationsLinearTeamsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsLinearTeamsRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsLinearTeamsRetrieveResponse>(
-        getEnvironmentsIntegrationsLinearTeamsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<integrationsLinearTeamsRetrieveResponse> => {
+    return apiMutator<integrationsLinearTeamsRetrieveResponse>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse200 = {
+export type integrationsLinkedinAdsAccountsRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsLinkedinAdsAccountsRetrieveResponseSuccess =
-    environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse200 & {
+export type integrationsLinkedinAdsAccountsRetrieveResponseSuccess =
+    integrationsLinkedinAdsAccountsRetrieveResponse200 & {
         headers: Headers
     }
-export type environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse =
-    environmentsIntegrationsLinkedinAdsAccountsRetrieveResponseSuccess
+export type integrationsLinkedinAdsAccountsRetrieveResponse = integrationsLinkedinAdsAccountsRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/linkedin_ads_accounts/`
 }
 
-export const environmentsIntegrationsLinkedinAdsAccountsRetrieve = async (
+export const integrationsLinkedinAdsAccountsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse>(
-        getEnvironmentsIntegrationsLinkedinAdsAccountsRetrieveUrl(projectId, id),
+): Promise<integrationsLinkedinAdsAccountsRetrieveResponse> => {
+    return apiMutator<integrationsLinkedinAdsAccountsRetrieveResponse>(
+        getIntegrationsLinkedinAdsAccountsRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -1238,29 +1161,29 @@ export const environmentsIntegrationsLinkedinAdsAccountsRetrieve = async (
     )
 }
 
-export type environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse200 = {
+export type integrationsLinkedinAdsConversionRulesRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponseSuccess =
-    environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse200 & {
+export type integrationsLinkedinAdsConversionRulesRetrieveResponseSuccess =
+    integrationsLinkedinAdsConversionRulesRetrieveResponse200 & {
         headers: Headers
     }
-export type environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse =
-    environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponseSuccess
+export type integrationsLinkedinAdsConversionRulesRetrieveResponse =
+    integrationsLinkedinAdsConversionRulesRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/linkedin_ads_conversion_rules/`
 }
 
-export const environmentsIntegrationsLinkedinAdsConversionRulesRetrieve = async (
+export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse>(
-        getEnvironmentsIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id),
+): Promise<integrationsLinkedinAdsConversionRulesRetrieveResponse> => {
+    return apiMutator<integrationsLinkedinAdsConversionRulesRetrieveResponse>(
+        getIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -1268,29 +1191,28 @@ export const environmentsIntegrationsLinkedinAdsConversionRulesRetrieve = async 
     )
 }
 
-export type environmentsIntegrationsTwilioPhoneNumbersRetrieveResponse200 = {
+export type integrationsTwilioPhoneNumbersRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsTwilioPhoneNumbersRetrieveResponseSuccess =
-    environmentsIntegrationsTwilioPhoneNumbersRetrieveResponse200 & {
+export type integrationsTwilioPhoneNumbersRetrieveResponseSuccess =
+    integrationsTwilioPhoneNumbersRetrieveResponse200 & {
         headers: Headers
     }
-export type environmentsIntegrationsTwilioPhoneNumbersRetrieveResponse =
-    environmentsIntegrationsTwilioPhoneNumbersRetrieveResponseSuccess
+export type integrationsTwilioPhoneNumbersRetrieveResponse = integrationsTwilioPhoneNumbersRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/integrations/${id}/twilio_phone_numbers/`
 }
 
-export const environmentsIntegrationsTwilioPhoneNumbersRetrieve = async (
+export const integrationsTwilioPhoneNumbersRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsIntegrationsTwilioPhoneNumbersRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsTwilioPhoneNumbersRetrieveResponse>(
-        getEnvironmentsIntegrationsTwilioPhoneNumbersRetrieveUrl(projectId, id),
+): Promise<integrationsTwilioPhoneNumbersRetrieveResponse> => {
+    return apiMutator<integrationsTwilioPhoneNumbersRetrieveResponse>(
+        getIntegrationsTwilioPhoneNumbersRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -1298,56 +1220,51 @@ export const environmentsIntegrationsTwilioPhoneNumbersRetrieve = async (
     )
 }
 
-export type environmentsIntegrationsAuthorizeRetrieveResponse200 = {
+export type integrationsAuthorizeRetrieveResponse200 = {
     data: void
     status: 200
 }
 
-export type environmentsIntegrationsAuthorizeRetrieveResponseSuccess =
-    environmentsIntegrationsAuthorizeRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsIntegrationsAuthorizeRetrieveResponse = environmentsIntegrationsAuthorizeRetrieveResponseSuccess
+export type integrationsAuthorizeRetrieveResponseSuccess = integrationsAuthorizeRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsAuthorizeRetrieveResponse = integrationsAuthorizeRetrieveResponseSuccess
 
-export const getEnvironmentsIntegrationsAuthorizeRetrieveUrl = (projectId: string) => {
+export const getIntegrationsAuthorizeRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/integrations/authorize/`
 }
 
-export const environmentsIntegrationsAuthorizeRetrieve = async (
+export const integrationsAuthorizeRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<environmentsIntegrationsAuthorizeRetrieveResponse> => {
-    return apiMutator<environmentsIntegrationsAuthorizeRetrieveResponse>(
-        getEnvironmentsIntegrationsAuthorizeRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<integrationsAuthorizeRetrieveResponse> => {
+    return apiMutator<integrationsAuthorizeRetrieveResponse>(getIntegrationsAuthorizeRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsSessionRecordingsSharingListResponse200 = {
+export type sessionRecordingsSharingListResponse200 = {
     data: SharingConfigurationApi[]
     status: 200
 }
 
-export type environmentsSessionRecordingsSharingListResponseSuccess =
-    environmentsSessionRecordingsSharingListResponse200 & {
-        headers: Headers
-    }
-export type environmentsSessionRecordingsSharingListResponse = environmentsSessionRecordingsSharingListResponseSuccess
+export type sessionRecordingsSharingListResponseSuccess = sessionRecordingsSharingListResponse200 & {
+    headers: Headers
+}
+export type sessionRecordingsSharingListResponse = sessionRecordingsSharingListResponseSuccess
 
-export const getEnvironmentsSessionRecordingsSharingListUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingListUrl = (projectId: string, recordingId: string) => {
     return `/api/environments/${projectId}/session_recordings/${recordingId}/sharing/`
 }
 
-export const environmentsSessionRecordingsSharingList = async (
+export const sessionRecordingsSharingList = async (
     projectId: string,
     recordingId: string,
     options?: RequestInit
-): Promise<environmentsSessionRecordingsSharingListResponse> => {
-    return apiMutator<environmentsSessionRecordingsSharingListResponse>(
-        getEnvironmentsSessionRecordingsSharingListUrl(projectId, recordingId),
+): Promise<sessionRecordingsSharingListResponse> => {
+    return apiMutator<sessionRecordingsSharingListResponse>(
+        getSessionRecordingsSharingListUrl(projectId, recordingId),
         {
             ...options,
             method: 'GET',
@@ -1358,30 +1275,29 @@ export const environmentsSessionRecordingsSharingList = async (
 /**
  * Create a new password for the sharing configuration.
  */
-export type environmentsSessionRecordingsSharingPasswordsCreateResponse200 = {
+export type sessionRecordingsSharingPasswordsCreateResponse200 = {
     data: SharingConfigurationApi
     status: 200
 }
 
-export type environmentsSessionRecordingsSharingPasswordsCreateResponseSuccess =
-    environmentsSessionRecordingsSharingPasswordsCreateResponse200 & {
+export type sessionRecordingsSharingPasswordsCreateResponseSuccess =
+    sessionRecordingsSharingPasswordsCreateResponse200 & {
         headers: Headers
     }
-export type environmentsSessionRecordingsSharingPasswordsCreateResponse =
-    environmentsSessionRecordingsSharingPasswordsCreateResponseSuccess
+export type sessionRecordingsSharingPasswordsCreateResponse = sessionRecordingsSharingPasswordsCreateResponseSuccess
 
-export const getEnvironmentsSessionRecordingsSharingPasswordsCreateUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingPasswordsCreateUrl = (projectId: string, recordingId: string) => {
     return `/api/environments/${projectId}/session_recordings/${recordingId}/sharing/passwords/`
 }
 
-export const environmentsSessionRecordingsSharingPasswordsCreate = async (
+export const sessionRecordingsSharingPasswordsCreate = async (
     projectId: string,
     recordingId: string,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
-): Promise<environmentsSessionRecordingsSharingPasswordsCreateResponse> => {
-    return apiMutator<environmentsSessionRecordingsSharingPasswordsCreateResponse>(
-        getEnvironmentsSessionRecordingsSharingPasswordsCreateUrl(projectId, recordingId),
+): Promise<sessionRecordingsSharingPasswordsCreateResponse> => {
+    return apiMutator<sessionRecordingsSharingPasswordsCreateResponse>(
+        getSessionRecordingsSharingPasswordsCreateUrl(projectId, recordingId),
         {
             ...options,
             method: 'POST',
@@ -1394,19 +1310,18 @@ export const environmentsSessionRecordingsSharingPasswordsCreate = async (
 /**
  * Delete a password from the sharing configuration.
  */
-export type environmentsSessionRecordingsSharingPasswordsDestroyResponse204 = {
+export type sessionRecordingsSharingPasswordsDestroyResponse204 = {
     data: void
     status: 204
 }
 
-export type environmentsSessionRecordingsSharingPasswordsDestroyResponseSuccess =
-    environmentsSessionRecordingsSharingPasswordsDestroyResponse204 & {
+export type sessionRecordingsSharingPasswordsDestroyResponseSuccess =
+    sessionRecordingsSharingPasswordsDestroyResponse204 & {
         headers: Headers
     }
-export type environmentsSessionRecordingsSharingPasswordsDestroyResponse =
-    environmentsSessionRecordingsSharingPasswordsDestroyResponseSuccess
+export type sessionRecordingsSharingPasswordsDestroyResponse = sessionRecordingsSharingPasswordsDestroyResponseSuccess
 
-export const getEnvironmentsSessionRecordingsSharingPasswordsDestroyUrl = (
+export const getSessionRecordingsSharingPasswordsDestroyUrl = (
     projectId: string,
     recordingId: string,
     passwordId: string
@@ -1414,14 +1329,14 @@ export const getEnvironmentsSessionRecordingsSharingPasswordsDestroyUrl = (
     return `/api/environments/${projectId}/session_recordings/${recordingId}/sharing/passwords/${passwordId}/`
 }
 
-export const environmentsSessionRecordingsSharingPasswordsDestroy = async (
+export const sessionRecordingsSharingPasswordsDestroy = async (
     projectId: string,
     recordingId: string,
     passwordId: string,
     options?: RequestInit
-): Promise<environmentsSessionRecordingsSharingPasswordsDestroyResponse> => {
-    return apiMutator<environmentsSessionRecordingsSharingPasswordsDestroyResponse>(
-        getEnvironmentsSessionRecordingsSharingPasswordsDestroyUrl(projectId, recordingId, passwordId),
+): Promise<sessionRecordingsSharingPasswordsDestroyResponse> => {
+    return apiMutator<sessionRecordingsSharingPasswordsDestroyResponse>(
+        getSessionRecordingsSharingPasswordsDestroyUrl(projectId, recordingId, passwordId),
         {
             ...options,
             method: 'DELETE',
@@ -1429,30 +1344,28 @@ export const environmentsSessionRecordingsSharingPasswordsDestroy = async (
     )
 }
 
-export type environmentsSessionRecordingsSharingRefreshCreateResponse200 = {
+export type sessionRecordingsSharingRefreshCreateResponse200 = {
     data: SharingConfigurationApi
     status: 200
 }
 
-export type environmentsSessionRecordingsSharingRefreshCreateResponseSuccess =
-    environmentsSessionRecordingsSharingRefreshCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsSessionRecordingsSharingRefreshCreateResponse =
-    environmentsSessionRecordingsSharingRefreshCreateResponseSuccess
+export type sessionRecordingsSharingRefreshCreateResponseSuccess = sessionRecordingsSharingRefreshCreateResponse200 & {
+    headers: Headers
+}
+export type sessionRecordingsSharingRefreshCreateResponse = sessionRecordingsSharingRefreshCreateResponseSuccess
 
-export const getEnvironmentsSessionRecordingsSharingRefreshCreateUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingRefreshCreateUrl = (projectId: string, recordingId: string) => {
     return `/api/environments/${projectId}/session_recordings/${recordingId}/sharing/refresh/`
 }
 
-export const environmentsSessionRecordingsSharingRefreshCreate = async (
+export const sessionRecordingsSharingRefreshCreate = async (
     projectId: string,
     recordingId: string,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
-): Promise<environmentsSessionRecordingsSharingRefreshCreateResponse> => {
-    return apiMutator<environmentsSessionRecordingsSharingRefreshCreateResponse>(
-        getEnvironmentsSessionRecordingsSharingRefreshCreateUrl(projectId, recordingId),
+): Promise<sessionRecordingsSharingRefreshCreateResponse> => {
+    return apiMutator<sessionRecordingsSharingRefreshCreateResponse>(
+        getSessionRecordingsSharingRefreshCreateUrl(projectId, recordingId),
         {
             ...options,
             method: 'POST',
@@ -1462,20 +1375,17 @@ export const environmentsSessionRecordingsSharingRefreshCreate = async (
     )
 }
 
-export type environmentsSubscriptionsListResponse200 = {
+export type subscriptionsListResponse200 = {
     data: PaginatedSubscriptionListApi
     status: 200
 }
 
-export type environmentsSubscriptionsListResponseSuccess = environmentsSubscriptionsListResponse200 & {
+export type subscriptionsListResponseSuccess = subscriptionsListResponse200 & {
     headers: Headers
 }
-export type environmentsSubscriptionsListResponse = environmentsSubscriptionsListResponseSuccess
+export type subscriptionsListResponse = subscriptionsListResponseSuccess
 
-export const getEnvironmentsSubscriptionsListUrl = (
-    projectId: string,
-    params?: EnvironmentsSubscriptionsListParams
-) => {
+export const getSubscriptionsListUrl = (projectId: string, params?: SubscriptionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1491,37 +1401,37 @@ export const getEnvironmentsSubscriptionsListUrl = (
         : `/api/environments/${projectId}/subscriptions/`
 }
 
-export const environmentsSubscriptionsList = async (
+export const subscriptionsList = async (
     projectId: string,
-    params?: EnvironmentsSubscriptionsListParams,
+    params?: SubscriptionsListParams,
     options?: RequestInit
-): Promise<environmentsSubscriptionsListResponse> => {
-    return apiMutator<environmentsSubscriptionsListResponse>(getEnvironmentsSubscriptionsListUrl(projectId, params), {
+): Promise<subscriptionsListResponse> => {
+    return apiMutator<subscriptionsListResponse>(getSubscriptionsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsSubscriptionsCreateResponse201 = {
+export type subscriptionsCreateResponse201 = {
     data: SubscriptionApi
     status: 201
 }
 
-export type environmentsSubscriptionsCreateResponseSuccess = environmentsSubscriptionsCreateResponse201 & {
+export type subscriptionsCreateResponseSuccess = subscriptionsCreateResponse201 & {
     headers: Headers
 }
-export type environmentsSubscriptionsCreateResponse = environmentsSubscriptionsCreateResponseSuccess
+export type subscriptionsCreateResponse = subscriptionsCreateResponseSuccess
 
-export const getEnvironmentsSubscriptionsCreateUrl = (projectId: string) => {
+export const getSubscriptionsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/subscriptions/`
 }
 
-export const environmentsSubscriptionsCreate = async (
+export const subscriptionsCreate = async (
     projectId: string,
     subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
-): Promise<environmentsSubscriptionsCreateResponse> => {
-    return apiMutator<environmentsSubscriptionsCreateResponse>(getEnvironmentsSubscriptionsCreateUrl(projectId), {
+): Promise<subscriptionsCreateResponse> => {
+    return apiMutator<subscriptionsCreateResponse>(getSubscriptionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1529,55 +1439,52 @@ export const environmentsSubscriptionsCreate = async (
     })
 }
 
-export type environmentsSubscriptionsRetrieveResponse200 = {
+export type subscriptionsRetrieveResponse200 = {
     data: SubscriptionApi
     status: 200
 }
 
-export type environmentsSubscriptionsRetrieveResponseSuccess = environmentsSubscriptionsRetrieveResponse200 & {
+export type subscriptionsRetrieveResponseSuccess = subscriptionsRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsSubscriptionsRetrieveResponse = environmentsSubscriptionsRetrieveResponseSuccess
+export type subscriptionsRetrieveResponse = subscriptionsRetrieveResponseSuccess
 
-export const getEnvironmentsSubscriptionsRetrieveUrl = (projectId: string, id: number) => {
+export const getSubscriptionsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/subscriptions/${id}/`
 }
 
-export const environmentsSubscriptionsRetrieve = async (
+export const subscriptionsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsSubscriptionsRetrieveResponse> => {
-    return apiMutator<environmentsSubscriptionsRetrieveResponse>(
-        getEnvironmentsSubscriptionsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<subscriptionsRetrieveResponse> => {
+    return apiMutator<subscriptionsRetrieveResponse>(getSubscriptionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type environmentsSubscriptionsUpdateResponse200 = {
+export type subscriptionsUpdateResponse200 = {
     data: SubscriptionApi
     status: 200
 }
 
-export type environmentsSubscriptionsUpdateResponseSuccess = environmentsSubscriptionsUpdateResponse200 & {
+export type subscriptionsUpdateResponseSuccess = subscriptionsUpdateResponse200 & {
     headers: Headers
 }
-export type environmentsSubscriptionsUpdateResponse = environmentsSubscriptionsUpdateResponseSuccess
+export type subscriptionsUpdateResponse = subscriptionsUpdateResponseSuccess
 
-export const getEnvironmentsSubscriptionsUpdateUrl = (projectId: string, id: number) => {
+export const getSubscriptionsUpdateUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/subscriptions/${id}/`
 }
 
-export const environmentsSubscriptionsUpdate = async (
+export const subscriptionsUpdate = async (
     projectId: string,
     id: number,
     subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
-): Promise<environmentsSubscriptionsUpdateResponse> => {
-    return apiMutator<environmentsSubscriptionsUpdateResponse>(getEnvironmentsSubscriptionsUpdateUrl(projectId, id), {
+): Promise<subscriptionsUpdateResponse> => {
+    return apiMutator<subscriptionsUpdateResponse>(getSubscriptionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1585,61 +1492,57 @@ export const environmentsSubscriptionsUpdate = async (
     })
 }
 
-export type environmentsSubscriptionsPartialUpdateResponse200 = {
+export type subscriptionsPartialUpdateResponse200 = {
     data: SubscriptionApi
     status: 200
 }
 
-export type environmentsSubscriptionsPartialUpdateResponseSuccess =
-    environmentsSubscriptionsPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsSubscriptionsPartialUpdateResponse = environmentsSubscriptionsPartialUpdateResponseSuccess
+export type subscriptionsPartialUpdateResponseSuccess = subscriptionsPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type subscriptionsPartialUpdateResponse = subscriptionsPartialUpdateResponseSuccess
 
-export const getEnvironmentsSubscriptionsPartialUpdateUrl = (projectId: string, id: number) => {
+export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/subscriptions/${id}/`
 }
 
-export const environmentsSubscriptionsPartialUpdate = async (
+export const subscriptionsPartialUpdate = async (
     projectId: string,
     id: number,
     patchedSubscriptionApi: NonReadonly<PatchedSubscriptionApi>,
     options?: RequestInit
-): Promise<environmentsSubscriptionsPartialUpdateResponse> => {
-    return apiMutator<environmentsSubscriptionsPartialUpdateResponse>(
-        getEnvironmentsSubscriptionsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedSubscriptionApi),
-        }
-    )
+): Promise<subscriptionsPartialUpdateResponse> => {
+    return apiMutator<subscriptionsPartialUpdateResponse>(getSubscriptionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSubscriptionApi),
+    })
 }
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type environmentsSubscriptionsDestroyResponse405 = {
+export type subscriptionsDestroyResponse405 = {
     data: void
     status: 405
 }
-export type environmentsSubscriptionsDestroyResponseError = environmentsSubscriptionsDestroyResponse405 & {
+export type subscriptionsDestroyResponseError = subscriptionsDestroyResponse405 & {
     headers: Headers
 }
 
-export type environmentsSubscriptionsDestroyResponse = environmentsSubscriptionsDestroyResponseError
+export type subscriptionsDestroyResponse = subscriptionsDestroyResponseError
 
-export const getEnvironmentsSubscriptionsDestroyUrl = (projectId: string, id: number) => {
+export const getSubscriptionsDestroyUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/subscriptions/${id}/`
 }
 
-export const environmentsSubscriptionsDestroy = async (
+export const subscriptionsDestroy = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<environmentsSubscriptionsDestroyResponse> => {
-    return apiMutator<environmentsSubscriptionsDestroyResponse>(getEnvironmentsSubscriptionsDestroyUrl(projectId, id), {
+): Promise<subscriptionsDestroyResponse> => {
+    return apiMutator<subscriptionsDestroyResponse>(getSubscriptionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -3658,17 +3561,17 @@ export const eventDefinitionsTypescriptRetrieve = async (
     })
 }
 
-export type exportsListResponse200 = {
+export type exportsList2Response200 = {
     data: PaginatedExportedAssetListApi
     status: 200
 }
 
-export type exportsListResponseSuccess = exportsListResponse200 & {
+export type exportsList2ResponseSuccess = exportsList2Response200 & {
     headers: Headers
 }
-export type exportsListResponse = exportsListResponseSuccess
+export type exportsList2Response = exportsList2ResponseSuccess
 
-export const getExportsListUrl = (projectId: string, params?: ExportsListParams) => {
+export const getExportsList2Url = (projectId: string, params?: ExportsList2Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -3684,37 +3587,37 @@ export const getExportsListUrl = (projectId: string, params?: ExportsListParams)
         : `/api/projects/${projectId}/exports/`
 }
 
-export const exportsList = async (
+export const exportsList2 = async (
     projectId: string,
-    params?: ExportsListParams,
+    params?: ExportsList2Params,
     options?: RequestInit
-): Promise<exportsListResponse> => {
-    return apiMutator<exportsListResponse>(getExportsListUrl(projectId, params), {
+): Promise<exportsList2Response> => {
+    return apiMutator<exportsList2Response>(getExportsList2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type exportsCreateResponse201 = {
+export type exportsCreate2Response201 = {
     data: ExportedAssetApi
     status: 201
 }
 
-export type exportsCreateResponseSuccess = exportsCreateResponse201 & {
+export type exportsCreate2ResponseSuccess = exportsCreate2Response201 & {
     headers: Headers
 }
-export type exportsCreateResponse = exportsCreateResponseSuccess
+export type exportsCreate2Response = exportsCreate2ResponseSuccess
 
-export const getExportsCreateUrl = (projectId: string) => {
+export const getExportsCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/exports/`
 }
 
-export const exportsCreate = async (
+export const exportsCreate2 = async (
     projectId: string,
     exportedAssetApi: NonReadonly<ExportedAssetApi>,
     options?: RequestInit
-): Promise<exportsCreateResponse> => {
-    return apiMutator<exportsCreateResponse>(getExportsCreateUrl(projectId), {
+): Promise<exportsCreate2Response> => {
+    return apiMutator<exportsCreate2Response>(getExportsCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3722,67 +3625,67 @@ export const exportsCreate = async (
     })
 }
 
-export type exportsRetrieveResponse200 = {
+export type exportsRetrieve2Response200 = {
     data: ExportedAssetApi
     status: 200
 }
 
-export type exportsRetrieveResponseSuccess = exportsRetrieveResponse200 & {
+export type exportsRetrieve2ResponseSuccess = exportsRetrieve2Response200 & {
     headers: Headers
 }
-export type exportsRetrieveResponse = exportsRetrieveResponseSuccess
+export type exportsRetrieve2Response = exportsRetrieve2ResponseSuccess
 
-export const getExportsRetrieveUrl = (projectId: string, id: number) => {
+export const getExportsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/exports/${id}/`
 }
 
-export const exportsRetrieve = async (
+export const exportsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<exportsRetrieveResponse> => {
-    return apiMutator<exportsRetrieveResponse>(getExportsRetrieveUrl(projectId, id), {
+): Promise<exportsRetrieve2Response> => {
+    return apiMutator<exportsRetrieve2Response>(getExportsRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type exportsContentRetrieveResponse200 = {
+export type exportsContentRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type exportsContentRetrieveResponseSuccess = exportsContentRetrieveResponse200 & {
+export type exportsContentRetrieve2ResponseSuccess = exportsContentRetrieve2Response200 & {
     headers: Headers
 }
-export type exportsContentRetrieveResponse = exportsContentRetrieveResponseSuccess
+export type exportsContentRetrieve2Response = exportsContentRetrieve2ResponseSuccess
 
-export const getExportsContentRetrieveUrl = (projectId: string, id: number) => {
+export const getExportsContentRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/exports/${id}/content/`
 }
 
-export const exportsContentRetrieve = async (
+export const exportsContentRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<exportsContentRetrieveResponse> => {
-    return apiMutator<exportsContentRetrieveResponse>(getExportsContentRetrieveUrl(projectId, id), {
+): Promise<exportsContentRetrieve2Response> => {
+    return apiMutator<exportsContentRetrieve2Response>(getExportsContentRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type fileSystemListResponse200 = {
+export type fileSystemList2Response200 = {
     data: PaginatedFileSystemListApi
     status: 200
 }
 
-export type fileSystemListResponseSuccess = fileSystemListResponse200 & {
+export type fileSystemList2ResponseSuccess = fileSystemList2Response200 & {
     headers: Headers
 }
-export type fileSystemListResponse = fileSystemListResponseSuccess
+export type fileSystemList2Response = fileSystemList2ResponseSuccess
 
-export const getFileSystemListUrl = (projectId: string, params?: FileSystemListParams) => {
+export const getFileSystemList2Url = (projectId: string, params?: FileSystemList2Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -3798,37 +3701,37 @@ export const getFileSystemListUrl = (projectId: string, params?: FileSystemListP
         : `/api/projects/${projectId}/file_system/`
 }
 
-export const fileSystemList = async (
+export const fileSystemList2 = async (
     projectId: string,
-    params?: FileSystemListParams,
+    params?: FileSystemList2Params,
     options?: RequestInit
-): Promise<fileSystemListResponse> => {
-    return apiMutator<fileSystemListResponse>(getFileSystemListUrl(projectId, params), {
+): Promise<fileSystemList2Response> => {
+    return apiMutator<fileSystemList2Response>(getFileSystemList2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type fileSystemCreateResponse201 = {
+export type fileSystemCreate2Response201 = {
     data: FileSystemApi
     status: 201
 }
 
-export type fileSystemCreateResponseSuccess = fileSystemCreateResponse201 & {
+export type fileSystemCreate2ResponseSuccess = fileSystemCreate2Response201 & {
     headers: Headers
 }
-export type fileSystemCreateResponse = fileSystemCreateResponseSuccess
+export type fileSystemCreate2Response = fileSystemCreate2ResponseSuccess
 
-export const getFileSystemCreateUrl = (projectId: string) => {
+export const getFileSystemCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/`
 }
 
-export const fileSystemCreate = async (
+export const fileSystemCreate2 = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemCreateResponse> => {
-    return apiMutator<fileSystemCreateResponse>(getFileSystemCreateUrl(projectId), {
+): Promise<fileSystemCreate2Response> => {
+    return apiMutator<fileSystemCreate2Response>(getFileSystemCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3836,52 +3739,52 @@ export const fileSystemCreate = async (
     })
 }
 
-export type fileSystemRetrieveResponse200 = {
+export type fileSystemRetrieve2Response200 = {
     data: FileSystemApi
     status: 200
 }
 
-export type fileSystemRetrieveResponseSuccess = fileSystemRetrieveResponse200 & {
+export type fileSystemRetrieve2ResponseSuccess = fileSystemRetrieve2Response200 & {
     headers: Headers
 }
-export type fileSystemRetrieveResponse = fileSystemRetrieveResponseSuccess
+export type fileSystemRetrieve2Response = fileSystemRetrieve2ResponseSuccess
 
-export const getFileSystemRetrieveUrl = (projectId: string, id: string) => {
+export const getFileSystemRetrieve2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/`
 }
 
-export const fileSystemRetrieve = async (
+export const fileSystemRetrieve2 = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<fileSystemRetrieveResponse> => {
-    return apiMutator<fileSystemRetrieveResponse>(getFileSystemRetrieveUrl(projectId, id), {
+): Promise<fileSystemRetrieve2Response> => {
+    return apiMutator<fileSystemRetrieve2Response>(getFileSystemRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type fileSystemUpdateResponse200 = {
+export type fileSystemUpdate2Response200 = {
     data: FileSystemApi
     status: 200
 }
 
-export type fileSystemUpdateResponseSuccess = fileSystemUpdateResponse200 & {
+export type fileSystemUpdate2ResponseSuccess = fileSystemUpdate2Response200 & {
     headers: Headers
 }
-export type fileSystemUpdateResponse = fileSystemUpdateResponseSuccess
+export type fileSystemUpdate2Response = fileSystemUpdate2ResponseSuccess
 
-export const getFileSystemUpdateUrl = (projectId: string, id: string) => {
+export const getFileSystemUpdate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/`
 }
 
-export const fileSystemUpdate = async (
+export const fileSystemUpdate2 = async (
     projectId: string,
     id: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemUpdateResponse> => {
-    return apiMutator<fileSystemUpdateResponse>(getFileSystemUpdateUrl(projectId, id), {
+): Promise<fileSystemUpdate2Response> => {
+    return apiMutator<fileSystemUpdate2Response>(getFileSystemUpdate2Url(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3889,27 +3792,27 @@ export const fileSystemUpdate = async (
     })
 }
 
-export type fileSystemPartialUpdateResponse200 = {
+export type fileSystemPartialUpdate2Response200 = {
     data: FileSystemApi
     status: 200
 }
 
-export type fileSystemPartialUpdateResponseSuccess = fileSystemPartialUpdateResponse200 & {
+export type fileSystemPartialUpdate2ResponseSuccess = fileSystemPartialUpdate2Response200 & {
     headers: Headers
 }
-export type fileSystemPartialUpdateResponse = fileSystemPartialUpdateResponseSuccess
+export type fileSystemPartialUpdate2Response = fileSystemPartialUpdate2ResponseSuccess
 
-export const getFileSystemPartialUpdateUrl = (projectId: string, id: string) => {
+export const getFileSystemPartialUpdate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/`
 }
 
-export const fileSystemPartialUpdate = async (
+export const fileSystemPartialUpdate2 = async (
     projectId: string,
     id: string,
     patchedFileSystemApi: NonReadonly<PatchedFileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemPartialUpdateResponse> => {
-    return apiMutator<fileSystemPartialUpdateResponse>(getFileSystemPartialUpdateUrl(projectId, id), {
+): Promise<fileSystemPartialUpdate2Response> => {
+    return apiMutator<fileSystemPartialUpdate2Response>(getFileSystemPartialUpdate2Url(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3917,26 +3820,26 @@ export const fileSystemPartialUpdate = async (
     })
 }
 
-export type fileSystemDestroyResponse204 = {
+export type fileSystemDestroy2Response204 = {
     data: void
     status: 204
 }
 
-export type fileSystemDestroyResponseSuccess = fileSystemDestroyResponse204 & {
+export type fileSystemDestroy2ResponseSuccess = fileSystemDestroy2Response204 & {
     headers: Headers
 }
-export type fileSystemDestroyResponse = fileSystemDestroyResponseSuccess
+export type fileSystemDestroy2Response = fileSystemDestroy2ResponseSuccess
 
-export const getFileSystemDestroyUrl = (projectId: string, id: string) => {
+export const getFileSystemDestroy2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/`
 }
 
-export const fileSystemDestroy = async (
+export const fileSystemDestroy2 = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<fileSystemDestroyResponse> => {
-    return apiMutator<fileSystemDestroyResponse>(getFileSystemDestroyUrl(projectId, id), {
+): Promise<fileSystemDestroy2Response> => {
+    return apiMutator<fileSystemDestroy2Response>(getFileSystemDestroy2Url(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -3945,27 +3848,27 @@ export const fileSystemDestroy = async (
 /**
  * Get count of all files in a folder.
  */
-export type fileSystemCountCreateResponse200 = {
+export type fileSystemCountCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type fileSystemCountCreateResponseSuccess = fileSystemCountCreateResponse200 & {
+export type fileSystemCountCreate2ResponseSuccess = fileSystemCountCreate2Response200 & {
     headers: Headers
 }
-export type fileSystemCountCreateResponse = fileSystemCountCreateResponseSuccess
+export type fileSystemCountCreate2Response = fileSystemCountCreate2ResponseSuccess
 
-export const getFileSystemCountCreateUrl = (projectId: string, id: string) => {
+export const getFileSystemCountCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/count/`
 }
 
-export const fileSystemCountCreate = async (
+export const fileSystemCountCreate2 = async (
     projectId: string,
     id: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemCountCreateResponse> => {
-    return apiMutator<fileSystemCountCreateResponse>(getFileSystemCountCreateUrl(projectId, id), {
+): Promise<fileSystemCountCreate2Response> => {
+    return apiMutator<fileSystemCountCreate2Response>(getFileSystemCountCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -3973,27 +3876,27 @@ export const fileSystemCountCreate = async (
     })
 }
 
-export type fileSystemLinkCreateResponse200 = {
+export type fileSystemLinkCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type fileSystemLinkCreateResponseSuccess = fileSystemLinkCreateResponse200 & {
+export type fileSystemLinkCreate2ResponseSuccess = fileSystemLinkCreate2Response200 & {
     headers: Headers
 }
-export type fileSystemLinkCreateResponse = fileSystemLinkCreateResponseSuccess
+export type fileSystemLinkCreate2Response = fileSystemLinkCreate2ResponseSuccess
 
-export const getFileSystemLinkCreateUrl = (projectId: string, id: string) => {
+export const getFileSystemLinkCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/link/`
 }
 
-export const fileSystemLinkCreate = async (
+export const fileSystemLinkCreate2 = async (
     projectId: string,
     id: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemLinkCreateResponse> => {
-    return apiMutator<fileSystemLinkCreateResponse>(getFileSystemLinkCreateUrl(projectId, id), {
+): Promise<fileSystemLinkCreate2Response> => {
+    return apiMutator<fileSystemLinkCreate2Response>(getFileSystemLinkCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -4001,27 +3904,27 @@ export const fileSystemLinkCreate = async (
     })
 }
 
-export type fileSystemMoveCreateResponse200 = {
+export type fileSystemMoveCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type fileSystemMoveCreateResponseSuccess = fileSystemMoveCreateResponse200 & {
+export type fileSystemMoveCreate2ResponseSuccess = fileSystemMoveCreate2Response200 & {
     headers: Headers
 }
-export type fileSystemMoveCreateResponse = fileSystemMoveCreateResponseSuccess
+export type fileSystemMoveCreate2Response = fileSystemMoveCreate2ResponseSuccess
 
-export const getFileSystemMoveCreateUrl = (projectId: string, id: string) => {
+export const getFileSystemMoveCreate2Url = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/move/`
 }
 
-export const fileSystemMoveCreate = async (
+export const fileSystemMoveCreate2 = async (
     projectId: string,
     id: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemMoveCreateResponse> => {
-    return apiMutator<fileSystemMoveCreateResponse>(getFileSystemMoveCreateUrl(projectId, id), {
+): Promise<fileSystemMoveCreate2Response> => {
+    return apiMutator<fileSystemMoveCreate2Response>(getFileSystemMoveCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -4032,26 +3935,26 @@ export const fileSystemMoveCreate = async (
 /**
  * Get count of all files in a folder.
  */
-export type fileSystemCountByPathCreateResponse200 = {
+export type fileSystemCountByPathCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type fileSystemCountByPathCreateResponseSuccess = fileSystemCountByPathCreateResponse200 & {
+export type fileSystemCountByPathCreate2ResponseSuccess = fileSystemCountByPathCreate2Response200 & {
     headers: Headers
 }
-export type fileSystemCountByPathCreateResponse = fileSystemCountByPathCreateResponseSuccess
+export type fileSystemCountByPathCreate2Response = fileSystemCountByPathCreate2ResponseSuccess
 
-export const getFileSystemCountByPathCreateUrl = (projectId: string) => {
+export const getFileSystemCountByPathCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/count_by_path/`
 }
 
-export const fileSystemCountByPathCreate = async (
+export const fileSystemCountByPathCreate2 = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemCountByPathCreateResponse> => {
-    return apiMutator<fileSystemCountByPathCreateResponse>(getFileSystemCountByPathCreateUrl(projectId), {
+): Promise<fileSystemCountByPathCreate2Response> => {
+    return apiMutator<fileSystemCountByPathCreate2Response>(getFileSystemCountByPathCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -4059,50 +3962,50 @@ export const fileSystemCountByPathCreate = async (
     })
 }
 
-export type fileSystemLogViewRetrieveResponse200 = {
+export type fileSystemLogViewRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type fileSystemLogViewRetrieveResponseSuccess = fileSystemLogViewRetrieveResponse200 & {
+export type fileSystemLogViewRetrieve2ResponseSuccess = fileSystemLogViewRetrieve2Response200 & {
     headers: Headers
 }
-export type fileSystemLogViewRetrieveResponse = fileSystemLogViewRetrieveResponseSuccess
+export type fileSystemLogViewRetrieve2Response = fileSystemLogViewRetrieve2ResponseSuccess
 
-export const getFileSystemLogViewRetrieveUrl = (projectId: string) => {
+export const getFileSystemLogViewRetrieve2Url = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/log_view/`
 }
 
-export const fileSystemLogViewRetrieve = async (
+export const fileSystemLogViewRetrieve2 = async (
     projectId: string,
     options?: RequestInit
-): Promise<fileSystemLogViewRetrieveResponse> => {
-    return apiMutator<fileSystemLogViewRetrieveResponse>(getFileSystemLogViewRetrieveUrl(projectId), {
+): Promise<fileSystemLogViewRetrieve2Response> => {
+    return apiMutator<fileSystemLogViewRetrieve2Response>(getFileSystemLogViewRetrieve2Url(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type fileSystemLogViewCreateResponse200 = {
+export type fileSystemLogViewCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type fileSystemLogViewCreateResponseSuccess = fileSystemLogViewCreateResponse200 & {
+export type fileSystemLogViewCreate2ResponseSuccess = fileSystemLogViewCreate2Response200 & {
     headers: Headers
 }
-export type fileSystemLogViewCreateResponse = fileSystemLogViewCreateResponseSuccess
+export type fileSystemLogViewCreate2Response = fileSystemLogViewCreate2ResponseSuccess
 
-export const getFileSystemLogViewCreateUrl = (projectId: string) => {
+export const getFileSystemLogViewCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/log_view/`
 }
 
-export const fileSystemLogViewCreate = async (
+export const fileSystemLogViewCreate2 = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemLogViewCreateResponse> => {
-    return apiMutator<fileSystemLogViewCreateResponse>(getFileSystemLogViewCreateUrl(projectId), {
+): Promise<fileSystemLogViewCreate2Response> => {
+    return apiMutator<fileSystemLogViewCreate2Response>(getFileSystemLogViewCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -4110,26 +4013,26 @@ export const fileSystemLogViewCreate = async (
     })
 }
 
-export type fileSystemUndoDeleteCreateResponse200 = {
+export type fileSystemUndoDeleteCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type fileSystemUndoDeleteCreateResponseSuccess = fileSystemUndoDeleteCreateResponse200 & {
+export type fileSystemUndoDeleteCreate2ResponseSuccess = fileSystemUndoDeleteCreate2Response200 & {
     headers: Headers
 }
-export type fileSystemUndoDeleteCreateResponse = fileSystemUndoDeleteCreateResponseSuccess
+export type fileSystemUndoDeleteCreate2Response = fileSystemUndoDeleteCreate2ResponseSuccess
 
-export const getFileSystemUndoDeleteCreateUrl = (projectId: string) => {
+export const getFileSystemUndoDeleteCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/undo_delete/`
 }
 
-export const fileSystemUndoDeleteCreate = async (
+export const fileSystemUndoDeleteCreate2 = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
-): Promise<fileSystemUndoDeleteCreateResponse> => {
-    return apiMutator<fileSystemUndoDeleteCreateResponse>(getFileSystemUndoDeleteCreateUrl(projectId), {
+): Promise<fileSystemUndoDeleteCreate2Response> => {
+    return apiMutator<fileSystemUndoDeleteCreate2Response>(getFileSystemUndoDeleteCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -4137,25 +4040,25 @@ export const fileSystemUndoDeleteCreate = async (
     })
 }
 
-export type fileSystemUnfiledRetrieveResponse200 = {
+export type fileSystemUnfiledRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type fileSystemUnfiledRetrieveResponseSuccess = fileSystemUnfiledRetrieveResponse200 & {
+export type fileSystemUnfiledRetrieve2ResponseSuccess = fileSystemUnfiledRetrieve2Response200 & {
     headers: Headers
 }
-export type fileSystemUnfiledRetrieveResponse = fileSystemUnfiledRetrieveResponseSuccess
+export type fileSystemUnfiledRetrieve2Response = fileSystemUnfiledRetrieve2ResponseSuccess
 
-export const getFileSystemUnfiledRetrieveUrl = (projectId: string) => {
+export const getFileSystemUnfiledRetrieve2Url = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/unfiled/`
 }
 
-export const fileSystemUnfiledRetrieve = async (
+export const fileSystemUnfiledRetrieve2 = async (
     projectId: string,
     options?: RequestInit
-): Promise<fileSystemUnfiledRetrieveResponse> => {
-    return apiMutator<fileSystemUnfiledRetrieveResponse>(getFileSystemUnfiledRetrieveUrl(projectId), {
+): Promise<fileSystemUnfiledRetrieve2Response> => {
+    return apiMutator<fileSystemUnfiledRetrieve2Response>(getFileSystemUnfiledRetrieve2Url(projectId), {
         ...options,
         method: 'GET',
     })
@@ -4226,26 +4129,26 @@ export const flagValueValuesRetrieve = async (
     })
 }
 
-export type insightsSharingListResponse200 = {
+export type insightsSharingList2Response200 = {
     data: SharingConfigurationApi[]
     status: 200
 }
 
-export type insightsSharingListResponseSuccess = insightsSharingListResponse200 & {
+export type insightsSharingList2ResponseSuccess = insightsSharingList2Response200 & {
     headers: Headers
 }
-export type insightsSharingListResponse = insightsSharingListResponseSuccess
+export type insightsSharingList2Response = insightsSharingList2ResponseSuccess
 
-export const getInsightsSharingListUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingList2Url = (projectId: string, insightId: number) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/`
 }
 
-export const insightsSharingList = async (
+export const insightsSharingList2 = async (
     projectId: string,
     insightId: number,
     options?: RequestInit
-): Promise<insightsSharingListResponse> => {
-    return apiMutator<insightsSharingListResponse>(getInsightsSharingListUrl(projectId, insightId), {
+): Promise<insightsSharingList2Response> => {
+    return apiMutator<insightsSharingList2Response>(getInsightsSharingList2Url(projectId, insightId), {
         ...options,
         method: 'GET',
     })
@@ -4254,28 +4157,28 @@ export const insightsSharingList = async (
 /**
  * Create a new password for the sharing configuration.
  */
-export type insightsSharingPasswordsCreateResponse200 = {
+export type insightsSharingPasswordsCreate2Response200 = {
     data: SharingConfigurationApi
     status: 200
 }
 
-export type insightsSharingPasswordsCreateResponseSuccess = insightsSharingPasswordsCreateResponse200 & {
+export type insightsSharingPasswordsCreate2ResponseSuccess = insightsSharingPasswordsCreate2Response200 & {
     headers: Headers
 }
-export type insightsSharingPasswordsCreateResponse = insightsSharingPasswordsCreateResponseSuccess
+export type insightsSharingPasswordsCreate2Response = insightsSharingPasswordsCreate2ResponseSuccess
 
-export const getInsightsSharingPasswordsCreateUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingPasswordsCreate2Url = (projectId: string, insightId: number) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/passwords/`
 }
 
-export const insightsSharingPasswordsCreate = async (
+export const insightsSharingPasswordsCreate2 = async (
     projectId: string,
     insightId: number,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
-): Promise<insightsSharingPasswordsCreateResponse> => {
-    return apiMutator<insightsSharingPasswordsCreateResponse>(
-        getInsightsSharingPasswordsCreateUrl(projectId, insightId),
+): Promise<insightsSharingPasswordsCreate2Response> => {
+    return apiMutator<insightsSharingPasswordsCreate2Response>(
+        getInsightsSharingPasswordsCreate2Url(projectId, insightId),
         {
             ...options,
             method: 'POST',
@@ -4288,28 +4191,28 @@ export const insightsSharingPasswordsCreate = async (
 /**
  * Delete a password from the sharing configuration.
  */
-export type insightsSharingPasswordsDestroyResponse204 = {
+export type insightsSharingPasswordsDestroy2Response204 = {
     data: void
     status: 204
 }
 
-export type insightsSharingPasswordsDestroyResponseSuccess = insightsSharingPasswordsDestroyResponse204 & {
+export type insightsSharingPasswordsDestroy2ResponseSuccess = insightsSharingPasswordsDestroy2Response204 & {
     headers: Headers
 }
-export type insightsSharingPasswordsDestroyResponse = insightsSharingPasswordsDestroyResponseSuccess
+export type insightsSharingPasswordsDestroy2Response = insightsSharingPasswordsDestroy2ResponseSuccess
 
-export const getInsightsSharingPasswordsDestroyUrl = (projectId: string, insightId: number, passwordId: string) => {
+export const getInsightsSharingPasswordsDestroy2Url = (projectId: string, insightId: number, passwordId: string) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/passwords/${passwordId}/`
 }
 
-export const insightsSharingPasswordsDestroy = async (
+export const insightsSharingPasswordsDestroy2 = async (
     projectId: string,
     insightId: number,
     passwordId: string,
     options?: RequestInit
-): Promise<insightsSharingPasswordsDestroyResponse> => {
-    return apiMutator<insightsSharingPasswordsDestroyResponse>(
-        getInsightsSharingPasswordsDestroyUrl(projectId, insightId, passwordId),
+): Promise<insightsSharingPasswordsDestroy2Response> => {
+    return apiMutator<insightsSharingPasswordsDestroy2Response>(
+        getInsightsSharingPasswordsDestroy2Url(projectId, insightId, passwordId),
         {
             ...options,
             method: 'DELETE',
@@ -4317,45 +4220,48 @@ export const insightsSharingPasswordsDestroy = async (
     )
 }
 
-export type insightsSharingRefreshCreateResponse200 = {
+export type insightsSharingRefreshCreate2Response200 = {
     data: SharingConfigurationApi
     status: 200
 }
 
-export type insightsSharingRefreshCreateResponseSuccess = insightsSharingRefreshCreateResponse200 & {
+export type insightsSharingRefreshCreate2ResponseSuccess = insightsSharingRefreshCreate2Response200 & {
     headers: Headers
 }
-export type insightsSharingRefreshCreateResponse = insightsSharingRefreshCreateResponseSuccess
+export type insightsSharingRefreshCreate2Response = insightsSharingRefreshCreate2ResponseSuccess
 
-export const getInsightsSharingRefreshCreateUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingRefreshCreate2Url = (projectId: string, insightId: number) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/refresh/`
 }
 
-export const insightsSharingRefreshCreate = async (
+export const insightsSharingRefreshCreate2 = async (
     projectId: string,
     insightId: number,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
-): Promise<insightsSharingRefreshCreateResponse> => {
-    return apiMutator<insightsSharingRefreshCreateResponse>(getInsightsSharingRefreshCreateUrl(projectId, insightId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
-    })
+): Promise<insightsSharingRefreshCreate2Response> => {
+    return apiMutator<insightsSharingRefreshCreate2Response>(
+        getInsightsSharingRefreshCreate2Url(projectId, insightId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(sharingConfigurationApi),
+        }
+    )
 }
 
-export type integrationsList2Response200 = {
+export type integrationsList3Response200 = {
     data: PaginatedIntegrationListApi
     status: 200
 }
 
-export type integrationsList2ResponseSuccess = integrationsList2Response200 & {
+export type integrationsList3ResponseSuccess = integrationsList3Response200 & {
     headers: Headers
 }
-export type integrationsList2Response = integrationsList2ResponseSuccess
+export type integrationsList3Response = integrationsList3ResponseSuccess
 
-export const getIntegrationsList2Url = (projectId: string, params?: IntegrationsList2Params) => {
+export const getIntegrationsList3Url = (projectId: string, params?: IntegrationsList3Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -4371,37 +4277,37 @@ export const getIntegrationsList2Url = (projectId: string, params?: Integrations
         : `/api/projects/${projectId}/integrations/`
 }
 
-export const integrationsList2 = async (
+export const integrationsList3 = async (
     projectId: string,
-    params?: IntegrationsList2Params,
+    params?: IntegrationsList3Params,
     options?: RequestInit
-): Promise<integrationsList2Response> => {
-    return apiMutator<integrationsList2Response>(getIntegrationsList2Url(projectId, params), {
+): Promise<integrationsList3Response> => {
+    return apiMutator<integrationsList3Response>(getIntegrationsList3Url(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type integrationsCreateResponse201 = {
+export type integrationsCreate2Response201 = {
     data: IntegrationApi
     status: 201
 }
 
-export type integrationsCreateResponseSuccess = integrationsCreateResponse201 & {
+export type integrationsCreate2ResponseSuccess = integrationsCreate2Response201 & {
     headers: Headers
 }
-export type integrationsCreateResponse = integrationsCreateResponseSuccess
+export type integrationsCreate2Response = integrationsCreate2ResponseSuccess
 
-export const getIntegrationsCreateUrl = (projectId: string) => {
+export const getIntegrationsCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/`
 }
 
-export const integrationsCreate = async (
+export const integrationsCreate2 = async (
     projectId: string,
     integrationApi: NonReadonly<IntegrationApi>,
     options?: RequestInit
-): Promise<integrationsCreateResponse> => {
-    return apiMutator<integrationsCreateResponse>(getIntegrationsCreateUrl(projectId), {
+): Promise<integrationsCreate2Response> => {
+    return apiMutator<integrationsCreate2Response>(getIntegrationsCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -4409,127 +4315,130 @@ export const integrationsCreate = async (
     })
 }
 
-export type integrationsRetrieve2Response200 = {
+export type integrationsRetrieve3Response200 = {
     data: IntegrationApi
     status: 200
 }
 
-export type integrationsRetrieve2ResponseSuccess = integrationsRetrieve2Response200 & {
+export type integrationsRetrieve3ResponseSuccess = integrationsRetrieve3Response200 & {
     headers: Headers
 }
-export type integrationsRetrieve2Response = integrationsRetrieve2ResponseSuccess
+export type integrationsRetrieve3Response = integrationsRetrieve3ResponseSuccess
 
-export const getIntegrationsRetrieve2Url = (projectId: string, id: number) => {
+export const getIntegrationsRetrieve3Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsRetrieve2 = async (
+export const integrationsRetrieve3 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsRetrieve2Response> => {
-    return apiMutator<integrationsRetrieve2Response>(getIntegrationsRetrieve2Url(projectId, id), {
+): Promise<integrationsRetrieve3Response> => {
+    return apiMutator<integrationsRetrieve3Response>(getIntegrationsRetrieve3Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type integrationsDestroyResponse204 = {
+export type integrationsDestroy2Response204 = {
     data: void
     status: 204
 }
 
-export type integrationsDestroyResponseSuccess = integrationsDestroyResponse204 & {
+export type integrationsDestroy2ResponseSuccess = integrationsDestroy2Response204 & {
     headers: Headers
 }
-export type integrationsDestroyResponse = integrationsDestroyResponseSuccess
+export type integrationsDestroy2Response = integrationsDestroy2ResponseSuccess
 
-export const getIntegrationsDestroyUrl = (projectId: string, id: number) => {
+export const getIntegrationsDestroy2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsDestroy = async (
+export const integrationsDestroy2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsDestroyResponse> => {
-    return apiMutator<integrationsDestroyResponse>(getIntegrationsDestroyUrl(projectId, id), {
+): Promise<integrationsDestroy2Response> => {
+    return apiMutator<integrationsDestroy2Response>(getIntegrationsDestroy2Url(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type integrationsChannelsRetrieveResponse200 = {
+export type integrationsChannelsRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsChannelsRetrieveResponseSuccess = integrationsChannelsRetrieveResponse200 & {
+export type integrationsChannelsRetrieve2ResponseSuccess = integrationsChannelsRetrieve2Response200 & {
     headers: Headers
 }
-export type integrationsChannelsRetrieveResponse = integrationsChannelsRetrieveResponseSuccess
+export type integrationsChannelsRetrieve2Response = integrationsChannelsRetrieve2ResponseSuccess
 
-export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsChannelsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
-export const integrationsChannelsRetrieve = async (
+export const integrationsChannelsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsChannelsRetrieveResponse> => {
-    return apiMutator<integrationsChannelsRetrieveResponse>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+): Promise<integrationsChannelsRetrieve2Response> => {
+    return apiMutator<integrationsChannelsRetrieve2Response>(getIntegrationsChannelsRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type integrationsClickupListsRetrieveResponse200 = {
+export type integrationsClickupListsRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsClickupListsRetrieveResponseSuccess = integrationsClickupListsRetrieveResponse200 & {
+export type integrationsClickupListsRetrieve2ResponseSuccess = integrationsClickupListsRetrieve2Response200 & {
     headers: Headers
 }
-export type integrationsClickupListsRetrieveResponse = integrationsClickupListsRetrieveResponseSuccess
+export type integrationsClickupListsRetrieve2Response = integrationsClickupListsRetrieve2ResponseSuccess
 
-export const getIntegrationsClickupListsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupListsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_lists/`
 }
 
-export const integrationsClickupListsRetrieve = async (
+export const integrationsClickupListsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsClickupListsRetrieveResponse> => {
-    return apiMutator<integrationsClickupListsRetrieveResponse>(getIntegrationsClickupListsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<integrationsClickupListsRetrieve2Response> => {
+    return apiMutator<integrationsClickupListsRetrieve2Response>(
+        getIntegrationsClickupListsRetrieve2Url(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export type integrationsClickupSpacesRetrieveResponse200 = {
+export type integrationsClickupSpacesRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsClickupSpacesRetrieveResponseSuccess = integrationsClickupSpacesRetrieveResponse200 & {
+export type integrationsClickupSpacesRetrieve2ResponseSuccess = integrationsClickupSpacesRetrieve2Response200 & {
     headers: Headers
 }
-export type integrationsClickupSpacesRetrieveResponse = integrationsClickupSpacesRetrieveResponseSuccess
+export type integrationsClickupSpacesRetrieve2Response = integrationsClickupSpacesRetrieve2ResponseSuccess
 
-export const getIntegrationsClickupSpacesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupSpacesRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_spaces/`
 }
 
-export const integrationsClickupSpacesRetrieve = async (
+export const integrationsClickupSpacesRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsClickupSpacesRetrieveResponse> => {
-    return apiMutator<integrationsClickupSpacesRetrieveResponse>(
-        getIntegrationsClickupSpacesRetrieveUrl(projectId, id),
+): Promise<integrationsClickupSpacesRetrieve2Response> => {
+    return apiMutator<integrationsClickupSpacesRetrieve2Response>(
+        getIntegrationsClickupSpacesRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -4537,27 +4446,28 @@ export const integrationsClickupSpacesRetrieve = async (
     )
 }
 
-export type integrationsClickupWorkspacesRetrieveResponse200 = {
+export type integrationsClickupWorkspacesRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsClickupWorkspacesRetrieveResponseSuccess = integrationsClickupWorkspacesRetrieveResponse200 & {
-    headers: Headers
-}
-export type integrationsClickupWorkspacesRetrieveResponse = integrationsClickupWorkspacesRetrieveResponseSuccess
+export type integrationsClickupWorkspacesRetrieve2ResponseSuccess =
+    integrationsClickupWorkspacesRetrieve2Response200 & {
+        headers: Headers
+    }
+export type integrationsClickupWorkspacesRetrieve2Response = integrationsClickupWorkspacesRetrieve2ResponseSuccess
 
-export const getIntegrationsClickupWorkspacesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsClickupWorkspacesRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/clickup_workspaces/`
 }
 
-export const integrationsClickupWorkspacesRetrieve = async (
+export const integrationsClickupWorkspacesRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsClickupWorkspacesRetrieveResponse> => {
-    return apiMutator<integrationsClickupWorkspacesRetrieveResponse>(
-        getIntegrationsClickupWorkspacesRetrieveUrl(projectId, id),
+): Promise<integrationsClickupWorkspacesRetrieve2Response> => {
+    return apiMutator<integrationsClickupWorkspacesRetrieve2Response>(
+        getIntegrationsClickupWorkspacesRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -4565,27 +4475,27 @@ export const integrationsClickupWorkspacesRetrieve = async (
     )
 }
 
-export type integrationsEmailPartialUpdateResponse200 = {
+export type integrationsEmailPartialUpdate2Response200 = {
     data: IntegrationApi
     status: 200
 }
 
-export type integrationsEmailPartialUpdateResponseSuccess = integrationsEmailPartialUpdateResponse200 & {
+export type integrationsEmailPartialUpdate2ResponseSuccess = integrationsEmailPartialUpdate2Response200 & {
     headers: Headers
 }
-export type integrationsEmailPartialUpdateResponse = integrationsEmailPartialUpdateResponseSuccess
+export type integrationsEmailPartialUpdate2Response = integrationsEmailPartialUpdate2ResponseSuccess
 
-export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
+export const getIntegrationsEmailPartialUpdate2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/email/`
 }
 
-export const integrationsEmailPartialUpdate = async (
+export const integrationsEmailPartialUpdate2 = async (
     projectId: string,
     id: number,
     patchedIntegrationApi: NonReadonly<PatchedIntegrationApi>,
     options?: RequestInit
-): Promise<integrationsEmailPartialUpdateResponse> => {
-    return apiMutator<integrationsEmailPartialUpdateResponse>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
+): Promise<integrationsEmailPartialUpdate2Response> => {
+    return apiMutator<integrationsEmailPartialUpdate2Response>(getIntegrationsEmailPartialUpdate2Url(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -4593,27 +4503,27 @@ export const integrationsEmailPartialUpdate = async (
     })
 }
 
-export type integrationsEmailVerifyCreateResponse200 = {
+export type integrationsEmailVerifyCreate2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsEmailVerifyCreateResponseSuccess = integrationsEmailVerifyCreateResponse200 & {
+export type integrationsEmailVerifyCreate2ResponseSuccess = integrationsEmailVerifyCreate2Response200 & {
     headers: Headers
 }
-export type integrationsEmailVerifyCreateResponse = integrationsEmailVerifyCreateResponseSuccess
+export type integrationsEmailVerifyCreate2Response = integrationsEmailVerifyCreate2ResponseSuccess
 
-export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: number) => {
+export const getIntegrationsEmailVerifyCreate2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/email/verify/`
 }
 
-export const integrationsEmailVerifyCreate = async (
+export const integrationsEmailVerifyCreate2 = async (
     projectId: string,
     id: number,
     integrationApi: NonReadonly<IntegrationApi>,
     options?: RequestInit
-): Promise<integrationsEmailVerifyCreateResponse> => {
-    return apiMutator<integrationsEmailVerifyCreateResponse>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
+): Promise<integrationsEmailVerifyCreate2Response> => {
+    return apiMutator<integrationsEmailVerifyCreate2Response>(getIntegrationsEmailVerifyCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -4621,54 +4531,54 @@ export const integrationsEmailVerifyCreate = async (
     })
 }
 
-export type integrationsGithubReposRetrieveResponse200 = {
+export type integrationsGithubReposRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsGithubReposRetrieveResponseSuccess = integrationsGithubReposRetrieveResponse200 & {
+export type integrationsGithubReposRetrieve2ResponseSuccess = integrationsGithubReposRetrieve2Response200 & {
     headers: Headers
 }
-export type integrationsGithubReposRetrieveResponse = integrationsGithubReposRetrieveResponseSuccess
+export type integrationsGithubReposRetrieve2Response = integrationsGithubReposRetrieve2ResponseSuccess
 
-export const getIntegrationsGithubReposRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsGithubReposRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/github_repos/`
 }
 
-export const integrationsGithubReposRetrieve = async (
+export const integrationsGithubReposRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsGithubReposRetrieveResponse> => {
-    return apiMutator<integrationsGithubReposRetrieveResponse>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+): Promise<integrationsGithubReposRetrieve2Response> => {
+    return apiMutator<integrationsGithubReposRetrieve2Response>(getIntegrationsGithubReposRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type integrationsGoogleAccessibleAccountsRetrieveResponse200 = {
+export type integrationsGoogleAccessibleAccountsRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsGoogleAccessibleAccountsRetrieveResponseSuccess =
-    integrationsGoogleAccessibleAccountsRetrieveResponse200 & {
+export type integrationsGoogleAccessibleAccountsRetrieve2ResponseSuccess =
+    integrationsGoogleAccessibleAccountsRetrieve2Response200 & {
         headers: Headers
     }
-export type integrationsGoogleAccessibleAccountsRetrieveResponse =
-    integrationsGoogleAccessibleAccountsRetrieveResponseSuccess
+export type integrationsGoogleAccessibleAccountsRetrieve2Response =
+    integrationsGoogleAccessibleAccountsRetrieve2ResponseSuccess
 
-export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsGoogleAccessibleAccountsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/google_accessible_accounts/`
 }
 
-export const integrationsGoogleAccessibleAccountsRetrieve = async (
+export const integrationsGoogleAccessibleAccountsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsGoogleAccessibleAccountsRetrieveResponse> => {
-    return apiMutator<integrationsGoogleAccessibleAccountsRetrieveResponse>(
-        getIntegrationsGoogleAccessibleAccountsRetrieveUrl(projectId, id),
+): Promise<integrationsGoogleAccessibleAccountsRetrieve2Response> => {
+    return apiMutator<integrationsGoogleAccessibleAccountsRetrieve2Response>(
+        getIntegrationsGoogleAccessibleAccountsRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -4676,29 +4586,29 @@ export const integrationsGoogleAccessibleAccountsRetrieve = async (
     )
 }
 
-export type integrationsGoogleConversionActionsRetrieveResponse200 = {
+export type integrationsGoogleConversionActionsRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsGoogleConversionActionsRetrieveResponseSuccess =
-    integrationsGoogleConversionActionsRetrieveResponse200 & {
+export type integrationsGoogleConversionActionsRetrieve2ResponseSuccess =
+    integrationsGoogleConversionActionsRetrieve2Response200 & {
         headers: Headers
     }
-export type integrationsGoogleConversionActionsRetrieveResponse =
-    integrationsGoogleConversionActionsRetrieveResponseSuccess
+export type integrationsGoogleConversionActionsRetrieve2Response =
+    integrationsGoogleConversionActionsRetrieve2ResponseSuccess
 
-export const getIntegrationsGoogleConversionActionsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsGoogleConversionActionsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/google_conversion_actions/`
 }
 
-export const integrationsGoogleConversionActionsRetrieve = async (
+export const integrationsGoogleConversionActionsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsGoogleConversionActionsRetrieveResponse> => {
-    return apiMutator<integrationsGoogleConversionActionsRetrieveResponse>(
-        getIntegrationsGoogleConversionActionsRetrieveUrl(projectId, id),
+): Promise<integrationsGoogleConversionActionsRetrieve2Response> => {
+    return apiMutator<integrationsGoogleConversionActionsRetrieve2Response>(
+        getIntegrationsGoogleConversionActionsRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -4731,53 +4641,53 @@ export const integrationsJiraProjectsRetrieve = async (
     })
 }
 
-export type integrationsLinearTeamsRetrieveResponse200 = {
+export type integrationsLinearTeamsRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsLinearTeamsRetrieveResponseSuccess = integrationsLinearTeamsRetrieveResponse200 & {
+export type integrationsLinearTeamsRetrieve2ResponseSuccess = integrationsLinearTeamsRetrieve2Response200 & {
     headers: Headers
 }
-export type integrationsLinearTeamsRetrieveResponse = integrationsLinearTeamsRetrieveResponseSuccess
+export type integrationsLinearTeamsRetrieve2Response = integrationsLinearTeamsRetrieve2ResponseSuccess
 
-export const getIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinearTeamsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/linear_teams/`
 }
 
-export const integrationsLinearTeamsRetrieve = async (
+export const integrationsLinearTeamsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsLinearTeamsRetrieveResponse> => {
-    return apiMutator<integrationsLinearTeamsRetrieveResponse>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
+): Promise<integrationsLinearTeamsRetrieve2Response> => {
+    return apiMutator<integrationsLinearTeamsRetrieve2Response>(getIntegrationsLinearTeamsRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type integrationsLinkedinAdsAccountsRetrieveResponse200 = {
+export type integrationsLinkedinAdsAccountsRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsLinkedinAdsAccountsRetrieveResponseSuccess =
-    integrationsLinkedinAdsAccountsRetrieveResponse200 & {
+export type integrationsLinkedinAdsAccountsRetrieve2ResponseSuccess =
+    integrationsLinkedinAdsAccountsRetrieve2Response200 & {
         headers: Headers
     }
-export type integrationsLinkedinAdsAccountsRetrieveResponse = integrationsLinkedinAdsAccountsRetrieveResponseSuccess
+export type integrationsLinkedinAdsAccountsRetrieve2Response = integrationsLinkedinAdsAccountsRetrieve2ResponseSuccess
 
-export const getIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinkedinAdsAccountsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_accounts/`
 }
 
-export const integrationsLinkedinAdsAccountsRetrieve = async (
+export const integrationsLinkedinAdsAccountsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsLinkedinAdsAccountsRetrieveResponse> => {
-    return apiMutator<integrationsLinkedinAdsAccountsRetrieveResponse>(
-        getIntegrationsLinkedinAdsAccountsRetrieveUrl(projectId, id),
+): Promise<integrationsLinkedinAdsAccountsRetrieve2Response> => {
+    return apiMutator<integrationsLinkedinAdsAccountsRetrieve2Response>(
+        getIntegrationsLinkedinAdsAccountsRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -4785,29 +4695,29 @@ export const integrationsLinkedinAdsAccountsRetrieve = async (
     )
 }
 
-export type integrationsLinkedinAdsConversionRulesRetrieveResponse200 = {
+export type integrationsLinkedinAdsConversionRulesRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsLinkedinAdsConversionRulesRetrieveResponseSuccess =
-    integrationsLinkedinAdsConversionRulesRetrieveResponse200 & {
+export type integrationsLinkedinAdsConversionRulesRetrieve2ResponseSuccess =
+    integrationsLinkedinAdsConversionRulesRetrieve2Response200 & {
         headers: Headers
     }
-export type integrationsLinkedinAdsConversionRulesRetrieveResponse =
-    integrationsLinkedinAdsConversionRulesRetrieveResponseSuccess
+export type integrationsLinkedinAdsConversionRulesRetrieve2Response =
+    integrationsLinkedinAdsConversionRulesRetrieve2ResponseSuccess
 
-export const getIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsLinkedinAdsConversionRulesRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_conversion_rules/`
 }
 
-export const integrationsLinkedinAdsConversionRulesRetrieve = async (
+export const integrationsLinkedinAdsConversionRulesRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsLinkedinAdsConversionRulesRetrieveResponse> => {
-    return apiMutator<integrationsLinkedinAdsConversionRulesRetrieveResponse>(
-        getIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id),
+): Promise<integrationsLinkedinAdsConversionRulesRetrieve2Response> => {
+    return apiMutator<integrationsLinkedinAdsConversionRulesRetrieve2Response>(
+        getIntegrationsLinkedinAdsConversionRulesRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -4815,28 +4725,28 @@ export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     )
 }
 
-export type integrationsTwilioPhoneNumbersRetrieveResponse200 = {
+export type integrationsTwilioPhoneNumbersRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsTwilioPhoneNumbersRetrieveResponseSuccess =
-    integrationsTwilioPhoneNumbersRetrieveResponse200 & {
+export type integrationsTwilioPhoneNumbersRetrieve2ResponseSuccess =
+    integrationsTwilioPhoneNumbersRetrieve2Response200 & {
         headers: Headers
     }
-export type integrationsTwilioPhoneNumbersRetrieveResponse = integrationsTwilioPhoneNumbersRetrieveResponseSuccess
+export type integrationsTwilioPhoneNumbersRetrieve2Response = integrationsTwilioPhoneNumbersRetrieve2ResponseSuccess
 
-export const getIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsTwilioPhoneNumbersRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/twilio_phone_numbers/`
 }
 
-export const integrationsTwilioPhoneNumbersRetrieve = async (
+export const integrationsTwilioPhoneNumbersRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsTwilioPhoneNumbersRetrieveResponse> => {
-    return apiMutator<integrationsTwilioPhoneNumbersRetrieveResponse>(
-        getIntegrationsTwilioPhoneNumbersRetrieveUrl(projectId, id),
+): Promise<integrationsTwilioPhoneNumbersRetrieve2Response> => {
+    return apiMutator<integrationsTwilioPhoneNumbersRetrieve2Response>(
+        getIntegrationsTwilioPhoneNumbersRetrieve2Url(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -4844,25 +4754,25 @@ export const integrationsTwilioPhoneNumbersRetrieve = async (
     )
 }
 
-export type integrationsAuthorizeRetrieveResponse200 = {
+export type integrationsAuthorizeRetrieve2Response200 = {
     data: void
     status: 200
 }
 
-export type integrationsAuthorizeRetrieveResponseSuccess = integrationsAuthorizeRetrieveResponse200 & {
+export type integrationsAuthorizeRetrieve2ResponseSuccess = integrationsAuthorizeRetrieve2Response200 & {
     headers: Headers
 }
-export type integrationsAuthorizeRetrieveResponse = integrationsAuthorizeRetrieveResponseSuccess
+export type integrationsAuthorizeRetrieve2Response = integrationsAuthorizeRetrieve2ResponseSuccess
 
-export const getIntegrationsAuthorizeRetrieveUrl = (projectId: string) => {
+export const getIntegrationsAuthorizeRetrieve2Url = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/authorize/`
 }
 
-export const integrationsAuthorizeRetrieve = async (
+export const integrationsAuthorizeRetrieve2 = async (
     projectId: string,
     options?: RequestInit
-): Promise<integrationsAuthorizeRetrieveResponse> => {
-    return apiMutator<integrationsAuthorizeRetrieveResponse>(getIntegrationsAuthorizeRetrieveUrl(projectId), {
+): Promise<integrationsAuthorizeRetrieve2Response> => {
+    return apiMutator<integrationsAuthorizeRetrieve2Response>(getIntegrationsAuthorizeRetrieve2Url(projectId), {
         ...options,
         method: 'GET',
     })
@@ -5231,27 +5141,27 @@ export const scheduledChangesDestroy = async (
     })
 }
 
-export type sessionRecordingsSharingListResponse200 = {
+export type sessionRecordingsSharingList2Response200 = {
     data: SharingConfigurationApi[]
     status: 200
 }
 
-export type sessionRecordingsSharingListResponseSuccess = sessionRecordingsSharingListResponse200 & {
+export type sessionRecordingsSharingList2ResponseSuccess = sessionRecordingsSharingList2Response200 & {
     headers: Headers
 }
-export type sessionRecordingsSharingListResponse = sessionRecordingsSharingListResponseSuccess
+export type sessionRecordingsSharingList2Response = sessionRecordingsSharingList2ResponseSuccess
 
-export const getSessionRecordingsSharingListUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingList2Url = (projectId: string, recordingId: string) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/`
 }
 
-export const sessionRecordingsSharingList = async (
+export const sessionRecordingsSharingList2 = async (
     projectId: string,
     recordingId: string,
     options?: RequestInit
-): Promise<sessionRecordingsSharingListResponse> => {
-    return apiMutator<sessionRecordingsSharingListResponse>(
-        getSessionRecordingsSharingListUrl(projectId, recordingId),
+): Promise<sessionRecordingsSharingList2Response> => {
+    return apiMutator<sessionRecordingsSharingList2Response>(
+        getSessionRecordingsSharingList2Url(projectId, recordingId),
         {
             ...options,
             method: 'GET',
@@ -5262,29 +5172,29 @@ export const sessionRecordingsSharingList = async (
 /**
  * Create a new password for the sharing configuration.
  */
-export type sessionRecordingsSharingPasswordsCreateResponse200 = {
+export type sessionRecordingsSharingPasswordsCreate2Response200 = {
     data: SharingConfigurationApi
     status: 200
 }
 
-export type sessionRecordingsSharingPasswordsCreateResponseSuccess =
-    sessionRecordingsSharingPasswordsCreateResponse200 & {
+export type sessionRecordingsSharingPasswordsCreate2ResponseSuccess =
+    sessionRecordingsSharingPasswordsCreate2Response200 & {
         headers: Headers
     }
-export type sessionRecordingsSharingPasswordsCreateResponse = sessionRecordingsSharingPasswordsCreateResponseSuccess
+export type sessionRecordingsSharingPasswordsCreate2Response = sessionRecordingsSharingPasswordsCreate2ResponseSuccess
 
-export const getSessionRecordingsSharingPasswordsCreateUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingPasswordsCreate2Url = (projectId: string, recordingId: string) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/passwords/`
 }
 
-export const sessionRecordingsSharingPasswordsCreate = async (
+export const sessionRecordingsSharingPasswordsCreate2 = async (
     projectId: string,
     recordingId: string,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
-): Promise<sessionRecordingsSharingPasswordsCreateResponse> => {
-    return apiMutator<sessionRecordingsSharingPasswordsCreateResponse>(
-        getSessionRecordingsSharingPasswordsCreateUrl(projectId, recordingId),
+): Promise<sessionRecordingsSharingPasswordsCreate2Response> => {
+    return apiMutator<sessionRecordingsSharingPasswordsCreate2Response>(
+        getSessionRecordingsSharingPasswordsCreate2Url(projectId, recordingId),
         {
             ...options,
             method: 'POST',
@@ -5297,18 +5207,18 @@ export const sessionRecordingsSharingPasswordsCreate = async (
 /**
  * Delete a password from the sharing configuration.
  */
-export type sessionRecordingsSharingPasswordsDestroyResponse204 = {
+export type sessionRecordingsSharingPasswordsDestroy2Response204 = {
     data: void
     status: 204
 }
 
-export type sessionRecordingsSharingPasswordsDestroyResponseSuccess =
-    sessionRecordingsSharingPasswordsDestroyResponse204 & {
+export type sessionRecordingsSharingPasswordsDestroy2ResponseSuccess =
+    sessionRecordingsSharingPasswordsDestroy2Response204 & {
         headers: Headers
     }
-export type sessionRecordingsSharingPasswordsDestroyResponse = sessionRecordingsSharingPasswordsDestroyResponseSuccess
+export type sessionRecordingsSharingPasswordsDestroy2Response = sessionRecordingsSharingPasswordsDestroy2ResponseSuccess
 
-export const getSessionRecordingsSharingPasswordsDestroyUrl = (
+export const getSessionRecordingsSharingPasswordsDestroy2Url = (
     projectId: string,
     recordingId: string,
     passwordId: string
@@ -5316,14 +5226,14 @@ export const getSessionRecordingsSharingPasswordsDestroyUrl = (
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/passwords/${passwordId}/`
 }
 
-export const sessionRecordingsSharingPasswordsDestroy = async (
+export const sessionRecordingsSharingPasswordsDestroy2 = async (
     projectId: string,
     recordingId: string,
     passwordId: string,
     options?: RequestInit
-): Promise<sessionRecordingsSharingPasswordsDestroyResponse> => {
-    return apiMutator<sessionRecordingsSharingPasswordsDestroyResponse>(
-        getSessionRecordingsSharingPasswordsDestroyUrl(projectId, recordingId, passwordId),
+): Promise<sessionRecordingsSharingPasswordsDestroy2Response> => {
+    return apiMutator<sessionRecordingsSharingPasswordsDestroy2Response>(
+        getSessionRecordingsSharingPasswordsDestroy2Url(projectId, recordingId, passwordId),
         {
             ...options,
             method: 'DELETE',
@@ -5331,28 +5241,29 @@ export const sessionRecordingsSharingPasswordsDestroy = async (
     )
 }
 
-export type sessionRecordingsSharingRefreshCreateResponse200 = {
+export type sessionRecordingsSharingRefreshCreate2Response200 = {
     data: SharingConfigurationApi
     status: 200
 }
 
-export type sessionRecordingsSharingRefreshCreateResponseSuccess = sessionRecordingsSharingRefreshCreateResponse200 & {
-    headers: Headers
-}
-export type sessionRecordingsSharingRefreshCreateResponse = sessionRecordingsSharingRefreshCreateResponseSuccess
+export type sessionRecordingsSharingRefreshCreate2ResponseSuccess =
+    sessionRecordingsSharingRefreshCreate2Response200 & {
+        headers: Headers
+    }
+export type sessionRecordingsSharingRefreshCreate2Response = sessionRecordingsSharingRefreshCreate2ResponseSuccess
 
-export const getSessionRecordingsSharingRefreshCreateUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingRefreshCreate2Url = (projectId: string, recordingId: string) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/refresh/`
 }
 
-export const sessionRecordingsSharingRefreshCreate = async (
+export const sessionRecordingsSharingRefreshCreate2 = async (
     projectId: string,
     recordingId: string,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
-): Promise<sessionRecordingsSharingRefreshCreateResponse> => {
-    return apiMutator<sessionRecordingsSharingRefreshCreateResponse>(
-        getSessionRecordingsSharingRefreshCreateUrl(projectId, recordingId),
+): Promise<sessionRecordingsSharingRefreshCreate2Response> => {
+    return apiMutator<sessionRecordingsSharingRefreshCreate2Response>(
+        getSessionRecordingsSharingRefreshCreate2Url(projectId, recordingId),
         {
             ...options,
             method: 'POST',
@@ -5362,17 +5273,17 @@ export const sessionRecordingsSharingRefreshCreate = async (
     )
 }
 
-export type subscriptionsListResponse200 = {
+export type subscriptionsList2Response200 = {
     data: PaginatedSubscriptionListApi
     status: 200
 }
 
-export type subscriptionsListResponseSuccess = subscriptionsListResponse200 & {
+export type subscriptionsList2ResponseSuccess = subscriptionsList2Response200 & {
     headers: Headers
 }
-export type subscriptionsListResponse = subscriptionsListResponseSuccess
+export type subscriptionsList2Response = subscriptionsList2ResponseSuccess
 
-export const getSubscriptionsListUrl = (projectId: string, params?: SubscriptionsListParams) => {
+export const getSubscriptionsList2Url = (projectId: string, params?: SubscriptionsList2Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -5388,37 +5299,37 @@ export const getSubscriptionsListUrl = (projectId: string, params?: Subscription
         : `/api/projects/${projectId}/subscriptions/`
 }
 
-export const subscriptionsList = async (
+export const subscriptionsList2 = async (
     projectId: string,
-    params?: SubscriptionsListParams,
+    params?: SubscriptionsList2Params,
     options?: RequestInit
-): Promise<subscriptionsListResponse> => {
-    return apiMutator<subscriptionsListResponse>(getSubscriptionsListUrl(projectId, params), {
+): Promise<subscriptionsList2Response> => {
+    return apiMutator<subscriptionsList2Response>(getSubscriptionsList2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type subscriptionsCreateResponse201 = {
+export type subscriptionsCreate2Response201 = {
     data: SubscriptionApi
     status: 201
 }
 
-export type subscriptionsCreateResponseSuccess = subscriptionsCreateResponse201 & {
+export type subscriptionsCreate2ResponseSuccess = subscriptionsCreate2Response201 & {
     headers: Headers
 }
-export type subscriptionsCreateResponse = subscriptionsCreateResponseSuccess
+export type subscriptionsCreate2Response = subscriptionsCreate2ResponseSuccess
 
-export const getSubscriptionsCreateUrl = (projectId: string) => {
+export const getSubscriptionsCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/subscriptions/`
 }
 
-export const subscriptionsCreate = async (
+export const subscriptionsCreate2 = async (
     projectId: string,
     subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
-): Promise<subscriptionsCreateResponse> => {
-    return apiMutator<subscriptionsCreateResponse>(getSubscriptionsCreateUrl(projectId), {
+): Promise<subscriptionsCreate2Response> => {
+    return apiMutator<subscriptionsCreate2Response>(getSubscriptionsCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -5426,52 +5337,52 @@ export const subscriptionsCreate = async (
     })
 }
 
-export type subscriptionsRetrieveResponse200 = {
+export type subscriptionsRetrieve2Response200 = {
     data: SubscriptionApi
     status: 200
 }
 
-export type subscriptionsRetrieveResponseSuccess = subscriptionsRetrieveResponse200 & {
+export type subscriptionsRetrieve2ResponseSuccess = subscriptionsRetrieve2Response200 & {
     headers: Headers
 }
-export type subscriptionsRetrieveResponse = subscriptionsRetrieveResponseSuccess
+export type subscriptionsRetrieve2Response = subscriptionsRetrieve2ResponseSuccess
 
-export const getSubscriptionsRetrieveUrl = (projectId: string, id: number) => {
+export const getSubscriptionsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
-export const subscriptionsRetrieve = async (
+export const subscriptionsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<subscriptionsRetrieveResponse> => {
-    return apiMutator<subscriptionsRetrieveResponse>(getSubscriptionsRetrieveUrl(projectId, id), {
+): Promise<subscriptionsRetrieve2Response> => {
+    return apiMutator<subscriptionsRetrieve2Response>(getSubscriptionsRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type subscriptionsUpdateResponse200 = {
+export type subscriptionsUpdate2Response200 = {
     data: SubscriptionApi
     status: 200
 }
 
-export type subscriptionsUpdateResponseSuccess = subscriptionsUpdateResponse200 & {
+export type subscriptionsUpdate2ResponseSuccess = subscriptionsUpdate2Response200 & {
     headers: Headers
 }
-export type subscriptionsUpdateResponse = subscriptionsUpdateResponseSuccess
+export type subscriptionsUpdate2Response = subscriptionsUpdate2ResponseSuccess
 
-export const getSubscriptionsUpdateUrl = (projectId: string, id: number) => {
+export const getSubscriptionsUpdate2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
-export const subscriptionsUpdate = async (
+export const subscriptionsUpdate2 = async (
     projectId: string,
     id: number,
     subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
-): Promise<subscriptionsUpdateResponse> => {
-    return apiMutator<subscriptionsUpdateResponse>(getSubscriptionsUpdateUrl(projectId, id), {
+): Promise<subscriptionsUpdate2Response> => {
+    return apiMutator<subscriptionsUpdate2Response>(getSubscriptionsUpdate2Url(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -5479,27 +5390,27 @@ export const subscriptionsUpdate = async (
     })
 }
 
-export type subscriptionsPartialUpdateResponse200 = {
+export type subscriptionsPartialUpdate2Response200 = {
     data: SubscriptionApi
     status: 200
 }
 
-export type subscriptionsPartialUpdateResponseSuccess = subscriptionsPartialUpdateResponse200 & {
+export type subscriptionsPartialUpdate2ResponseSuccess = subscriptionsPartialUpdate2Response200 & {
     headers: Headers
 }
-export type subscriptionsPartialUpdateResponse = subscriptionsPartialUpdateResponseSuccess
+export type subscriptionsPartialUpdate2Response = subscriptionsPartialUpdate2ResponseSuccess
 
-export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) => {
+export const getSubscriptionsPartialUpdate2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
-export const subscriptionsPartialUpdate = async (
+export const subscriptionsPartialUpdate2 = async (
     projectId: string,
     id: number,
     patchedSubscriptionApi: NonReadonly<PatchedSubscriptionApi>,
     options?: RequestInit
-): Promise<subscriptionsPartialUpdateResponse> => {
-    return apiMutator<subscriptionsPartialUpdateResponse>(getSubscriptionsPartialUpdateUrl(projectId, id), {
+): Promise<subscriptionsPartialUpdate2Response> => {
+    return apiMutator<subscriptionsPartialUpdate2Response>(getSubscriptionsPartialUpdate2Url(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -5510,26 +5421,26 @@ export const subscriptionsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type subscriptionsDestroyResponse405 = {
+export type subscriptionsDestroy2Response405 = {
     data: void
     status: 405
 }
-export type subscriptionsDestroyResponseError = subscriptionsDestroyResponse405 & {
+export type subscriptionsDestroy2ResponseError = subscriptionsDestroy2Response405 & {
     headers: Headers
 }
 
-export type subscriptionsDestroyResponse = subscriptionsDestroyResponseError
+export type subscriptionsDestroy2Response = subscriptionsDestroy2ResponseError
 
-export const getSubscriptionsDestroyUrl = (projectId: string, id: number) => {
+export const getSubscriptionsDestroy2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
-export const subscriptionsDestroy = async (
+export const subscriptionsDestroy2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<subscriptionsDestroyResponse> => {
-    return apiMutator<subscriptionsDestroyResponse>(getSubscriptionsDestroyUrl(projectId, id), {
+): Promise<subscriptionsDestroy2Response> => {
+    return apiMutator<subscriptionsDestroy2Response>(getSubscriptionsDestroy2Url(projectId, id), {
         ...options,
         method: 'DELETE',
     })

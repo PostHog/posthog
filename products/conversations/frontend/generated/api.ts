@@ -10,8 +10,8 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ConversationApi,
+    ConversationsListParams,
     ConversationsTicketsListParams,
-    EnvironmentsConversationsListParams,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationListApi,
@@ -38,20 +38,17 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type environmentsConversationsListResponse200 = {
+export type conversationsListResponse200 = {
     data: PaginatedConversationListApi
     status: 200
 }
 
-export type environmentsConversationsListResponseSuccess = environmentsConversationsListResponse200 & {
+export type conversationsListResponseSuccess = conversationsListResponse200 & {
     headers: Headers
 }
-export type environmentsConversationsListResponse = environmentsConversationsListResponseSuccess
+export type conversationsListResponse = conversationsListResponseSuccess
 
-export const getEnvironmentsConversationsListUrl = (
-    projectId: string,
-    params?: EnvironmentsConversationsListParams
-) => {
+export const getConversationsListUrl = (projectId: string, params?: ConversationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -67,12 +64,12 @@ export const getEnvironmentsConversationsListUrl = (
         : `/api/environments/${projectId}/conversations/`
 }
 
-export const environmentsConversationsList = async (
+export const conversationsList = async (
     projectId: string,
-    params?: EnvironmentsConversationsListParams,
+    params?: ConversationsListParams,
     options?: RequestInit
-): Promise<environmentsConversationsListResponse> => {
-    return apiMutator<environmentsConversationsListResponse>(getEnvironmentsConversationsListUrl(projectId, params), {
+): Promise<conversationsListResponse> => {
+    return apiMutator<conversationsListResponse>(getConversationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -84,26 +81,26 @@ export const environmentsConversationsList = async (
 - If message is provided: Start new conversation processing
 - If no message: Stream from existing conversation
  */
-export type environmentsConversationsCreateResponse201 = {
+export type conversationsCreateResponse201 = {
     data: MessageApi
     status: 201
 }
 
-export type environmentsConversationsCreateResponseSuccess = environmentsConversationsCreateResponse201 & {
+export type conversationsCreateResponseSuccess = conversationsCreateResponse201 & {
     headers: Headers
 }
-export type environmentsConversationsCreateResponse = environmentsConversationsCreateResponseSuccess
+export type conversationsCreateResponse = conversationsCreateResponseSuccess
 
-export const getEnvironmentsConversationsCreateUrl = (projectId: string) => {
+export const getConversationsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/conversations/`
 }
 
-export const environmentsConversationsCreate = async (
+export const conversationsCreate = async (
     projectId: string,
     messageApi: MessageApi,
     options?: RequestInit
-): Promise<environmentsConversationsCreateResponse> => {
-    return apiMutator<environmentsConversationsCreateResponse>(getEnvironmentsConversationsCreateUrl(projectId), {
+): Promise<conversationsCreateResponse> => {
+    return apiMutator<conversationsCreateResponse>(getConversationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -111,32 +108,29 @@ export const environmentsConversationsCreate = async (
     })
 }
 
-export type environmentsConversationsRetrieveResponse200 = {
+export type conversationsRetrieveResponse200 = {
     data: ConversationApi
     status: 200
 }
 
-export type environmentsConversationsRetrieveResponseSuccess = environmentsConversationsRetrieveResponse200 & {
+export type conversationsRetrieveResponseSuccess = conversationsRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsConversationsRetrieveResponse = environmentsConversationsRetrieveResponseSuccess
+export type conversationsRetrieveResponse = conversationsRetrieveResponseSuccess
 
-export const getEnvironmentsConversationsRetrieveUrl = (projectId: string, conversation: string) => {
+export const getConversationsRetrieveUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/`
 }
 
-export const environmentsConversationsRetrieve = async (
+export const conversationsRetrieve = async (
     projectId: string,
     conversation: string,
     options?: RequestInit
-): Promise<environmentsConversationsRetrieveResponse> => {
-    return apiMutator<environmentsConversationsRetrieveResponse>(
-        getEnvironmentsConversationsRetrieveUrl(projectId, conversation),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<conversationsRetrieveResponse> => {
+    return apiMutator<conversationsRetrieveResponse>(getConversationsRetrieveUrl(projectId, conversation), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
@@ -144,30 +138,28 @@ export const environmentsConversationsRetrieve = async (
 This is used for client-side generated messages that need to be persisted
 (e.g., support ticket confirmation messages).
  */
-export type environmentsConversationsAppendMessageCreateResponse200 = {
+export type conversationsAppendMessageCreateResponse200 = {
     data: MessageMinimalApi
     status: 200
 }
 
-export type environmentsConversationsAppendMessageCreateResponseSuccess =
-    environmentsConversationsAppendMessageCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsConversationsAppendMessageCreateResponse =
-    environmentsConversationsAppendMessageCreateResponseSuccess
+export type conversationsAppendMessageCreateResponseSuccess = conversationsAppendMessageCreateResponse200 & {
+    headers: Headers
+}
+export type conversationsAppendMessageCreateResponse = conversationsAppendMessageCreateResponseSuccess
 
-export const getEnvironmentsConversationsAppendMessageCreateUrl = (projectId: string, conversation: string) => {
+export const getConversationsAppendMessageCreateUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/append_message/`
 }
 
-export const environmentsConversationsAppendMessageCreate = async (
+export const conversationsAppendMessageCreate = async (
     projectId: string,
     conversation: string,
     messageMinimalApi: MessageMinimalApi,
     options?: RequestInit
-): Promise<environmentsConversationsAppendMessageCreateResponse> => {
-    return apiMutator<environmentsConversationsAppendMessageCreateResponse>(
-        getEnvironmentsConversationsAppendMessageCreateUrl(projectId, conversation),
+): Promise<conversationsAppendMessageCreateResponse> => {
+    return apiMutator<conversationsAppendMessageCreateResponse>(
+        getConversationsAppendMessageCreateUrl(projectId, conversation),
         {
             ...options,
             method: 'POST',
@@ -177,30 +169,28 @@ export const environmentsConversationsAppendMessageCreate = async (
     )
 }
 
-export type environmentsConversationsCancelPartialUpdateResponse200 = {
+export type conversationsCancelPartialUpdateResponse200 = {
     data: ConversationApi
     status: 200
 }
 
-export type environmentsConversationsCancelPartialUpdateResponseSuccess =
-    environmentsConversationsCancelPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsConversationsCancelPartialUpdateResponse =
-    environmentsConversationsCancelPartialUpdateResponseSuccess
+export type conversationsCancelPartialUpdateResponseSuccess = conversationsCancelPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type conversationsCancelPartialUpdateResponse = conversationsCancelPartialUpdateResponseSuccess
 
-export const getEnvironmentsConversationsCancelPartialUpdateUrl = (projectId: string, conversation: string) => {
+export const getConversationsCancelPartialUpdateUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/cancel/`
 }
 
-export const environmentsConversationsCancelPartialUpdate = async (
+export const conversationsCancelPartialUpdate = async (
     projectId: string,
     conversation: string,
     patchedConversationApi: NonReadonly<PatchedConversationApi>,
     options?: RequestInit
-): Promise<environmentsConversationsCancelPartialUpdateResponse> => {
-    return apiMutator<environmentsConversationsCancelPartialUpdateResponse>(
-        getEnvironmentsConversationsCancelPartialUpdateUrl(projectId, conversation),
+): Promise<conversationsCancelPartialUpdateResponse> => {
+    return apiMutator<conversationsCancelPartialUpdateResponse>(
+        getConversationsCancelPartialUpdateUrl(projectId, conversation),
         {
             ...options,
             method: 'PATCH',

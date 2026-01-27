@@ -13,7 +13,7 @@ import type {
     CreateRecordingRequestApi,
     CreateRecordingResponseApi,
     DesktopRecordingApi,
-    EnvironmentsDesktopRecordingsListParams,
+    DesktopRecordingsListParams,
     PaginatedDesktopRecordingListApi,
     PatchedDesktopRecordingApi,
 } from './api.schemas'
@@ -40,20 +40,17 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export type environmentsDesktopRecordingsListResponse200 = {
+export type desktopRecordingsListResponse200 = {
     data: PaginatedDesktopRecordingListApi
     status: 200
 }
 
-export type environmentsDesktopRecordingsListResponseSuccess = environmentsDesktopRecordingsListResponse200 & {
+export type desktopRecordingsListResponseSuccess = desktopRecordingsListResponse200 & {
     headers: Headers
 }
-export type environmentsDesktopRecordingsListResponse = environmentsDesktopRecordingsListResponseSuccess
+export type desktopRecordingsListResponse = desktopRecordingsListResponseSuccess
 
-export const getEnvironmentsDesktopRecordingsListUrl = (
-    projectId: string,
-    params?: EnvironmentsDesktopRecordingsListParams
-) => {
+export const getDesktopRecordingsListUrl = (projectId: string, params?: DesktopRecordingsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -69,51 +66,45 @@ export const getEnvironmentsDesktopRecordingsListUrl = (
         : `/api/environments/${projectId}/desktop_recordings/`
 }
 
-export const environmentsDesktopRecordingsList = async (
+export const desktopRecordingsList = async (
     projectId: string,
-    params?: EnvironmentsDesktopRecordingsListParams,
+    params?: DesktopRecordingsListParams,
     options?: RequestInit
-): Promise<environmentsDesktopRecordingsListResponse> => {
-    return apiMutator<environmentsDesktopRecordingsListResponse>(
-        getEnvironmentsDesktopRecordingsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<desktopRecordingsListResponse> => {
+    return apiMutator<desktopRecordingsListResponse>(getDesktopRecordingsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
  * Create a new recording and get Recall.ai upload token for the desktop SDK
  */
-export type environmentsDesktopRecordingsCreateResponse201 = {
+export type desktopRecordingsCreateResponse201 = {
     data: CreateRecordingResponseApi
     status: 201
 }
 
-export type environmentsDesktopRecordingsCreateResponseSuccess = environmentsDesktopRecordingsCreateResponse201 & {
+export type desktopRecordingsCreateResponseSuccess = desktopRecordingsCreateResponse201 & {
     headers: Headers
 }
-export type environmentsDesktopRecordingsCreateResponse = environmentsDesktopRecordingsCreateResponseSuccess
+export type desktopRecordingsCreateResponse = desktopRecordingsCreateResponseSuccess
 
-export const getEnvironmentsDesktopRecordingsCreateUrl = (projectId: string) => {
+export const getDesktopRecordingsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/desktop_recordings/`
 }
 
-export const environmentsDesktopRecordingsCreate = async (
+export const desktopRecordingsCreate = async (
     projectId: string,
     createRecordingRequestApi: CreateRecordingRequestApi,
     options?: RequestInit
-): Promise<environmentsDesktopRecordingsCreateResponse> => {
-    return apiMutator<environmentsDesktopRecordingsCreateResponse>(
-        getEnvironmentsDesktopRecordingsCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(createRecordingRequestApi),
-        }
-    )
+): Promise<desktopRecordingsCreateResponse> => {
+    return apiMutator<desktopRecordingsCreateResponse>(getDesktopRecordingsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createRecordingRequestApi),
+    })
 }
 
 /**
@@ -121,32 +112,29 @@ export const environmentsDesktopRecordingsCreate = async (
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export type environmentsDesktopRecordingsRetrieveResponse200 = {
+export type desktopRecordingsRetrieveResponse200 = {
     data: DesktopRecordingApi
     status: 200
 }
 
-export type environmentsDesktopRecordingsRetrieveResponseSuccess = environmentsDesktopRecordingsRetrieveResponse200 & {
+export type desktopRecordingsRetrieveResponseSuccess = desktopRecordingsRetrieveResponse200 & {
     headers: Headers
 }
-export type environmentsDesktopRecordingsRetrieveResponse = environmentsDesktopRecordingsRetrieveResponseSuccess
+export type desktopRecordingsRetrieveResponse = desktopRecordingsRetrieveResponseSuccess
 
-export const getEnvironmentsDesktopRecordingsRetrieveUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/`
 }
 
-export const environmentsDesktopRecordingsRetrieve = async (
+export const desktopRecordingsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<environmentsDesktopRecordingsRetrieveResponse> => {
-    return apiMutator<environmentsDesktopRecordingsRetrieveResponse>(
-        getEnvironmentsDesktopRecordingsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<desktopRecordingsRetrieveResponse> => {
+    return apiMutator<desktopRecordingsRetrieveResponse>(getDesktopRecordingsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
@@ -154,35 +142,32 @@ export const environmentsDesktopRecordingsRetrieve = async (
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export type environmentsDesktopRecordingsUpdateResponse200 = {
+export type desktopRecordingsUpdateResponse200 = {
     data: DesktopRecordingApi
     status: 200
 }
 
-export type environmentsDesktopRecordingsUpdateResponseSuccess = environmentsDesktopRecordingsUpdateResponse200 & {
+export type desktopRecordingsUpdateResponseSuccess = desktopRecordingsUpdateResponse200 & {
     headers: Headers
 }
-export type environmentsDesktopRecordingsUpdateResponse = environmentsDesktopRecordingsUpdateResponseSuccess
+export type desktopRecordingsUpdateResponse = desktopRecordingsUpdateResponseSuccess
 
-export const getEnvironmentsDesktopRecordingsUpdateUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/`
 }
 
-export const environmentsDesktopRecordingsUpdate = async (
+export const desktopRecordingsUpdate = async (
     projectId: string,
     id: string,
     desktopRecordingApi: NonReadonly<DesktopRecordingApi>,
     options?: RequestInit
-): Promise<environmentsDesktopRecordingsUpdateResponse> => {
-    return apiMutator<environmentsDesktopRecordingsUpdateResponse>(
-        getEnvironmentsDesktopRecordingsUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(desktopRecordingApi),
-        }
-    )
+): Promise<desktopRecordingsUpdateResponse> => {
+    return apiMutator<desktopRecordingsUpdateResponse>(getDesktopRecordingsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(desktopRecordingApi),
+    })
 }
 
 /**
@@ -190,37 +175,32 @@ export const environmentsDesktopRecordingsUpdate = async (
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export type environmentsDesktopRecordingsPartialUpdateResponse200 = {
+export type desktopRecordingsPartialUpdateResponse200 = {
     data: DesktopRecordingApi
     status: 200
 }
 
-export type environmentsDesktopRecordingsPartialUpdateResponseSuccess =
-    environmentsDesktopRecordingsPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsDesktopRecordingsPartialUpdateResponse =
-    environmentsDesktopRecordingsPartialUpdateResponseSuccess
+export type desktopRecordingsPartialUpdateResponseSuccess = desktopRecordingsPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type desktopRecordingsPartialUpdateResponse = desktopRecordingsPartialUpdateResponseSuccess
 
-export const getEnvironmentsDesktopRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/`
 }
 
-export const environmentsDesktopRecordingsPartialUpdate = async (
+export const desktopRecordingsPartialUpdate = async (
     projectId: string,
     id: string,
     patchedDesktopRecordingApi: NonReadonly<PatchedDesktopRecordingApi>,
     options?: RequestInit
-): Promise<environmentsDesktopRecordingsPartialUpdateResponse> => {
-    return apiMutator<environmentsDesktopRecordingsPartialUpdateResponse>(
-        getEnvironmentsDesktopRecordingsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDesktopRecordingApi),
-        }
-    )
+): Promise<desktopRecordingsPartialUpdateResponse> => {
+    return apiMutator<desktopRecordingsPartialUpdateResponse>(getDesktopRecordingsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDesktopRecordingApi),
+    })
 }
 
 /**
@@ -228,61 +208,56 @@ export const environmentsDesktopRecordingsPartialUpdate = async (
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export type environmentsDesktopRecordingsDestroyResponse204 = {
+export type desktopRecordingsDestroyResponse204 = {
     data: void
     status: 204
 }
 
-export type environmentsDesktopRecordingsDestroyResponseSuccess = environmentsDesktopRecordingsDestroyResponse204 & {
+export type desktopRecordingsDestroyResponseSuccess = desktopRecordingsDestroyResponse204 & {
     headers: Headers
 }
-export type environmentsDesktopRecordingsDestroyResponse = environmentsDesktopRecordingsDestroyResponseSuccess
+export type desktopRecordingsDestroyResponse = desktopRecordingsDestroyResponseSuccess
 
-export const getEnvironmentsDesktopRecordingsDestroyUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/`
 }
 
-export const environmentsDesktopRecordingsDestroy = async (
+export const desktopRecordingsDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<environmentsDesktopRecordingsDestroyResponse> => {
-    return apiMutator<environmentsDesktopRecordingsDestroyResponse>(
-        getEnvironmentsDesktopRecordingsDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
+): Promise<desktopRecordingsDestroyResponse> => {
+    return apiMutator<desktopRecordingsDestroyResponse>(getDesktopRecordingsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 /**
  * Append transcript segments (supports batched real-time streaming)
  */
-export type environmentsDesktopRecordingsAppendSegmentsCreateResponse200 = {
+export type desktopRecordingsAppendSegmentsCreateResponse200 = {
     data: DesktopRecordingApi
     status: 200
 }
 
-export type environmentsDesktopRecordingsAppendSegmentsCreateResponseSuccess =
-    environmentsDesktopRecordingsAppendSegmentsCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsDesktopRecordingsAppendSegmentsCreateResponse =
-    environmentsDesktopRecordingsAppendSegmentsCreateResponseSuccess
+export type desktopRecordingsAppendSegmentsCreateResponseSuccess = desktopRecordingsAppendSegmentsCreateResponse200 & {
+    headers: Headers
+}
+export type desktopRecordingsAppendSegmentsCreateResponse = desktopRecordingsAppendSegmentsCreateResponseSuccess
 
-export const getEnvironmentsDesktopRecordingsAppendSegmentsCreateUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsAppendSegmentsCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/append_segments/`
 }
 
-export const environmentsDesktopRecordingsAppendSegmentsCreate = async (
+export const desktopRecordingsAppendSegmentsCreate = async (
     projectId: string,
     id: string,
     appendSegmentsApi: AppendSegmentsApi,
     options?: RequestInit
-): Promise<environmentsDesktopRecordingsAppendSegmentsCreateResponse> => {
-    return apiMutator<environmentsDesktopRecordingsAppendSegmentsCreateResponse>(
-        getEnvironmentsDesktopRecordingsAppendSegmentsCreateUrl(projectId, id),
+): Promise<desktopRecordingsAppendSegmentsCreateResponse> => {
+    return apiMutator<desktopRecordingsAppendSegmentsCreateResponse>(
+        getDesktopRecordingsAppendSegmentsCreateUrl(projectId, id),
         {
             ...options,
             method: 'POST',

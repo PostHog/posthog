@@ -9,294 +9,11 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    EnvironmentsPluginConfigsLogsListParams,
     ExplainRequestApi,
     PaginatedPluginLogEntryListApi,
+    PluginConfigsLogsList2Params,
     PluginConfigsLogsListParams,
 } from './api.schemas'
-
-export type environmentsHogFlowTemplatesLogsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsHogFlowTemplatesLogsRetrieveResponseSuccess =
-    environmentsHogFlowTemplatesLogsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsHogFlowTemplatesLogsRetrieveResponse = environmentsHogFlowTemplatesLogsRetrieveResponseSuccess
-
-export const getEnvironmentsHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/hog_flow_templates/${id}/logs/`
-}
-
-export const environmentsHogFlowTemplatesLogsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsHogFlowTemplatesLogsRetrieveResponse> => {
-    return apiMutator<environmentsHogFlowTemplatesLogsRetrieveResponse>(
-        getEnvironmentsHogFlowTemplatesLogsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type environmentsHogFlowsLogsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsHogFlowsLogsRetrieveResponseSuccess = environmentsHogFlowsLogsRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsHogFlowsLogsRetrieveResponse = environmentsHogFlowsLogsRetrieveResponseSuccess
-
-export const getEnvironmentsHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/hog_flows/${id}/logs/`
-}
-
-export const environmentsHogFlowsLogsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsHogFlowsLogsRetrieveResponse> => {
-    return apiMutator<environmentsHogFlowsLogsRetrieveResponse>(getEnvironmentsHogFlowsLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type environmentsHogFunctionsLogsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsHogFunctionsLogsRetrieveResponseSuccess = environmentsHogFunctionsLogsRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsHogFunctionsLogsRetrieveResponse = environmentsHogFunctionsLogsRetrieveResponseSuccess
-
-export const getEnvironmentsHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/hog_functions/${id}/logs/`
-}
-
-export const environmentsHogFunctionsLogsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsHogFunctionsLogsRetrieveResponse> => {
-    return apiMutator<environmentsHogFunctionsLogsRetrieveResponse>(
-        getEnvironmentsHogFunctionsLogsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type environmentsLogsAttributesRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsLogsAttributesRetrieveResponseSuccess = environmentsLogsAttributesRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsLogsAttributesRetrieveResponse = environmentsLogsAttributesRetrieveResponseSuccess
-
-export const getEnvironmentsLogsAttributesRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/attributes/`
-}
-
-export const environmentsLogsAttributesRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsLogsAttributesRetrieveResponse> => {
-    return apiMutator<environmentsLogsAttributesRetrieveResponse>(getEnvironmentsLogsAttributesRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
- */
-export type environmentsLogsExplainLogWithAICreateResponse201 = {
-    data: ExplainRequestApi
-    status: 201
-}
-
-export type environmentsLogsExplainLogWithAICreateResponseSuccess =
-    environmentsLogsExplainLogWithAICreateResponse201 & {
-        headers: Headers
-    }
-export type environmentsLogsExplainLogWithAICreateResponse = environmentsLogsExplainLogWithAICreateResponseSuccess
-
-export const getEnvironmentsLogsExplainLogWithAICreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/explainLogWithAI/`
-}
-
-export const environmentsLogsExplainLogWithAICreate = async (
-    projectId: string,
-    explainRequestApi: ExplainRequestApi,
-    options?: RequestInit
-): Promise<environmentsLogsExplainLogWithAICreateResponse> => {
-    return apiMutator<environmentsLogsExplainLogWithAICreateResponse>(
-        getEnvironmentsLogsExplainLogWithAICreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(explainRequestApi),
-        }
-    )
-}
-
-export type environmentsLogsHasLogsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsLogsHasLogsRetrieveResponseSuccess = environmentsLogsHasLogsRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsLogsHasLogsRetrieveResponse = environmentsLogsHasLogsRetrieveResponseSuccess
-
-export const getEnvironmentsLogsHasLogsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/has_logs/`
-}
-
-export const environmentsLogsHasLogsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsLogsHasLogsRetrieveResponse> => {
-    return apiMutator<environmentsLogsHasLogsRetrieveResponse>(getEnvironmentsLogsHasLogsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type environmentsLogsQueryCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsLogsQueryCreateResponseSuccess = environmentsLogsQueryCreateResponse200 & {
-    headers: Headers
-}
-export type environmentsLogsQueryCreateResponse = environmentsLogsQueryCreateResponseSuccess
-
-export const getEnvironmentsLogsQueryCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/query/`
-}
-
-export const environmentsLogsQueryCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsLogsQueryCreateResponse> => {
-    return apiMutator<environmentsLogsQueryCreateResponse>(getEnvironmentsLogsQueryCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export type environmentsLogsSparklineCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsLogsSparklineCreateResponseSuccess = environmentsLogsSparklineCreateResponse200 & {
-    headers: Headers
-}
-export type environmentsLogsSparklineCreateResponse = environmentsLogsSparklineCreateResponseSuccess
-
-export const getEnvironmentsLogsSparklineCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/sparkline/`
-}
-
-export const environmentsLogsSparklineCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsLogsSparklineCreateResponse> => {
-    return apiMutator<environmentsLogsSparklineCreateResponse>(getEnvironmentsLogsSparklineCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export type environmentsLogsValuesRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsLogsValuesRetrieveResponseSuccess = environmentsLogsValuesRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsLogsValuesRetrieveResponse = environmentsLogsValuesRetrieveResponseSuccess
-
-export const getEnvironmentsLogsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/values/`
-}
-
-export const environmentsLogsValuesRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<environmentsLogsValuesRetrieveResponse> => {
-    return apiMutator<environmentsLogsValuesRetrieveResponse>(getEnvironmentsLogsValuesRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type environmentsPluginConfigsLogsListResponse200 = {
-    data: PaginatedPluginLogEntryListApi
-    status: 200
-}
-
-export type environmentsPluginConfigsLogsListResponseSuccess = environmentsPluginConfigsLogsListResponse200 & {
-    headers: Headers
-}
-export type environmentsPluginConfigsLogsListResponse = environmentsPluginConfigsLogsListResponseSuccess
-
-export const getEnvironmentsPluginConfigsLogsListUrl = (
-    projectId: string,
-    pluginConfigId: string,
-    params?: EnvironmentsPluginConfigsLogsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
-        : `/api/environments/${projectId}/plugin_configs/${pluginConfigId}/logs/`
-}
-
-export const environmentsPluginConfigsLogsList = async (
-    projectId: string,
-    pluginConfigId: string,
-    params?: EnvironmentsPluginConfigsLogsListParams,
-    options?: RequestInit
-): Promise<environmentsPluginConfigsLogsListResponse> => {
-    return apiMutator<environmentsPluginConfigsLogsListResponse>(
-        getEnvironmentsPluginConfigsLogsListUrl(projectId, pluginConfigId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
 
 export type hogFlowTemplatesLogsRetrieveResponse200 = {
     data: void
@@ -309,7 +26,7 @@ export type hogFlowTemplatesLogsRetrieveResponseSuccess = hogFlowTemplatesLogsRe
 export type hogFlowTemplatesLogsRetrieveResponse = hogFlowTemplatesLogsRetrieveResponseSuccess
 
 export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
+    return `/api/environments/${projectId}/hog_flow_templates/${id}/logs/`
 }
 
 export const hogFlowTemplatesLogsRetrieve = async (
@@ -334,7 +51,7 @@ export type hogFlowsLogsRetrieveResponseSuccess = hogFlowsLogsRetrieveResponse20
 export type hogFlowsLogsRetrieveResponse = hogFlowsLogsRetrieveResponseSuccess
 
 export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
+    return `/api/environments/${projectId}/hog_flows/${id}/logs/`
 }
 
 export const hogFlowsLogsRetrieve = async (
@@ -359,7 +76,7 @@ export type hogFunctionsLogsRetrieveResponseSuccess = hogFunctionsLogsRetrieveRe
 export type hogFunctionsLogsRetrieveResponse = hogFunctionsLogsRetrieveResponseSuccess
 
 export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
+    return `/api/environments/${projectId}/hog_functions/${id}/logs/`
 }
 
 export const hogFunctionsLogsRetrieve = async (
@@ -384,7 +101,7 @@ export type logsAttributesRetrieveResponseSuccess = logsAttributesRetrieveRespon
 export type logsAttributesRetrieveResponse = logsAttributesRetrieveResponseSuccess
 
 export const getLogsAttributesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/attributes/`
+    return `/api/environments/${projectId}/logs/attributes/`
 }
 
 export const logsAttributesRetrieve = async (
@@ -394,6 +111,38 @@ export const logsAttributesRetrieve = async (
     return apiMutator<logsAttributesRetrieveResponse>(getLogsAttributesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Explain a log entry using AI.
+
+POST /api/environments/:id/logs/explainLogWithAI/
+ */
+export type logsExplainLogWithAICreateResponse201 = {
+    data: ExplainRequestApi
+    status: 201
+}
+
+export type logsExplainLogWithAICreateResponseSuccess = logsExplainLogWithAICreateResponse201 & {
+    headers: Headers
+}
+export type logsExplainLogWithAICreateResponse = logsExplainLogWithAICreateResponseSuccess
+
+export const getLogsExplainLogWithAICreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/logs/explainLogWithAI/`
+}
+
+export const logsExplainLogWithAICreate = async (
+    projectId: string,
+    explainRequestApi: ExplainRequestApi,
+    options?: RequestInit
+): Promise<logsExplainLogWithAICreateResponse> => {
+    return apiMutator<logsExplainLogWithAICreateResponse>(getLogsExplainLogWithAICreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(explainRequestApi),
     })
 }
 
@@ -408,7 +157,7 @@ export type logsHasLogsRetrieveResponseSuccess = logsHasLogsRetrieveResponse200 
 export type logsHasLogsRetrieveResponse = logsHasLogsRetrieveResponseSuccess
 
 export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/has_logs/`
+    return `/api/environments/${projectId}/logs/has_logs/`
 }
 
 export const logsHasLogsRetrieve = async (
@@ -432,7 +181,7 @@ export type logsQueryCreateResponseSuccess = logsQueryCreateResponse200 & {
 export type logsQueryCreateResponse = logsQueryCreateResponseSuccess
 
 export const getLogsQueryCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/query/`
+    return `/api/environments/${projectId}/logs/query/`
 }
 
 export const logsQueryCreate = async (projectId: string, options?: RequestInit): Promise<logsQueryCreateResponse> => {
@@ -453,7 +202,7 @@ export type logsSparklineCreateResponseSuccess = logsSparklineCreateResponse200 
 export type logsSparklineCreateResponse = logsSparklineCreateResponseSuccess
 
 export const getLogsSparklineCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/sparkline/`
+    return `/api/environments/${projectId}/logs/sparkline/`
 }
 
 export const logsSparklineCreate = async (
@@ -477,7 +226,7 @@ export type logsValuesRetrieveResponseSuccess = logsValuesRetrieveResponse200 & 
 export type logsValuesRetrieveResponse = logsValuesRetrieveResponseSuccess
 
 export const getLogsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/values/`
+    return `/api/environments/${projectId}/logs/values/`
 }
 
 export const logsValuesRetrieve = async (
@@ -516,8 +265,8 @@ export const getPluginConfigsLogsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
+        ? `/api/environments/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
+        : `/api/environments/${projectId}/plugin_configs/${pluginConfigId}/logs/`
 }
 
 export const pluginConfigsLogsList = async (
@@ -527,6 +276,240 @@ export const pluginConfigsLogsList = async (
     options?: RequestInit
 ): Promise<pluginConfigsLogsListResponse> => {
     return apiMutator<pluginConfigsLogsListResponse>(getPluginConfigsLogsListUrl(projectId, pluginConfigId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type hogFlowTemplatesLogsRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type hogFlowTemplatesLogsRetrieve2ResponseSuccess = hogFlowTemplatesLogsRetrieve2Response200 & {
+    headers: Headers
+}
+export type hogFlowTemplatesLogsRetrieve2Response = hogFlowTemplatesLogsRetrieve2ResponseSuccess
+
+export const getHogFlowTemplatesLogsRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
+}
+
+export const hogFlowTemplatesLogsRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<hogFlowTemplatesLogsRetrieve2Response> => {
+    return apiMutator<hogFlowTemplatesLogsRetrieve2Response>(getHogFlowTemplatesLogsRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type hogFlowsLogsRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type hogFlowsLogsRetrieve2ResponseSuccess = hogFlowsLogsRetrieve2Response200 & {
+    headers: Headers
+}
+export type hogFlowsLogsRetrieve2Response = hogFlowsLogsRetrieve2ResponseSuccess
+
+export const getHogFlowsLogsRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
+}
+
+export const hogFlowsLogsRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<hogFlowsLogsRetrieve2Response> => {
+    return apiMutator<hogFlowsLogsRetrieve2Response>(getHogFlowsLogsRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type hogFunctionsLogsRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type hogFunctionsLogsRetrieve2ResponseSuccess = hogFunctionsLogsRetrieve2Response200 & {
+    headers: Headers
+}
+export type hogFunctionsLogsRetrieve2Response = hogFunctionsLogsRetrieve2ResponseSuccess
+
+export const getHogFunctionsLogsRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
+}
+
+export const hogFunctionsLogsRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<hogFunctionsLogsRetrieve2Response> => {
+    return apiMutator<hogFunctionsLogsRetrieve2Response>(getHogFunctionsLogsRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type logsAttributesRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type logsAttributesRetrieve2ResponseSuccess = logsAttributesRetrieve2Response200 & {
+    headers: Headers
+}
+export type logsAttributesRetrieve2Response = logsAttributesRetrieve2ResponseSuccess
+
+export const getLogsAttributesRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/attributes/`
+}
+
+export const logsAttributesRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<logsAttributesRetrieve2Response> => {
+    return apiMutator<logsAttributesRetrieve2Response>(getLogsAttributesRetrieve2Url(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type logsHasLogsRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type logsHasLogsRetrieve2ResponseSuccess = logsHasLogsRetrieve2Response200 & {
+    headers: Headers
+}
+export type logsHasLogsRetrieve2Response = logsHasLogsRetrieve2ResponseSuccess
+
+export const getLogsHasLogsRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/has_logs/`
+}
+
+export const logsHasLogsRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<logsHasLogsRetrieve2Response> => {
+    return apiMutator<logsHasLogsRetrieve2Response>(getLogsHasLogsRetrieve2Url(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type logsQueryCreate2Response200 = {
+    data: void
+    status: 200
+}
+
+export type logsQueryCreate2ResponseSuccess = logsQueryCreate2Response200 & {
+    headers: Headers
+}
+export type logsQueryCreate2Response = logsQueryCreate2ResponseSuccess
+
+export const getLogsQueryCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/query/`
+}
+
+export const logsQueryCreate2 = async (projectId: string, options?: RequestInit): Promise<logsQueryCreate2Response> => {
+    return apiMutator<logsQueryCreate2Response>(getLogsQueryCreate2Url(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export type logsSparklineCreate2Response200 = {
+    data: void
+    status: 200
+}
+
+export type logsSparklineCreate2ResponseSuccess = logsSparklineCreate2Response200 & {
+    headers: Headers
+}
+export type logsSparklineCreate2Response = logsSparklineCreate2ResponseSuccess
+
+export const getLogsSparklineCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/sparkline/`
+}
+
+export const logsSparklineCreate2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<logsSparklineCreate2Response> => {
+    return apiMutator<logsSparklineCreate2Response>(getLogsSparklineCreate2Url(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export type logsValuesRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type logsValuesRetrieve2ResponseSuccess = logsValuesRetrieve2Response200 & {
+    headers: Headers
+}
+export type logsValuesRetrieve2Response = logsValuesRetrieve2ResponseSuccess
+
+export const getLogsValuesRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/values/`
+}
+
+export const logsValuesRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<logsValuesRetrieve2Response> => {
+    return apiMutator<logsValuesRetrieve2Response>(getLogsValuesRetrieve2Url(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type pluginConfigsLogsList2Response200 = {
+    data: PaginatedPluginLogEntryListApi
+    status: 200
+}
+
+export type pluginConfigsLogsList2ResponseSuccess = pluginConfigsLogsList2Response200 & {
+    headers: Headers
+}
+export type pluginConfigsLogsList2Response = pluginConfigsLogsList2ResponseSuccess
+
+export const getPluginConfigsLogsList2Url = (
+    projectId: string,
+    pluginConfigId: string,
+    params?: PluginConfigsLogsList2Params
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
+}
+
+export const pluginConfigsLogsList2 = async (
+    projectId: string,
+    pluginConfigId: string,
+    params?: PluginConfigsLogsList2Params,
+    options?: RequestInit
+): Promise<pluginConfigsLogsList2Response> => {
+    return apiMutator<pluginConfigsLogsList2Response>(getPluginConfigsLogsList2Url(projectId, pluginConfigId, params), {
         ...options,
         method: 'GET',
     })

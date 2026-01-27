@@ -677,118 +677,6 @@ export interface PaginatedDataWarehouseModelPathListApi {
     results: DataWarehouseModelPathApi[]
 }
 
-export type EnvironmentsDataModelingJobsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * @nullable
-     */
-    saved_query_id?: string | null
-}
-
-export type EnvironmentsExternalDataSchemasListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type EnvironmentsExternalDataSourcesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type EnvironmentsWarehouseSavedQueriesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type EnvironmentsWarehouseSavedQueryDraftsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsWarehouseTablesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type EnvironmentsWarehouseViewLinkListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type EnvironmentsWarehouseViewLinksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
 export type DataModelingJobsListParams = {
     /**
      * The pagination cursor value.
@@ -834,28 +722,6 @@ export type ExternalDataSourcesListParams = {
     search?: string
 }
 
-export type QueryTabStateListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type WarehouseModelPathsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type WarehouseSavedQueriesListParams = {
     /**
      * A page number within the paginated result set.
@@ -865,6 +731,17 @@ export type WarehouseSavedQueriesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseTablesListParams = {
@@ -898,6 +775,129 @@ export type WarehouseViewLinkListParams = {
 }
 
 export type WarehouseViewLinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DataModelingJobsList2Params = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * @nullable
+     */
+    saved_query_id?: string | null
+}
+
+export type ExternalDataSchemasList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type QueryTabStateListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseModelPathsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseSavedQueriesList2Params = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseTablesList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinkList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinksList2Params = {
     /**
      * Number of results to return per page.
      */

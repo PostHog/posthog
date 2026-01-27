@@ -336,7 +336,10 @@ def custom_postprocessing_hook(result, generator, request, public):
             for tag in definition["tags"]:
                 all_tags.append(tag)
             definition["operationId"] = (
-                definition["operationId"].replace("organizations_", "", 1).replace("projects_", "", 1)
+                definition["operationId"]
+                .replace("organizations_", "", 1)
+                .replace("projects_", "", 1)
+                .replace("environments_", "", 1)
             )
             if "parameters" in definition:
                 definition["parameters"] = [

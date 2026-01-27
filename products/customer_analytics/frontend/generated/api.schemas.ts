@@ -46,7 +46,7 @@ export interface PaginatedCustomerProfileConfigListApi {
     results: CustomerProfileConfigApi[]
 }
 
-export type EnvironmentsCustomerProfileConfigsListParams = {
+export type CustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.
      */

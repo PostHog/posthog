@@ -150,7 +150,7 @@ export interface PaginatedMessageTemplateListApi {
     results: MessageTemplateApi[]
 }
 
-export type EnvironmentsMessagingCategoriesListParams = {
+export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -161,7 +161,7 @@ export type EnvironmentsMessagingCategoriesListParams = {
     offset?: number
 }
 
-export type EnvironmentsMessagingTemplatesListParams = {
+export type MessagingTemplatesListParams = {
     /**
      * Number of results to return per page.
      */

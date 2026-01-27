@@ -2934,7 +2934,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
 }
 
-export type EnvironmentsExportsListParams = {
+export type ExportsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -2945,7 +2945,7 @@ export type EnvironmentsExportsListParams = {
     offset?: number
 }
 
-export type EnvironmentsFileSystemListParams = {
+export type FileSystemListParams = {
     /**
      * Number of results to return per page.
      */
@@ -2960,7 +2960,7 @@ export type EnvironmentsFileSystemListParams = {
     search?: string
 }
 
-export type EnvironmentsIntegrationsListParams = {
+export type IntegrationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -2971,7 +2971,7 @@ export type EnvironmentsIntegrationsListParams = {
     offset?: number
 }
 
-export type EnvironmentsSubscriptionsListParams = {
+export type SubscriptionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3081,7 +3081,7 @@ export type EventDefinitionsListParams = {
     offset?: number
 }
 
-export type ExportsListParams = {
+export type ExportsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -3092,7 +3092,7 @@ export type ExportsListParams = {
     offset?: number
 }
 
-export type FileSystemListParams = {
+export type FileSystemList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -3126,7 +3126,7 @@ export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
  */
 export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
 
-export type IntegrationsList2Params = {
+export type IntegrationsList3Params = {
     /**
      * Number of results to return per page.
      */
@@ -3224,7 +3224,7 @@ export type ScheduledChangesListParams = {
     offset?: number
 }
 
-export type SubscriptionsListParams = {
+export type SubscriptionsList2Params = {
     /**
      * Number of results to return per page.
      */
