@@ -40,7 +40,6 @@ import {
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
-    ActionFilter,
     AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
@@ -277,6 +276,20 @@ function normalizePropertyFilter<T extends { operator?: unknown; value?: unknown
 }
 
 /**
+ * Normalizes properties array inside an event or action filter.
+ * Returns the filter with normalized properties, or the original if no changes needed.
+ */
+function normalizeFilterWithNestedProperties<T extends { properties?: AnyPropertyFilter[] }>(filter: T): T {
+    if (!filter.properties || !Array.isArray(filter.properties)) {
+        return filter
+    }
+    const normalizedProperties = filter.properties.map((prop) => normalizePropertyFilter(prop) as AnyPropertyFilter)
+    // Only create new object if something changed
+    const hasChanges = normalizedProperties.some((prop, i) => prop !== filter.properties![i])
+    return hasChanges ? { ...filter, properties: normalizedProperties } : filter
+}
+
+/**
  * Normalizes filter values from URL to ensure multi-select operators have array values.
  * This fixes issues with saved/bookmarked URLs that may have string values instead of arrays.
  * Handles both top-level property filters and properties nested inside event/action filters.
@@ -300,16 +313,10 @@ function normalizeFiltersFromUrl(filters: Partial<RecordingUniversalFilters>): P
                     }
 
                     // Handle event/action filters with nested properties
-                    if (
-                        'type' in filter &&
-                        (filter.type === 'events' || filter.type === 'actions') &&
-                        'properties' in filter &&
-                        Array.isArray(filter.properties)
-                    ) {
-                        const normalizedProperties = filter.properties.map((prop: AnyPropertyFilter) =>
-                            normalizePropertyFilter(prop)
-                        )
-                        return { ...filter, properties: normalizedProperties } as UniversalFilterValue
+                    if ('type' in filter && (filter.type === 'events' || filter.type === 'actions')) {
+                        return normalizeFilterWithNestedProperties(
+                            filter as { properties?: AnyPropertyFilter[] }
+                        ) as UniversalFilterValue
                     }
 
                     // Handle top-level property filters
@@ -349,44 +356,9 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     filters.forEach((f) => {
         if (isEventFilter(f)) {
-            // Normalize properties inside event filters
-            if (f.properties && Array.isArray(f.properties)) {
-                const normalizedProperties = f.properties.map((prop) => {
-                    if (prop && 'operator' in prop && 'value' in prop && prop.type !== 'cohort') {
-                        const normalizedValue = normalizePropertyFilterValue(
-                            prop.value,
-                            prop.operator as PropertyOperator | null
-                        )
-                        if (normalizedValue !== prop.value) {
-                            return { ...prop, value: normalizedValue }
-                        }
-                    }
-                    return prop
-                })
-                events.push({ ...f, properties: normalizedProperties })
-            } else {
-                events.push(f)
-            }
+            events.push(normalizeFilterWithNestedProperties(f))
         } else if (isActionFilter(f)) {
-            // Normalize properties inside action filters
-            const actionFilter = f as ActionFilter & { properties?: AnyPropertyFilter[] }
-            if (actionFilter.properties && Array.isArray(actionFilter.properties)) {
-                const normalizedProperties = actionFilter.properties.map((prop: AnyPropertyFilter) => {
-                    if (prop && 'operator' in prop && 'value' in prop && prop.type !== 'cohort') {
-                        const normalizedValue = normalizePropertyFilterValue(
-                            prop.value,
-                            prop.operator as PropertyOperator | null
-                        )
-                        if (normalizedValue !== prop.value) {
-                            return { ...prop, value: normalizedValue }
-                        }
-                    }
-                    return prop
-                })
-                actions.push({ ...actionFilter, properties: normalizedProperties } as ActionFilter)
-            } else {
-                actions.push(f)
-            }
+            actions.push(normalizeFilterWithNestedProperties(f))
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
         } else if (isHogQLPropertyFilter(f)) {
