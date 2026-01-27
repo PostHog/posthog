@@ -129,7 +129,8 @@ EVENTS_COLUMNS = """
     group3_created_at,
     group4_created_at,
     person_mode,
-    historical_migration
+    historical_migration,
+    NOW() as _inserted_at
 """
 
 # Expected columns in the DuckLake events table (for schema validation)
@@ -158,6 +159,7 @@ EXPECTED_DUCKLAKE_COLUMNS = {
     "group4_created_at",
     "person_mode",
     "historical_migration",
+    "_inserted_at",
 }
 
 
@@ -370,7 +372,7 @@ def export_events_to_s3(
         {EVENTS_COLUMNS}
     FROM events
     WHERE {chunk_where}
-    SETTINGS s3_truncate_on_insert=1
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
     chunk_info = f"{team_id_chunk + 1}/{total_chunks}"
@@ -383,7 +385,7 @@ def export_events_to_s3(
         {EVENTS_COLUMNS}
     FROM events
     WHERE {chunk_where}
-    SETTINGS s3_truncate_on_insert=1
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
         context.log.info(f"[DRY RUN] Would export chunk {chunk_info} with SQL: {safe_sql[:800]}...")
         return []
@@ -622,7 +624,7 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
         return cluster.any_host_by_role(
             fn=do_export,
             workload=workload,
-            node_role=NodeRole.COORDINATOR,
+            node_role=NodeRole.DATA,
         ).result()
 
     if parallel_chunks > 1:

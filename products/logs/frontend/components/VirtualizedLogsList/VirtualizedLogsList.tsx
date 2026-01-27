@@ -174,12 +174,15 @@ export function VirtualizedLogsList({
         }
     }
 
-    const handleLogRowClick = (log: ParsedLogMessage, index: number): void => {
-        openLogDetails(log)
-        if (!disableCursor) {
-            userSetCursorIndex(index)
-        }
-    }
+    const handleLogRowClick = useCallback(
+        (log: ParsedLogMessage, index: number): void => {
+            openLogDetails(log)
+            if (!disableCursor) {
+                userSetCursorIndex(index)
+            }
+        },
+        [disableCursor, openLogDetails, userSetCursorIndex]
+    )
 
     const createRowRenderer = useCallback(
         (rowWidth?: number) =>
@@ -247,6 +250,7 @@ export function VirtualizedLogsList({
             selectLogRange,
             prettifiedLogIds,
             togglePrettifyLog,
+            handleLogRowClick,
         ]
     )
 
@@ -326,6 +330,7 @@ export function VirtualizedLogsList({
             onBlur={() => setFocused(false)}
             ref={containerRef}
             className="gap-2 min-h-0 outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 h-full flex-1 flex flex-col bg-bg-light border rounded overflow-hidden"
+            data-attr="logs-table"
         >
             <AutoSizer>
                 {({ width, height }) => {

@@ -1,4 +1,7 @@
 import { combineUrl } from 'kea-router'
+import { lazy } from 'react'
+
+import { IconInfo } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -10,12 +13,18 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
+import { DEFAULT_SCENE_PANEL_TABS, GLOBAL_SCENE_PANEL_TABS } from '~/layout/scenes/scenePanelTabs'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
 import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+
+// Lazy load scene panel components
+const SurveyPanelDetails = lazy(() =>
+    import('scenes/surveys/SurveyPanelDetails').then((m) => ({ default: m.SurveyPanelDetails }))
+)
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -481,6 +490,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Survey',
         defaultDocsPath: '/docs/surveys',
         activityScope: ActivityScope.SURVEY,
+        scenePanelTabs: [
+            {
+                id: 'details',
+                label: 'Details',
+                Icon: IconInfo,
+                Content: SurveyPanelDetails,
+            },
+            GLOBAL_SCENE_PANEL_TABS.accessControl,
+        ],
     },
     [Scene.Surveys]: {
         projectBased: true,
@@ -489,6 +507,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.SURVEY,
         description: 'Create surveys to collect feedback from your users',
         iconType: 'survey',
+        scenePanelTabs: DEFAULT_SCENE_PANEL_TABS,
     },
     [Scene.ProductTours]: {
         projectBased: true,

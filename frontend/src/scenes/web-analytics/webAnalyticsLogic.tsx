@@ -9,6 +9,7 @@ import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/qu
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
@@ -2409,6 +2410,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_to: dateTo,
                     interval: values.dateFilter.interval,
                 })
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
                 eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
@@ -2416,6 +2418,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_to: dateTo,
                     interval,
                 })
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+            },
+            setWebAnalyticsFilters: () => {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setIsPathCleaningEnabled: ({ isPathCleaningEnabled }) => {
                 eventUsageLogic.actions.reportWebAnalyticsPathCleaningToggled({
@@ -2486,6 +2492,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         goalType = 'custom_event'
                     }
                     eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                },
+                ({ conversionGoal }) => {
+                    if (conversionGoal) {
+                        globalSetupLogic
+                            .findMounted()
+                            ?.actions.markTaskAsCompleted(SetupTaskId.SetUpWebAnalyticsConversionGoals)
+                    }
                 },
             ],
             addAuthorizedUrl: ({ url }) => {
