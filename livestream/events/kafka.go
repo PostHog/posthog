@@ -220,9 +220,9 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 
 	if wrapperMessage.Timestamp != "" {
 		if eventTime, err := time.Parse(time.RFC3339Nano, wrapperMessage.Timestamp); err == nil {
-			lagSeconds := time.Since(eventTime).Seconds()
-			metrics.EventLagGauge.Set(lagSeconds)
-			metrics.EventLagHistogram.Observe(lagSeconds)
+			if lag := time.Since(eventTime).Seconds(); lag >= 0 {
+				metrics.EventLagHistogram.Observe(lag)
+			}
 		}
 	}
 

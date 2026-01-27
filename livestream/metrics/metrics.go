@@ -100,12 +100,8 @@ var (
 		Help: "Number of unique tokens being tracked",
 	})
 
-	EventLagGauge = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "livestream_event_lag_seconds",
-		Help: "Time difference between event timestamp and when it was consumed",
-	})
 	EventLagHistogram = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "livestream_event_lag_seconds_histogram",
+		Name:    "livestream_event_lag_seconds",
 		Help:    "Distribution of event lag in seconds",
 		Buckets: []float64{1, 2, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600},
 	})
