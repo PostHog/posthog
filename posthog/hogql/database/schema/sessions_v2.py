@@ -10,10 +10,8 @@ from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
-    FieldTraverser,
     FloatDatabaseField,
     IntegerDatabaseField,
-    LazyJoin,
     LazyJoinToAdd,
     LazyTable,
     LazyTableToAdd,
@@ -22,7 +20,6 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
-from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS, null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
@@ -88,15 +85,6 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
-    # person fields via lazy join - uses custom join function for lazy table compatibility
-    "pdi": LazyJoin(
-        from_field=["distinct_id"],
-        join_table=PersonDistinctIdsTable(),
-        join_function=lambda join_to_add, context, node: join_sessions_table_to_person_distinct_ids_table_v2(
-            join_to_add, context, node
-        ),
-    ),
-    "person": FieldTraverser(chain=["pdi", "person"]),
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at"),
@@ -517,29 +505,6 @@ def join_events_table_to_sessions_table_v2(
     return join_expr
 
 
-def join_sessions_table_to_person_distinct_ids_table_v2(
-    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
-) -> ast.JoinExpr:
-    from posthog.hogql import ast
-    from posthog.hogql.database.schema.person_distinct_ids import select_from_person_distinct_ids_table
-
-    if not join_to_add.fields_accessed:
-        raise ResolutionError("No fields requested from person_distinct_ids")
-
-    join_expr = ast.JoinExpr(table=select_from_person_distinct_ids_table(join_to_add.fields_accessed))
-    join_expr.join_type = "LEFT JOIN"
-    join_expr.alias = join_to_add.to_table
-    join_expr.constraint = ast.JoinConstraint(
-        expr=ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
-            right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
-        ),
-        constraint_type="ON",
-    )
-    return join_expr
-
-
 def get_lazy_session_table_properties_v2(search: Optional[str]):
     # some fields shouldn't appear as properties
     hidden_fields = {
@@ -557,9 +522,6 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
         # aliases for people upgrading from v1 to v2
         "$exit_current_url",
         "$exit_pathname",
-        # person join fields (internal use only)
-        "pdi",
-        "person",
     }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
