@@ -312,7 +312,7 @@ export interface AppendSegmentsApi {
     segments: TranscriptSegmentApi[]
 }
 
-export type EnvironmentsDesktopRecordingsListParams = {
+export type DesktopRecordingsListParams = {
     /**
      * Number of results to return per page.
      */

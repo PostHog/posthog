@@ -9,10 +9,10 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    EnvironmentsUserInterviewsListParams,
     PaginatedUserInterviewListApi,
     PatchedUserInterviewApi,
     UserInterviewApi,
+    UserInterviewsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -32,10 +32,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getEnvironmentsUserInterviewsListUrl = (
-    projectId: string,
-    params?: EnvironmentsUserInterviewsListParams
-) => {
+export const getUserInterviewsListUrl = (projectId: string, params?: UserInterviewsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -51,22 +48,22 @@ export const getEnvironmentsUserInterviewsListUrl = (
         : `/api/environments/${projectId}/user_interviews/`
 }
 
-export const environmentsUserInterviewsList = async (
+export const userInterviewsList = async (
     projectId: string,
-    params?: EnvironmentsUserInterviewsListParams,
+    params?: UserInterviewsListParams,
     options?: RequestInit
 ): Promise<PaginatedUserInterviewListApi> => {
-    return apiMutator<PaginatedUserInterviewListApi>(getEnvironmentsUserInterviewsListUrl(projectId, params), {
+    return apiMutator<PaginatedUserInterviewListApi>(getUserInterviewsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getEnvironmentsUserInterviewsCreateUrl = (projectId: string) => {
+export const getUserInterviewsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/user_interviews/`
 }
 
-export const environmentsUserInterviewsCreate = async (
+export const userInterviewsCreate = async (
     projectId: string,
     userInterviewApi: NonReadonly<UserInterviewApi>,
     options?: RequestInit
@@ -80,33 +77,33 @@ export const environmentsUserInterviewsCreate = async (
     }
     formData.append(`audio`, userInterviewApi.audio)
 
-    return apiMutator<UserInterviewApi>(getEnvironmentsUserInterviewsCreateUrl(projectId), {
+    return apiMutator<UserInterviewApi>(getUserInterviewsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,
     })
 }
 
-export const getEnvironmentsUserInterviewsRetrieveUrl = (projectId: string, id: string) => {
+export const getUserInterviewsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interviews/${id}/`
 }
 
-export const environmentsUserInterviewsRetrieve = async (
+export const userInterviewsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
 ): Promise<UserInterviewApi> => {
-    return apiMutator<UserInterviewApi>(getEnvironmentsUserInterviewsRetrieveUrl(projectId, id), {
+    return apiMutator<UserInterviewApi>(getUserInterviewsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getEnvironmentsUserInterviewsUpdateUrl = (projectId: string, id: string) => {
+export const getUserInterviewsUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interviews/${id}/`
 }
 
-export const environmentsUserInterviewsUpdate = async (
+export const userInterviewsUpdate = async (
     projectId: string,
     id: string,
     userInterviewApi: NonReadonly<UserInterviewApi>,
@@ -121,18 +118,18 @@ export const environmentsUserInterviewsUpdate = async (
     }
     formData.append(`audio`, userInterviewApi.audio)
 
-    return apiMutator<UserInterviewApi>(getEnvironmentsUserInterviewsUpdateUrl(projectId, id), {
+    return apiMutator<UserInterviewApi>(getUserInterviewsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         body: formData,
     })
 }
 
-export const getEnvironmentsUserInterviewsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getUserInterviewsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interviews/${id}/`
 }
 
-export const environmentsUserInterviewsPartialUpdate = async (
+export const userInterviewsPartialUpdate = async (
     projectId: string,
     id: string,
     patchedUserInterviewApi: NonReadonly<PatchedUserInterviewApi>,
@@ -149,23 +146,19 @@ export const environmentsUserInterviewsPartialUpdate = async (
         formData.append(`audio`, patchedUserInterviewApi.audio)
     }
 
-    return apiMutator<UserInterviewApi>(getEnvironmentsUserInterviewsPartialUpdateUrl(projectId, id), {
+    return apiMutator<UserInterviewApi>(getUserInterviewsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         body: formData,
     })
 }
 
-export const getEnvironmentsUserInterviewsDestroyUrl = (projectId: string, id: string) => {
+export const getUserInterviewsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interviews/${id}/`
 }
 
-export const environmentsUserInterviewsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEnvironmentsUserInterviewsDestroyUrl(projectId, id), {
+export const userInterviewsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUserInterviewsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })

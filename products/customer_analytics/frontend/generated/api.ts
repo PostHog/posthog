@@ -31,16 +31,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type customerProfileConfigsListResponse200 = {
-    data: PaginatedCustomerProfileConfigListApi
-    status: 200
-}
-
-export type customerProfileConfigsListResponseSuccess = customerProfileConfigsListResponse200 & {
-    headers: Headers
-}
-export type customerProfileConfigsListResponse = customerProfileConfigsListResponseSuccess
-
 export const getCustomerProfileConfigsListUrl = (projectId: string, params?: CustomerProfileConfigsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -61,22 +51,12 @@ export const customerProfileConfigsList = async (
     projectId: string,
     params?: CustomerProfileConfigsListParams,
     options?: RequestInit
-): Promise<customerProfileConfigsListResponse> => {
-    return apiMutator<customerProfileConfigsListResponse>(getCustomerProfileConfigsListUrl(projectId, params), {
+): Promise<PaginatedCustomerProfileConfigListApi> => {
+    return apiMutator<PaginatedCustomerProfileConfigListApi>(getCustomerProfileConfigsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type customerProfileConfigsCreateResponse201 = {
-    data: CustomerProfileConfigApi
-    status: 201
-}
-
-export type customerProfileConfigsCreateResponseSuccess = customerProfileConfigsCreateResponse201 & {
-    headers: Headers
-}
-export type customerProfileConfigsCreateResponse = customerProfileConfigsCreateResponseSuccess
 
 export const getCustomerProfileConfigsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/customer_profile_configs/`
@@ -86,8 +66,8 @@ export const customerProfileConfigsCreate = async (
     projectId: string,
     customerProfileConfigApi: NonReadonly<CustomerProfileConfigApi>,
     options?: RequestInit
-): Promise<customerProfileConfigsCreateResponse> => {
-    return apiMutator<customerProfileConfigsCreateResponse>(getCustomerProfileConfigsCreateUrl(projectId), {
+): Promise<CustomerProfileConfigApi> => {
+    return apiMutator<CustomerProfileConfigApi>(getCustomerProfileConfigsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

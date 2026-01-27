@@ -9,15 +9,15 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
-export const getEnvironmentsRevenueAnalyticsTaxonomyValuesRetrieveUrl = (projectId: string) => {
+export const getRevenueAnalyticsTaxonomyValuesRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/revenue_analytics/taxonomy/values/`
 }
 
-export const environmentsRevenueAnalyticsTaxonomyValuesRetrieve = async (
+export const revenueAnalyticsTaxonomyValuesRetrieve = async (
     projectId: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getEnvironmentsRevenueAnalyticsTaxonomyValuesRetrieveUrl(projectId), {
+    return apiMutator<void>(getRevenueAnalyticsTaxonomyValuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

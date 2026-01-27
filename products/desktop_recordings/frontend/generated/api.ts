@@ -13,7 +13,7 @@ import type {
     CreateRecordingRequestApi,
     CreateRecordingResponseApi,
     DesktopRecordingApi,
-    EnvironmentsDesktopRecordingsListParams,
+    DesktopRecordingsListParams,
     PaginatedDesktopRecordingListApi,
     PatchedDesktopRecordingApi,
 } from './api.schemas'
@@ -40,10 +40,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getEnvironmentsDesktopRecordingsListUrl = (
-    projectId: string,
-    params?: EnvironmentsDesktopRecordingsListParams
-) => {
+export const getDesktopRecordingsListUrl = (projectId: string, params?: DesktopRecordingsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -59,12 +56,12 @@ export const getEnvironmentsDesktopRecordingsListUrl = (
         : `/api/environments/${projectId}/desktop_recordings/`
 }
 
-export const environmentsDesktopRecordingsList = async (
+export const desktopRecordingsList = async (
     projectId: string,
-    params?: EnvironmentsDesktopRecordingsListParams,
+    params?: DesktopRecordingsListParams,
     options?: RequestInit
 ): Promise<PaginatedDesktopRecordingListApi> => {
-    return apiMutator<PaginatedDesktopRecordingListApi>(getEnvironmentsDesktopRecordingsListUrl(projectId, params), {
+    return apiMutator<PaginatedDesktopRecordingListApi>(getDesktopRecordingsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -73,16 +70,16 @@ export const environmentsDesktopRecordingsList = async (
 /**
  * Create a new recording and get Recall.ai upload token for the desktop SDK
  */
-export const getEnvironmentsDesktopRecordingsCreateUrl = (projectId: string) => {
+export const getDesktopRecordingsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/desktop_recordings/`
 }
 
-export const environmentsDesktopRecordingsCreate = async (
+export const desktopRecordingsCreate = async (
     projectId: string,
     createRecordingRequestApi: CreateRecordingRequestApi,
     options?: RequestInit
 ): Promise<CreateRecordingResponseApi> => {
-    return apiMutator<CreateRecordingResponseApi>(getEnvironmentsDesktopRecordingsCreateUrl(projectId), {
+    return apiMutator<CreateRecordingResponseApi>(getDesktopRecordingsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -95,16 +92,16 @@ export const environmentsDesktopRecordingsCreate = async (
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getEnvironmentsDesktopRecordingsRetrieveUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/`
 }
 
-export const environmentsDesktopRecordingsRetrieve = async (
+export const desktopRecordingsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
 ): Promise<DesktopRecordingApi> => {
-    return apiMutator<DesktopRecordingApi>(getEnvironmentsDesktopRecordingsRetrieveUrl(projectId, id), {
+    return apiMutator<DesktopRecordingApi>(getDesktopRecordingsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -115,17 +112,17 @@ export const environmentsDesktopRecordingsRetrieve = async (
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getEnvironmentsDesktopRecordingsUpdateUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/`
 }
 
-export const environmentsDesktopRecordingsUpdate = async (
+export const desktopRecordingsUpdate = async (
     projectId: string,
     id: string,
     desktopRecordingApi: NonReadonly<DesktopRecordingApi>,
     options?: RequestInit
 ): Promise<DesktopRecordingApi> => {
-    return apiMutator<DesktopRecordingApi>(getEnvironmentsDesktopRecordingsUpdateUrl(projectId, id), {
+    return apiMutator<DesktopRecordingApi>(getDesktopRecordingsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -138,17 +135,17 @@ export const environmentsDesktopRecordingsUpdate = async (
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getEnvironmentsDesktopRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/`
 }
 
-export const environmentsDesktopRecordingsPartialUpdate = async (
+export const desktopRecordingsPartialUpdate = async (
     projectId: string,
     id: string,
     patchedDesktopRecordingApi: NonReadonly<PatchedDesktopRecordingApi>,
     options?: RequestInit
 ): Promise<DesktopRecordingApi> => {
-    return apiMutator<DesktopRecordingApi>(getEnvironmentsDesktopRecordingsPartialUpdateUrl(projectId, id), {
+    return apiMutator<DesktopRecordingApi>(getDesktopRecordingsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -161,16 +158,12 @@ export const environmentsDesktopRecordingsPartialUpdate = async (
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getEnvironmentsDesktopRecordingsDestroyUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/`
 }
 
-export const environmentsDesktopRecordingsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEnvironmentsDesktopRecordingsDestroyUrl(projectId, id), {
+export const desktopRecordingsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getDesktopRecordingsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -179,17 +172,17 @@ export const environmentsDesktopRecordingsDestroy = async (
 /**
  * Append transcript segments (supports batched real-time streaming)
  */
-export const getEnvironmentsDesktopRecordingsAppendSegmentsCreateUrl = (projectId: string, id: string) => {
+export const getDesktopRecordingsAppendSegmentsCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/desktop_recordings/${id}/append_segments/`
 }
 
-export const environmentsDesktopRecordingsAppendSegmentsCreate = async (
+export const desktopRecordingsAppendSegmentsCreate = async (
     projectId: string,
     id: string,
     appendSegmentsApi: AppendSegmentsApi,
     options?: RequestInit
 ): Promise<DesktopRecordingApi> => {
-    return apiMutator<DesktopRecordingApi>(getEnvironmentsDesktopRecordingsAppendSegmentsCreateUrl(projectId, id), {
+    return apiMutator<DesktopRecordingApi>(getDesktopRecordingsAppendSegmentsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

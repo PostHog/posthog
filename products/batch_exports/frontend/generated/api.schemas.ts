@@ -383,51 +383,7 @@ export interface PatchedBatchExportApi {
     filters?: unknown | null
 }
 
-export type EnvironmentsBatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsBatchExportsBackfillsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-}
-
-export type EnvironmentsBatchExportsRunsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-}
-
 export type BatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type BatchExportsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -450,6 +406,50 @@ export type BatchExportsBackfillsListParams = {
 }
 
 export type BatchExportsRunsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+}
+
+export type BatchExportsList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type BatchExportsList3Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type BatchExportsBackfillsList2Params = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+}
+
+export type BatchExportsRunsList2Params = {
     /**
      * The pagination cursor value.
      */

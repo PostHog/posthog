@@ -352,7 +352,7 @@ export interface PatchedTicketApi {
     readonly session_context?: unknown
 }
 
-export type EnvironmentsConversationsListParams = {
+export type ConversationsListParams = {
     /**
      * Number of results to return per page.
      */

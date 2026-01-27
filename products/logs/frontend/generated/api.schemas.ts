@@ -67,7 +67,7 @@ export interface PaginatedPluginLogEntryListApi {
     results: PluginLogEntryApi[]
 }
 
-export type EnvironmentsPluginConfigsLogsListParams = {
+export type PluginConfigsLogsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -78,7 +78,7 @@ export type EnvironmentsPluginConfigsLogsListParams = {
     offset?: number
 }
 
-export type PluginConfigsLogsListParams = {
+export type PluginConfigsLogsList2Params = {
     /**
      * Number of results to return per page.
      */

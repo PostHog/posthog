@@ -38,16 +38,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 /**
  * Create, Read, Update and Delete breakpoints for live debugging.
  */
-export type liveDebuggerBreakpointsListResponse200 = {
-    data: PaginatedLiveDebuggerBreakpointListApi
-    status: 200
-}
-
-export type liveDebuggerBreakpointsListResponseSuccess = liveDebuggerBreakpointsListResponse200 & {
-    headers: Headers
-}
-export type liveDebuggerBreakpointsListResponse = liveDebuggerBreakpointsListResponseSuccess
-
 export const getLiveDebuggerBreakpointsListUrl = (projectId: string, params?: LiveDebuggerBreakpointsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -68,8 +58,8 @@ export const liveDebuggerBreakpointsList = async (
     projectId: string,
     params?: LiveDebuggerBreakpointsListParams,
     options?: RequestInit
-): Promise<liveDebuggerBreakpointsListResponse> => {
-    return apiMutator<liveDebuggerBreakpointsListResponse>(getLiveDebuggerBreakpointsListUrl(projectId, params), {
+): Promise<PaginatedLiveDebuggerBreakpointListApi> => {
+    return apiMutator<PaginatedLiveDebuggerBreakpointListApi>(getLiveDebuggerBreakpointsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -78,16 +68,6 @@ export const liveDebuggerBreakpointsList = async (
 /**
  * Create, Read, Update and Delete breakpoints for live debugging.
  */
-export type liveDebuggerBreakpointsCreateResponse201 = {
-    data: LiveDebuggerBreakpointApi
-    status: 201
-}
-
-export type liveDebuggerBreakpointsCreateResponseSuccess = liveDebuggerBreakpointsCreateResponse201 & {
-    headers: Headers
-}
-export type liveDebuggerBreakpointsCreateResponse = liveDebuggerBreakpointsCreateResponseSuccess
-
 export const getLiveDebuggerBreakpointsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/live_debugger_breakpoints/`
 }
@@ -96,8 +76,8 @@ export const liveDebuggerBreakpointsCreate = async (
     projectId: string,
     liveDebuggerBreakpointApi: NonReadonly<LiveDebuggerBreakpointApi>,
     options?: RequestInit
-): Promise<liveDebuggerBreakpointsCreateResponse> => {
-    return apiMutator<liveDebuggerBreakpointsCreateResponse>(getLiveDebuggerBreakpointsCreateUrl(projectId), {
+): Promise<LiveDebuggerBreakpointApi> => {
+    return apiMutator<LiveDebuggerBreakpointApi>(getLiveDebuggerBreakpointsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -111,35 +91,6 @@ export const liveDebuggerBreakpointsCreate = async (
 Authentication: Requires a Project API Key in the Authorization header: `Authorization: Bearer phs_<your-project-api-key>`. You can find your Project API Key in PostHog at: Settings → Project → Project API Key
  * @summary Get active breakpoints (External API)
  */
-export type liveDebuggerBreakpointsActiveRetrieveResponse200 = {
-    data: ActiveBreakpointsResponseApi
-    status: 200
-}
-
-export type liveDebuggerBreakpointsActiveRetrieveResponse400 = {
-    data: void
-    status: 400
-}
-
-export type liveDebuggerBreakpointsActiveRetrieveResponse401 = {
-    data: void
-    status: 401
-}
-
-export type liveDebuggerBreakpointsActiveRetrieveResponseSuccess = liveDebuggerBreakpointsActiveRetrieveResponse200 & {
-    headers: Headers
-}
-export type liveDebuggerBreakpointsActiveRetrieveResponseError = (
-    | liveDebuggerBreakpointsActiveRetrieveResponse400
-    | liveDebuggerBreakpointsActiveRetrieveResponse401
-) & {
-    headers: Headers
-}
-
-export type liveDebuggerBreakpointsActiveRetrieveResponse =
-    | liveDebuggerBreakpointsActiveRetrieveResponseSuccess
-    | liveDebuggerBreakpointsActiveRetrieveResponseError
-
 export const getLiveDebuggerBreakpointsActiveRetrieveUrl = (
     projectId: string,
     params?: LiveDebuggerBreakpointsActiveRetrieveParams
@@ -163,14 +114,11 @@ export const liveDebuggerBreakpointsActiveRetrieve = async (
     projectId: string,
     params?: LiveDebuggerBreakpointsActiveRetrieveParams,
     options?: RequestInit
-): Promise<liveDebuggerBreakpointsActiveRetrieveResponse> => {
-    return apiMutator<liveDebuggerBreakpointsActiveRetrieveResponse>(
-        getLiveDebuggerBreakpointsActiveRetrieveUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<ActiveBreakpointsResponseApi> => {
+    return apiMutator<ActiveBreakpointsResponseApi>(getLiveDebuggerBreakpointsActiveRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
@@ -179,29 +127,6 @@ export const liveDebuggerBreakpointsActiveRetrieve = async (
 Security: Breakpoint IDs are filtered to only include those belonging to the current team.
  * @summary Get breakpoint hits
  */
-export type liveDebuggerBreakpointsBreakpointHitsRetrieveResponse200 = {
-    data: BreakpointHitsResponseApi
-    status: 200
-}
-
-export type liveDebuggerBreakpointsBreakpointHitsRetrieveResponse400 = {
-    data: void
-    status: 400
-}
-
-export type liveDebuggerBreakpointsBreakpointHitsRetrieveResponseSuccess =
-    liveDebuggerBreakpointsBreakpointHitsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type liveDebuggerBreakpointsBreakpointHitsRetrieveResponseError =
-    liveDebuggerBreakpointsBreakpointHitsRetrieveResponse400 & {
-        headers: Headers
-    }
-
-export type liveDebuggerBreakpointsBreakpointHitsRetrieveResponse =
-    | liveDebuggerBreakpointsBreakpointHitsRetrieveResponseSuccess
-    | liveDebuggerBreakpointsBreakpointHitsRetrieveResponseError
-
 export const getLiveDebuggerBreakpointsBreakpointHitsRetrieveUrl = (
     projectId: string,
     params?: LiveDebuggerBreakpointsBreakpointHitsRetrieveParams
@@ -225,8 +150,8 @@ export const liveDebuggerBreakpointsBreakpointHitsRetrieve = async (
     projectId: string,
     params?: LiveDebuggerBreakpointsBreakpointHitsRetrieveParams,
     options?: RequestInit
-): Promise<liveDebuggerBreakpointsBreakpointHitsRetrieveResponse> => {
-    return apiMutator<liveDebuggerBreakpointsBreakpointHitsRetrieveResponse>(
+): Promise<BreakpointHitsResponseApi> => {
+    return apiMutator<BreakpointHitsResponseApi>(
         getLiveDebuggerBreakpointsBreakpointHitsRetrieveUrl(projectId, params),
         {
             ...options,

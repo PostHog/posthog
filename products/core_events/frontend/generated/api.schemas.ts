@@ -91,7 +91,7 @@ export interface PatchedCoreEventApi {
     readonly updated_at?: string
 }
 
-export type EnvironmentsCoreEventsListParams = {
+export type CoreEventsListParams = {
     /**
      * Number of results to return per page.
      */

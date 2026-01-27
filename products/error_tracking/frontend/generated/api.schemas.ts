@@ -351,7 +351,7 @@ export interface PatchedErrorTrackingSymbolSetApi {
     readonly release?: string
 }
 
-export type EnvironmentsErrorTrackingAssignmentRulesListParams = {
+export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -362,7 +362,7 @@ export type EnvironmentsErrorTrackingAssignmentRulesListParams = {
     offset?: number
 }
 
-export type EnvironmentsErrorTrackingExternalReferencesListParams = {
+export type ErrorTrackingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -373,7 +373,7 @@ export type EnvironmentsErrorTrackingExternalReferencesListParams = {
     offset?: number
 }
 
-export type EnvironmentsErrorTrackingFingerprintsListParams = {
+export type ErrorTrackingFingerprintsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -384,7 +384,7 @@ export type EnvironmentsErrorTrackingFingerprintsListParams = {
     offset?: number
 }
 
-export type EnvironmentsErrorTrackingGroupingRulesListParams = {
+export type ErrorTrackingGroupingRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -395,51 +395,7 @@ export type EnvironmentsErrorTrackingGroupingRulesListParams = {
     offset?: number
 }
 
-export type EnvironmentsErrorTrackingIssuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsErrorTrackingReleasesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsErrorTrackingStackFramesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsErrorTrackingSuppressionRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsErrorTrackingSymbolSetsListParams = {
+export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -461,7 +417,51 @@ export type ErrorTrackingReleasesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingStackFramesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSuppressionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSymbolSetsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingReleasesList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSymbolSetsList2Params = {
     /**
      * Number of results to return per page.
      */

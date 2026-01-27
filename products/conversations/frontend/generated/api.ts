@@ -10,8 +10,8 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ConversationApi,
+    ConversationsListParams,
     ConversationsTicketsListParams,
-    EnvironmentsConversationsListParams,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationListApi,
@@ -38,10 +38,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getEnvironmentsConversationsListUrl = (
-    projectId: string,
-    params?: EnvironmentsConversationsListParams
-) => {
+export const getConversationsListUrl = (projectId: string, params?: ConversationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -57,12 +54,12 @@ export const getEnvironmentsConversationsListUrl = (
         : `/api/environments/${projectId}/conversations/`
 }
 
-export const environmentsConversationsList = async (
+export const conversationsList = async (
     projectId: string,
-    params?: EnvironmentsConversationsListParams,
+    params?: ConversationsListParams,
     options?: RequestInit
 ): Promise<PaginatedConversationListApi> => {
-    return apiMutator<PaginatedConversationListApi>(getEnvironmentsConversationsListUrl(projectId, params), {
+    return apiMutator<PaginatedConversationListApi>(getConversationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -74,16 +71,16 @@ export const environmentsConversationsList = async (
 - If message is provided: Start new conversation processing
 - If no message: Stream from existing conversation
  */
-export const getEnvironmentsConversationsCreateUrl = (projectId: string) => {
+export const getConversationsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/conversations/`
 }
 
-export const environmentsConversationsCreate = async (
+export const conversationsCreate = async (
     projectId: string,
     messageApi: MessageApi,
     options?: RequestInit
 ): Promise<MessageApi> => {
-    return apiMutator<MessageApi>(getEnvironmentsConversationsCreateUrl(projectId), {
+    return apiMutator<MessageApi>(getConversationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -91,16 +88,16 @@ export const environmentsConversationsCreate = async (
     })
 }
 
-export const getEnvironmentsConversationsRetrieveUrl = (projectId: string, conversation: string) => {
+export const getConversationsRetrieveUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/`
 }
 
-export const environmentsConversationsRetrieve = async (
+export const conversationsRetrieve = async (
     projectId: string,
     conversation: string,
     options?: RequestInit
 ): Promise<ConversationApi> => {
-    return apiMutator<ConversationApi>(getEnvironmentsConversationsRetrieveUrl(projectId, conversation), {
+    return apiMutator<ConversationApi>(getConversationsRetrieveUrl(projectId, conversation), {
         ...options,
         method: 'GET',
     })
@@ -111,17 +108,17 @@ export const environmentsConversationsRetrieve = async (
 This is used for client-side generated messages that need to be persisted
 (e.g., support ticket confirmation messages).
  */
-export const getEnvironmentsConversationsAppendMessageCreateUrl = (projectId: string, conversation: string) => {
+export const getConversationsAppendMessageCreateUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/append_message/`
 }
 
-export const environmentsConversationsAppendMessageCreate = async (
+export const conversationsAppendMessageCreate = async (
     projectId: string,
     conversation: string,
     messageMinimalApi: MessageMinimalApi,
     options?: RequestInit
 ): Promise<MessageMinimalApi> => {
-    return apiMutator<MessageMinimalApi>(getEnvironmentsConversationsAppendMessageCreateUrl(projectId, conversation), {
+    return apiMutator<MessageMinimalApi>(getConversationsAppendMessageCreateUrl(projectId, conversation), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -129,17 +126,17 @@ export const environmentsConversationsAppendMessageCreate = async (
     })
 }
 
-export const getEnvironmentsConversationsCancelPartialUpdateUrl = (projectId: string, conversation: string) => {
+export const getConversationsCancelPartialUpdateUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/cancel/`
 }
 
-export const environmentsConversationsCancelPartialUpdate = async (
+export const conversationsCancelPartialUpdate = async (
     projectId: string,
     conversation: string,
     patchedConversationApi: NonReadonly<PatchedConversationApi>,
     options?: RequestInit
 ): Promise<ConversationApi> => {
-    return apiMutator<ConversationApi>(getEnvironmentsConversationsCancelPartialUpdateUrl(projectId, conversation), {
+    return apiMutator<ConversationApi>(getConversationsCancelPartialUpdateUrl(projectId, conversation), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

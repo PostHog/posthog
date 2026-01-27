@@ -170,6 +170,50 @@ export interface PatchedDatasetApi {
     readonly team?: number
 }
 
+/**
+ * * `llm_judge` - LLM as a judge
+ */
+export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
+
+export const EvaluationTypeEnumApi = {
+    llm_judge: 'llm_judge',
+} as const
+
+/**
+ * * `boolean` - Boolean (Pass/Fail)
+ */
+export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
+
+export const OutputTypeEnumApi = {
+    boolean: 'boolean',
+} as const
+
+export interface EvaluationApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    evaluation_type: EvaluationTypeEnumApi
+    evaluation_config?: unknown
+    output_type: OutputTypeEnumApi
+    output_config?: unknown
+    conditions?: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+}
+
+export interface PaginatedEvaluationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationApi[]
+}
+
 export type ClusteringRunRequestApiTraceFiltersItem = { [key: string]: unknown }
 
 /**
@@ -559,86 +603,6 @@ export interface TextReprResponseApi {
     metadata: TextReprMetadataApi
 }
 
-export type EnvironmentsDatasetItemsListParams = {
-    /**
-     * Filter by dataset ID
-     */
-    dataset?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsDatasetsListParams = {
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
- */
-    order_by?: EnvironmentsDatasetsListOrderByItem[]
-    /**
-     * Search in name, description, or metadata
-     */
-    search?: string
-}
-
-export type EnvironmentsDatasetsListOrderByItem =
-    (typeof EnvironmentsDatasetsListOrderByItem)[keyof typeof EnvironmentsDatasetsListOrderByItem]
-
-export const EnvironmentsDatasetsListOrderByItem = {
-    '-created_at': '-created_at',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    updated_at: 'updated_at',
-} as const
-
-export type EnvironmentsLlmAnalyticsProviderKeysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsLlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
-
-export type EnvironmentsLlmAnalyticsSummarizationCreate403 = { [key: string]: unknown }
-
-export type EnvironmentsLlmAnalyticsSummarizationCreate500 = { [key: string]: unknown }
-
-export type EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown }
-
-export type EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown }
-
-export type EnvironmentsLlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
-
-export type EnvironmentsLlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
-
-export type EnvironmentsLlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
-
 export type DatasetItemsListParams = {
     /**
      * Filter by dataset ID
@@ -685,6 +649,130 @@ export type DatasetsListParams = {
 export type DatasetsListOrderByItem = (typeof DatasetsListOrderByItem)[keyof typeof DatasetsListOrderByItem]
 
 export const DatasetsListOrderByItem = {
+    '-created_at': '-created_at',
+    '-updated_at': '-updated_at',
+    created_at: 'created_at',
+    updated_at: 'updated_at',
+} as const
+
+export type EvaluationsListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+* `name` - Name
+* `-name` - Name (descending)
+ */
+    order_by?: EvaluationsListOrderByItem[]
+    /**
+     * Search in name or description
+     */
+    search?: string
+}
+
+export type EvaluationsListOrderByItem = (typeof EvaluationsListOrderByItem)[keyof typeof EvaluationsListOrderByItem]
+
+export const EvaluationsListOrderByItem = {
+    '-created_at': '-created_at',
+    '-name': '-name',
+    '-updated_at': '-updated_at',
+    created_at: 'created_at',
+    name: 'name',
+    updated_at: 'updated_at',
+} as const
+
+export type LlmAnalyticsProviderKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown }
+
+export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
+
+export type DatasetItemsList2Params = {
+    /**
+     * Filter by dataset ID
+     */
+    dataset?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DatasetsList2Params = {
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+ */
+    order_by?: DatasetsList2OrderByItem[]
+    /**
+     * Search in name, description, or metadata
+     */
+    search?: string
+}
+
+export type DatasetsList2OrderByItem = (typeof DatasetsList2OrderByItem)[keyof typeof DatasetsList2OrderByItem]
+
+export const DatasetsList2OrderByItem = {
     '-created_at': '-created_at',
     '-updated_at': '-updated_at',
     created_at: 'created_at',
