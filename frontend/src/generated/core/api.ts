@@ -423,6 +423,34 @@ export const environmentsFileSystemCountCreate = async (
     )
 }
 
+export type environmentsFileSystemLinkCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsFileSystemLinkCreateResponseSuccess = environmentsFileSystemLinkCreateResponse200 & {
+    headers: Headers
+}
+export type environmentsFileSystemLinkCreateResponse = environmentsFileSystemLinkCreateResponseSuccess
+
+export const getEnvironmentsFileSystemLinkCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/file_system/${id}/link/`
+}
+
+export const environmentsFileSystemLinkCreate = async (
+    projectId: string,
+    id: string,
+    fileSystemApi: NonReadonly<FileSystemApi>,
+    options?: RequestInit
+): Promise<environmentsFileSystemLinkCreateResponse> => {
+    return apiMutator<environmentsFileSystemLinkCreateResponse>(getEnvironmentsFileSystemLinkCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemApi),
+    })
+}
+
 export type environmentsFileSystemMoveCreateResponse200 = {
     data: void
     status: 200
@@ -1173,6 +1201,66 @@ export const environmentsIntegrationsLinearTeamsRetrieve = async (
 ): Promise<environmentsIntegrationsLinearTeamsRetrieveResponse> => {
     return apiMutator<environmentsIntegrationsLinearTeamsRetrieveResponse>(
         getEnvironmentsIntegrationsLinearTeamsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsIntegrationsLinkedinAdsAccountsRetrieveResponseSuccess =
+    environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse =
+    environmentsIntegrationsLinkedinAdsAccountsRetrieveResponseSuccess
+
+export const getEnvironmentsIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/environments/${projectId}/integrations/${id}/linkedin_ads_accounts/`
+}
+
+export const environmentsIntegrationsLinkedinAdsAccountsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse> => {
+    return apiMutator<environmentsIntegrationsLinkedinAdsAccountsRetrieveResponse>(
+        getEnvironmentsIntegrationsLinkedinAdsAccountsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponseSuccess =
+    environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse =
+    environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponseSuccess
+
+export const getEnvironmentsIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/environments/${projectId}/integrations/${id}/linkedin_ads_conversion_rules/`
+}
+
+export const environmentsIntegrationsLinkedinAdsConversionRulesRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse> => {
+    return apiMutator<environmentsIntegrationsLinkedinAdsConversionRulesRetrieveResponse>(
+        getEnvironmentsIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -3885,6 +3973,34 @@ export const fileSystemCountCreate = async (
     })
 }
 
+export type fileSystemLinkCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type fileSystemLinkCreateResponseSuccess = fileSystemLinkCreateResponse200 & {
+    headers: Headers
+}
+export type fileSystemLinkCreateResponse = fileSystemLinkCreateResponseSuccess
+
+export const getFileSystemLinkCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/file_system/${id}/link/`
+}
+
+export const fileSystemLinkCreate = async (
+    projectId: string,
+    id: string,
+    fileSystemApi: NonReadonly<FileSystemApi>,
+    options?: RequestInit
+): Promise<fileSystemLinkCreateResponse> => {
+    return apiMutator<fileSystemLinkCreateResponse>(getFileSystemLinkCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemApi),
+    })
+}
+
 export type fileSystemMoveCreateResponse200 = {
     data: void
     status: 200
@@ -4638,6 +4754,65 @@ export const integrationsLinearTeamsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export type integrationsLinkedinAdsAccountsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type integrationsLinkedinAdsAccountsRetrieveResponseSuccess =
+    integrationsLinkedinAdsAccountsRetrieveResponse200 & {
+        headers: Headers
+    }
+export type integrationsLinkedinAdsAccountsRetrieveResponse = integrationsLinkedinAdsAccountsRetrieveResponseSuccess
+
+export const getIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_accounts/`
+}
+
+export const integrationsLinkedinAdsAccountsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<integrationsLinkedinAdsAccountsRetrieveResponse> => {
+    return apiMutator<integrationsLinkedinAdsAccountsRetrieveResponse>(
+        getIntegrationsLinkedinAdsAccountsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type integrationsLinkedinAdsConversionRulesRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type integrationsLinkedinAdsConversionRulesRetrieveResponseSuccess =
+    integrationsLinkedinAdsConversionRulesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type integrationsLinkedinAdsConversionRulesRetrieveResponse =
+    integrationsLinkedinAdsConversionRulesRetrieveResponseSuccess
+
+export const getIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_conversion_rules/`
+}
+
+export const integrationsLinkedinAdsConversionRulesRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<integrationsLinkedinAdsConversionRulesRetrieveResponse> => {
+    return apiMutator<integrationsLinkedinAdsConversionRulesRetrieveResponse>(
+        getIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export type integrationsTwilioPhoneNumbersRetrieveResponse200 = {

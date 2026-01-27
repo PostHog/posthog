@@ -46,16 +46,6 @@ export interface PaginatedCustomerProfileConfigListApi {
     results: CustomerProfileConfigApi[]
 }
 
-export interface PatchedCustomerProfileConfigApi {
-    readonly id?: string
-    scope?: CustomerProfileConfigScopeEnumApi
-    content?: unknown | null
-    sidebar?: unknown | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
 export type EnvironmentsCustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.

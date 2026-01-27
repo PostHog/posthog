@@ -385,6 +385,40 @@ export const environmentsBatchExportsRunsCancelCreate = async (
     )
 }
 
+export type environmentsBatchExportsRunsLogsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsBatchExportsRunsLogsRetrieveResponseSuccess =
+    environmentsBatchExportsRunsLogsRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsBatchExportsRunsLogsRetrieveResponse = environmentsBatchExportsRunsLogsRetrieveResponseSuccess
+
+export const getEnvironmentsBatchExportsRunsLogsRetrieveUrl = (
+    projectId: string,
+    batchExportId: string,
+    id: string
+) => {
+    return `/api/environments/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
+}
+
+export const environmentsBatchExportsRunsLogsRetrieve = async (
+    projectId: string,
+    batchExportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsBatchExportsRunsLogsRetrieveResponse> => {
+    return apiMutator<environmentsBatchExportsRunsLogsRetrieveResponse>(
+        getEnvironmentsBatchExportsRunsLogsRetrieveUrl(projectId, batchExportId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 /**
  * Retry a batch export run.
 
@@ -566,6 +600,34 @@ export const environmentsBatchExportsBackfillCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(batchExportApi),
+        }
+    )
+}
+
+export type environmentsBatchExportsLogsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsBatchExportsLogsRetrieveResponseSuccess = environmentsBatchExportsLogsRetrieveResponse200 & {
+    headers: Headers
+}
+export type environmentsBatchExportsLogsRetrieveResponse = environmentsBatchExportsLogsRetrieveResponseSuccess
+
+export const getEnvironmentsBatchExportsLogsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/batch_exports/${id}/logs/`
+}
+
+export const environmentsBatchExportsLogsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsBatchExportsLogsRetrieveResponse> => {
+    return apiMutator<environmentsBatchExportsLogsRetrieveResponse>(
+        getEnvironmentsBatchExportsLogsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
         }
     )
 }
@@ -929,6 +991,31 @@ export const batchExportsBackfillCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(batchExportApi),
+    })
+}
+
+export type batchExportsLogsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type batchExportsLogsRetrieveResponseSuccess = batchExportsLogsRetrieveResponse200 & {
+    headers: Headers
+}
+export type batchExportsLogsRetrieveResponse = batchExportsLogsRetrieveResponseSuccess
+
+export const getBatchExportsLogsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/batch_exports/${id}/logs/`
+}
+
+export const batchExportsLogsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<batchExportsLogsRetrieveResponse> => {
+    return apiMutator<batchExportsLogsRetrieveResponse>(getBatchExportsLogsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1396,6 +1483,35 @@ export const batchExportsRunsCancelCreate = async (
     )
 }
 
+export type batchExportsRunsLogsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type batchExportsRunsLogsRetrieveResponseSuccess = batchExportsRunsLogsRetrieveResponse200 & {
+    headers: Headers
+}
+export type batchExportsRunsLogsRetrieveResponse = batchExportsRunsLogsRetrieveResponseSuccess
+
+export const getBatchExportsRunsLogsRetrieveUrl = (projectId: string, batchExportId: string, id: string) => {
+    return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
+}
+
+export const batchExportsRunsLogsRetrieve = async (
+    projectId: string,
+    batchExportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<batchExportsRunsLogsRetrieveResponse> => {
+    return apiMutator<batchExportsRunsLogsRetrieveResponse>(
+        getBatchExportsRunsLogsRetrieveUrl(projectId, batchExportId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 /**
  * Retry a batch export run.
 
@@ -1570,6 +1686,31 @@ export const batchExportsBackfillCreate2 = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(batchExportApi),
+    })
+}
+
+export type batchExportsLogsRetrieve2Response200 = {
+    data: void
+    status: 200
+}
+
+export type batchExportsLogsRetrieve2ResponseSuccess = batchExportsLogsRetrieve2Response200 & {
+    headers: Headers
+}
+export type batchExportsLogsRetrieve2Response = batchExportsLogsRetrieve2ResponseSuccess
+
+export const getBatchExportsLogsRetrieve2Url = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/batch_exports/${id}/logs/`
+}
+
+export const batchExportsLogsRetrieve2 = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<batchExportsLogsRetrieve2Response> => {
+    return apiMutator<batchExportsLogsRetrieve2Response>(getBatchExportsLogsRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -326,6 +326,13 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+export type LocalEvaluationResponseApiGroupTypeMapping = { [key: string]: string }
+
+/**
+ * Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).
+ */
+export type LocalEvaluationResponseApiCohorts = { [key: string]: unknown }
+
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
 export interface MinimalFeatureFlagApi {
@@ -359,6 +366,13 @@ export interface MinimalFeatureFlagApi {
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
+}
+
+export interface LocalEvaluationResponseApi {
+    flags: MinimalFeatureFlagApi[]
+    group_type_mapping: LocalEvaluationResponseApiGroupTypeMapping
+    /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
+    cohorts: LocalEvaluationResponseApiCohorts
 }
 
 export interface MyFlagsResponseApi {
@@ -461,6 +475,36 @@ export type FeatureFlagsActivityRetrieveParams = {
      */
     page?: number
 }
+
+export type FeatureFlagsEvaluationReasonsRetrieveParams = {
+    /**
+     * User distinct ID
+     * @minLength 1
+     */
+    distinct_id: string
+    /**
+     * Groups for feature flag evaluation (JSON object string)
+     */
+    groups?: string
+}
+
+export type FeatureFlagsLocalEvaluationRetrieveParams = {
+    /**
+     * Include cohorts in response
+     * @nullable
+     */
+    send_cohorts?: boolean | null
+}
+
+/**
+ * Unspecified response body
+ */
+export type FeatureFlagsLocalEvaluationRetrieve402 = { [key: string]: unknown }
+
+/**
+ * Unspecified response body
+ */
+export type FeatureFlagsLocalEvaluationRetrieve500 = { [key: string]: unknown }
 
 export type FeatureFlagsMyFlagsRetrieveParams = {
     /**

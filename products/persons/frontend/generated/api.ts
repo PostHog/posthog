@@ -12,6 +12,7 @@ import type {
     EnvironmentsPersonsActivityRetrieve2Params,
     EnvironmentsPersonsActivityRetrieveParams,
     EnvironmentsPersonsBulkDeleteCreateParams,
+    EnvironmentsPersonsCohortsRetrieveParams,
     EnvironmentsPersonsDeletePropertyCreateParams,
     EnvironmentsPersonsFunnelCorrelationCreateParams,
     EnvironmentsPersonsFunnelCorrelationRetrieveParams,
@@ -35,6 +36,7 @@ import type {
     PersonsActivityRetrieve2Params,
     PersonsActivityRetrieveParams,
     PersonsBulkDeleteCreateParams,
+    PersonsCohortsRetrieveParams,
     PersonsDeletePropertyCreateParams,
     PersonsFunnelCorrelationCreateParams,
     PersonsFunnelCorrelationRetrieveParams,
@@ -601,6 +603,52 @@ export const environmentsPersonsBulkDeleteCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(personApi),
+        }
+    )
+}
+
+/**
+ * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ */
+export type environmentsPersonsCohortsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsPersonsCohortsRetrieveResponseSuccess = environmentsPersonsCohortsRetrieveResponse200 & {
+    headers: Headers
+}
+export type environmentsPersonsCohortsRetrieveResponse = environmentsPersonsCohortsRetrieveResponseSuccess
+
+export const getEnvironmentsPersonsCohortsRetrieveUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsCohortsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/persons/cohorts/?${stringifiedParams}`
+        : `/api/environments/${projectId}/persons/cohorts/`
+}
+
+export const environmentsPersonsCohortsRetrieve = async (
+    projectId: string,
+    params?: EnvironmentsPersonsCohortsRetrieveParams,
+    options?: RequestInit
+): Promise<environmentsPersonsCohortsRetrieveResponse> => {
+    return apiMutator<environmentsPersonsCohortsRetrieveResponse>(
+        getEnvironmentsPersonsCohortsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
         }
     )
 }
@@ -1518,6 +1566,46 @@ export const personsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(personApi),
+    })
+}
+
+/**
+ * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ */
+export type personsCohortsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type personsCohortsRetrieveResponseSuccess = personsCohortsRetrieveResponse200 & {
+    headers: Headers
+}
+export type personsCohortsRetrieveResponse = personsCohortsRetrieveResponseSuccess
+
+export const getPersonsCohortsRetrieveUrl = (projectId: string, params?: PersonsCohortsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/persons/cohorts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/persons/cohorts/`
+}
+
+export const personsCohortsRetrieve = async (
+    projectId: string,
+    params?: PersonsCohortsRetrieveParams,
+    options?: RequestInit
+): Promise<personsCohortsRetrieveResponse> => {
+    return apiMutator<personsCohortsRetrieveResponse>(getPersonsCohortsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

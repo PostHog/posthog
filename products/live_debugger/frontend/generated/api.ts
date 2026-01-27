@@ -16,7 +16,6 @@ import type {
     LiveDebuggerBreakpointsBreakpointHitsRetrieveParams,
     LiveDebuggerBreakpointsListParams,
     PaginatedLiveDebuggerBreakpointListApi,
-    PatchedLiveDebuggerBreakpointApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -103,127 +102,6 @@ export const liveDebuggerBreakpointsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(liveDebuggerBreakpointApi),
-    })
-}
-
-/**
- * Create, Read, Update and Delete breakpoints for live debugging.
- */
-export type liveDebuggerBreakpointsRetrieveResponse200 = {
-    data: LiveDebuggerBreakpointApi
-    status: 200
-}
-
-export type liveDebuggerBreakpointsRetrieveResponseSuccess = liveDebuggerBreakpointsRetrieveResponse200 & {
-    headers: Headers
-}
-export type liveDebuggerBreakpointsRetrieveResponse = liveDebuggerBreakpointsRetrieveResponseSuccess
-
-export const getLiveDebuggerBreakpointsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
-}
-
-export const liveDebuggerBreakpointsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<liveDebuggerBreakpointsRetrieveResponse> => {
-    return apiMutator<liveDebuggerBreakpointsRetrieveResponse>(getLiveDebuggerBreakpointsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Create, Read, Update and Delete breakpoints for live debugging.
- */
-export type liveDebuggerBreakpointsUpdateResponse200 = {
-    data: LiveDebuggerBreakpointApi
-    status: 200
-}
-
-export type liveDebuggerBreakpointsUpdateResponseSuccess = liveDebuggerBreakpointsUpdateResponse200 & {
-    headers: Headers
-}
-export type liveDebuggerBreakpointsUpdateResponse = liveDebuggerBreakpointsUpdateResponseSuccess
-
-export const getLiveDebuggerBreakpointsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
-}
-
-export const liveDebuggerBreakpointsUpdate = async (
-    projectId: string,
-    id: string,
-    liveDebuggerBreakpointApi: NonReadonly<LiveDebuggerBreakpointApi>,
-    options?: RequestInit
-): Promise<liveDebuggerBreakpointsUpdateResponse> => {
-    return apiMutator<liveDebuggerBreakpointsUpdateResponse>(getLiveDebuggerBreakpointsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(liveDebuggerBreakpointApi),
-    })
-}
-
-/**
- * Create, Read, Update and Delete breakpoints for live debugging.
- */
-export type liveDebuggerBreakpointsPartialUpdateResponse200 = {
-    data: LiveDebuggerBreakpointApi
-    status: 200
-}
-
-export type liveDebuggerBreakpointsPartialUpdateResponseSuccess = liveDebuggerBreakpointsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type liveDebuggerBreakpointsPartialUpdateResponse = liveDebuggerBreakpointsPartialUpdateResponseSuccess
-
-export const getLiveDebuggerBreakpointsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
-}
-
-export const liveDebuggerBreakpointsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedLiveDebuggerBreakpointApi: NonReadonly<PatchedLiveDebuggerBreakpointApi>,
-    options?: RequestInit
-): Promise<liveDebuggerBreakpointsPartialUpdateResponse> => {
-    return apiMutator<liveDebuggerBreakpointsPartialUpdateResponse>(
-        getLiveDebuggerBreakpointsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedLiveDebuggerBreakpointApi),
-        }
-    )
-}
-
-/**
- * Create, Read, Update and Delete breakpoints for live debugging.
- */
-export type liveDebuggerBreakpointsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type liveDebuggerBreakpointsDestroyResponseSuccess = liveDebuggerBreakpointsDestroyResponse204 & {
-    headers: Headers
-}
-export type liveDebuggerBreakpointsDestroyResponse = liveDebuggerBreakpointsDestroyResponseSuccess
-
-export const getLiveDebuggerBreakpointsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
-}
-
-export const liveDebuggerBreakpointsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<liveDebuggerBreakpointsDestroyResponse> => {
-    return apiMutator<liveDebuggerBreakpointsDestroyResponse>(getLiveDebuggerBreakpointsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
     })
 }
 

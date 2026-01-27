@@ -12,7 +12,6 @@ import type {
     CustomerProfileConfigApi,
     EnvironmentsCustomerProfileConfigsListParams,
     PaginatedCustomerProfileConfigListApi,
-    PatchedCustomerProfileConfigApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -103,130 +102,6 @@ export const environmentsCustomerProfileConfigsCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(customerProfileConfigApi),
-        }
-    )
-}
-
-export type environmentsCustomerProfileConfigsRetrieveResponse200 = {
-    data: CustomerProfileConfigApi
-    status: 200
-}
-
-export type environmentsCustomerProfileConfigsRetrieveResponseSuccess =
-    environmentsCustomerProfileConfigsRetrieveResponse200 & {
-        headers: Headers
-    }
-export type environmentsCustomerProfileConfigsRetrieveResponse =
-    environmentsCustomerProfileConfigsRetrieveResponseSuccess
-
-export const getEnvironmentsCustomerProfileConfigsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/${id}/`
-}
-
-export const environmentsCustomerProfileConfigsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsCustomerProfileConfigsRetrieveResponse> => {
-    return apiMutator<environmentsCustomerProfileConfigsRetrieveResponse>(
-        getEnvironmentsCustomerProfileConfigsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type environmentsCustomerProfileConfigsUpdateResponse200 = {
-    data: CustomerProfileConfigApi
-    status: 200
-}
-
-export type environmentsCustomerProfileConfigsUpdateResponseSuccess =
-    environmentsCustomerProfileConfigsUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsCustomerProfileConfigsUpdateResponse = environmentsCustomerProfileConfigsUpdateResponseSuccess
-
-export const getEnvironmentsCustomerProfileConfigsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/${id}/`
-}
-
-export const environmentsCustomerProfileConfigsUpdate = async (
-    projectId: string,
-    id: string,
-    customerProfileConfigApi: NonReadonly<CustomerProfileConfigApi>,
-    options?: RequestInit
-): Promise<environmentsCustomerProfileConfigsUpdateResponse> => {
-    return apiMutator<environmentsCustomerProfileConfigsUpdateResponse>(
-        getEnvironmentsCustomerProfileConfigsUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(customerProfileConfigApi),
-        }
-    )
-}
-
-export type environmentsCustomerProfileConfigsPartialUpdateResponse200 = {
-    data: CustomerProfileConfigApi
-    status: 200
-}
-
-export type environmentsCustomerProfileConfigsPartialUpdateResponseSuccess =
-    environmentsCustomerProfileConfigsPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsCustomerProfileConfigsPartialUpdateResponse =
-    environmentsCustomerProfileConfigsPartialUpdateResponseSuccess
-
-export const getEnvironmentsCustomerProfileConfigsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/${id}/`
-}
-
-export const environmentsCustomerProfileConfigsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedCustomerProfileConfigApi: NonReadonly<PatchedCustomerProfileConfigApi>,
-    options?: RequestInit
-): Promise<environmentsCustomerProfileConfigsPartialUpdateResponse> => {
-    return apiMutator<environmentsCustomerProfileConfigsPartialUpdateResponse>(
-        getEnvironmentsCustomerProfileConfigsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedCustomerProfileConfigApi),
-        }
-    )
-}
-
-export type environmentsCustomerProfileConfigsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type environmentsCustomerProfileConfigsDestroyResponseSuccess =
-    environmentsCustomerProfileConfigsDestroyResponse204 & {
-        headers: Headers
-    }
-export type environmentsCustomerProfileConfigsDestroyResponse = environmentsCustomerProfileConfigsDestroyResponseSuccess
-
-export const getEnvironmentsCustomerProfileConfigsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/${id}/`
-}
-
-export const environmentsCustomerProfileConfigsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsCustomerProfileConfigsDestroyResponse> => {
-    return apiMutator<environmentsCustomerProfileConfigsDestroyResponse>(
-        getEnvironmentsCustomerProfileConfigsDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
         }
     )
 }

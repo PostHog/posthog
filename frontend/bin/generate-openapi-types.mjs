@@ -32,15 +32,13 @@ const generateAll = process.argv.includes('--all')
  *
  * Returns:
  * - productFoldersOnDisk: Set of product folder names that exist in products/
- * - viewSetMapping: Map of ViewSet snake_case name to product folder
  * - validatedRequestViewSets: Set of ViewSet snake_case names that use @validated_request
  */
 function loadProductMappings() {
     const productFoldersOnDisk = discoverProductFolders()
-    const viewSetMapping = buildViewSetToProductMapping()
     const validatedRequestViewSets = buildValidatedRequestViewSets()
 
-    return { productFoldersOnDisk, viewSetMapping, validatedRequestViewSets }
+    return { productFoldersOnDisk, validatedRequestViewSets }
 }
 
 /**
@@ -54,47 +52,6 @@ function discoverProductFolders() {
         }
     }
     return products
-}
-
-/**
- * Scan products/{product}/backend/ for ViewSet classes and build a mapping.
- * Returns: Map of viewSetSnakeCase to productFolderName
- */
-function buildViewSetToProductMapping() {
-    const mapping = new Map()
-
-    for (const entry of fs.readdirSync(productsDir, { withFileTypes: true })) {
-        if (!entry.isDirectory() || entry.name.startsWith('_')) {
-            continue
-        }
-
-        const backendDir = path.join(productsDir, entry.name, 'backend')
-        if (!fs.existsSync(backendDir)) {
-            continue
-        }
-
-        const pyFiles = findPythonFiles(backendDir)
-
-        for (const pyFile of pyFiles) {
-            try {
-                const content = fs.readFileSync(pyFile, 'utf-8')
-                const viewSetRegex = /class\s+(\w+ViewSet)[\s(]/g
-                let match
-                while ((match = viewSetRegex.exec(content)) !== null) {
-                    const viewSetName = match[1]
-                    const snakeCase = viewSetName
-                        .replace(/ViewSet$/, '')
-                        .replace(/([a-z])([A-Z])/g, '$1_$2')
-                        .toLowerCase()
-                    mapping.set(snakeCase, entry.name)
-                }
-            } catch {
-                // Skip unreadable files
-            }
-        }
-    }
-
-    return mapping
 }
 
 /**
@@ -122,19 +79,22 @@ function buildValidatedRequestViewSets() {
                     continue
                 }
 
-                // Find all ViewSet classes in this file
-                const viewSetRegex = /class\s+(\w+ViewSet)[\s(]/g
+                // Find all ViewSet classes in this file (case insensitive)
+                const viewSetRegex = /class\s+(\w+ViewSet)[\s(]/gi
                 let match
                 while ((match = viewSetRegex.exec(content)) !== null) {
                     const viewSetName = match[1]
                     const snakeCase = viewSetName
-                        .replace(/ViewSet$/, '')
+                        .replace(/ViewSet$/i, '')
+                        .replace(/([A-Z])([A-Z][a-z])/g, '$1_$2')
                         .replace(/([a-z])([A-Z])/g, '$1_$2')
                         .toLowerCase()
                     viewSets.add(snakeCase)
                 }
-            } catch {
-                // Skip unreadable files
+            } catch (err) {
+                if (err.code !== 'ENOENT' && err.code !== 'EACCES') {
+                    console.warn(`Warning: scanning ${pyFile}:`, err.message)
+                }
             }
         }
     }
@@ -159,25 +119,16 @@ function findPythonFiles(dir) {
 }
 
 /**
- * Match an operationId or URL path to a product.
- * Priority: 1) ViewSet name in operationId, 2) Product folder name in URL
+ * Match URL path to a product folder name.
+ * Fallback for endpoints that might not be tagged.
  */
-function matchOperationIdToProduct(operationId, urlPath, viewSetMapping, productFolders) {
-    // Strategy 1: ViewSet snake_case name in operationId
-    for (const [snakeCase, product] of viewSetMapping) {
-        if (operationId.includes(snakeCase)) {
-            return product
-        }
-    }
-
-    // Strategy 2: Product folder name in URL path
+function matchUrlToProduct(urlPath, productFolders) {
     const urlLower = urlPath.toLowerCase().replace(/-/g, '_')
     for (const product of productFolders) {
         if (urlLower.includes(`/${product}/`)) {
             return product
         }
     }
-
     return null
 }
 
@@ -264,10 +215,10 @@ function resolveNestedRefs(schemas, refs) {
  * Group endpoints by output directory.
  *
  * Routing priority:
- * 1. ViewSet in products/X/backend/ or URL contains /X/ -> products/X/frontend/generated/
- * 2. @extend_schema(tags=["product"]) matches product folder -> that product
+ * 1. Tag matches product folder (includes auto-tags from backend) -> product
+ * 2. URL path contains product folder name (fallback) -> product
  * 3. @validated_request decorator in posthog/api/ or ee/ -> core
- * 4. @extend_schema(tags=["core"]) -> frontend/src/generated/core/
+ * 4. Explicit "core" tag -> core
  * 5. Otherwise -> skipped
  */
 function buildGroupedSchemasByOutput(schema, mappings) {
@@ -276,9 +227,9 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     const allSchemas = schema.components?.schemas ?? {}
     const skippedTags = new Map()
     let skippedNoTags = 0
-    let routedByViewSet = 0
-    let routedByValidatedRequest = 0
     let routedByTag = 0
+    let routedByUrl = 0
+    let routedByValidatedRequest = 0
 
     for (const [pathKey, operations] of Object.entries(schema.paths ?? {})) {
         for (const [method, operation] of Object.entries(operations ?? {})) {
@@ -293,31 +244,26 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             let outputDir = null
             let routingMethod = null
 
-            // Priority 1: Match operationId/URL to ViewSet or product folder in URL
-            const viewSetProduct = matchOperationIdToProduct(
-                operationId,
-                pathKey,
-                mappings.viewSetMapping,
-                mappings.productFoldersOnDisk
-            )
-            if (viewSetProduct && mappings.productFoldersOnDisk.has(viewSetProduct)) {
-                outputDir = resolveProductToOutputDir(viewSetProduct, mappings.productFoldersOnDisk)
-                routingMethod = 'viewset'
+            // Priority 1: Tag matches product folder (includes auto-tags from backend)
+            const productTag = tags.find((t) => resolveTagToProduct(t, mappings) !== null)
+            if (productTag) {
+                outputDir = resolveProductToOutputDir(productTag, mappings.productFoldersOnDisk)
+                routingMethod = 'tag'
             }
 
-            // Priority 2: Tag matches product folder
+            // Priority 2: URL path contains product folder name (fallback)
             if (!outputDir) {
-                const productTag = tags.find((t) => resolveTagToProduct(t, mappings) !== null)
-                if (productTag) {
-                    outputDir = resolveProductToOutputDir(productTag, mappings.productFoldersOnDisk)
-                    routingMethod = 'tag'
+                const urlProduct = matchUrlToProduct(pathKey, mappings.productFoldersOnDisk)
+                if (urlProduct) {
+                    outputDir = resolveProductToOutputDir(urlProduct, mappings.productFoldersOnDisk)
+                    routingMethod = 'url'
                 }
             }
 
-            // Priority 3: ViewSet uses @validated_request decorator -> core
+            // Priority 3: @validated_request decorator in core -> core
             if (!outputDir) {
                 for (const snakeCase of mappings.validatedRequestViewSets) {
-                    if (operationId.includes(snakeCase)) {
+                    if (operationId === snakeCase || operationId.startsWith(snakeCase + '_')) {
                         outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
                         routingMethod = 'validated_request'
                         break
@@ -343,12 +289,12 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                 continue
             }
 
-            if (routingMethod === 'viewset') {
-                routedByViewSet++
+            if (routingMethod === 'tag') {
+                routedByTag++
+            } else if (routingMethod === 'url') {
+                routedByUrl++
             } else if (routingMethod === 'validated_request') {
                 routedByValidatedRequest++
-            } else {
-                routedByTag++
             }
 
             if (!grouped.has(outputDir)) {
@@ -369,9 +315,9 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 
     // Report routing stats
     console.log(`📊 Routing stats:`)
-    console.log(`   ${routedByViewSet} endpoints routed by ViewSet/URL (auto-discovery)`)
+    console.log(`   ${routedByTag} endpoints routed by tags (includes auto-tags from backend)`)
+    console.log(`   ${routedByUrl} endpoints routed by URL path`)
     console.log(`   ${routedByValidatedRequest} endpoints routed by @validated_request decorator`)
-    console.log(`   ${routedByTag} endpoints routed by @extend_schema tags`)
     console.log('')
 
     // Report skipped endpoints

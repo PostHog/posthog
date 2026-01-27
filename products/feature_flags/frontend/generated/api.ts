@@ -13,8 +13,13 @@ import type {
     FeatureFlagApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
+    FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
+    FeatureFlagsLocalEvaluationRetrieve402,
+    FeatureFlagsLocalEvaluationRetrieve500,
+    FeatureFlagsLocalEvaluationRetrieveParams,
     FeatureFlagsMyFlagsRetrieveParams,
+    LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
     PatchedFeatureFlagApi,
@@ -650,6 +655,121 @@ export const featureFlagsBulkKeysCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(featureFlagApi),
     })
+}
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export type featureFlagsEvaluationReasonsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type featureFlagsEvaluationReasonsRetrieveResponseSuccess = featureFlagsEvaluationReasonsRetrieveResponse200 & {
+    headers: Headers
+}
+export type featureFlagsEvaluationReasonsRetrieveResponse = featureFlagsEvaluationReasonsRetrieveResponseSuccess
+
+export const getFeatureFlagsEvaluationReasonsRetrieveUrl = (
+    projectId: string,
+    params: FeatureFlagsEvaluationReasonsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flags/evaluation_reasons/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flags/evaluation_reasons/`
+}
+
+export const featureFlagsEvaluationReasonsRetrieve = async (
+    projectId: string,
+    params: FeatureFlagsEvaluationReasonsRetrieveParams,
+    options?: RequestInit
+): Promise<featureFlagsEvaluationReasonsRetrieveResponse> => {
+    return apiMutator<featureFlagsEvaluationReasonsRetrieveResponse>(
+        getFeatureFlagsEvaluationReasonsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export type featureFlagsLocalEvaluationRetrieveResponse200 = {
+    data: LocalEvaluationResponseApi
+    status: 200
+}
+
+export type featureFlagsLocalEvaluationRetrieveResponse402 = {
+    data: FeatureFlagsLocalEvaluationRetrieve402
+    status: 402
+}
+
+export type featureFlagsLocalEvaluationRetrieveResponse500 = {
+    data: FeatureFlagsLocalEvaluationRetrieve500
+    status: 500
+}
+
+export type featureFlagsLocalEvaluationRetrieveResponseSuccess = featureFlagsLocalEvaluationRetrieveResponse200 & {
+    headers: Headers
+}
+export type featureFlagsLocalEvaluationRetrieveResponseError = (
+    | featureFlagsLocalEvaluationRetrieveResponse402
+    | featureFlagsLocalEvaluationRetrieveResponse500
+) & {
+    headers: Headers
+}
+
+export type featureFlagsLocalEvaluationRetrieveResponse =
+    | featureFlagsLocalEvaluationRetrieveResponseSuccess
+    | featureFlagsLocalEvaluationRetrieveResponseError
+
+export const getFeatureFlagsLocalEvaluationRetrieveUrl = (
+    projectId: string,
+    params?: FeatureFlagsLocalEvaluationRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flags/local_evaluation/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flags/local_evaluation/`
+}
+
+export const featureFlagsLocalEvaluationRetrieve = async (
+    projectId: string,
+    params?: FeatureFlagsLocalEvaluationRetrieveParams,
+    options?: RequestInit
+): Promise<featureFlagsLocalEvaluationRetrieveResponse> => {
+    return apiMutator<featureFlagsLocalEvaluationRetrieveResponse>(
+        getFeatureFlagsLocalEvaluationRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**

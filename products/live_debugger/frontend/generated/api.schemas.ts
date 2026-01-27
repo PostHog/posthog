@@ -33,23 +33,6 @@ export interface PaginatedLiveDebuggerBreakpointListApi {
     results: LiveDebuggerBreakpointApi[]
 }
 
-export interface PatchedLiveDebuggerBreakpointApi {
-    readonly id?: string
-    /** @nullable */
-    repository?: string | null
-    filename?: string
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     */
-    line_number?: number
-    enabled?: boolean
-    /** @nullable */
-    condition?: string | null
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
 /**
  * Schema for a single active breakpoint
  */

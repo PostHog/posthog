@@ -52,6 +52,53 @@ export interface PaginatedDataModelingJobListApi {
     results: DataModelingJobApi[]
 }
 
+export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
+
+export const SyncTypeEnumApi = {
+    full_refresh: 'full_refresh',
+    incremental: 'incremental',
+    append: 'append',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+
+export interface ExternalDataSchemaApi {
+    readonly id: string
+    readonly name: string
+    /** @nullable */
+    readonly table: ExternalDataSchemaApiTable
+    should_sync?: boolean
+    /** @nullable */
+    readonly last_synced_at: string | null
+    /**
+     * The latest error that occurred when syncing this schema.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    readonly incremental: boolean
+    /** @nullable */
+    readonly status: string | null
+    readonly sync_type: SyncTypeEnumApi | null
+    /** @nullable */
+    readonly incremental_field: string | null
+    /** @nullable */
+    readonly incremental_field_type: string | null
+    readonly sync_frequency: string
+    readonly sync_time_of_day: string
+}
+
+export interface PaginatedExternalDataSchemaListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataSchemaApi[]
+}
+
 /**
  * * `Ashby` - Ashby
  * `Supabase` - Supabase
@@ -537,23 +584,6 @@ export interface PaginatedTableListApi {
     results: TableApi[]
 }
 
-export interface PatchedTableApi {
-    readonly id?: string
-    /** @nullable */
-    deleted?: boolean | null
-    /** @maxLength 128 */
-    name?: string
-    format?: TableFormatEnumApi
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    /** @maxLength 500 */
-    url_pattern?: string
-    credential?: CredentialApi
-    readonly columns?: string
-    readonly external_data_source?: SimpleExternalDataSourceSerializersApi
-    readonly external_schema?: string
-}
-
 export interface ViewLinkApi {
     readonly id: string
     /** @nullable */
@@ -580,25 +610,6 @@ export interface PaginatedViewLinkListApi {
     /** @nullable */
     previous?: string | null
     results: ViewLinkApi[]
-}
-
-export interface PatchedViewLinkApi {
-    readonly id?: string
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    /** @maxLength 400 */
-    source_table_name?: string
-    /** @maxLength 400 */
-    source_table_key?: string
-    /** @maxLength 400 */
-    joining_table_name?: string
-    /** @maxLength 400 */
-    joining_table_key?: string
-    /** @maxLength 400 */
-    field_name?: string
-    configuration?: unknown | null
 }
 
 export interface ViewLinkValidationApi {
@@ -643,6 +654,29 @@ export interface PatchedQueryTabStateApi {
     state?: unknown | null
 }
 
+export interface DataWarehouseModelPathApi {
+    readonly id: string
+    path: string
+    team: number
+    /** @nullable */
+    table?: string | null
+    /** @nullable */
+    saved_query?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedDataWarehouseModelPathListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseModelPathApi[]
+}
+
 export type EnvironmentsDataModelingJobsListParams = {
     /**
      * The pagination cursor value.
@@ -656,6 +690,21 @@ export type EnvironmentsDataModelingJobsListParams = {
      * @nullable
      */
     saved_query_id?: string | null
+}
+
+export type EnvironmentsExternalDataSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type EnvironmentsExternalDataSourcesListParams = {
@@ -755,6 +804,21 @@ export type DataModelingJobsListParams = {
     saved_query_id?: string | null
 }
 
+export type ExternalDataSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
 export type ExternalDataSourcesListParams = {
     /**
      * Number of results to return per page.
@@ -771,6 +835,17 @@ export type ExternalDataSourcesListParams = {
 }
 
 export type QueryTabStateListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseModelPathsListParams = {
     /**
      * Number of results to return per page.
      */
