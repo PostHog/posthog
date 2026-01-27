@@ -101,7 +101,8 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
             ]
             existing_refs: set[str] = set()
             for ref in relevant_task_references:
-                existing_refs.add(f"{ref.session_id}:{ref.start_time.isoformat()}:{ref.end_time.isoformat()}")
+                end_time_str = ref.end_time.isoformat() if ref.end_time else ""
+                existing_refs.add(f"{ref.session_id}:{ref.start_time.isoformat()}:{end_time_str}")
 
             # Filter to only NEW segments (not already linked to this task)
             new_segments = [
