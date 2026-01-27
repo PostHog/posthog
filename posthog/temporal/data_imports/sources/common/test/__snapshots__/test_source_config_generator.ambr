@@ -69,6 +69,7 @@
           ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
           ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
           ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+          ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
           ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
           ExternalDataSourceType.STRIPE: StripeSourceConfig,
           ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,

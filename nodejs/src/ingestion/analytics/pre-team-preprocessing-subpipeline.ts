@@ -3,13 +3,14 @@ import { Message } from 'node-rdkafka'
 import { TeamManager } from '~/utils/team-manager'
 
 import { EventHeaders, IncomingEvent, IncomingEventWithTeam, Team } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import {
     createApplyEventRestrictionsStep,
     createDropExceptionEventsStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
+    createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
 } from '../event-preprocessing'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
@@ -54,4 +55,5 @@ export function createPreTeamPreprocessingSubpipeline<TInput extends PreTeamPrep
         .pipe(createDropExceptionEventsStep())
         .pipe(createResolveTeamStep(teamManager))
         .pipe(createValidateHistoricalMigrationStep())
+        .pipe(createValidateAiEventTokensStep())
 }

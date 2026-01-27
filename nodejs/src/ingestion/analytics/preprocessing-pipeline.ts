@@ -5,7 +5,7 @@ import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'

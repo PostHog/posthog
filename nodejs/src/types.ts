@@ -225,8 +225,6 @@ export type IngestionConsumerConfig = {
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of token or token:distinct_id to force overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether Kafka message keys should be preserved when rerouted to overflow
-    /** If true, use the joined ingestion pipeline instead of the legacy two-stage pipeline */
-    INGESTION_JOINED_PIPELINE: boolean
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
@@ -354,6 +352,16 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: number
+    /** When true, rate limiting will drop messages that exceed the limit. When false, dry run mode (metrics only) */
+    SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: boolean
+    /** When false, skips all Redis calls for session filtering. Use to bypass Redis during outages */
+    SESSION_RECORDING_SESSION_FILTER_ENABLED: boolean
+    /** TTL in milliseconds for the in-memory session tracker cache */
+    SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
+    /** TTL in milliseconds for the in-memory session filter cache */
+    SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
 }
 
 export interface PluginsServerConfig

@@ -136,7 +136,7 @@ export function StepTriggerConfiguration({
     }
 
     return (
-        <div className="flex flex-col items-start w-full gap-2">
+        <div className="flex flex-col items-start w-full gap-2" data-attr="workflow-trigger">
             <span className="flex gap-1">
                 <IconBolt className="text-lg" />
                 <span className="text-md font-semibold">Trigger type</span>

@@ -87,6 +87,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     component: WorkflowsScene,
     logic: workflowSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
 export function WorkflowsScene(): JSX.Element {

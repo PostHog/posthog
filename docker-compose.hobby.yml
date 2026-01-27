@@ -17,13 +17,6 @@ services:
         volumes:
             - postgres-data:/var/lib/postgresql/data
 
-    redis:
-        extends:
-            file: docker-compose.base.yml
-            service: redis
-        volumes:
-            - redis-data:/data
-
     redis7:
         extends:
             file: docker-compose.base.yml
@@ -94,7 +87,7 @@ services:
         depends_on:
             db:
                 condition: service_healthy
-            redis:
+            redis7:
                 condition: service_healthy
             clickhouse:
                 condition: service_started
@@ -130,7 +123,7 @@ services:
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
         depends_on:
             - db
-            - redis
+            - redis7
             - clickhouse
             - kafka
             - objectstorage
@@ -140,7 +133,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        image: ${REGISTRY_URL}-node:${POSTHOG_APP_TAG}
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
@@ -164,7 +157,6 @@ services:
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
         depends_on:
             - db
-            - redis
             - redis7
             - clickhouse
             - kafka
@@ -274,7 +266,7 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
         depends_on:
             - db
-            - redis
+            - redis7
             - clickhouse
             - kafka
             - objectstorage
@@ -339,7 +331,7 @@ services:
             service: feature-flags
         depends_on:
             - db
-            - redis
+            - redis7
 
     kafka-init:
         image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
@@ -409,7 +401,7 @@ services:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_URL: 'postgres://posthog:posthog@db:5432/posthog'
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
-            REDIS_URL: 'redis://redis:6379/'
+            REDIS_URL: 'redis://redis7:6379/'
             ISSUE_BUCKETS_REDIS_URL: 'redis://redis7:6379/'
             RUST_LOG: 'info'
         depends_on:
@@ -419,7 +411,7 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
-            redis:
+            redis7:
                 condition: service_healthy
 
 volumes:
@@ -432,7 +424,6 @@ volumes:
     clickhouse-data:
     caddy-data:
     caddy-config:
-    redis-data:
     redis7-data:
     kafka-data:
     redpanda-data:

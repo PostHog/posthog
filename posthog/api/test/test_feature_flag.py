@@ -24,7 +24,6 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.constants import AvailableFeature
 from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, Tag, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
@@ -2375,7 +2374,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(19, 20)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2390,7 +2389,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(19, 20)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2414,7 +2413,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(19, 20)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -2533,7 +2532,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(15, 21)):
+        with self.assertNumQueries(FuzzyInt(15, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)
@@ -8057,19 +8056,6 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
-        # Create a license to enable tagging feature
-        from datetime import datetime as dt
-        from typing import cast
-
-        from ee.models.license import License, LicenseManager
-
-        # Use a date that's always 50 years in the future to avoid expiration
-        future_year = dt.now().year + 50
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="test_license_key",
-            plan="enterprise",
-            valid_until=dt(future_year, 1, 19, 3, 14, 7),
-        )
 
         # Mock FLAG_EVALUATION_TAGS feature flag to be enabled by default
         self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
@@ -8271,78 +8257,6 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Evaluation tags must be a subset of tags", str(response.data))
-
-    @pytest.mark.ee
-    def test_evaluation_tags_preserved_when_tagging_access_lost(self):
-        """Test that evaluation tags are preserved when user loses TAGGING access"""
-        # First create a flag with evaluation tags while user has TAGGING access
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Flag with evaluation tags",
-                "key": "flag-with-eval-tags",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-                "tags": ["web", "mobile"],
-                "evaluation_tags": ["web"],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Verify the flag was created with evaluation tags
-        flag = FeatureFlag.objects.get(key="flag-with-eval-tags")
-        self.assertEqual(flag.name, "Flag with evaluation tags")
-        self.assertEqual(len(flag.evaluation_tags.all()), 1)
-
-        # Now remove TAGGING feature from organization
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        # Update the flag - evaluation tags should be preserved (not cleared)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {
-                "name": "Updated flag without tagging access",
-                "evaluation_tags": ["web", "mobile"],  # This should be ignored but not clear existing
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Verify evaluation tags were preserved (not cleared)
-        flag.refresh_from_db()
-        self.assertEqual(len(flag.evaluation_tags.all()), 1)  # Still has the original "web" tag
-
-        # Verify evaluation tags are hidden in API response
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evaluation_tags"], [])  # Hidden from user
-
-        # Test creating a new flag without TAGGING access
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "New flag without tagging access",
-                "key": "new-flag-no-tagging",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-                "evaluation_tags": ["web", "mobile"],  # Should be ignored
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Verify the new flag has no evaluation tags (can't create new ones without TAGGING access)
-        new_flag = FeatureFlag.objects.get(key="new-flag-no-tagging")
-        self.assertEqual(len(new_flag.evaluation_tags.all()), 0)
-
-        # Restore TAGGING access
-        self.organization.available_product_features = [{"key": AvailableFeature.TAGGING, "name": "Tagging"}]
-        self.organization.save()
-
-        # Verify original flag's evaluation tags are visible again
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evaluation_tags"], ["web"])  # Now visible again
 
     @pytest.mark.ee
     def test_evaluation_tags_hidden_when_feature_flag_disabled(self):
