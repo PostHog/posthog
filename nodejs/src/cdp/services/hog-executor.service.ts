@@ -162,6 +162,7 @@ export class HogExecutorService {
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
+        logger.info('[HogExecutorService]', 'Building inputs with globals')
         return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
     }
 
@@ -252,6 +253,11 @@ export class HogExecutorService {
                 if (!hogFunction.mappings) {
                     const invocation = await _buildInvocation(hogFunction)
                     if (!invocation) {
+                        logger.error('[HogExecutor]', 'Destination invocation creation failed', {
+                            destinationId: hogFunction.id,
+                            destinationName: hogFunction.name,
+                            eventUuid: triggerGlobals.event?.uuid,
+                        })
                         return
                     }
 

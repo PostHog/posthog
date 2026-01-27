@@ -24,11 +24,11 @@ class Migration(migrations.Migration):
                 ("token_hash", models.CharField(max_length=64)),
                 (
                     "platform",
-                    models.CharField(choices=[("android", "Android"), ("ios", "Ios")], max_length=16),
+                    models.CharField(choices=[("android", "Android"), ("ios", "iOS")], max_length=16),
                 ),
                 (
                     "provider",
-                    models.CharField(choices=[("fcm", "Fcm"), ("apns", "Apns")], max_length=16),
+                    models.CharField(choices=[("fcm", "fcm"), ("apns", "apns")], max_length=16),
                 ),
                 ("is_active", models.BooleanField(db_index=True, default=True)),
                 ("last_successfully_used_at", models.DateTimeField(blank=True, null=True)),
@@ -55,7 +55,7 @@ class Migration(migrations.Migration):
             model_name="pushsubscription",
             index=models.Index(
                 fields=["team", "distinct_id", "platform", "provider", "is_active"],
-                name="workflows_p_team_distinct_platform_provider_idx",
+                name="workflows_p_team_id_90c92e_idx",
             ),
         ),
         migrations.AddConstraint(
