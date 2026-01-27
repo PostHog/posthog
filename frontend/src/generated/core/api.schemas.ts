@@ -1,5 +1,3 @@
-
-
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -2934,7 +2932,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
 }
 
-export type ExportsListParams = {
+export type EnvironmentsExportsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -2945,7 +2943,7 @@ export type ExportsListParams = {
     offset?: number
 }
 
-export type FileSystemListParams = {
+export type EnvironmentsFileSystemListParams = {
     /**
      * Number of results to return per page.
      */
@@ -2960,7 +2958,7 @@ export type FileSystemListParams = {
     search?: string
 }
 
-export type IntegrationsListParams = {
+export type EnvironmentsIntegrationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -2971,7 +2969,7 @@ export type IntegrationsListParams = {
     offset?: number
 }
 
-export type SubscriptionsListParams = {
+export type EnvironmentsSubscriptionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3081,7 +3079,7 @@ export type EventDefinitionsListParams = {
     offset?: number
 }
 
-export type ExportsList2Params = {
+export type ExportsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3092,7 +3090,7 @@ export type ExportsList2Params = {
     offset?: number
 }
 
-export type FileSystemList2Params = {
+export type FileSystemListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3126,7 +3124,7 @@ export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
  */
 export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
 
-export type IntegrationsList3Params = {
+export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -3224,7 +3222,7 @@ export type ScheduledChangesListParams = {
     offset?: number
 }
 
-export type SubscriptionsList2Params = {
+export type SubscriptionsListParams = {
     /**
      * Number of results to return per page.
      */

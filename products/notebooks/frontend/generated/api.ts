@@ -35,16 +35,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksListResponse200 = {
-    data: PaginatedNotebookMinimalListApi
-    status: 200
-}
-
-export type notebooksListResponseSuccess = notebooksListResponse200 & {
-    headers: Headers
-}
-export type notebooksListResponse = notebooksListResponseSuccess
-
 export const getNotebooksListUrl = (projectId: string, params?: NotebooksListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -65,8 +55,8 @@ export const notebooksList = async (
     projectId: string,
     params?: NotebooksListParams,
     options?: RequestInit
-): Promise<notebooksListResponse> => {
-    return apiMutator<notebooksListResponse>(getNotebooksListUrl(projectId, params), {
+): Promise<PaginatedNotebookMinimalListApi> => {
+    return apiMutator<PaginatedNotebookMinimalListApi>(getNotebooksListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -75,16 +65,6 @@ export const notebooksList = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksCreateResponse201 = {
-    data: NotebookApi
-    status: 201
-}
-
-export type notebooksCreateResponseSuccess = notebooksCreateResponse201 & {
-    headers: Headers
-}
-export type notebooksCreateResponse = notebooksCreateResponseSuccess
-
 export const getNotebooksCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notebooks/`
 }
@@ -93,8 +73,8 @@ export const notebooksCreate = async (
     projectId: string,
     notebookApi: NonReadonly<NotebookApi>,
     options?: RequestInit
-): Promise<notebooksCreateResponse> => {
-    return apiMutator<notebooksCreateResponse>(getNotebooksCreateUrl(projectId), {
+): Promise<NotebookApi> => {
+    return apiMutator<NotebookApi>(getNotebooksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -105,16 +85,6 @@ export const notebooksCreate = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksRetrieveResponse200 = {
-    data: NotebookApi
-    status: 200
-}
-
-export type notebooksRetrieveResponseSuccess = notebooksRetrieveResponse200 & {
-    headers: Headers
-}
-export type notebooksRetrieveResponse = notebooksRetrieveResponseSuccess
-
 export const getNotebooksRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/`
 }
@@ -123,8 +93,8 @@ export const notebooksRetrieve = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
-): Promise<notebooksRetrieveResponse> => {
-    return apiMutator<notebooksRetrieveResponse>(getNotebooksRetrieveUrl(projectId, shortId), {
+): Promise<NotebookApi> => {
+    return apiMutator<NotebookApi>(getNotebooksRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
     })
@@ -133,16 +103,6 @@ export const notebooksRetrieve = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksUpdateResponse200 = {
-    data: NotebookApi
-    status: 200
-}
-
-export type notebooksUpdateResponseSuccess = notebooksUpdateResponse200 & {
-    headers: Headers
-}
-export type notebooksUpdateResponse = notebooksUpdateResponseSuccess
-
 export const getNotebooksUpdateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/`
 }
@@ -152,8 +112,8 @@ export const notebooksUpdate = async (
     shortId: string,
     notebookApi: NonReadonly<NotebookApi>,
     options?: RequestInit
-): Promise<notebooksUpdateResponse> => {
-    return apiMutator<notebooksUpdateResponse>(getNotebooksUpdateUrl(projectId, shortId), {
+): Promise<NotebookApi> => {
+    return apiMutator<NotebookApi>(getNotebooksUpdateUrl(projectId, shortId), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -164,16 +124,6 @@ export const notebooksUpdate = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksPartialUpdateResponse200 = {
-    data: NotebookApi
-    status: 200
-}
-
-export type notebooksPartialUpdateResponseSuccess = notebooksPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type notebooksPartialUpdateResponse = notebooksPartialUpdateResponseSuccess
-
 export const getNotebooksPartialUpdateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/`
 }
@@ -183,8 +133,8 @@ export const notebooksPartialUpdate = async (
     shortId: string,
     patchedNotebookApi: NonReadonly<PatchedNotebookApi>,
     options?: RequestInit
-): Promise<notebooksPartialUpdateResponse> => {
-    return apiMutator<notebooksPartialUpdateResponse>(getNotebooksPartialUpdateUrl(projectId, shortId), {
+): Promise<NotebookApi> => {
+    return apiMutator<NotebookApi>(getNotebooksPartialUpdateUrl(projectId, shortId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -195,26 +145,12 @@ export const notebooksPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type notebooksDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type notebooksDestroyResponseError = notebooksDestroyResponse405 & {
-    headers: Headers
-}
-
-export type notebooksDestroyResponse = notebooksDestroyResponseError
-
 export const getNotebooksDestroyUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/`
 }
 
-export const notebooksDestroy = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<notebooksDestroyResponse> => {
-    return apiMutator<notebooksDestroyResponse>(getNotebooksDestroyUrl(projectId, shortId), {
+export const notebooksDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getNotebooksDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
     })
@@ -223,16 +159,6 @@ export const notebooksDestroy = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksActivityRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksActivityRetrieve2ResponseSuccess = notebooksActivityRetrieve2Response200 & {
-    headers: Headers
-}
-export type notebooksActivityRetrieve2Response = notebooksActivityRetrieve2ResponseSuccess
-
 export const getNotebooksActivityRetrieve2Url = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/activity/`
 }
@@ -241,8 +167,8 @@ export const notebooksActivityRetrieve2 = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
-): Promise<notebooksActivityRetrieve2Response> => {
-    return apiMutator<notebooksActivityRetrieve2Response>(getNotebooksActivityRetrieve2Url(projectId, shortId), {
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksActivityRetrieve2Url(projectId, shortId), {
         ...options,
         method: 'GET',
     })
@@ -251,16 +177,6 @@ export const notebooksActivityRetrieve2 = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksKernelConfigCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksKernelConfigCreateResponseSuccess = notebooksKernelConfigCreateResponse200 & {
-    headers: Headers
-}
-export type notebooksKernelConfigCreateResponse = notebooksKernelConfigCreateResponseSuccess
-
 export const getNotebooksKernelConfigCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/config/`
 }
@@ -270,8 +186,8 @@ export const notebooksKernelConfigCreate = async (
     shortId: string,
     notebookApi: NonReadonly<NotebookApi>,
     options?: RequestInit
-): Promise<notebooksKernelConfigCreateResponse> => {
-    return apiMutator<notebooksKernelConfigCreateResponse>(getNotebooksKernelConfigCreateUrl(projectId, shortId), {
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksKernelConfigCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -282,16 +198,6 @@ export const notebooksKernelConfigCreate = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksKernelDataframeRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksKernelDataframeRetrieveResponseSuccess = notebooksKernelDataframeRetrieveResponse200 & {
-    headers: Headers
-}
-export type notebooksKernelDataframeRetrieveResponse = notebooksKernelDataframeRetrieveResponseSuccess
-
 export const getNotebooksKernelDataframeRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/dataframe/`
 }
@@ -300,29 +206,16 @@ export const notebooksKernelDataframeRetrieve = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
-): Promise<notebooksKernelDataframeRetrieveResponse> => {
-    return apiMutator<notebooksKernelDataframeRetrieveResponse>(
-        getNotebooksKernelDataframeRetrieveUrl(projectId, shortId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksKernelDataframeRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksKernelExecuteCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksKernelExecuteCreateResponseSuccess = notebooksKernelExecuteCreateResponse200 & {
-    headers: Headers
-}
-export type notebooksKernelExecuteCreateResponse = notebooksKernelExecuteCreateResponseSuccess
-
 export const getNotebooksKernelExecuteCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/execute/`
 }
@@ -332,8 +225,8 @@ export const notebooksKernelExecuteCreate = async (
     shortId: string,
     notebookApi: NonReadonly<NotebookApi>,
     options?: RequestInit
-): Promise<notebooksKernelExecuteCreateResponse> => {
-    return apiMutator<notebooksKernelExecuteCreateResponse>(getNotebooksKernelExecuteCreateUrl(projectId, shortId), {
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksKernelExecuteCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -344,16 +237,6 @@ export const notebooksKernelExecuteCreate = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksKernelRestartCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksKernelRestartCreateResponseSuccess = notebooksKernelRestartCreateResponse200 & {
-    headers: Headers
-}
-export type notebooksKernelRestartCreateResponse = notebooksKernelRestartCreateResponseSuccess
-
 export const getNotebooksKernelRestartCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/restart/`
 }
@@ -363,8 +246,8 @@ export const notebooksKernelRestartCreate = async (
     shortId: string,
     notebookApi: NonReadonly<NotebookApi>,
     options?: RequestInit
-): Promise<notebooksKernelRestartCreateResponse> => {
-    return apiMutator<notebooksKernelRestartCreateResponse>(getNotebooksKernelRestartCreateUrl(projectId, shortId), {
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksKernelRestartCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -375,16 +258,6 @@ export const notebooksKernelRestartCreate = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksKernelStartCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksKernelStartCreateResponseSuccess = notebooksKernelStartCreateResponse200 & {
-    headers: Headers
-}
-export type notebooksKernelStartCreateResponse = notebooksKernelStartCreateResponseSuccess
-
 export const getNotebooksKernelStartCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/start/`
 }
@@ -394,8 +267,8 @@ export const notebooksKernelStartCreate = async (
     shortId: string,
     notebookApi: NonReadonly<NotebookApi>,
     options?: RequestInit
-): Promise<notebooksKernelStartCreateResponse> => {
-    return apiMutator<notebooksKernelStartCreateResponse>(getNotebooksKernelStartCreateUrl(projectId, shortId), {
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksKernelStartCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -406,16 +279,6 @@ export const notebooksKernelStartCreate = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksKernelStatusRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksKernelStatusRetrieveResponseSuccess = notebooksKernelStatusRetrieveResponse200 & {
-    headers: Headers
-}
-export type notebooksKernelStatusRetrieveResponse = notebooksKernelStatusRetrieveResponseSuccess
-
 export const getNotebooksKernelStatusRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/status/`
 }
@@ -424,8 +287,8 @@ export const notebooksKernelStatusRetrieve = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
-): Promise<notebooksKernelStatusRetrieveResponse> => {
-    return apiMutator<notebooksKernelStatusRetrieveResponse>(getNotebooksKernelStatusRetrieveUrl(projectId, shortId), {
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksKernelStatusRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
     })
@@ -434,16 +297,6 @@ export const notebooksKernelStatusRetrieve = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksKernelStopCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksKernelStopCreateResponseSuccess = notebooksKernelStopCreateResponse200 & {
-    headers: Headers
-}
-export type notebooksKernelStopCreateResponse = notebooksKernelStopCreateResponseSuccess
-
 export const getNotebooksKernelStopCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/stop/`
 }
@@ -453,8 +306,8 @@ export const notebooksKernelStopCreate = async (
     shortId: string,
     notebookApi: NonReadonly<NotebookApi>,
     options?: RequestInit
-): Promise<notebooksKernelStopCreateResponse> => {
-    return apiMutator<notebooksKernelStopCreateResponse>(getNotebooksKernelStopCreateUrl(projectId, shortId), {
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksKernelStopCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -465,25 +318,12 @@ export const notebooksKernelStopCreate = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksActivityRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksActivityRetrieveResponseSuccess = notebooksActivityRetrieveResponse200 & {
-    headers: Headers
-}
-export type notebooksActivityRetrieveResponse = notebooksActivityRetrieveResponseSuccess
-
 export const getNotebooksActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notebooks/activity/`
 }
 
-export const notebooksActivityRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<notebooksActivityRetrieveResponse> => {
-    return apiMutator<notebooksActivityRetrieveResponse>(getNotebooksActivityRetrieveUrl(projectId), {
+export const notebooksActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -492,25 +332,12 @@ export const notebooksActivityRetrieve = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export type notebooksRecordingCommentsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type notebooksRecordingCommentsRetrieveResponseSuccess = notebooksRecordingCommentsRetrieveResponse200 & {
-    headers: Headers
-}
-export type notebooksRecordingCommentsRetrieveResponse = notebooksRecordingCommentsRetrieveResponseSuccess
-
 export const getNotebooksRecordingCommentsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notebooks/recording_comments/`
 }
 
-export const notebooksRecordingCommentsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<notebooksRecordingCommentsRetrieveResponse> => {
-    return apiMutator<notebooksRecordingCommentsRetrieveResponse>(getNotebooksRecordingCommentsRetrieveUrl(projectId), {
+export const notebooksRecordingCommentsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getNotebooksRecordingCommentsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

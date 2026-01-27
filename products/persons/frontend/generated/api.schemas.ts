@@ -208,6 +208,314 @@ export interface PatchedPersonApi {
     readonly uuid?: string
 }
 
+export type EnvironmentsPersonsListParams = {
+    /**
+     * Filter list by distinct id.
+     */
+    distinct_id?: string
+    /**
+     * Filter persons by email (exact match)
+     */
+    email?: string
+    format?: EnvironmentsPersonsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter Persons by person properties.
+     */
+    properties?: PropertyApi[]
+    /**
+     * Search persons, either by email (full text search) or distinct_id (exact match).
+     */
+    search?: string
+}
+
+export type EnvironmentsPersonsListFormat =
+    (typeof EnvironmentsPersonsListFormat)[keyof typeof EnvironmentsPersonsListFormat]
+
+export const EnvironmentsPersonsListFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsRetrieveParams = {
+    format?: EnvironmentsPersonsRetrieveFormat
+}
+
+export type EnvironmentsPersonsRetrieveFormat =
+    (typeof EnvironmentsPersonsRetrieveFormat)[keyof typeof EnvironmentsPersonsRetrieveFormat]
+
+export const EnvironmentsPersonsRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsUpdateParams = {
+    format?: EnvironmentsPersonsUpdateFormat
+}
+
+export type EnvironmentsPersonsUpdateFormat =
+    (typeof EnvironmentsPersonsUpdateFormat)[keyof typeof EnvironmentsPersonsUpdateFormat]
+
+export const EnvironmentsPersonsUpdateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsPartialUpdateParams = {
+    format?: EnvironmentsPersonsPartialUpdateFormat
+}
+
+export type EnvironmentsPersonsPartialUpdateFormat =
+    (typeof EnvironmentsPersonsPartialUpdateFormat)[keyof typeof EnvironmentsPersonsPartialUpdateFormat]
+
+export const EnvironmentsPersonsPartialUpdateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsActivityRetrieve2Params = {
+    format?: EnvironmentsPersonsActivityRetrieve2Format
+}
+
+export type EnvironmentsPersonsActivityRetrieve2Format =
+    (typeof EnvironmentsPersonsActivityRetrieve2Format)[keyof typeof EnvironmentsPersonsActivityRetrieve2Format]
+
+export const EnvironmentsPersonsActivityRetrieve2Format = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsDeletePropertyCreateParams = {
+    /**
+     * Specify the property key to delete
+     */
+    $unset: string
+    format?: EnvironmentsPersonsDeletePropertyCreateFormat
+}
+
+export type EnvironmentsPersonsDeletePropertyCreateFormat =
+    (typeof EnvironmentsPersonsDeletePropertyCreateFormat)[keyof typeof EnvironmentsPersonsDeletePropertyCreateFormat]
+
+export const EnvironmentsPersonsDeletePropertyCreateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsPropertiesTimelineRetrieveParams = {
+    format?: EnvironmentsPersonsPropertiesTimelineRetrieveFormat
+}
+
+export type EnvironmentsPersonsPropertiesTimelineRetrieveFormat =
+    (typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat)[keyof typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat]
+
+export const EnvironmentsPersonsPropertiesTimelineRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsSplitCreateParams = {
+    format?: EnvironmentsPersonsSplitCreateFormat
+}
+
+export type EnvironmentsPersonsSplitCreateFormat =
+    (typeof EnvironmentsPersonsSplitCreateFormat)[keyof typeof EnvironmentsPersonsSplitCreateFormat]
+
+export const EnvironmentsPersonsSplitCreateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsUpdatePropertyCreateParams = {
+    format?: EnvironmentsPersonsUpdatePropertyCreateFormat
+    /**
+     * Specify the property key
+     */
+    key: string
+    /**
+     * Specify the property value
+     */
+    value: unknown
+}
+
+export type EnvironmentsPersonsUpdatePropertyCreateFormat =
+    (typeof EnvironmentsPersonsUpdatePropertyCreateFormat)[keyof typeof EnvironmentsPersonsUpdatePropertyCreateFormat]
+
+export const EnvironmentsPersonsUpdatePropertyCreateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsActivityRetrieveParams = {
+    format?: EnvironmentsPersonsActivityRetrieveFormat
+}
+
+export type EnvironmentsPersonsActivityRetrieveFormat =
+    (typeof EnvironmentsPersonsActivityRetrieveFormat)[keyof typeof EnvironmentsPersonsActivityRetrieveFormat]
+
+export const EnvironmentsPersonsActivityRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsBulkDeleteCreateParams = {
+    /**
+     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
+     */
+    delete_events?: boolean
+    /**
+     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
+     */
+    delete_recordings?: boolean
+    /**
+     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
+     */
+    distinct_ids?: { [key: string]: unknown }
+    format?: EnvironmentsPersonsBulkDeleteCreateFormat
+    /**
+     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
+     */
+    ids?: { [key: string]: unknown }
+    /**
+     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
+     */
+    keep_person?: boolean
+}
+
+export type EnvironmentsPersonsBulkDeleteCreateFormat =
+    (typeof EnvironmentsPersonsBulkDeleteCreateFormat)[keyof typeof EnvironmentsPersonsBulkDeleteCreateFormat]
+
+export const EnvironmentsPersonsBulkDeleteCreateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsCohortsRetrieveParams = {
+    format?: EnvironmentsPersonsCohortsRetrieveFormat
+}
+
+export type EnvironmentsPersonsCohortsRetrieveFormat =
+    (typeof EnvironmentsPersonsCohortsRetrieveFormat)[keyof typeof EnvironmentsPersonsCohortsRetrieveFormat]
+
+export const EnvironmentsPersonsCohortsRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsFunnelRetrieveParams = {
+    format?: EnvironmentsPersonsFunnelRetrieveFormat
+}
+
+export type EnvironmentsPersonsFunnelRetrieveFormat =
+    (typeof EnvironmentsPersonsFunnelRetrieveFormat)[keyof typeof EnvironmentsPersonsFunnelRetrieveFormat]
+
+export const EnvironmentsPersonsFunnelRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsFunnelCreateParams = {
+    format?: EnvironmentsPersonsFunnelCreateFormat
+}
+
+export type EnvironmentsPersonsFunnelCreateFormat =
+    (typeof EnvironmentsPersonsFunnelCreateFormat)[keyof typeof EnvironmentsPersonsFunnelCreateFormat]
+
+export const EnvironmentsPersonsFunnelCreateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
+    format?: EnvironmentsPersonsFunnelCorrelationRetrieveFormat
+}
+
+export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat =
+    (typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat)[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat]
+
+export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
+    format?: EnvironmentsPersonsFunnelCorrelationCreateFormat
+}
+
+export type EnvironmentsPersonsFunnelCorrelationCreateFormat =
+    (typeof EnvironmentsPersonsFunnelCorrelationCreateFormat)[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat]
+
+export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsLifecycleRetrieveParams = {
+    format?: EnvironmentsPersonsLifecycleRetrieveFormat
+}
+
+export type EnvironmentsPersonsLifecycleRetrieveFormat =
+    (typeof EnvironmentsPersonsLifecycleRetrieveFormat)[keyof typeof EnvironmentsPersonsLifecycleRetrieveFormat]
+
+export const EnvironmentsPersonsLifecycleRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsResetPersonDistinctIdCreateParams = {
+    format?: EnvironmentsPersonsResetPersonDistinctIdCreateFormat
+}
+
+export type EnvironmentsPersonsResetPersonDistinctIdCreateFormat =
+    (typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat)[keyof typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat]
+
+export const EnvironmentsPersonsResetPersonDistinctIdCreateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsStickinessRetrieveParams = {
+    format?: EnvironmentsPersonsStickinessRetrieveFormat
+}
+
+export type EnvironmentsPersonsStickinessRetrieveFormat =
+    (typeof EnvironmentsPersonsStickinessRetrieveFormat)[keyof typeof EnvironmentsPersonsStickinessRetrieveFormat]
+
+export const EnvironmentsPersonsStickinessRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsTrendsRetrieveParams = {
+    format?: EnvironmentsPersonsTrendsRetrieveFormat
+}
+
+export type EnvironmentsPersonsTrendsRetrieveFormat =
+    (typeof EnvironmentsPersonsTrendsRetrieveFormat)[keyof typeof EnvironmentsPersonsTrendsRetrieveFormat]
+
+export const EnvironmentsPersonsTrendsRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type EnvironmentsPersonsValuesRetrieveParams = {
+    format?: EnvironmentsPersonsValuesRetrieveFormat
+}
+
+export type EnvironmentsPersonsValuesRetrieveFormat =
+    (typeof EnvironmentsPersonsValuesRetrieveFormat)[keyof typeof EnvironmentsPersonsValuesRetrieveFormat]
+
+export const EnvironmentsPersonsValuesRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
 export type PersonsListParams = {
     /**
      * Filter list by distinct id.
@@ -503,308 +811,6 @@ export type PersonsValuesRetrieveParams = {
 export type PersonsValuesRetrieveFormat = (typeof PersonsValuesRetrieveFormat)[keyof typeof PersonsValuesRetrieveFormat]
 
 export const PersonsValuesRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsList2Params = {
-    /**
-     * Filter list by distinct id.
-     */
-    distinct_id?: string
-    /**
-     * Filter persons by email (exact match)
-     */
-    email?: string
-    format?: PersonsList2Format
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter Persons by person properties.
-     */
-    properties?: PropertyApi[]
-    /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
-     */
-    search?: string
-}
-
-export type PersonsList2Format = (typeof PersonsList2Format)[keyof typeof PersonsList2Format]
-
-export const PersonsList2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsRetrieve2Params = {
-    format?: PersonsRetrieve2Format
-}
-
-export type PersonsRetrieve2Format = (typeof PersonsRetrieve2Format)[keyof typeof PersonsRetrieve2Format]
-
-export const PersonsRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsUpdate2Params = {
-    format?: PersonsUpdate2Format
-}
-
-export type PersonsUpdate2Format = (typeof PersonsUpdate2Format)[keyof typeof PersonsUpdate2Format]
-
-export const PersonsUpdate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsPartialUpdate2Params = {
-    format?: PersonsPartialUpdate2Format
-}
-
-export type PersonsPartialUpdate2Format = (typeof PersonsPartialUpdate2Format)[keyof typeof PersonsPartialUpdate2Format]
-
-export const PersonsPartialUpdate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsActivityRetrieve4Params = {
-    format?: PersonsActivityRetrieve4Format
-}
-
-export type PersonsActivityRetrieve4Format =
-    (typeof PersonsActivityRetrieve4Format)[keyof typeof PersonsActivityRetrieve4Format]
-
-export const PersonsActivityRetrieve4Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsDeletePropertyCreate2Params = {
-    /**
-     * Specify the property key to delete
-     */
-    $unset: string
-    format?: PersonsDeletePropertyCreate2Format
-}
-
-export type PersonsDeletePropertyCreate2Format =
-    (typeof PersonsDeletePropertyCreate2Format)[keyof typeof PersonsDeletePropertyCreate2Format]
-
-export const PersonsDeletePropertyCreate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsPropertiesTimelineRetrieve2Params = {
-    format?: PersonsPropertiesTimelineRetrieve2Format
-}
-
-export type PersonsPropertiesTimelineRetrieve2Format =
-    (typeof PersonsPropertiesTimelineRetrieve2Format)[keyof typeof PersonsPropertiesTimelineRetrieve2Format]
-
-export const PersonsPropertiesTimelineRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsSplitCreate2Params = {
-    format?: PersonsSplitCreate2Format
-}
-
-export type PersonsSplitCreate2Format = (typeof PersonsSplitCreate2Format)[keyof typeof PersonsSplitCreate2Format]
-
-export const PersonsSplitCreate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsUpdatePropertyCreate2Params = {
-    format?: PersonsUpdatePropertyCreate2Format
-    /**
-     * Specify the property key
-     */
-    key: string
-    /**
-     * Specify the property value
-     */
-    value: unknown
-}
-
-export type PersonsUpdatePropertyCreate2Format =
-    (typeof PersonsUpdatePropertyCreate2Format)[keyof typeof PersonsUpdatePropertyCreate2Format]
-
-export const PersonsUpdatePropertyCreate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsActivityRetrieve3Params = {
-    format?: PersonsActivityRetrieve3Format
-}
-
-export type PersonsActivityRetrieve3Format =
-    (typeof PersonsActivityRetrieve3Format)[keyof typeof PersonsActivityRetrieve3Format]
-
-export const PersonsActivityRetrieve3Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsBulkDeleteCreate2Params = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean
-    /**
-     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_recordings?: boolean
-    /**
-     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
-     */
-    distinct_ids?: { [key: string]: unknown }
-    format?: PersonsBulkDeleteCreate2Format
-    /**
-     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
-     */
-    ids?: { [key: string]: unknown }
-    /**
-     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
-     */
-    keep_person?: boolean
-}
-
-export type PersonsBulkDeleteCreate2Format =
-    (typeof PersonsBulkDeleteCreate2Format)[keyof typeof PersonsBulkDeleteCreate2Format]
-
-export const PersonsBulkDeleteCreate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsCohortsRetrieve2Params = {
-    format?: PersonsCohortsRetrieve2Format
-}
-
-export type PersonsCohortsRetrieve2Format =
-    (typeof PersonsCohortsRetrieve2Format)[keyof typeof PersonsCohortsRetrieve2Format]
-
-export const PersonsCohortsRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsFunnelRetrieve2Params = {
-    format?: PersonsFunnelRetrieve2Format
-}
-
-export type PersonsFunnelRetrieve2Format =
-    (typeof PersonsFunnelRetrieve2Format)[keyof typeof PersonsFunnelRetrieve2Format]
-
-export const PersonsFunnelRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsFunnelCreate2Params = {
-    format?: PersonsFunnelCreate2Format
-}
-
-export type PersonsFunnelCreate2Format = (typeof PersonsFunnelCreate2Format)[keyof typeof PersonsFunnelCreate2Format]
-
-export const PersonsFunnelCreate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsFunnelCorrelationRetrieve2Params = {
-    format?: PersonsFunnelCorrelationRetrieve2Format
-}
-
-export type PersonsFunnelCorrelationRetrieve2Format =
-    (typeof PersonsFunnelCorrelationRetrieve2Format)[keyof typeof PersonsFunnelCorrelationRetrieve2Format]
-
-export const PersonsFunnelCorrelationRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsFunnelCorrelationCreate2Params = {
-    format?: PersonsFunnelCorrelationCreate2Format
-}
-
-export type PersonsFunnelCorrelationCreate2Format =
-    (typeof PersonsFunnelCorrelationCreate2Format)[keyof typeof PersonsFunnelCorrelationCreate2Format]
-
-export const PersonsFunnelCorrelationCreate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsLifecycleRetrieve2Params = {
-    format?: PersonsLifecycleRetrieve2Format
-}
-
-export type PersonsLifecycleRetrieve2Format =
-    (typeof PersonsLifecycleRetrieve2Format)[keyof typeof PersonsLifecycleRetrieve2Format]
-
-export const PersonsLifecycleRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsResetPersonDistinctIdCreate2Params = {
-    format?: PersonsResetPersonDistinctIdCreate2Format
-}
-
-export type PersonsResetPersonDistinctIdCreate2Format =
-    (typeof PersonsResetPersonDistinctIdCreate2Format)[keyof typeof PersonsResetPersonDistinctIdCreate2Format]
-
-export const PersonsResetPersonDistinctIdCreate2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsStickinessRetrieve2Params = {
-    format?: PersonsStickinessRetrieve2Format
-}
-
-export type PersonsStickinessRetrieve2Format =
-    (typeof PersonsStickinessRetrieve2Format)[keyof typeof PersonsStickinessRetrieve2Format]
-
-export const PersonsStickinessRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsTrendsRetrieve2Params = {
-    format?: PersonsTrendsRetrieve2Format
-}
-
-export type PersonsTrendsRetrieve2Format =
-    (typeof PersonsTrendsRetrieve2Format)[keyof typeof PersonsTrendsRetrieve2Format]
-
-export const PersonsTrendsRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsValuesRetrieve2Params = {
-    format?: PersonsValuesRetrieve2Format
-}
-
-export type PersonsValuesRetrieve2Format =
-    (typeof PersonsValuesRetrieve2Format)[keyof typeof PersonsValuesRetrieve2Format]
-
-export const PersonsValuesRetrieve2Format = {
     csv: 'csv',
     json: 'json',
 } as const

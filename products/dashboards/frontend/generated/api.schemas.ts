@@ -358,6 +358,145 @@ export interface PatchedDataColorThemeApi {
     readonly created_by?: UserBasicApi
 }
 
+export type EnvironmentsDashboardsListParams = {
+    format?: EnvironmentsDashboardsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsDashboardsListFormat =
+    (typeof EnvironmentsDashboardsListFormat)[keyof typeof EnvironmentsDashboardsListFormat]
+
+export const EnvironmentsDashboardsListFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsCreateParams = {
+    format?: EnvironmentsDashboardsCreateFormat
+}
+
+export type EnvironmentsDashboardsCreateFormat =
+    (typeof EnvironmentsDashboardsCreateFormat)[keyof typeof EnvironmentsDashboardsCreateFormat]
+
+export const EnvironmentsDashboardsCreateFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsRetrieveParams = {
+    format?: EnvironmentsDashboardsRetrieveFormat
+}
+
+export type EnvironmentsDashboardsRetrieveFormat =
+    (typeof EnvironmentsDashboardsRetrieveFormat)[keyof typeof EnvironmentsDashboardsRetrieveFormat]
+
+export const EnvironmentsDashboardsRetrieveFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsUpdateParams = {
+    format?: EnvironmentsDashboardsUpdateFormat
+}
+
+export type EnvironmentsDashboardsUpdateFormat =
+    (typeof EnvironmentsDashboardsUpdateFormat)[keyof typeof EnvironmentsDashboardsUpdateFormat]
+
+export const EnvironmentsDashboardsUpdateFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsPartialUpdateParams = {
+    format?: EnvironmentsDashboardsPartialUpdateFormat
+}
+
+export type EnvironmentsDashboardsPartialUpdateFormat =
+    (typeof EnvironmentsDashboardsPartialUpdateFormat)[keyof typeof EnvironmentsDashboardsPartialUpdateFormat]
+
+export const EnvironmentsDashboardsPartialUpdateFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsDestroyParams = {
+    format?: EnvironmentsDashboardsDestroyFormat
+}
+
+export type EnvironmentsDashboardsDestroyFormat =
+    (typeof EnvironmentsDashboardsDestroyFormat)[keyof typeof EnvironmentsDashboardsDestroyFormat]
+
+export const EnvironmentsDashboardsDestroyFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
+    format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat
+}
+
+export type EnvironmentsDashboardsMoveTilePartialUpdateFormat =
+    (typeof EnvironmentsDashboardsMoveTilePartialUpdateFormat)[keyof typeof EnvironmentsDashboardsMoveTilePartialUpdateFormat]
+
+export const EnvironmentsDashboardsMoveTilePartialUpdateFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
+    format?: EnvironmentsDashboardsStreamTilesRetrieveFormat
+}
+
+export type EnvironmentsDashboardsStreamTilesRetrieveFormat =
+    (typeof EnvironmentsDashboardsStreamTilesRetrieveFormat)[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveFormat]
+
+export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsCreateFromTemplateJsonCreateParams = {
+    format?: EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat
+}
+
+export type EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat =
+    (typeof EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat)[keyof typeof EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat]
+
+export const EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsCreateUnlistedDashboardCreateParams = {
+    format?: EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat
+}
+
+export type EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat =
+    (typeof EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat)[keyof typeof EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat]
+
+export const EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat = {
+    json: 'json',
+    txt: 'txt',
+} as const
+
+export type EnvironmentsDataColorThemesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type DashboardsListParams = {
     format?: DashboardsListFormat
     /**
@@ -482,140 +621,6 @@ export const DashboardsCreateUnlistedDashboardCreateFormat = {
 } as const
 
 export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DashboardsList2Params = {
-    format?: DashboardsList2Format
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DashboardsList2Format = (typeof DashboardsList2Format)[keyof typeof DashboardsList2Format]
-
-export const DashboardsList2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreate2Params = {
-    format?: DashboardsCreate2Format
-}
-
-export type DashboardsCreate2Format = (typeof DashboardsCreate2Format)[keyof typeof DashboardsCreate2Format]
-
-export const DashboardsCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsRetrieve2Params = {
-    format?: DashboardsRetrieve2Format
-}
-
-export type DashboardsRetrieve2Format = (typeof DashboardsRetrieve2Format)[keyof typeof DashboardsRetrieve2Format]
-
-export const DashboardsRetrieve2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsUpdate2Params = {
-    format?: DashboardsUpdate2Format
-}
-
-export type DashboardsUpdate2Format = (typeof DashboardsUpdate2Format)[keyof typeof DashboardsUpdate2Format]
-
-export const DashboardsUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsPartialUpdate2Params = {
-    format?: DashboardsPartialUpdate2Format
-}
-
-export type DashboardsPartialUpdate2Format =
-    (typeof DashboardsPartialUpdate2Format)[keyof typeof DashboardsPartialUpdate2Format]
-
-export const DashboardsPartialUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsDestroy2Params = {
-    format?: DashboardsDestroy2Format
-}
-
-export type DashboardsDestroy2Format = (typeof DashboardsDestroy2Format)[keyof typeof DashboardsDestroy2Format]
-
-export const DashboardsDestroy2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsMoveTilePartialUpdate2Params = {
-    format?: DashboardsMoveTilePartialUpdate2Format
-}
-
-export type DashboardsMoveTilePartialUpdate2Format =
-    (typeof DashboardsMoveTilePartialUpdate2Format)[keyof typeof DashboardsMoveTilePartialUpdate2Format]
-
-export const DashboardsMoveTilePartialUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsStreamTilesRetrieve2Params = {
-    format?: DashboardsStreamTilesRetrieve2Format
-}
-
-export type DashboardsStreamTilesRetrieve2Format =
-    (typeof DashboardsStreamTilesRetrieve2Format)[keyof typeof DashboardsStreamTilesRetrieve2Format]
-
-export const DashboardsStreamTilesRetrieve2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreateFromTemplateJsonCreate2Params = {
-    format?: DashboardsCreateFromTemplateJsonCreate2Format
-}
-
-export type DashboardsCreateFromTemplateJsonCreate2Format =
-    (typeof DashboardsCreateFromTemplateJsonCreate2Format)[keyof typeof DashboardsCreateFromTemplateJsonCreate2Format]
-
-export const DashboardsCreateFromTemplateJsonCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreateUnlistedDashboardCreate2Params = {
-    format?: DashboardsCreateUnlistedDashboardCreate2Format
-}
-
-export type DashboardsCreateUnlistedDashboardCreate2Format =
-    (typeof DashboardsCreateUnlistedDashboardCreate2Format)[keyof typeof DashboardsCreateUnlistedDashboardCreate2Format]
-
-export const DashboardsCreateUnlistedDashboardCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DataColorThemesList2Params = {
     /**
      * Number of results to return per page.
      */

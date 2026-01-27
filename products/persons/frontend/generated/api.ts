@@ -9,50 +9,50 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    EnvironmentsPersonsActivityRetrieve2Params,
+    EnvironmentsPersonsActivityRetrieveParams,
+    EnvironmentsPersonsBulkDeleteCreateParams,
+    EnvironmentsPersonsCohortsRetrieveParams,
+    EnvironmentsPersonsDeletePropertyCreateParams,
+    EnvironmentsPersonsFunnelCorrelationCreateParams,
+    EnvironmentsPersonsFunnelCorrelationRetrieveParams,
+    EnvironmentsPersonsFunnelCreateParams,
+    EnvironmentsPersonsFunnelRetrieveParams,
+    EnvironmentsPersonsLifecycleRetrieveParams,
+    EnvironmentsPersonsListParams,
+    EnvironmentsPersonsPartialUpdateParams,
+    EnvironmentsPersonsPropertiesTimelineRetrieveParams,
+    EnvironmentsPersonsResetPersonDistinctIdCreateParams,
+    EnvironmentsPersonsRetrieveParams,
+    EnvironmentsPersonsSplitCreateParams,
+    EnvironmentsPersonsStickinessRetrieveParams,
+    EnvironmentsPersonsTrendsRetrieveParams,
+    EnvironmentsPersonsUpdateParams,
+    EnvironmentsPersonsUpdatePropertyCreateParams,
+    EnvironmentsPersonsValuesRetrieveParams,
     PaginatedPersonListApi,
     PatchedPersonApi,
     PersonApi,
     PersonsActivityRetrieve2Params,
-    PersonsActivityRetrieve3Params,
-    PersonsActivityRetrieve4Params,
     PersonsActivityRetrieveParams,
-    PersonsBulkDeleteCreate2Params,
     PersonsBulkDeleteCreateParams,
-    PersonsCohortsRetrieve2Params,
     PersonsCohortsRetrieveParams,
-    PersonsDeletePropertyCreate2Params,
     PersonsDeletePropertyCreateParams,
-    PersonsFunnelCorrelationCreate2Params,
     PersonsFunnelCorrelationCreateParams,
-    PersonsFunnelCorrelationRetrieve2Params,
     PersonsFunnelCorrelationRetrieveParams,
-    PersonsFunnelCreate2Params,
     PersonsFunnelCreateParams,
-    PersonsFunnelRetrieve2Params,
     PersonsFunnelRetrieveParams,
-    PersonsLifecycleRetrieve2Params,
     PersonsLifecycleRetrieveParams,
-    PersonsList2Params,
     PersonsListParams,
-    PersonsPartialUpdate2Params,
     PersonsPartialUpdateParams,
-    PersonsPropertiesTimelineRetrieve2Params,
     PersonsPropertiesTimelineRetrieveParams,
-    PersonsResetPersonDistinctIdCreate2Params,
     PersonsResetPersonDistinctIdCreateParams,
-    PersonsRetrieve2Params,
     PersonsRetrieveParams,
-    PersonsSplitCreate2Params,
     PersonsSplitCreateParams,
-    PersonsStickinessRetrieve2Params,
     PersonsStickinessRetrieveParams,
-    PersonsTrendsRetrieve2Params,
     PersonsTrendsRetrieveParams,
-    PersonsUpdate2Params,
     PersonsUpdateParams,
-    PersonsUpdatePropertyCreate2Params,
     PersonsUpdatePropertyCreateParams,
-    PersonsValuesRetrieve2Params,
     PersonsValuesRetrieveParams,
 } from './api.schemas'
 
@@ -76,17 +76,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsListResponse200 = {
-    data: PaginatedPersonListApi
-    status: 200
-}
-
-export type personsListResponseSuccess = personsListResponse200 & {
-    headers: Headers
-}
-export type personsListResponse = personsListResponseSuccess
-
-export const getPersonsListUrl = (projectId: string, params?: PersonsListParams) => {
+export const getEnvironmentsPersonsListUrl = (projectId: string, params?: EnvironmentsPersonsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -102,12 +92,12 @@ export const getPersonsListUrl = (projectId: string, params?: PersonsListParams)
         : `/api/environments/${projectId}/persons/`
 }
 
-export const personsList = async (
+export const environmentsPersonsList = async (
     projectId: string,
-    params?: PersonsListParams,
+    params?: EnvironmentsPersonsListParams,
     options?: RequestInit
-): Promise<personsListResponse> => {
-    return apiMutator<personsListResponse>(getPersonsListUrl(projectId, params), {
+): Promise<PaginatedPersonListApi> => {
+    return apiMutator<PaginatedPersonListApi>(getEnvironmentsPersonsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -116,17 +106,11 @@ export const personsList = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsRetrieveResponse200 = {
-    data: PersonApi
-    status: 200
-}
-
-export type personsRetrieveResponseSuccess = personsRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsRetrieveResponse = personsRetrieveResponseSuccess
-
-export const getPersonsRetrieveUrl = (projectId: string, id: number, params?: PersonsRetrieveParams) => {
+export const getEnvironmentsPersonsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: EnvironmentsPersonsRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -142,13 +126,13 @@ export const getPersonsRetrieveUrl = (projectId: string, id: number, params?: Pe
         : `/api/environments/${projectId}/persons/${id}/`
 }
 
-export const personsRetrieve = async (
+export const environmentsPersonsRetrieve = async (
     projectId: string,
     id: number,
-    params?: PersonsRetrieveParams,
+    params?: EnvironmentsPersonsRetrieveParams,
     options?: RequestInit
-): Promise<personsRetrieveResponse> => {
-    return apiMutator<personsRetrieveResponse>(getPersonsRetrieveUrl(projectId, id, params), {
+): Promise<PersonApi> => {
+    return apiMutator<PersonApi>(getEnvironmentsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -159,17 +143,11 @@ export const personsRetrieve = async (
 This means that only the properties listed will be updated, but other properties won't be removed nor updated.
 If you would like to remove a property use the `delete_property` endpoint.
  */
-export type personsUpdateResponse200 = {
-    data: PersonApi
-    status: 200
-}
-
-export type personsUpdateResponseSuccess = personsUpdateResponse200 & {
-    headers: Headers
-}
-export type personsUpdateResponse = personsUpdateResponseSuccess
-
-export const getPersonsUpdateUrl = (projectId: string, id: number, params?: PersonsUpdateParams) => {
+export const getEnvironmentsPersonsUpdateUrl = (
+    projectId: string,
+    id: number,
+    params?: EnvironmentsPersonsUpdateParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -185,14 +163,14 @@ export const getPersonsUpdateUrl = (projectId: string, id: number, params?: Pers
         : `/api/environments/${projectId}/persons/${id}/`
 }
 
-export const personsUpdate = async (
+export const environmentsPersonsUpdate = async (
     projectId: string,
     id: number,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsUpdateParams,
+    params?: EnvironmentsPersonsUpdateParams,
     options?: RequestInit
-): Promise<personsUpdateResponse> => {
-    return apiMutator<personsUpdateResponse>(getPersonsUpdateUrl(projectId, id, params), {
+): Promise<PersonApi> => {
+    return apiMutator<PersonApi>(getEnvironmentsPersonsUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -203,17 +181,11 @@ export const personsUpdate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsPartialUpdateResponse200 = {
-    data: PersonApi
-    status: 200
-}
-
-export type personsPartialUpdateResponseSuccess = personsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type personsPartialUpdateResponse = personsPartialUpdateResponseSuccess
-
-export const getPersonsPartialUpdateUrl = (projectId: string, id: number, params?: PersonsPartialUpdateParams) => {
+export const getEnvironmentsPersonsPartialUpdateUrl = (
+    projectId: string,
+    id: number,
+    params?: EnvironmentsPersonsPartialUpdateParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -229,14 +201,14 @@ export const getPersonsPartialUpdateUrl = (projectId: string, id: number, params
         : `/api/environments/${projectId}/persons/${id}/`
 }
 
-export const personsPartialUpdate = async (
+export const environmentsPersonsPartialUpdate = async (
     projectId: string,
     id: number,
     patchedPersonApi: NonReadonly<PatchedPersonApi>,
-    params?: PersonsPartialUpdateParams,
+    params?: EnvironmentsPersonsPartialUpdateParams,
     options?: RequestInit
-): Promise<personsPartialUpdateResponse> => {
-    return apiMutator<personsPartialUpdateResponse>(getPersonsPartialUpdateUrl(projectId, id, params), {
+): Promise<PersonApi> => {
+    return apiMutator<PersonApi>(getEnvironmentsPersonsPartialUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -247,20 +219,10 @@ export const personsPartialUpdate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsActivityRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsActivityRetrieve2ResponseSuccess = personsActivityRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsActivityRetrieve2Response = personsActivityRetrieve2ResponseSuccess
-
-export const getPersonsActivityRetrieve2Url = (
+export const getEnvironmentsPersonsActivityRetrieve2Url = (
     projectId: string,
     id: number,
-    params?: PersonsActivityRetrieve2Params
+    params?: EnvironmentsPersonsActivityRetrieve2Params
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -277,13 +239,13 @@ export const getPersonsActivityRetrieve2Url = (
         : `/api/environments/${projectId}/persons/${id}/activity/`
 }
 
-export const personsActivityRetrieve2 = async (
+export const environmentsPersonsActivityRetrieve2 = async (
     projectId: string,
     id: number,
-    params?: PersonsActivityRetrieve2Params,
+    params?: EnvironmentsPersonsActivityRetrieve2Params,
     options?: RequestInit
-): Promise<personsActivityRetrieve2Response> => {
-    return apiMutator<personsActivityRetrieve2Response>(getPersonsActivityRetrieve2Url(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsActivityRetrieve2Url(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -292,20 +254,10 @@ export const personsActivityRetrieve2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsDeletePropertyCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsDeletePropertyCreateResponseSuccess = personsDeletePropertyCreateResponse200 & {
-    headers: Headers
-}
-export type personsDeletePropertyCreateResponse = personsDeletePropertyCreateResponseSuccess
-
-export const getPersonsDeletePropertyCreateUrl = (
+export const getEnvironmentsPersonsDeletePropertyCreateUrl = (
     projectId: string,
     id: number,
-    params: PersonsDeletePropertyCreateParams
+    params: EnvironmentsPersonsDeletePropertyCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -322,14 +274,14 @@ export const getPersonsDeletePropertyCreateUrl = (
         : `/api/environments/${projectId}/persons/${id}/delete_property/`
 }
 
-export const personsDeletePropertyCreate = async (
+export const environmentsPersonsDeletePropertyCreate = async (
     projectId: string,
     id: number,
     personApi: NonReadonly<PersonApi>,
-    params: PersonsDeletePropertyCreateParams,
+    params: EnvironmentsPersonsDeletePropertyCreateParams,
     options?: RequestInit
-): Promise<personsDeletePropertyCreateResponse> => {
-    return apiMutator<personsDeletePropertyCreateResponse>(getPersonsDeletePropertyCreateUrl(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsDeletePropertyCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -340,20 +292,10 @@ export const personsDeletePropertyCreate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsPropertiesTimelineRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsPropertiesTimelineRetrieveResponseSuccess = personsPropertiesTimelineRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsPropertiesTimelineRetrieveResponse = personsPropertiesTimelineRetrieveResponseSuccess
-
-export const getPersonsPropertiesTimelineRetrieveUrl = (
+export const getEnvironmentsPersonsPropertiesTimelineRetrieveUrl = (
     projectId: string,
     id: number,
-    params?: PersonsPropertiesTimelineRetrieveParams
+    params?: EnvironmentsPersonsPropertiesTimelineRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -370,35 +312,26 @@ export const getPersonsPropertiesTimelineRetrieveUrl = (
         : `/api/environments/${projectId}/persons/${id}/properties_timeline/`
 }
 
-export const personsPropertiesTimelineRetrieve = async (
+export const environmentsPersonsPropertiesTimelineRetrieve = async (
     projectId: string,
     id: number,
-    params?: PersonsPropertiesTimelineRetrieveParams,
+    params?: EnvironmentsPersonsPropertiesTimelineRetrieveParams,
     options?: RequestInit
-): Promise<personsPropertiesTimelineRetrieveResponse> => {
-    return apiMutator<personsPropertiesTimelineRetrieveResponse>(
-        getPersonsPropertiesTimelineRetrieveUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsPropertiesTimelineRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsSplitCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsSplitCreateResponseSuccess = personsSplitCreateResponse200 & {
-    headers: Headers
-}
-export type personsSplitCreateResponse = personsSplitCreateResponseSuccess
-
-export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?: PersonsSplitCreateParams) => {
+export const getEnvironmentsPersonsSplitCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: EnvironmentsPersonsSplitCreateParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -414,14 +347,14 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?:
         : `/api/environments/${projectId}/persons/${id}/split/`
 }
 
-export const personsSplitCreate = async (
+export const environmentsPersonsSplitCreate = async (
     projectId: string,
     id: number,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsSplitCreateParams,
+    params?: EnvironmentsPersonsSplitCreateParams,
     options?: RequestInit
-): Promise<personsSplitCreateResponse> => {
-    return apiMutator<personsSplitCreateResponse>(getPersonsSplitCreateUrl(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsSplitCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -432,20 +365,10 @@ export const personsSplitCreate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsUpdatePropertyCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsUpdatePropertyCreateResponseSuccess = personsUpdatePropertyCreateResponse200 & {
-    headers: Headers
-}
-export type personsUpdatePropertyCreateResponse = personsUpdatePropertyCreateResponseSuccess
-
-export const getPersonsUpdatePropertyCreateUrl = (
+export const getEnvironmentsPersonsUpdatePropertyCreateUrl = (
     projectId: string,
     id: number,
-    params: PersonsUpdatePropertyCreateParams
+    params: EnvironmentsPersonsUpdatePropertyCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -462,14 +385,14 @@ export const getPersonsUpdatePropertyCreateUrl = (
         : `/api/environments/${projectId}/persons/${id}/update_property/`
 }
 
-export const personsUpdatePropertyCreate = async (
+export const environmentsPersonsUpdatePropertyCreate = async (
     projectId: string,
     id: number,
     personApi: NonReadonly<PersonApi>,
-    params: PersonsUpdatePropertyCreateParams,
+    params: EnvironmentsPersonsUpdatePropertyCreateParams,
     options?: RequestInit
-): Promise<personsUpdatePropertyCreateResponse> => {
-    return apiMutator<personsUpdatePropertyCreateResponse>(getPersonsUpdatePropertyCreateUrl(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsUpdatePropertyCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -480,17 +403,10 @@ export const personsUpdatePropertyCreate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsActivityRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsActivityRetrieveResponseSuccess = personsActivityRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsActivityRetrieveResponse = personsActivityRetrieveResponseSuccess
-
-export const getPersonsActivityRetrieveUrl = (projectId: string, params?: PersonsActivityRetrieveParams) => {
+export const getEnvironmentsPersonsActivityRetrieveUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsActivityRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -506,12 +422,12 @@ export const getPersonsActivityRetrieveUrl = (projectId: string, params?: Person
         : `/api/environments/${projectId}/persons/activity/`
 }
 
-export const personsActivityRetrieve = async (
+export const environmentsPersonsActivityRetrieve = async (
     projectId: string,
-    params?: PersonsActivityRetrieveParams,
+    params?: EnvironmentsPersonsActivityRetrieveParams,
     options?: RequestInit
-): Promise<personsActivityRetrieveResponse> => {
-    return apiMutator<personsActivityRetrieveResponse>(getPersonsActivityRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -520,17 +436,10 @@ export const personsActivityRetrieve = async (
 /**
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
  */
-export type personsBulkDeleteCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsBulkDeleteCreateResponseSuccess = personsBulkDeleteCreateResponse200 & {
-    headers: Headers
-}
-export type personsBulkDeleteCreateResponse = personsBulkDeleteCreateResponseSuccess
-
-export const getPersonsBulkDeleteCreateUrl = (projectId: string, params?: PersonsBulkDeleteCreateParams) => {
+export const getEnvironmentsPersonsBulkDeleteCreateUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsBulkDeleteCreateParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -546,13 +455,13 @@ export const getPersonsBulkDeleteCreateUrl = (projectId: string, params?: Person
         : `/api/environments/${projectId}/persons/bulk_delete/`
 }
 
-export const personsBulkDeleteCreate = async (
+export const environmentsPersonsBulkDeleteCreate = async (
     projectId: string,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsBulkDeleteCreateParams,
+    params?: EnvironmentsPersonsBulkDeleteCreateParams,
     options?: RequestInit
-): Promise<personsBulkDeleteCreateResponse> => {
-    return apiMutator<personsBulkDeleteCreateResponse>(getPersonsBulkDeleteCreateUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsBulkDeleteCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -563,17 +472,10 @@ export const personsBulkDeleteCreate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsCohortsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsCohortsRetrieveResponseSuccess = personsCohortsRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsCohortsRetrieveResponse = personsCohortsRetrieveResponseSuccess
-
-export const getPersonsCohortsRetrieveUrl = (projectId: string, params?: PersonsCohortsRetrieveParams) => {
+export const getEnvironmentsPersonsCohortsRetrieveUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsCohortsRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -589,12 +491,12 @@ export const getPersonsCohortsRetrieveUrl = (projectId: string, params?: Persons
         : `/api/environments/${projectId}/persons/cohorts/`
 }
 
-export const personsCohortsRetrieve = async (
+export const environmentsPersonsCohortsRetrieve = async (
     projectId: string,
-    params?: PersonsCohortsRetrieveParams,
+    params?: EnvironmentsPersonsCohortsRetrieveParams,
     options?: RequestInit
-): Promise<personsCohortsRetrieveResponse> => {
-    return apiMutator<personsCohortsRetrieveResponse>(getPersonsCohortsRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsCohortsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -603,17 +505,10 @@ export const personsCohortsRetrieve = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsFunnelRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsFunnelRetrieveResponseSuccess = personsFunnelRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsFunnelRetrieveResponse = personsFunnelRetrieveResponseSuccess
-
-export const getPersonsFunnelRetrieveUrl = (projectId: string, params?: PersonsFunnelRetrieveParams) => {
+export const getEnvironmentsPersonsFunnelRetrieveUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsFunnelRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -629,12 +524,12 @@ export const getPersonsFunnelRetrieveUrl = (projectId: string, params?: PersonsF
         : `/api/environments/${projectId}/persons/funnel/`
 }
 
-export const personsFunnelRetrieve = async (
+export const environmentsPersonsFunnelRetrieve = async (
     projectId: string,
-    params?: PersonsFunnelRetrieveParams,
+    params?: EnvironmentsPersonsFunnelRetrieveParams,
     options?: RequestInit
-): Promise<personsFunnelRetrieveResponse> => {
-    return apiMutator<personsFunnelRetrieveResponse>(getPersonsFunnelRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsFunnelRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -643,17 +538,10 @@ export const personsFunnelRetrieve = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsFunnelCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsFunnelCreateResponseSuccess = personsFunnelCreateResponse200 & {
-    headers: Headers
-}
-export type personsFunnelCreateResponse = personsFunnelCreateResponseSuccess
-
-export const getPersonsFunnelCreateUrl = (projectId: string, params?: PersonsFunnelCreateParams) => {
+export const getEnvironmentsPersonsFunnelCreateUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsFunnelCreateParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -669,13 +557,13 @@ export const getPersonsFunnelCreateUrl = (projectId: string, params?: PersonsFun
         : `/api/environments/${projectId}/persons/funnel/`
 }
 
-export const personsFunnelCreate = async (
+export const environmentsPersonsFunnelCreate = async (
     projectId: string,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsFunnelCreateParams,
+    params?: EnvironmentsPersonsFunnelCreateParams,
     options?: RequestInit
-): Promise<personsFunnelCreateResponse> => {
-    return apiMutator<personsFunnelCreateResponse>(getPersonsFunnelCreateUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsFunnelCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -686,19 +574,9 @@ export const personsFunnelCreate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsFunnelCorrelationRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsFunnelCorrelationRetrieveResponseSuccess = personsFunnelCorrelationRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsFunnelCorrelationRetrieveResponse = personsFunnelCorrelationRetrieveResponseSuccess
-
-export const getPersonsFunnelCorrelationRetrieveUrl = (
+export const getEnvironmentsPersonsFunnelCorrelationRetrieveUrl = (
     projectId: string,
-    params?: PersonsFunnelCorrelationRetrieveParams
+    params?: EnvironmentsPersonsFunnelCorrelationRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -715,36 +593,23 @@ export const getPersonsFunnelCorrelationRetrieveUrl = (
         : `/api/environments/${projectId}/persons/funnel/correlation/`
 }
 
-export const personsFunnelCorrelationRetrieve = async (
+export const environmentsPersonsFunnelCorrelationRetrieve = async (
     projectId: string,
-    params?: PersonsFunnelCorrelationRetrieveParams,
+    params?: EnvironmentsPersonsFunnelCorrelationRetrieveParams,
     options?: RequestInit
-): Promise<personsFunnelCorrelationRetrieveResponse> => {
-    return apiMutator<personsFunnelCorrelationRetrieveResponse>(
-        getPersonsFunnelCorrelationRetrieveUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsFunnelCorrelationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsFunnelCorrelationCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsFunnelCorrelationCreateResponseSuccess = personsFunnelCorrelationCreateResponse200 & {
-    headers: Headers
-}
-export type personsFunnelCorrelationCreateResponse = personsFunnelCorrelationCreateResponseSuccess
-
-export const getPersonsFunnelCorrelationCreateUrl = (
+export const getEnvironmentsPersonsFunnelCorrelationCreateUrl = (
     projectId: string,
-    params?: PersonsFunnelCorrelationCreateParams
+    params?: EnvironmentsPersonsFunnelCorrelationCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -761,13 +626,13 @@ export const getPersonsFunnelCorrelationCreateUrl = (
         : `/api/environments/${projectId}/persons/funnel/correlation/`
 }
 
-export const personsFunnelCorrelationCreate = async (
+export const environmentsPersonsFunnelCorrelationCreate = async (
     projectId: string,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsFunnelCorrelationCreateParams,
+    params?: EnvironmentsPersonsFunnelCorrelationCreateParams,
     options?: RequestInit
-): Promise<personsFunnelCorrelationCreateResponse> => {
-    return apiMutator<personsFunnelCorrelationCreateResponse>(getPersonsFunnelCorrelationCreateUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsFunnelCorrelationCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -778,17 +643,10 @@ export const personsFunnelCorrelationCreate = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsLifecycleRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsLifecycleRetrieveResponseSuccess = personsLifecycleRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsLifecycleRetrieveResponse = personsLifecycleRetrieveResponseSuccess
-
-export const getPersonsLifecycleRetrieveUrl = (projectId: string, params?: PersonsLifecycleRetrieveParams) => {
+export const getEnvironmentsPersonsLifecycleRetrieveUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsLifecycleRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -804,12 +662,12 @@ export const getPersonsLifecycleRetrieveUrl = (projectId: string, params?: Perso
         : `/api/environments/${projectId}/persons/lifecycle/`
 }
 
-export const personsLifecycleRetrieve = async (
+export const environmentsPersonsLifecycleRetrieve = async (
     projectId: string,
-    params?: PersonsLifecycleRetrieveParams,
+    params?: EnvironmentsPersonsLifecycleRetrieveParams,
     options?: RequestInit
-): Promise<personsLifecycleRetrieveResponse> => {
-    return apiMutator<personsLifecycleRetrieveResponse>(getPersonsLifecycleRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsLifecycleRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -818,19 +676,9 @@ export const personsLifecycleRetrieve = async (
 /**
  * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
  */
-export type personsResetPersonDistinctIdCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsResetPersonDistinctIdCreateResponseSuccess = personsResetPersonDistinctIdCreateResponse200 & {
-    headers: Headers
-}
-export type personsResetPersonDistinctIdCreateResponse = personsResetPersonDistinctIdCreateResponseSuccess
-
-export const getPersonsResetPersonDistinctIdCreateUrl = (
+export const getEnvironmentsPersonsResetPersonDistinctIdCreateUrl = (
     projectId: string,
-    params?: PersonsResetPersonDistinctIdCreateParams
+    params?: EnvironmentsPersonsResetPersonDistinctIdCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -847,37 +695,27 @@ export const getPersonsResetPersonDistinctIdCreateUrl = (
         : `/api/environments/${projectId}/persons/reset_person_distinct_id/`
 }
 
-export const personsResetPersonDistinctIdCreate = async (
+export const environmentsPersonsResetPersonDistinctIdCreate = async (
     projectId: string,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsResetPersonDistinctIdCreateParams,
+    params?: EnvironmentsPersonsResetPersonDistinctIdCreateParams,
     options?: RequestInit
-): Promise<personsResetPersonDistinctIdCreateResponse> => {
-    return apiMutator<personsResetPersonDistinctIdCreateResponse>(
-        getPersonsResetPersonDistinctIdCreateUrl(projectId, params),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(personApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsResetPersonDistinctIdCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(personApi),
+    })
 }
 
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsStickinessRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsStickinessRetrieveResponseSuccess = personsStickinessRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsStickinessRetrieveResponse = personsStickinessRetrieveResponseSuccess
-
-export const getPersonsStickinessRetrieveUrl = (projectId: string, params?: PersonsStickinessRetrieveParams) => {
+export const getEnvironmentsPersonsStickinessRetrieveUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsStickinessRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -893,12 +731,12 @@ export const getPersonsStickinessRetrieveUrl = (projectId: string, params?: Pers
         : `/api/environments/${projectId}/persons/stickiness/`
 }
 
-export const personsStickinessRetrieve = async (
+export const environmentsPersonsStickinessRetrieve = async (
     projectId: string,
-    params?: PersonsStickinessRetrieveParams,
+    params?: EnvironmentsPersonsStickinessRetrieveParams,
     options?: RequestInit
-): Promise<personsStickinessRetrieveResponse> => {
-    return apiMutator<personsStickinessRetrieveResponse>(getPersonsStickinessRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsStickinessRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -907,17 +745,10 @@ export const personsStickinessRetrieve = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsTrendsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsTrendsRetrieveResponseSuccess = personsTrendsRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsTrendsRetrieveResponse = personsTrendsRetrieveResponseSuccess
-
-export const getPersonsTrendsRetrieveUrl = (projectId: string, params?: PersonsTrendsRetrieveParams) => {
+export const getEnvironmentsPersonsTrendsRetrieveUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsTrendsRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -933,12 +764,12 @@ export const getPersonsTrendsRetrieveUrl = (projectId: string, params?: PersonsT
         : `/api/environments/${projectId}/persons/trends/`
 }
 
-export const personsTrendsRetrieve = async (
+export const environmentsPersonsTrendsRetrieve = async (
     projectId: string,
-    params?: PersonsTrendsRetrieveParams,
+    params?: EnvironmentsPersonsTrendsRetrieveParams,
     options?: RequestInit
-): Promise<personsTrendsRetrieveResponse> => {
-    return apiMutator<personsTrendsRetrieveResponse>(getPersonsTrendsRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsTrendsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -947,17 +778,10 @@ export const personsTrendsRetrieve = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsValuesRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsValuesRetrieveResponseSuccess = personsValuesRetrieveResponse200 & {
-    headers: Headers
-}
-export type personsValuesRetrieveResponse = personsValuesRetrieveResponseSuccess
-
-export const getPersonsValuesRetrieveUrl = (projectId: string, params?: PersonsValuesRetrieveParams) => {
+export const getEnvironmentsPersonsValuesRetrieveUrl = (
+    projectId: string,
+    params?: EnvironmentsPersonsValuesRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -973,12 +797,12 @@ export const getPersonsValuesRetrieveUrl = (projectId: string, params?: PersonsV
         : `/api/environments/${projectId}/persons/values/`
 }
 
-export const personsValuesRetrieve = async (
+export const environmentsPersonsValuesRetrieve = async (
     projectId: string,
-    params?: PersonsValuesRetrieveParams,
+    params?: EnvironmentsPersonsValuesRetrieveParams,
     options?: RequestInit
-): Promise<personsValuesRetrieveResponse> => {
-    return apiMutator<personsValuesRetrieveResponse>(getPersonsValuesRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsPersonsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -987,17 +811,7 @@ export const personsValuesRetrieve = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsList2Response200 = {
-    data: PaginatedPersonListApi
-    status: 200
-}
-
-export type personsList2ResponseSuccess = personsList2Response200 & {
-    headers: Headers
-}
-export type personsList2Response = personsList2ResponseSuccess
-
-export const getPersonsList2Url = (projectId: string, params?: PersonsList2Params) => {
+export const getPersonsListUrl = (projectId: string, params?: PersonsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1013,12 +827,12 @@ export const getPersonsList2Url = (projectId: string, params?: PersonsList2Param
         : `/api/projects/${projectId}/persons/`
 }
 
-export const personsList2 = async (
+export const personsList = async (
     projectId: string,
-    params?: PersonsList2Params,
+    params?: PersonsListParams,
     options?: RequestInit
-): Promise<personsList2Response> => {
-    return apiMutator<personsList2Response>(getPersonsList2Url(projectId, params), {
+): Promise<PaginatedPersonListApi> => {
+    return apiMutator<PaginatedPersonListApi>(getPersonsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1027,17 +841,7 @@ export const personsList2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsRetrieve2Response200 = {
-    data: PersonApi
-    status: 200
-}
-
-export type personsRetrieve2ResponseSuccess = personsRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsRetrieve2Response = personsRetrieve2ResponseSuccess
-
-export const getPersonsRetrieve2Url = (projectId: string, id: number, params?: PersonsRetrieve2Params) => {
+export const getPersonsRetrieveUrl = (projectId: string, id: number, params?: PersonsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1053,13 +857,13 @@ export const getPersonsRetrieve2Url = (projectId: string, id: number, params?: P
         : `/api/projects/${projectId}/persons/${id}/`
 }
 
-export const personsRetrieve2 = async (
+export const personsRetrieve = async (
     projectId: string,
     id: number,
-    params?: PersonsRetrieve2Params,
+    params?: PersonsRetrieveParams,
     options?: RequestInit
-): Promise<personsRetrieve2Response> => {
-    return apiMutator<personsRetrieve2Response>(getPersonsRetrieve2Url(projectId, id, params), {
+): Promise<PersonApi> => {
+    return apiMutator<PersonApi>(getPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -1070,17 +874,7 @@ export const personsRetrieve2 = async (
 This means that only the properties listed will be updated, but other properties won't be removed nor updated.
 If you would like to remove a property use the `delete_property` endpoint.
  */
-export type personsUpdate2Response200 = {
-    data: PersonApi
-    status: 200
-}
-
-export type personsUpdate2ResponseSuccess = personsUpdate2Response200 & {
-    headers: Headers
-}
-export type personsUpdate2Response = personsUpdate2ResponseSuccess
-
-export const getPersonsUpdate2Url = (projectId: string, id: number, params?: PersonsUpdate2Params) => {
+export const getPersonsUpdateUrl = (projectId: string, id: number, params?: PersonsUpdateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1096,14 +890,14 @@ export const getPersonsUpdate2Url = (projectId: string, id: number, params?: Per
         : `/api/projects/${projectId}/persons/${id}/`
 }
 
-export const personsUpdate2 = async (
+export const personsUpdate = async (
     projectId: string,
     id: number,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsUpdate2Params,
+    params?: PersonsUpdateParams,
     options?: RequestInit
-): Promise<personsUpdate2Response> => {
-    return apiMutator<personsUpdate2Response>(getPersonsUpdate2Url(projectId, id, params), {
+): Promise<PersonApi> => {
+    return apiMutator<PersonApi>(getPersonsUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1114,17 +908,7 @@ export const personsUpdate2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsPartialUpdate2Response200 = {
-    data: PersonApi
-    status: 200
-}
-
-export type personsPartialUpdate2ResponseSuccess = personsPartialUpdate2Response200 & {
-    headers: Headers
-}
-export type personsPartialUpdate2Response = personsPartialUpdate2ResponseSuccess
-
-export const getPersonsPartialUpdate2Url = (projectId: string, id: number, params?: PersonsPartialUpdate2Params) => {
+export const getPersonsPartialUpdateUrl = (projectId: string, id: number, params?: PersonsPartialUpdateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1140,14 +924,14 @@ export const getPersonsPartialUpdate2Url = (projectId: string, id: number, param
         : `/api/projects/${projectId}/persons/${id}/`
 }
 
-export const personsPartialUpdate2 = async (
+export const personsPartialUpdate = async (
     projectId: string,
     id: number,
     patchedPersonApi: NonReadonly<PatchedPersonApi>,
-    params?: PersonsPartialUpdate2Params,
+    params?: PersonsPartialUpdateParams,
     options?: RequestInit
-): Promise<personsPartialUpdate2Response> => {
-    return apiMutator<personsPartialUpdate2Response>(getPersonsPartialUpdate2Url(projectId, id, params), {
+): Promise<PersonApi> => {
+    return apiMutator<PersonApi>(getPersonsPartialUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1158,20 +942,10 @@ export const personsPartialUpdate2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsActivityRetrieve4Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsActivityRetrieve4ResponseSuccess = personsActivityRetrieve4Response200 & {
-    headers: Headers
-}
-export type personsActivityRetrieve4Response = personsActivityRetrieve4ResponseSuccess
-
-export const getPersonsActivityRetrieve4Url = (
+export const getPersonsActivityRetrieve2Url = (
     projectId: string,
     id: number,
-    params?: PersonsActivityRetrieve4Params
+    params?: PersonsActivityRetrieve2Params
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1188,13 +962,13 @@ export const getPersonsActivityRetrieve4Url = (
         : `/api/projects/${projectId}/persons/${id}/activity/`
 }
 
-export const personsActivityRetrieve4 = async (
+export const personsActivityRetrieve2 = async (
     projectId: string,
     id: number,
-    params?: PersonsActivityRetrieve4Params,
+    params?: PersonsActivityRetrieve2Params,
     options?: RequestInit
-): Promise<personsActivityRetrieve4Response> => {
-    return apiMutator<personsActivityRetrieve4Response>(getPersonsActivityRetrieve4Url(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsActivityRetrieve2Url(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -1203,20 +977,10 @@ export const personsActivityRetrieve4 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsDeletePropertyCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsDeletePropertyCreate2ResponseSuccess = personsDeletePropertyCreate2Response200 & {
-    headers: Headers
-}
-export type personsDeletePropertyCreate2Response = personsDeletePropertyCreate2ResponseSuccess
-
-export const getPersonsDeletePropertyCreate2Url = (
+export const getPersonsDeletePropertyCreateUrl = (
     projectId: string,
     id: number,
-    params: PersonsDeletePropertyCreate2Params
+    params: PersonsDeletePropertyCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1233,14 +997,14 @@ export const getPersonsDeletePropertyCreate2Url = (
         : `/api/projects/${projectId}/persons/${id}/delete_property/`
 }
 
-export const personsDeletePropertyCreate2 = async (
+export const personsDeletePropertyCreate = async (
     projectId: string,
     id: number,
     personApi: NonReadonly<PersonApi>,
-    params: PersonsDeletePropertyCreate2Params,
+    params: PersonsDeletePropertyCreateParams,
     options?: RequestInit
-): Promise<personsDeletePropertyCreate2Response> => {
-    return apiMutator<personsDeletePropertyCreate2Response>(getPersonsDeletePropertyCreate2Url(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsDeletePropertyCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1251,20 +1015,10 @@ export const personsDeletePropertyCreate2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsPropertiesTimelineRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsPropertiesTimelineRetrieve2ResponseSuccess = personsPropertiesTimelineRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsPropertiesTimelineRetrieve2Response = personsPropertiesTimelineRetrieve2ResponseSuccess
-
-export const getPersonsPropertiesTimelineRetrieve2Url = (
+export const getPersonsPropertiesTimelineRetrieveUrl = (
     projectId: string,
     id: number,
-    params?: PersonsPropertiesTimelineRetrieve2Params
+    params?: PersonsPropertiesTimelineRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1281,35 +1035,22 @@ export const getPersonsPropertiesTimelineRetrieve2Url = (
         : `/api/projects/${projectId}/persons/${id}/properties_timeline/`
 }
 
-export const personsPropertiesTimelineRetrieve2 = async (
+export const personsPropertiesTimelineRetrieve = async (
     projectId: string,
     id: number,
-    params?: PersonsPropertiesTimelineRetrieve2Params,
+    params?: PersonsPropertiesTimelineRetrieveParams,
     options?: RequestInit
-): Promise<personsPropertiesTimelineRetrieve2Response> => {
-    return apiMutator<personsPropertiesTimelineRetrieve2Response>(
-        getPersonsPropertiesTimelineRetrieve2Url(projectId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getPersonsPropertiesTimelineRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsSplitCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsSplitCreate2ResponseSuccess = personsSplitCreate2Response200 & {
-    headers: Headers
-}
-export type personsSplitCreate2Response = personsSplitCreate2ResponseSuccess
-
-export const getPersonsSplitCreate2Url = (projectId: string, id: number, params?: PersonsSplitCreate2Params) => {
+export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?: PersonsSplitCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1325,14 +1066,14 @@ export const getPersonsSplitCreate2Url = (projectId: string, id: number, params?
         : `/api/projects/${projectId}/persons/${id}/split/`
 }
 
-export const personsSplitCreate2 = async (
+export const personsSplitCreate = async (
     projectId: string,
     id: number,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsSplitCreate2Params,
+    params?: PersonsSplitCreateParams,
     options?: RequestInit
-): Promise<personsSplitCreate2Response> => {
-    return apiMutator<personsSplitCreate2Response>(getPersonsSplitCreate2Url(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsSplitCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1343,20 +1084,10 @@ export const personsSplitCreate2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsUpdatePropertyCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsUpdatePropertyCreate2ResponseSuccess = personsUpdatePropertyCreate2Response200 & {
-    headers: Headers
-}
-export type personsUpdatePropertyCreate2Response = personsUpdatePropertyCreate2ResponseSuccess
-
-export const getPersonsUpdatePropertyCreate2Url = (
+export const getPersonsUpdatePropertyCreateUrl = (
     projectId: string,
     id: number,
-    params: PersonsUpdatePropertyCreate2Params
+    params: PersonsUpdatePropertyCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1373,14 +1104,14 @@ export const getPersonsUpdatePropertyCreate2Url = (
         : `/api/projects/${projectId}/persons/${id}/update_property/`
 }
 
-export const personsUpdatePropertyCreate2 = async (
+export const personsUpdatePropertyCreate = async (
     projectId: string,
     id: number,
     personApi: NonReadonly<PersonApi>,
-    params: PersonsUpdatePropertyCreate2Params,
+    params: PersonsUpdatePropertyCreateParams,
     options?: RequestInit
-): Promise<personsUpdatePropertyCreate2Response> => {
-    return apiMutator<personsUpdatePropertyCreate2Response>(getPersonsUpdatePropertyCreate2Url(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsUpdatePropertyCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1391,17 +1122,7 @@ export const personsUpdatePropertyCreate2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsActivityRetrieve3Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsActivityRetrieve3ResponseSuccess = personsActivityRetrieve3Response200 & {
-    headers: Headers
-}
-export type personsActivityRetrieve3Response = personsActivityRetrieve3ResponseSuccess
-
-export const getPersonsActivityRetrieve3Url = (projectId: string, params?: PersonsActivityRetrieve3Params) => {
+export const getPersonsActivityRetrieveUrl = (projectId: string, params?: PersonsActivityRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1417,12 +1138,12 @@ export const getPersonsActivityRetrieve3Url = (projectId: string, params?: Perso
         : `/api/projects/${projectId}/persons/activity/`
 }
 
-export const personsActivityRetrieve3 = async (
+export const personsActivityRetrieve = async (
     projectId: string,
-    params?: PersonsActivityRetrieve3Params,
+    params?: PersonsActivityRetrieveParams,
     options?: RequestInit
-): Promise<personsActivityRetrieve3Response> => {
-    return apiMutator<personsActivityRetrieve3Response>(getPersonsActivityRetrieve3Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1431,17 +1152,7 @@ export const personsActivityRetrieve3 = async (
 /**
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
  */
-export type personsBulkDeleteCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsBulkDeleteCreate2ResponseSuccess = personsBulkDeleteCreate2Response200 & {
-    headers: Headers
-}
-export type personsBulkDeleteCreate2Response = personsBulkDeleteCreate2ResponseSuccess
-
-export const getPersonsBulkDeleteCreate2Url = (projectId: string, params?: PersonsBulkDeleteCreate2Params) => {
+export const getPersonsBulkDeleteCreateUrl = (projectId: string, params?: PersonsBulkDeleteCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1457,13 +1168,13 @@ export const getPersonsBulkDeleteCreate2Url = (projectId: string, params?: Perso
         : `/api/projects/${projectId}/persons/bulk_delete/`
 }
 
-export const personsBulkDeleteCreate2 = async (
+export const personsBulkDeleteCreate = async (
     projectId: string,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsBulkDeleteCreate2Params,
+    params?: PersonsBulkDeleteCreateParams,
     options?: RequestInit
-): Promise<personsBulkDeleteCreate2Response> => {
-    return apiMutator<personsBulkDeleteCreate2Response>(getPersonsBulkDeleteCreate2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsBulkDeleteCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1474,17 +1185,7 @@ export const personsBulkDeleteCreate2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsCohortsRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsCohortsRetrieve2ResponseSuccess = personsCohortsRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsCohortsRetrieve2Response = personsCohortsRetrieve2ResponseSuccess
-
-export const getPersonsCohortsRetrieve2Url = (projectId: string, params?: PersonsCohortsRetrieve2Params) => {
+export const getPersonsCohortsRetrieveUrl = (projectId: string, params?: PersonsCohortsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1500,12 +1201,12 @@ export const getPersonsCohortsRetrieve2Url = (projectId: string, params?: Person
         : `/api/projects/${projectId}/persons/cohorts/`
 }
 
-export const personsCohortsRetrieve2 = async (
+export const personsCohortsRetrieve = async (
     projectId: string,
-    params?: PersonsCohortsRetrieve2Params,
+    params?: PersonsCohortsRetrieveParams,
     options?: RequestInit
-): Promise<personsCohortsRetrieve2Response> => {
-    return apiMutator<personsCohortsRetrieve2Response>(getPersonsCohortsRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsCohortsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1514,17 +1215,7 @@ export const personsCohortsRetrieve2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsFunnelRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsFunnelRetrieve2ResponseSuccess = personsFunnelRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsFunnelRetrieve2Response = personsFunnelRetrieve2ResponseSuccess
-
-export const getPersonsFunnelRetrieve2Url = (projectId: string, params?: PersonsFunnelRetrieve2Params) => {
+export const getPersonsFunnelRetrieveUrl = (projectId: string, params?: PersonsFunnelRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1540,12 +1231,12 @@ export const getPersonsFunnelRetrieve2Url = (projectId: string, params?: Persons
         : `/api/projects/${projectId}/persons/funnel/`
 }
 
-export const personsFunnelRetrieve2 = async (
+export const personsFunnelRetrieve = async (
     projectId: string,
-    params?: PersonsFunnelRetrieve2Params,
+    params?: PersonsFunnelRetrieveParams,
     options?: RequestInit
-): Promise<personsFunnelRetrieve2Response> => {
-    return apiMutator<personsFunnelRetrieve2Response>(getPersonsFunnelRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsFunnelRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1554,17 +1245,7 @@ export const personsFunnelRetrieve2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsFunnelCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsFunnelCreate2ResponseSuccess = personsFunnelCreate2Response200 & {
-    headers: Headers
-}
-export type personsFunnelCreate2Response = personsFunnelCreate2ResponseSuccess
-
-export const getPersonsFunnelCreate2Url = (projectId: string, params?: PersonsFunnelCreate2Params) => {
+export const getPersonsFunnelCreateUrl = (projectId: string, params?: PersonsFunnelCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1580,13 +1261,13 @@ export const getPersonsFunnelCreate2Url = (projectId: string, params?: PersonsFu
         : `/api/projects/${projectId}/persons/funnel/`
 }
 
-export const personsFunnelCreate2 = async (
+export const personsFunnelCreate = async (
     projectId: string,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsFunnelCreate2Params,
+    params?: PersonsFunnelCreateParams,
     options?: RequestInit
-): Promise<personsFunnelCreate2Response> => {
-    return apiMutator<personsFunnelCreate2Response>(getPersonsFunnelCreate2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsFunnelCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1597,19 +1278,9 @@ export const personsFunnelCreate2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsFunnelCorrelationRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsFunnelCorrelationRetrieve2ResponseSuccess = personsFunnelCorrelationRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsFunnelCorrelationRetrieve2Response = personsFunnelCorrelationRetrieve2ResponseSuccess
-
-export const getPersonsFunnelCorrelationRetrieve2Url = (
+export const getPersonsFunnelCorrelationRetrieveUrl = (
     projectId: string,
-    params?: PersonsFunnelCorrelationRetrieve2Params
+    params?: PersonsFunnelCorrelationRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1626,36 +1297,23 @@ export const getPersonsFunnelCorrelationRetrieve2Url = (
         : `/api/projects/${projectId}/persons/funnel/correlation/`
 }
 
-export const personsFunnelCorrelationRetrieve2 = async (
+export const personsFunnelCorrelationRetrieve = async (
     projectId: string,
-    params?: PersonsFunnelCorrelationRetrieve2Params,
+    params?: PersonsFunnelCorrelationRetrieveParams,
     options?: RequestInit
-): Promise<personsFunnelCorrelationRetrieve2Response> => {
-    return apiMutator<personsFunnelCorrelationRetrieve2Response>(
-        getPersonsFunnelCorrelationRetrieve2Url(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getPersonsFunnelCorrelationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsFunnelCorrelationCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsFunnelCorrelationCreate2ResponseSuccess = personsFunnelCorrelationCreate2Response200 & {
-    headers: Headers
-}
-export type personsFunnelCorrelationCreate2Response = personsFunnelCorrelationCreate2ResponseSuccess
-
-export const getPersonsFunnelCorrelationCreate2Url = (
+export const getPersonsFunnelCorrelationCreateUrl = (
     projectId: string,
-    params?: PersonsFunnelCorrelationCreate2Params
+    params?: PersonsFunnelCorrelationCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1672,37 +1330,24 @@ export const getPersonsFunnelCorrelationCreate2Url = (
         : `/api/projects/${projectId}/persons/funnel/correlation/`
 }
 
-export const personsFunnelCorrelationCreate2 = async (
+export const personsFunnelCorrelationCreate = async (
     projectId: string,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsFunnelCorrelationCreate2Params,
+    params?: PersonsFunnelCorrelationCreateParams,
     options?: RequestInit
-): Promise<personsFunnelCorrelationCreate2Response> => {
-    return apiMutator<personsFunnelCorrelationCreate2Response>(
-        getPersonsFunnelCorrelationCreate2Url(projectId, params),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(personApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getPersonsFunnelCorrelationCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(personApi),
+    })
 }
 
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsLifecycleRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsLifecycleRetrieve2ResponseSuccess = personsLifecycleRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsLifecycleRetrieve2Response = personsLifecycleRetrieve2ResponseSuccess
-
-export const getPersonsLifecycleRetrieve2Url = (projectId: string, params?: PersonsLifecycleRetrieve2Params) => {
+export const getPersonsLifecycleRetrieveUrl = (projectId: string, params?: PersonsLifecycleRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1718,12 +1363,12 @@ export const getPersonsLifecycleRetrieve2Url = (projectId: string, params?: Pers
         : `/api/projects/${projectId}/persons/lifecycle/`
 }
 
-export const personsLifecycleRetrieve2 = async (
+export const personsLifecycleRetrieve = async (
     projectId: string,
-    params?: PersonsLifecycleRetrieve2Params,
+    params?: PersonsLifecycleRetrieveParams,
     options?: RequestInit
-): Promise<personsLifecycleRetrieve2Response> => {
-    return apiMutator<personsLifecycleRetrieve2Response>(getPersonsLifecycleRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsLifecycleRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1732,19 +1377,9 @@ export const personsLifecycleRetrieve2 = async (
 /**
  * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
  */
-export type personsResetPersonDistinctIdCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsResetPersonDistinctIdCreate2ResponseSuccess = personsResetPersonDistinctIdCreate2Response200 & {
-    headers: Headers
-}
-export type personsResetPersonDistinctIdCreate2Response = personsResetPersonDistinctIdCreate2ResponseSuccess
-
-export const getPersonsResetPersonDistinctIdCreate2Url = (
+export const getPersonsResetPersonDistinctIdCreateUrl = (
     projectId: string,
-    params?: PersonsResetPersonDistinctIdCreate2Params
+    params?: PersonsResetPersonDistinctIdCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1761,37 +1396,24 @@ export const getPersonsResetPersonDistinctIdCreate2Url = (
         : `/api/projects/${projectId}/persons/reset_person_distinct_id/`
 }
 
-export const personsResetPersonDistinctIdCreate2 = async (
+export const personsResetPersonDistinctIdCreate = async (
     projectId: string,
     personApi: NonReadonly<PersonApi>,
-    params?: PersonsResetPersonDistinctIdCreate2Params,
+    params?: PersonsResetPersonDistinctIdCreateParams,
     options?: RequestInit
-): Promise<personsResetPersonDistinctIdCreate2Response> => {
-    return apiMutator<personsResetPersonDistinctIdCreate2Response>(
-        getPersonsResetPersonDistinctIdCreate2Url(projectId, params),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(personApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getPersonsResetPersonDistinctIdCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(personApi),
+    })
 }
 
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsStickinessRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsStickinessRetrieve2ResponseSuccess = personsStickinessRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsStickinessRetrieve2Response = personsStickinessRetrieve2ResponseSuccess
-
-export const getPersonsStickinessRetrieve2Url = (projectId: string, params?: PersonsStickinessRetrieve2Params) => {
+export const getPersonsStickinessRetrieveUrl = (projectId: string, params?: PersonsStickinessRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1807,12 +1429,12 @@ export const getPersonsStickinessRetrieve2Url = (projectId: string, params?: Per
         : `/api/projects/${projectId}/persons/stickiness/`
 }
 
-export const personsStickinessRetrieve2 = async (
+export const personsStickinessRetrieve = async (
     projectId: string,
-    params?: PersonsStickinessRetrieve2Params,
+    params?: PersonsStickinessRetrieveParams,
     options?: RequestInit
-): Promise<personsStickinessRetrieve2Response> => {
-    return apiMutator<personsStickinessRetrieve2Response>(getPersonsStickinessRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsStickinessRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1821,17 +1443,7 @@ export const personsStickinessRetrieve2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsTrendsRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsTrendsRetrieve2ResponseSuccess = personsTrendsRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsTrendsRetrieve2Response = personsTrendsRetrieve2ResponseSuccess
-
-export const getPersonsTrendsRetrieve2Url = (projectId: string, params?: PersonsTrendsRetrieve2Params) => {
+export const getPersonsTrendsRetrieveUrl = (projectId: string, params?: PersonsTrendsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1847,12 +1459,12 @@ export const getPersonsTrendsRetrieve2Url = (projectId: string, params?: Persons
         : `/api/projects/${projectId}/persons/trends/`
 }
 
-export const personsTrendsRetrieve2 = async (
+export const personsTrendsRetrieve = async (
     projectId: string,
-    params?: PersonsTrendsRetrieve2Params,
+    params?: PersonsTrendsRetrieveParams,
     options?: RequestInit
-): Promise<personsTrendsRetrieve2Response> => {
-    return apiMutator<personsTrendsRetrieve2Response>(getPersonsTrendsRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsTrendsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1861,17 +1473,7 @@ export const personsTrendsRetrieve2 = async (
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export type personsValuesRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type personsValuesRetrieve2ResponseSuccess = personsValuesRetrieve2Response200 & {
-    headers: Headers
-}
-export type personsValuesRetrieve2Response = personsValuesRetrieve2ResponseSuccess
-
-export const getPersonsValuesRetrieve2Url = (projectId: string, params?: PersonsValuesRetrieve2Params) => {
+export const getPersonsValuesRetrieveUrl = (projectId: string, params?: PersonsValuesRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1887,12 +1489,12 @@ export const getPersonsValuesRetrieve2Url = (projectId: string, params?: Persons
         : `/api/projects/${projectId}/persons/values/`
 }
 
-export const personsValuesRetrieve2 = async (
+export const personsValuesRetrieve = async (
     projectId: string,
-    params?: PersonsValuesRetrieve2Params,
+    params?: PersonsValuesRetrieveParams,
     options?: RequestInit
-): Promise<personsValuesRetrieve2Response> => {
-    return apiMutator<personsValuesRetrieve2Response>(getPersonsValuesRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getPersonsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

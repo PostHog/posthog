@@ -9,25 +9,25 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    EnvironmentsErrorTrackingAssignmentRulesListParams,
+    EnvironmentsErrorTrackingExternalReferencesListParams,
+    EnvironmentsErrorTrackingFingerprintsListParams,
+    EnvironmentsErrorTrackingGroupingRulesListParams,
+    EnvironmentsErrorTrackingIssuesListParams,
+    EnvironmentsErrorTrackingReleasesListParams,
+    EnvironmentsErrorTrackingStackFramesListParams,
+    EnvironmentsErrorTrackingSuppressionRulesListParams,
+    EnvironmentsErrorTrackingSymbolSetsListParams,
     ErrorTrackingAssignmentRuleApi,
-    ErrorTrackingAssignmentRulesListParams,
     ErrorTrackingExternalReferenceApi,
-    ErrorTrackingExternalReferencesListParams,
     ErrorTrackingFingerprintApi,
-    ErrorTrackingFingerprintsListParams,
     ErrorTrackingGroupingRuleApi,
-    ErrorTrackingGroupingRulesListParams,
     ErrorTrackingIssueFullApi,
-    ErrorTrackingIssuesListParams,
     ErrorTrackingReleaseApi,
-    ErrorTrackingReleasesList2Params,
     ErrorTrackingReleasesListParams,
     ErrorTrackingStackFrameApi,
-    ErrorTrackingStackFramesListParams,
     ErrorTrackingSuppressionRuleApi,
-    ErrorTrackingSuppressionRulesListParams,
     ErrorTrackingSymbolSetApi,
-    ErrorTrackingSymbolSetsList2Params,
     ErrorTrackingSymbolSetsListParams,
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingExternalReferenceListApi,
@@ -64,19 +64,9 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type errorTrackingAssignmentRulesListResponse200 = {
-    data: PaginatedErrorTrackingAssignmentRuleListApi
-    status: 200
-}
-
-export type errorTrackingAssignmentRulesListResponseSuccess = errorTrackingAssignmentRulesListResponse200 & {
-    headers: Headers
-}
-export type errorTrackingAssignmentRulesListResponse = errorTrackingAssignmentRulesListResponseSuccess
-
-export const getErrorTrackingAssignmentRulesListUrl = (
+export const getEnvironmentsErrorTrackingAssignmentRulesListUrl = (
     projectId: string,
-    params?: ErrorTrackingAssignmentRulesListParams
+    params?: EnvironmentsErrorTrackingAssignmentRulesListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -93,13 +83,13 @@ export const getErrorTrackingAssignmentRulesListUrl = (
         : `/api/environments/${projectId}/error_tracking/assignment_rules/`
 }
 
-export const errorTrackingAssignmentRulesList = async (
+export const environmentsErrorTrackingAssignmentRulesList = async (
     projectId: string,
-    params?: ErrorTrackingAssignmentRulesListParams,
+    params?: EnvironmentsErrorTrackingAssignmentRulesListParams,
     options?: RequestInit
-): Promise<errorTrackingAssignmentRulesListResponse> => {
-    return apiMutator<errorTrackingAssignmentRulesListResponse>(
-        getErrorTrackingAssignmentRulesListUrl(projectId, params),
+): Promise<PaginatedErrorTrackingAssignmentRuleListApi> => {
+    return apiMutator<PaginatedErrorTrackingAssignmentRuleListApi>(
+        getEnvironmentsErrorTrackingAssignmentRulesListUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -107,26 +97,16 @@ export const errorTrackingAssignmentRulesList = async (
     )
 }
 
-export type errorTrackingAssignmentRulesCreateResponse201 = {
-    data: ErrorTrackingAssignmentRuleApi
-    status: 201
-}
-
-export type errorTrackingAssignmentRulesCreateResponseSuccess = errorTrackingAssignmentRulesCreateResponse201 & {
-    headers: Headers
-}
-export type errorTrackingAssignmentRulesCreateResponse = errorTrackingAssignmentRulesCreateResponseSuccess
-
-export const getErrorTrackingAssignmentRulesCreateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingAssignmentRulesCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/assignment_rules/`
 }
 
-export const errorTrackingAssignmentRulesCreate = async (
+export const environmentsErrorTrackingAssignmentRulesCreate = async (
     projectId: string,
     errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingAssignmentRulesCreateResponse> => {
-    return apiMutator<errorTrackingAssignmentRulesCreateResponse>(getErrorTrackingAssignmentRulesCreateUrl(projectId), {
+): Promise<ErrorTrackingAssignmentRuleApi> => {
+    return apiMutator<ErrorTrackingAssignmentRuleApi>(getEnvironmentsErrorTrackingAssignmentRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -134,27 +114,17 @@ export const errorTrackingAssignmentRulesCreate = async (
     })
 }
 
-export type errorTrackingAssignmentRulesRetrieveResponse200 = {
-    data: ErrorTrackingAssignmentRuleApi
-    status: 200
-}
-
-export type errorTrackingAssignmentRulesRetrieveResponseSuccess = errorTrackingAssignmentRulesRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingAssignmentRulesRetrieveResponse = errorTrackingAssignmentRulesRetrieveResponseSuccess
-
-export const getErrorTrackingAssignmentRulesRetrieveUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingAssignmentRulesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/assignment_rules/${id}/`
 }
 
-export const errorTrackingAssignmentRulesRetrieve = async (
+export const environmentsErrorTrackingAssignmentRulesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingAssignmentRulesRetrieveResponse> => {
-    return apiMutator<errorTrackingAssignmentRulesRetrieveResponse>(
-        getErrorTrackingAssignmentRulesRetrieveUrl(projectId, id),
+): Promise<ErrorTrackingAssignmentRuleApi> => {
+    return apiMutator<ErrorTrackingAssignmentRuleApi>(
+        getEnvironmentsErrorTrackingAssignmentRulesRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -162,28 +132,18 @@ export const errorTrackingAssignmentRulesRetrieve = async (
     )
 }
 
-export type errorTrackingAssignmentRulesUpdateResponse200 = {
-    data: ErrorTrackingAssignmentRuleApi
-    status: 200
-}
-
-export type errorTrackingAssignmentRulesUpdateResponseSuccess = errorTrackingAssignmentRulesUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingAssignmentRulesUpdateResponse = errorTrackingAssignmentRulesUpdateResponseSuccess
-
-export const getErrorTrackingAssignmentRulesUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingAssignmentRulesUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/assignment_rules/${id}/`
 }
 
-export const errorTrackingAssignmentRulesUpdate = async (
+export const environmentsErrorTrackingAssignmentRulesUpdate = async (
     projectId: string,
     id: string,
     errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingAssignmentRulesUpdateResponse> => {
-    return apiMutator<errorTrackingAssignmentRulesUpdateResponse>(
-        getErrorTrackingAssignmentRulesUpdateUrl(projectId, id),
+): Promise<ErrorTrackingAssignmentRuleApi> => {
+    return apiMutator<ErrorTrackingAssignmentRuleApi>(
+        getEnvironmentsErrorTrackingAssignmentRulesUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PUT',
@@ -193,29 +153,18 @@ export const errorTrackingAssignmentRulesUpdate = async (
     )
 }
 
-export type errorTrackingAssignmentRulesPartialUpdateResponse200 = {
-    data: ErrorTrackingAssignmentRuleApi
-    status: 200
-}
-
-export type errorTrackingAssignmentRulesPartialUpdateResponseSuccess =
-    errorTrackingAssignmentRulesPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingAssignmentRulesPartialUpdateResponse = errorTrackingAssignmentRulesPartialUpdateResponseSuccess
-
-export const getErrorTrackingAssignmentRulesPartialUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingAssignmentRulesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/assignment_rules/${id}/`
 }
 
-export const errorTrackingAssignmentRulesPartialUpdate = async (
+export const environmentsErrorTrackingAssignmentRulesPartialUpdate = async (
     projectId: string,
     id: string,
     patchedErrorTrackingAssignmentRuleApi: NonReadonly<PatchedErrorTrackingAssignmentRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingAssignmentRulesPartialUpdateResponse> => {
-    return apiMutator<errorTrackingAssignmentRulesPartialUpdateResponse>(
-        getErrorTrackingAssignmentRulesPartialUpdateUrl(projectId, id),
+): Promise<ErrorTrackingAssignmentRuleApi> => {
+    return apiMutator<ErrorTrackingAssignmentRuleApi>(
+        getEnvironmentsErrorTrackingAssignmentRulesPartialUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PATCH',
@@ -225,79 +174,41 @@ export const errorTrackingAssignmentRulesPartialUpdate = async (
     )
 }
 
-export type errorTrackingAssignmentRulesDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type errorTrackingAssignmentRulesDestroyResponseSuccess = errorTrackingAssignmentRulesDestroyResponse204 & {
-    headers: Headers
-}
-export type errorTrackingAssignmentRulesDestroyResponse = errorTrackingAssignmentRulesDestroyResponseSuccess
-
-export const getErrorTrackingAssignmentRulesDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingAssignmentRulesDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/assignment_rules/${id}/`
 }
 
-export const errorTrackingAssignmentRulesDestroy = async (
+export const environmentsErrorTrackingAssignmentRulesDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingAssignmentRulesDestroyResponse> => {
-    return apiMutator<errorTrackingAssignmentRulesDestroyResponse>(
-        getErrorTrackingAssignmentRulesDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingAssignmentRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
-export type errorTrackingAssignmentRulesReorderPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingAssignmentRulesReorderPartialUpdateResponseSuccess =
-    errorTrackingAssignmentRulesReorderPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingAssignmentRulesReorderPartialUpdateResponse =
-    errorTrackingAssignmentRulesReorderPartialUpdateResponseSuccess
-
-export const getErrorTrackingAssignmentRulesReorderPartialUpdateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingAssignmentRulesReorderPartialUpdateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/assignment_rules/reorder/`
 }
 
-export const errorTrackingAssignmentRulesReorderPartialUpdate = async (
+export const environmentsErrorTrackingAssignmentRulesReorderPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingAssignmentRuleApi: NonReadonly<PatchedErrorTrackingAssignmentRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingAssignmentRulesReorderPartialUpdateResponse> => {
-    return apiMutator<errorTrackingAssignmentRulesReorderPartialUpdateResponse>(
-        getErrorTrackingAssignmentRulesReorderPartialUpdateUrl(projectId),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingAssignmentRulesReorderPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
+    })
 }
 
-export type errorTrackingExternalReferencesListResponse200 = {
-    data: PaginatedErrorTrackingExternalReferenceListApi
-    status: 200
-}
-
-export type errorTrackingExternalReferencesListResponseSuccess = errorTrackingExternalReferencesListResponse200 & {
-    headers: Headers
-}
-export type errorTrackingExternalReferencesListResponse = errorTrackingExternalReferencesListResponseSuccess
-
-export const getErrorTrackingExternalReferencesListUrl = (
+export const getEnvironmentsErrorTrackingExternalReferencesListUrl = (
     projectId: string,
-    params?: ErrorTrackingExternalReferencesListParams
+    params?: EnvironmentsErrorTrackingExternalReferencesListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -314,13 +225,13 @@ export const getErrorTrackingExternalReferencesListUrl = (
         : `/api/environments/${projectId}/error_tracking/external_references/`
 }
 
-export const errorTrackingExternalReferencesList = async (
+export const environmentsErrorTrackingExternalReferencesList = async (
     projectId: string,
-    params?: ErrorTrackingExternalReferencesListParams,
+    params?: EnvironmentsErrorTrackingExternalReferencesListParams,
     options?: RequestInit
-): Promise<errorTrackingExternalReferencesListResponse> => {
-    return apiMutator<errorTrackingExternalReferencesListResponse>(
-        getErrorTrackingExternalReferencesListUrl(projectId, params),
+): Promise<PaginatedErrorTrackingExternalReferenceListApi> => {
+    return apiMutator<PaginatedErrorTrackingExternalReferenceListApi>(
+        getEnvironmentsErrorTrackingExternalReferencesListUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -328,27 +239,17 @@ export const errorTrackingExternalReferencesList = async (
     )
 }
 
-export type errorTrackingExternalReferencesCreateResponse201 = {
-    data: ErrorTrackingExternalReferenceApi
-    status: 201
-}
-
-export type errorTrackingExternalReferencesCreateResponseSuccess = errorTrackingExternalReferencesCreateResponse201 & {
-    headers: Headers
-}
-export type errorTrackingExternalReferencesCreateResponse = errorTrackingExternalReferencesCreateResponseSuccess
-
-export const getErrorTrackingExternalReferencesCreateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingExternalReferencesCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/external_references/`
 }
 
-export const errorTrackingExternalReferencesCreate = async (
+export const environmentsErrorTrackingExternalReferencesCreate = async (
     projectId: string,
     errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
     options?: RequestInit
-): Promise<errorTrackingExternalReferencesCreateResponse> => {
-    return apiMutator<errorTrackingExternalReferencesCreateResponse>(
-        getErrorTrackingExternalReferencesCreateUrl(projectId),
+): Promise<ErrorTrackingExternalReferenceApi> => {
+    return apiMutator<ErrorTrackingExternalReferenceApi>(
+        getEnvironmentsErrorTrackingExternalReferencesCreateUrl(projectId),
         {
             ...options,
             method: 'POST',
@@ -358,28 +259,17 @@ export const errorTrackingExternalReferencesCreate = async (
     )
 }
 
-export type errorTrackingExternalReferencesRetrieveResponse200 = {
-    data: ErrorTrackingExternalReferenceApi
-    status: 200
-}
-
-export type errorTrackingExternalReferencesRetrieveResponseSuccess =
-    errorTrackingExternalReferencesRetrieveResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingExternalReferencesRetrieveResponse = errorTrackingExternalReferencesRetrieveResponseSuccess
-
-export const getErrorTrackingExternalReferencesRetrieveUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingExternalReferencesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
 }
 
-export const errorTrackingExternalReferencesRetrieve = async (
+export const environmentsErrorTrackingExternalReferencesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingExternalReferencesRetrieveResponse> => {
-    return apiMutator<errorTrackingExternalReferencesRetrieveResponse>(
-        getErrorTrackingExternalReferencesRetrieveUrl(projectId, id),
+): Promise<ErrorTrackingExternalReferenceApi> => {
+    return apiMutator<ErrorTrackingExternalReferenceApi>(
+        getEnvironmentsErrorTrackingExternalReferencesRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -387,28 +277,18 @@ export const errorTrackingExternalReferencesRetrieve = async (
     )
 }
 
-export type errorTrackingExternalReferencesUpdateResponse200 = {
-    data: ErrorTrackingExternalReferenceApi
-    status: 200
-}
-
-export type errorTrackingExternalReferencesUpdateResponseSuccess = errorTrackingExternalReferencesUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingExternalReferencesUpdateResponse = errorTrackingExternalReferencesUpdateResponseSuccess
-
-export const getErrorTrackingExternalReferencesUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingExternalReferencesUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
 }
 
-export const errorTrackingExternalReferencesUpdate = async (
+export const environmentsErrorTrackingExternalReferencesUpdate = async (
     projectId: string,
     id: string,
     errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
     options?: RequestInit
-): Promise<errorTrackingExternalReferencesUpdateResponse> => {
-    return apiMutator<errorTrackingExternalReferencesUpdateResponse>(
-        getErrorTrackingExternalReferencesUpdateUrl(projectId, id),
+): Promise<ErrorTrackingExternalReferenceApi> => {
+    return apiMutator<ErrorTrackingExternalReferenceApi>(
+        getEnvironmentsErrorTrackingExternalReferencesUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PUT',
@@ -418,30 +298,18 @@ export const errorTrackingExternalReferencesUpdate = async (
     )
 }
 
-export type errorTrackingExternalReferencesPartialUpdateResponse200 = {
-    data: ErrorTrackingExternalReferenceApi
-    status: 200
-}
-
-export type errorTrackingExternalReferencesPartialUpdateResponseSuccess =
-    errorTrackingExternalReferencesPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingExternalReferencesPartialUpdateResponse =
-    errorTrackingExternalReferencesPartialUpdateResponseSuccess
-
-export const getErrorTrackingExternalReferencesPartialUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingExternalReferencesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
 }
 
-export const errorTrackingExternalReferencesPartialUpdate = async (
+export const environmentsErrorTrackingExternalReferencesPartialUpdate = async (
     projectId: string,
     id: string,
     patchedErrorTrackingExternalReferenceApi: NonReadonly<PatchedErrorTrackingExternalReferenceApi>,
     options?: RequestInit
-): Promise<errorTrackingExternalReferencesPartialUpdateResponse> => {
-    return apiMutator<errorTrackingExternalReferencesPartialUpdateResponse>(
-        getErrorTrackingExternalReferencesPartialUpdateUrl(projectId, id),
+): Promise<ErrorTrackingExternalReferenceApi> => {
+    return apiMutator<ErrorTrackingExternalReferenceApi>(
+        getEnvironmentsErrorTrackingExternalReferencesPartialUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PATCH',
@@ -454,47 +322,24 @@ export const errorTrackingExternalReferencesPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type errorTrackingExternalReferencesDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type errorTrackingExternalReferencesDestroyResponseError = errorTrackingExternalReferencesDestroyResponse405 & {
-    headers: Headers
-}
-
-export type errorTrackingExternalReferencesDestroyResponse = errorTrackingExternalReferencesDestroyResponseError
-
-export const getErrorTrackingExternalReferencesDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingExternalReferencesDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
 }
 
-export const errorTrackingExternalReferencesDestroy = async (
+export const environmentsErrorTrackingExternalReferencesDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingExternalReferencesDestroyResponse> => {
-    return apiMutator<errorTrackingExternalReferencesDestroyResponse>(
-        getErrorTrackingExternalReferencesDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
+): Promise<unknown> => {
+    return apiMutator<unknown>(getEnvironmentsErrorTrackingExternalReferencesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
-export type errorTrackingFingerprintsListResponse200 = {
-    data: PaginatedErrorTrackingFingerprintListApi
-    status: 200
-}
-
-export type errorTrackingFingerprintsListResponseSuccess = errorTrackingFingerprintsListResponse200 & {
-    headers: Headers
-}
-export type errorTrackingFingerprintsListResponse = errorTrackingFingerprintsListResponseSuccess
-
-export const getErrorTrackingFingerprintsListUrl = (
+export const getEnvironmentsErrorTrackingFingerprintsListUrl = (
     projectId: string,
-    params?: ErrorTrackingFingerprintsListParams
+    params?: EnvironmentsErrorTrackingFingerprintsListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -511,144 +356,84 @@ export const getErrorTrackingFingerprintsListUrl = (
         : `/api/environments/${projectId}/error_tracking/fingerprints/`
 }
 
-export const errorTrackingFingerprintsList = async (
+export const environmentsErrorTrackingFingerprintsList = async (
     projectId: string,
-    params?: ErrorTrackingFingerprintsListParams,
+    params?: EnvironmentsErrorTrackingFingerprintsListParams,
     options?: RequestInit
-): Promise<errorTrackingFingerprintsListResponse> => {
-    return apiMutator<errorTrackingFingerprintsListResponse>(getErrorTrackingFingerprintsListUrl(projectId, params), {
+): Promise<PaginatedErrorTrackingFingerprintListApi> => {
+    return apiMutator<PaginatedErrorTrackingFingerprintListApi>(
+        getEnvironmentsErrorTrackingFingerprintsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getEnvironmentsErrorTrackingFingerprintsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/fingerprints/${id}/`
+}
+
+export const environmentsErrorTrackingFingerprintsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingFingerprintApi> => {
+    return apiMutator<ErrorTrackingFingerprintApi>(getEnvironmentsErrorTrackingFingerprintsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type errorTrackingFingerprintsRetrieveResponse200 = {
-    data: ErrorTrackingFingerprintApi
-    status: 200
-}
-
-export type errorTrackingFingerprintsRetrieveResponseSuccess = errorTrackingFingerprintsRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingFingerprintsRetrieveResponse = errorTrackingFingerprintsRetrieveResponseSuccess
-
-export const getErrorTrackingFingerprintsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/fingerprints/${id}/`
-}
-
-export const errorTrackingFingerprintsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<errorTrackingFingerprintsRetrieveResponse> => {
-    return apiMutator<errorTrackingFingerprintsRetrieveResponse>(
-        getErrorTrackingFingerprintsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type errorTrackingFingerprintsDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type errorTrackingFingerprintsDestroyResponseError = errorTrackingFingerprintsDestroyResponse405 & {
-    headers: Headers
-}
-
-export type errorTrackingFingerprintsDestroyResponse = errorTrackingFingerprintsDestroyResponseError
-
-export const getErrorTrackingFingerprintsDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingFingerprintsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/fingerprints/${id}/`
 }
 
-export const errorTrackingFingerprintsDestroy = async (
+export const environmentsErrorTrackingFingerprintsDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingFingerprintsDestroyResponse> => {
-    return apiMutator<errorTrackingFingerprintsDestroyResponse>(getErrorTrackingFingerprintsDestroyUrl(projectId, id), {
+): Promise<unknown> => {
+    return apiMutator<unknown>(getEnvironmentsErrorTrackingFingerprintsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type errorTrackingGitProviderFileLinksResolveGithubRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingGitProviderFileLinksResolveGithubRetrieveResponseSuccess =
-    errorTrackingGitProviderFileLinksResolveGithubRetrieveResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingGitProviderFileLinksResolveGithubRetrieveResponse =
-    errorTrackingGitProviderFileLinksResolveGithubRetrieveResponseSuccess
-
-export const getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_github/`
 }
 
-export const errorTrackingGitProviderFileLinksResolveGithubRetrieve = async (
+export const environmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<errorTrackingGitProviderFileLinksResolveGithubRetrieveResponse> => {
-    return apiMutator<errorTrackingGitProviderFileLinksResolveGithubRetrieveResponse>(
-        getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type errorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingGitProviderFileLinksResolveGitlabRetrieveResponseSuccess =
-    errorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse =
-    errorTrackingGitProviderFileLinksResolveGitlabRetrieveResponseSuccess
-
-export const getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/git-provider-file-links/resolve_gitlab/`
 }
 
-export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
+export const environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<errorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse> => {
-    return apiMutator<errorTrackingGitProviderFileLinksResolveGitlabRetrieveResponse>(
-        getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type errorTrackingGroupingRulesListResponse200 = {
-    data: PaginatedErrorTrackingGroupingRuleListApi
-    status: 200
-}
-
-export type errorTrackingGroupingRulesListResponseSuccess = errorTrackingGroupingRulesListResponse200 & {
-    headers: Headers
-}
-export type errorTrackingGroupingRulesListResponse = errorTrackingGroupingRulesListResponseSuccess
-
-export const getErrorTrackingGroupingRulesListUrl = (
+export const getEnvironmentsErrorTrackingGroupingRulesListUrl = (
     projectId: string,
-    params?: ErrorTrackingGroupingRulesListParams
+    params?: EnvironmentsErrorTrackingGroupingRulesListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -665,65 +450,13 @@ export const getErrorTrackingGroupingRulesListUrl = (
         : `/api/environments/${projectId}/error_tracking/grouping_rules/`
 }
 
-export const errorTrackingGroupingRulesList = async (
+export const environmentsErrorTrackingGroupingRulesList = async (
     projectId: string,
-    params?: ErrorTrackingGroupingRulesListParams,
+    params?: EnvironmentsErrorTrackingGroupingRulesListParams,
     options?: RequestInit
-): Promise<errorTrackingGroupingRulesListResponse> => {
-    return apiMutator<errorTrackingGroupingRulesListResponse>(getErrorTrackingGroupingRulesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type errorTrackingGroupingRulesCreateResponse201 = {
-    data: ErrorTrackingGroupingRuleApi
-    status: 201
-}
-
-export type errorTrackingGroupingRulesCreateResponseSuccess = errorTrackingGroupingRulesCreateResponse201 & {
-    headers: Headers
-}
-export type errorTrackingGroupingRulesCreateResponse = errorTrackingGroupingRulesCreateResponseSuccess
-
-export const getErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/grouping_rules/`
-}
-
-export const errorTrackingGroupingRulesCreate = async (
-    projectId: string,
-    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
-    options?: RequestInit
-): Promise<errorTrackingGroupingRulesCreateResponse> => {
-    return apiMutator<errorTrackingGroupingRulesCreateResponse>(getErrorTrackingGroupingRulesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingGroupingRuleApi),
-    })
-}
-
-export type errorTrackingGroupingRulesRetrieveResponse200 = {
-    data: ErrorTrackingGroupingRuleApi
-    status: 200
-}
-
-export type errorTrackingGroupingRulesRetrieveResponseSuccess = errorTrackingGroupingRulesRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingGroupingRulesRetrieveResponse = errorTrackingGroupingRulesRetrieveResponseSuccess
-
-export const getErrorTrackingGroupingRulesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
-}
-
-export const errorTrackingGroupingRulesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<errorTrackingGroupingRulesRetrieveResponse> => {
-    return apiMutator<errorTrackingGroupingRulesRetrieveResponse>(
-        getErrorTrackingGroupingRulesRetrieveUrl(projectId, id),
+): Promise<PaginatedErrorTrackingGroupingRuleListApi> => {
+    return apiMutator<PaginatedErrorTrackingGroupingRuleListApi>(
+        getEnvironmentsErrorTrackingGroupingRulesListUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -731,27 +464,52 @@ export const errorTrackingGroupingRulesRetrieve = async (
     )
 }
 
-export type errorTrackingGroupingRulesUpdateResponse200 = {
-    data: ErrorTrackingGroupingRuleApi
-    status: 200
+export const getEnvironmentsErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/`
 }
 
-export type errorTrackingGroupingRulesUpdateResponseSuccess = errorTrackingGroupingRulesUpdateResponse200 & {
-    headers: Headers
+export const environmentsErrorTrackingGroupingRulesCreate = async (
+    projectId: string,
+    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingGroupingRuleApi> => {
+    return apiMutator<ErrorTrackingGroupingRuleApi>(getEnvironmentsErrorTrackingGroupingRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingGroupingRuleApi),
+    })
 }
-export type errorTrackingGroupingRulesUpdateResponse = errorTrackingGroupingRulesUpdateResponseSuccess
 
-export const getErrorTrackingGroupingRulesUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingGroupingRulesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
 }
 
-export const errorTrackingGroupingRulesUpdate = async (
+export const environmentsErrorTrackingGroupingRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingGroupingRuleApi> => {
+    return apiMutator<ErrorTrackingGroupingRuleApi>(
+        getEnvironmentsErrorTrackingGroupingRulesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getEnvironmentsErrorTrackingGroupingRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
+}
+
+export const environmentsErrorTrackingGroupingRulesUpdate = async (
     projectId: string,
     id: string,
     errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingGroupingRulesUpdateResponse> => {
-    return apiMutator<errorTrackingGroupingRulesUpdateResponse>(getErrorTrackingGroupingRulesUpdateUrl(projectId, id), {
+): Promise<ErrorTrackingGroupingRuleApi> => {
+    return apiMutator<ErrorTrackingGroupingRuleApi>(getEnvironmentsErrorTrackingGroupingRulesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -759,29 +517,18 @@ export const errorTrackingGroupingRulesUpdate = async (
     })
 }
 
-export type errorTrackingGroupingRulesPartialUpdateResponse200 = {
-    data: ErrorTrackingGroupingRuleApi
-    status: 200
-}
-
-export type errorTrackingGroupingRulesPartialUpdateResponseSuccess =
-    errorTrackingGroupingRulesPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingGroupingRulesPartialUpdateResponse = errorTrackingGroupingRulesPartialUpdateResponseSuccess
-
-export const getErrorTrackingGroupingRulesPartialUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingGroupingRulesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
 }
 
-export const errorTrackingGroupingRulesPartialUpdate = async (
+export const environmentsErrorTrackingGroupingRulesPartialUpdate = async (
     projectId: string,
     id: string,
     patchedErrorTrackingGroupingRuleApi: NonReadonly<PatchedErrorTrackingGroupingRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingGroupingRulesPartialUpdateResponse> => {
-    return apiMutator<errorTrackingGroupingRulesPartialUpdateResponse>(
-        getErrorTrackingGroupingRulesPartialUpdateUrl(projectId, id),
+): Promise<ErrorTrackingGroupingRuleApi> => {
+    return apiMutator<ErrorTrackingGroupingRuleApi>(
+        getEnvironmentsErrorTrackingGroupingRulesPartialUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PATCH',
@@ -791,77 +538,42 @@ export const errorTrackingGroupingRulesPartialUpdate = async (
     )
 }
 
-export type errorTrackingGroupingRulesDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type errorTrackingGroupingRulesDestroyResponseSuccess = errorTrackingGroupingRulesDestroyResponse204 & {
-    headers: Headers
-}
-export type errorTrackingGroupingRulesDestroyResponse = errorTrackingGroupingRulesDestroyResponseSuccess
-
-export const getErrorTrackingGroupingRulesDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingGroupingRulesDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/`
 }
 
-export const errorTrackingGroupingRulesDestroy = async (
+export const environmentsErrorTrackingGroupingRulesDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingGroupingRulesDestroyResponse> => {
-    return apiMutator<errorTrackingGroupingRulesDestroyResponse>(
-        getErrorTrackingGroupingRulesDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingGroupingRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
-export type errorTrackingGroupingRulesReorderPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingGroupingRulesReorderPartialUpdateResponseSuccess =
-    errorTrackingGroupingRulesReorderPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingGroupingRulesReorderPartialUpdateResponse =
-    errorTrackingGroupingRulesReorderPartialUpdateResponseSuccess
-
-export const getErrorTrackingGroupingRulesReorderPartialUpdateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingGroupingRulesReorderPartialUpdateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/grouping_rules/reorder/`
 }
 
-export const errorTrackingGroupingRulesReorderPartialUpdate = async (
+export const environmentsErrorTrackingGroupingRulesReorderPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingGroupingRuleApi: NonReadonly<PatchedErrorTrackingGroupingRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingGroupingRulesReorderPartialUpdateResponse> => {
-    return apiMutator<errorTrackingGroupingRulesReorderPartialUpdateResponse>(
-        getErrorTrackingGroupingRulesReorderPartialUpdateUrl(projectId),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingGroupingRuleApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingGroupingRulesReorderPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingGroupingRuleApi),
+    })
 }
 
-export type errorTrackingIssuesListResponse200 = {
-    data: PaginatedErrorTrackingIssueFullListApi
-    status: 200
-}
-
-export type errorTrackingIssuesListResponseSuccess = errorTrackingIssuesListResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesListResponse = errorTrackingIssuesListResponseSuccess
-
-export const getErrorTrackingIssuesListUrl = (projectId: string, params?: ErrorTrackingIssuesListParams) => {
+export const getEnvironmentsErrorTrackingIssuesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingIssuesListParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -877,37 +589,30 @@ export const getErrorTrackingIssuesListUrl = (projectId: string, params?: ErrorT
         : `/api/environments/${projectId}/error_tracking/issues/`
 }
 
-export const errorTrackingIssuesList = async (
+export const environmentsErrorTrackingIssuesList = async (
     projectId: string,
-    params?: ErrorTrackingIssuesListParams,
+    params?: EnvironmentsErrorTrackingIssuesListParams,
     options?: RequestInit
-): Promise<errorTrackingIssuesListResponse> => {
-    return apiMutator<errorTrackingIssuesListResponse>(getErrorTrackingIssuesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedErrorTrackingIssueFullListApi> => {
+    return apiMutator<PaginatedErrorTrackingIssueFullListApi>(
+        getEnvironmentsErrorTrackingIssuesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export type errorTrackingIssuesCreateResponse201 = {
-    data: ErrorTrackingIssueFullApi
-    status: 201
-}
-
-export type errorTrackingIssuesCreateResponseSuccess = errorTrackingIssuesCreateResponse201 & {
-    headers: Headers
-}
-export type errorTrackingIssuesCreateResponse = errorTrackingIssuesCreateResponseSuccess
-
-export const getErrorTrackingIssuesCreateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingIssuesCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/`
 }
 
-export const errorTrackingIssuesCreate = async (
+export const environmentsErrorTrackingIssuesCreate = async (
     projectId: string,
     errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
-): Promise<errorTrackingIssuesCreateResponse> => {
-    return apiMutator<errorTrackingIssuesCreateResponse>(getErrorTrackingIssuesCreateUrl(projectId), {
+): Promise<ErrorTrackingIssueFullApi> => {
+    return apiMutator<ErrorTrackingIssueFullApi>(getEnvironmentsErrorTrackingIssuesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -915,52 +620,32 @@ export const errorTrackingIssuesCreate = async (
     })
 }
 
-export type errorTrackingIssuesRetrieveResponse200 = {
-    data: ErrorTrackingIssueFullApi
-    status: 200
-}
-
-export type errorTrackingIssuesRetrieveResponseSuccess = errorTrackingIssuesRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesRetrieveResponse = errorTrackingIssuesRetrieveResponseSuccess
-
-export const getErrorTrackingIssuesRetrieveUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/`
 }
 
-export const errorTrackingIssuesRetrieve = async (
+export const environmentsErrorTrackingIssuesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingIssuesRetrieveResponse> => {
-    return apiMutator<errorTrackingIssuesRetrieveResponse>(getErrorTrackingIssuesRetrieveUrl(projectId, id), {
+): Promise<ErrorTrackingIssueFullApi> => {
+    return apiMutator<ErrorTrackingIssueFullApi>(getEnvironmentsErrorTrackingIssuesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type errorTrackingIssuesUpdateResponse200 = {
-    data: ErrorTrackingIssueFullApi
-    status: 200
-}
-
-export type errorTrackingIssuesUpdateResponseSuccess = errorTrackingIssuesUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesUpdateResponse = errorTrackingIssuesUpdateResponseSuccess
-
-export const getErrorTrackingIssuesUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/`
 }
 
-export const errorTrackingIssuesUpdate = async (
+export const environmentsErrorTrackingIssuesUpdate = async (
     projectId: string,
     id: string,
     errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
-): Promise<errorTrackingIssuesUpdateResponse> => {
-    return apiMutator<errorTrackingIssuesUpdateResponse>(getErrorTrackingIssuesUpdateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueFullApi> => {
+    return apiMutator<ErrorTrackingIssueFullApi>(getEnvironmentsErrorTrackingIssuesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -968,27 +653,17 @@ export const errorTrackingIssuesUpdate = async (
     })
 }
 
-export type errorTrackingIssuesPartialUpdateResponse200 = {
-    data: ErrorTrackingIssueFullApi
-    status: 200
-}
-
-export type errorTrackingIssuesPartialUpdateResponseSuccess = errorTrackingIssuesPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesPartialUpdateResponse = errorTrackingIssuesPartialUpdateResponseSuccess
-
-export const getErrorTrackingIssuesPartialUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/`
 }
 
-export const errorTrackingIssuesPartialUpdate = async (
+export const environmentsErrorTrackingIssuesPartialUpdate = async (
     projectId: string,
     id: string,
     patchedErrorTrackingIssueFullApi: NonReadonly<PatchedErrorTrackingIssueFullApi>,
     options?: RequestInit
-): Promise<errorTrackingIssuesPartialUpdateResponse> => {
-    return apiMutator<errorTrackingIssuesPartialUpdateResponse>(getErrorTrackingIssuesPartialUpdateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueFullApi> => {
+    return apiMutator<ErrorTrackingIssueFullApi>(getEnvironmentsErrorTrackingIssuesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -999,112 +674,65 @@ export const errorTrackingIssuesPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type errorTrackingIssuesDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type errorTrackingIssuesDestroyResponseError = errorTrackingIssuesDestroyResponse405 & {
-    headers: Headers
-}
-
-export type errorTrackingIssuesDestroyResponse = errorTrackingIssuesDestroyResponseError
-
-export const getErrorTrackingIssuesDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/`
 }
 
-export const errorTrackingIssuesDestroy = async (
+export const environmentsErrorTrackingIssuesDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingIssuesDestroyResponse> => {
-    return apiMutator<errorTrackingIssuesDestroyResponse>(getErrorTrackingIssuesDestroyUrl(projectId, id), {
+): Promise<unknown> => {
+    return apiMutator<unknown>(getEnvironmentsErrorTrackingIssuesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type errorTrackingIssuesActivityRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingIssuesActivityRetrieve2ResponseSuccess = errorTrackingIssuesActivityRetrieve2Response200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesActivityRetrieve2Response = errorTrackingIssuesActivityRetrieve2ResponseSuccess
-
-export const getErrorTrackingIssuesActivityRetrieve2Url = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesActivityRetrieve2Url = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/activity/`
 }
 
-export const errorTrackingIssuesActivityRetrieve2 = async (
+export const environmentsErrorTrackingIssuesActivityRetrieve2 = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingIssuesActivityRetrieve2Response> => {
-    return apiMutator<errorTrackingIssuesActivityRetrieve2Response>(
-        getErrorTrackingIssuesActivityRetrieve2Url(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingIssuesActivityRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type errorTrackingIssuesAssignPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingIssuesAssignPartialUpdateResponseSuccess =
-    errorTrackingIssuesAssignPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingIssuesAssignPartialUpdateResponse = errorTrackingIssuesAssignPartialUpdateResponseSuccess
-
-export const getErrorTrackingIssuesAssignPartialUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesAssignPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/assign/`
 }
 
-export const errorTrackingIssuesAssignPartialUpdate = async (
+export const environmentsErrorTrackingIssuesAssignPartialUpdate = async (
     projectId: string,
     id: string,
     patchedErrorTrackingIssueFullApi: NonReadonly<PatchedErrorTrackingIssueFullApi>,
     options?: RequestInit
-): Promise<errorTrackingIssuesAssignPartialUpdateResponse> => {
-    return apiMutator<errorTrackingIssuesAssignPartialUpdateResponse>(
-        getErrorTrackingIssuesAssignPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingIssueFullApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingIssuesAssignPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingIssueFullApi),
+    })
 }
 
-export type errorTrackingIssuesCohortUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingIssuesCohortUpdateResponseSuccess = errorTrackingIssuesCohortUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesCohortUpdateResponse = errorTrackingIssuesCohortUpdateResponseSuccess
-
-export const getErrorTrackingIssuesCohortUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesCohortUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/cohort/`
 }
 
-export const errorTrackingIssuesCohortUpdate = async (
+export const environmentsErrorTrackingIssuesCohortUpdate = async (
     projectId: string,
     id: string,
     errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
-): Promise<errorTrackingIssuesCohortUpdateResponse> => {
-    return apiMutator<errorTrackingIssuesCohortUpdateResponse>(getErrorTrackingIssuesCohortUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingIssuesCohortUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1112,27 +740,17 @@ export const errorTrackingIssuesCohortUpdate = async (
     })
 }
 
-export type errorTrackingIssuesMergeCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingIssuesMergeCreateResponseSuccess = errorTrackingIssuesMergeCreateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesMergeCreateResponse = errorTrackingIssuesMergeCreateResponseSuccess
-
-export const getErrorTrackingIssuesMergeCreateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesMergeCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/merge/`
 }
 
-export const errorTrackingIssuesMergeCreate = async (
+export const environmentsErrorTrackingIssuesMergeCreate = async (
     projectId: string,
     id: string,
     errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
-): Promise<errorTrackingIssuesMergeCreateResponse> => {
-    return apiMutator<errorTrackingIssuesMergeCreateResponse>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingIssuesMergeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1140,27 +758,17 @@ export const errorTrackingIssuesMergeCreate = async (
     })
 }
 
-export type errorTrackingIssuesSplitCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingIssuesSplitCreateResponseSuccess = errorTrackingIssuesSplitCreateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesSplitCreateResponse = errorTrackingIssuesSplitCreateResponseSuccess
-
-export const getErrorTrackingIssuesSplitCreateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingIssuesSplitCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/split/`
 }
 
-export const errorTrackingIssuesSplitCreate = async (
+export const environmentsErrorTrackingIssuesSplitCreate = async (
     projectId: string,
     id: string,
     errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
-): Promise<errorTrackingIssuesSplitCreateResponse> => {
-    return apiMutator<errorTrackingIssuesSplitCreateResponse>(getErrorTrackingIssuesSplitCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingIssuesSplitCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1168,95 +776,55 @@ export const errorTrackingIssuesSplitCreate = async (
     })
 }
 
-export type errorTrackingIssuesActivityRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingIssuesActivityRetrieveResponseSuccess = errorTrackingIssuesActivityRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesActivityRetrieveResponse = errorTrackingIssuesActivityRetrieveResponseSuccess
-
-export const getErrorTrackingIssuesActivityRetrieveUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingIssuesActivityRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/activity/`
 }
 
-export const errorTrackingIssuesActivityRetrieve = async (
+export const environmentsErrorTrackingIssuesActivityRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<errorTrackingIssuesActivityRetrieveResponse> => {
-    return apiMutator<errorTrackingIssuesActivityRetrieveResponse>(
-        getErrorTrackingIssuesActivityRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export type errorTrackingIssuesBulkCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingIssuesBulkCreateResponseSuccess = errorTrackingIssuesBulkCreateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesBulkCreateResponse = errorTrackingIssuesBulkCreateResponseSuccess
-
-export const getErrorTrackingIssuesBulkCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/issues/bulk/`
-}
-
-export const errorTrackingIssuesBulkCreate = async (
-    projectId: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
-    options?: RequestInit
-): Promise<errorTrackingIssuesBulkCreateResponse> => {
-    return apiMutator<errorTrackingIssuesBulkCreateResponse>(getErrorTrackingIssuesBulkCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
-    })
-}
-
-export type errorTrackingIssuesValuesRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingIssuesValuesRetrieveResponseSuccess = errorTrackingIssuesValuesRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingIssuesValuesRetrieveResponse = errorTrackingIssuesValuesRetrieveResponseSuccess
-
-export const getErrorTrackingIssuesValuesRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/issues/values/`
-}
-
-export const errorTrackingIssuesValuesRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<errorTrackingIssuesValuesRetrieveResponse> => {
-    return apiMutator<errorTrackingIssuesValuesRetrieveResponse>(getErrorTrackingIssuesValuesRetrieveUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingIssuesActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type errorTrackingReleasesListResponse200 = {
-    data: PaginatedErrorTrackingReleaseListApi
-    status: 200
+export const getEnvironmentsErrorTrackingIssuesBulkCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/issues/bulk/`
 }
 
-export type errorTrackingReleasesListResponseSuccess = errorTrackingReleasesListResponse200 & {
-    headers: Headers
+export const environmentsErrorTrackingIssuesBulkCreate = async (
+    projectId: string,
+    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingIssuesBulkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingIssueFullApi),
+    })
 }
-export type errorTrackingReleasesListResponse = errorTrackingReleasesListResponseSuccess
 
-export const getErrorTrackingReleasesListUrl = (projectId: string, params?: ErrorTrackingReleasesListParams) => {
+export const getEnvironmentsErrorTrackingIssuesValuesRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/issues/values/`
+}
+
+export const environmentsErrorTrackingIssuesValuesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingIssuesValuesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentsErrorTrackingReleasesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingReleasesListParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1272,174 +840,13 @@ export const getErrorTrackingReleasesListUrl = (projectId: string, params?: Erro
         : `/api/environments/${projectId}/error_tracking/releases/`
 }
 
-export const errorTrackingReleasesList = async (
+export const environmentsErrorTrackingReleasesList = async (
     projectId: string,
-    params?: ErrorTrackingReleasesListParams,
+    params?: EnvironmentsErrorTrackingReleasesListParams,
     options?: RequestInit
-): Promise<errorTrackingReleasesListResponse> => {
-    return apiMutator<errorTrackingReleasesListResponse>(getErrorTrackingReleasesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type errorTrackingReleasesCreateResponse201 = {
-    data: ErrorTrackingReleaseApi
-    status: 201
-}
-
-export type errorTrackingReleasesCreateResponseSuccess = errorTrackingReleasesCreateResponse201 & {
-    headers: Headers
-}
-export type errorTrackingReleasesCreateResponse = errorTrackingReleasesCreateResponseSuccess
-
-export const getErrorTrackingReleasesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/releases/`
-}
-
-export const errorTrackingReleasesCreate = async (
-    projectId: string,
-    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
-    options?: RequestInit
-): Promise<errorTrackingReleasesCreateResponse> => {
-    return apiMutator<errorTrackingReleasesCreateResponse>(getErrorTrackingReleasesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingReleaseApi),
-    })
-}
-
-export type errorTrackingReleasesRetrieveResponse200 = {
-    data: ErrorTrackingReleaseApi
-    status: 200
-}
-
-export type errorTrackingReleasesRetrieveResponseSuccess = errorTrackingReleasesRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesRetrieveResponse = errorTrackingReleasesRetrieveResponseSuccess
-
-export const getErrorTrackingReleasesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
-}
-
-export const errorTrackingReleasesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<errorTrackingReleasesRetrieveResponse> => {
-    return apiMutator<errorTrackingReleasesRetrieveResponse>(getErrorTrackingReleasesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type errorTrackingReleasesUpdateResponse200 = {
-    data: ErrorTrackingReleaseApi
-    status: 200
-}
-
-export type errorTrackingReleasesUpdateResponseSuccess = errorTrackingReleasesUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesUpdateResponse = errorTrackingReleasesUpdateResponseSuccess
-
-export const getErrorTrackingReleasesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
-}
-
-export const errorTrackingReleasesUpdate = async (
-    projectId: string,
-    id: string,
-    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
-    options?: RequestInit
-): Promise<errorTrackingReleasesUpdateResponse> => {
-    return apiMutator<errorTrackingReleasesUpdateResponse>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingReleaseApi),
-    })
-}
-
-export type errorTrackingReleasesPartialUpdateResponse200 = {
-    data: ErrorTrackingReleaseApi
-    status: 200
-}
-
-export type errorTrackingReleasesPartialUpdateResponseSuccess = errorTrackingReleasesPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesPartialUpdateResponse = errorTrackingReleasesPartialUpdateResponseSuccess
-
-export const getErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
-}
-
-export const errorTrackingReleasesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedErrorTrackingReleaseApi: NonReadonly<PatchedErrorTrackingReleaseApi>,
-    options?: RequestInit
-): Promise<errorTrackingReleasesPartialUpdateResponse> => {
-    return apiMutator<errorTrackingReleasesPartialUpdateResponse>(
-        getErrorTrackingReleasesPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingReleaseApi),
-        }
-    )
-}
-
-export type errorTrackingReleasesDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type errorTrackingReleasesDestroyResponseSuccess = errorTrackingReleasesDestroyResponse204 & {
-    headers: Headers
-}
-export type errorTrackingReleasesDestroyResponse = errorTrackingReleasesDestroyResponseSuccess
-
-export const getErrorTrackingReleasesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
-}
-
-export const errorTrackingReleasesDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<errorTrackingReleasesDestroyResponse> => {
-    return apiMutator<errorTrackingReleasesDestroyResponse>(getErrorTrackingReleasesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export type errorTrackingReleasesHashRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingReleasesHashRetrieveResponseSuccess = errorTrackingReleasesHashRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesHashRetrieveResponse = errorTrackingReleasesHashRetrieveResponseSuccess
-
-export const getErrorTrackingReleasesHashRetrieveUrl = (projectId: string, hashId: string) => {
-    return `/api/environments/${projectId}/error_tracking/releases/hash/${hashId}/`
-}
-
-export const errorTrackingReleasesHashRetrieve = async (
-    projectId: string,
-    hashId: string,
-    options?: RequestInit
-): Promise<errorTrackingReleasesHashRetrieveResponse> => {
-    return apiMutator<errorTrackingReleasesHashRetrieveResponse>(
-        getErrorTrackingReleasesHashRetrieveUrl(projectId, hashId),
+): Promise<PaginatedErrorTrackingReleaseListApi> => {
+    return apiMutator<PaginatedErrorTrackingReleaseListApi>(
+        getEnvironmentsErrorTrackingReleasesListUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -1447,17 +854,108 @@ export const errorTrackingReleasesHashRetrieve = async (
     )
 }
 
-export type errorTrackingStackFramesListResponse200 = {
-    data: PaginatedErrorTrackingStackFrameListApi
-    status: 200
+export const getEnvironmentsErrorTrackingReleasesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/`
 }
 
-export type errorTrackingStackFramesListResponseSuccess = errorTrackingStackFramesListResponse200 & {
-    headers: Headers
+export const environmentsErrorTrackingReleasesCreate = async (
+    projectId: string,
+    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingReleaseApi> => {
+    return apiMutator<ErrorTrackingReleaseApi>(getEnvironmentsErrorTrackingReleasesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingReleaseApi),
+    })
 }
-export type errorTrackingStackFramesListResponse = errorTrackingStackFramesListResponseSuccess
 
-export const getErrorTrackingStackFramesListUrl = (projectId: string, params?: ErrorTrackingStackFramesListParams) => {
+export const getEnvironmentsErrorTrackingReleasesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const environmentsErrorTrackingReleasesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingReleaseApi> => {
+    return apiMutator<ErrorTrackingReleaseApi>(getEnvironmentsErrorTrackingReleasesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentsErrorTrackingReleasesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const environmentsErrorTrackingReleasesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingReleaseApi> => {
+    return apiMutator<ErrorTrackingReleaseApi>(getEnvironmentsErrorTrackingReleasesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingReleaseApi),
+    })
+}
+
+export const getEnvironmentsErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const environmentsErrorTrackingReleasesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingReleaseApi: NonReadonly<PatchedErrorTrackingReleaseApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingReleaseApi> => {
+    return apiMutator<ErrorTrackingReleaseApi>(getEnvironmentsErrorTrackingReleasesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingReleaseApi),
+    })
+}
+
+export const getEnvironmentsErrorTrackingReleasesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const environmentsErrorTrackingReleasesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingReleasesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getEnvironmentsErrorTrackingReleasesHashRetrieveUrl = (projectId: string, hashId: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/hash/${hashId}/`
+}
+
+export const environmentsErrorTrackingReleasesHashRetrieve = async (
+    projectId: string,
+    hashId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingReleasesHashRetrieveUrl(projectId, hashId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentsErrorTrackingStackFramesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingStackFramesListParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1473,37 +971,30 @@ export const getErrorTrackingStackFramesListUrl = (projectId: string, params?: E
         : `/api/environments/${projectId}/error_tracking/stack_frames/`
 }
 
-export const errorTrackingStackFramesList = async (
+export const environmentsErrorTrackingStackFramesList = async (
     projectId: string,
-    params?: ErrorTrackingStackFramesListParams,
+    params?: EnvironmentsErrorTrackingStackFramesListParams,
     options?: RequestInit
-): Promise<errorTrackingStackFramesListResponse> => {
-    return apiMutator<errorTrackingStackFramesListResponse>(getErrorTrackingStackFramesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedErrorTrackingStackFrameListApi> => {
+    return apiMutator<PaginatedErrorTrackingStackFrameListApi>(
+        getEnvironmentsErrorTrackingStackFramesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export type errorTrackingStackFramesRetrieveResponse200 = {
-    data: ErrorTrackingStackFrameApi
-    status: 200
-}
-
-export type errorTrackingStackFramesRetrieveResponseSuccess = errorTrackingStackFramesRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingStackFramesRetrieveResponse = errorTrackingStackFramesRetrieveResponseSuccess
-
-export const getErrorTrackingStackFramesRetrieveUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingStackFramesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/stack_frames/${id}/`
 }
 
-export const errorTrackingStackFramesRetrieve = async (
+export const environmentsErrorTrackingStackFramesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingStackFramesRetrieveResponse> => {
-    return apiMutator<errorTrackingStackFramesRetrieveResponse>(getErrorTrackingStackFramesRetrieveUrl(projectId, id), {
+): Promise<ErrorTrackingStackFrameApi> => {
+    return apiMutator<ErrorTrackingStackFrameApi>(getEnvironmentsErrorTrackingStackFramesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -1512,75 +1003,41 @@ export const errorTrackingStackFramesRetrieve = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type errorTrackingStackFramesDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type errorTrackingStackFramesDestroyResponseError = errorTrackingStackFramesDestroyResponse405 & {
-    headers: Headers
-}
-
-export type errorTrackingStackFramesDestroyResponse = errorTrackingStackFramesDestroyResponseError
-
-export const getErrorTrackingStackFramesDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingStackFramesDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/stack_frames/${id}/`
 }
 
-export const errorTrackingStackFramesDestroy = async (
+export const environmentsErrorTrackingStackFramesDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingStackFramesDestroyResponse> => {
-    return apiMutator<errorTrackingStackFramesDestroyResponse>(getErrorTrackingStackFramesDestroyUrl(projectId, id), {
+): Promise<unknown> => {
+    return apiMutator<unknown>(getEnvironmentsErrorTrackingStackFramesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type errorTrackingStackFramesBatchGetCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingStackFramesBatchGetCreateResponseSuccess =
-    errorTrackingStackFramesBatchGetCreateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingStackFramesBatchGetCreateResponse = errorTrackingStackFramesBatchGetCreateResponseSuccess
-
-export const getErrorTrackingStackFramesBatchGetCreateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingStackFramesBatchGetCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/stack_frames/batch_get/`
 }
 
-export const errorTrackingStackFramesBatchGetCreate = async (
+export const environmentsErrorTrackingStackFramesBatchGetCreate = async (
     projectId: string,
     errorTrackingStackFrameApi: NonReadonly<ErrorTrackingStackFrameApi>,
     options?: RequestInit
-): Promise<errorTrackingStackFramesBatchGetCreateResponse> => {
-    return apiMutator<errorTrackingStackFramesBatchGetCreateResponse>(
-        getErrorTrackingStackFramesBatchGetCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingStackFrameApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingStackFramesBatchGetCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingStackFrameApi),
+    })
 }
 
-export type errorTrackingSuppressionRulesListResponse200 = {
-    data: PaginatedErrorTrackingSuppressionRuleListApi
-    status: 200
-}
-
-export type errorTrackingSuppressionRulesListResponseSuccess = errorTrackingSuppressionRulesListResponse200 & {
-    headers: Headers
-}
-export type errorTrackingSuppressionRulesListResponse = errorTrackingSuppressionRulesListResponseSuccess
-
-export const getErrorTrackingSuppressionRulesListUrl = (
+export const getEnvironmentsErrorTrackingSuppressionRulesListUrl = (
     projectId: string,
-    params?: ErrorTrackingSuppressionRulesListParams
+    params?: EnvironmentsErrorTrackingSuppressionRulesListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1597,13 +1054,13 @@ export const getErrorTrackingSuppressionRulesListUrl = (
         : `/api/environments/${projectId}/error_tracking/suppression_rules/`
 }
 
-export const errorTrackingSuppressionRulesList = async (
+export const environmentsErrorTrackingSuppressionRulesList = async (
     projectId: string,
-    params?: ErrorTrackingSuppressionRulesListParams,
+    params?: EnvironmentsErrorTrackingSuppressionRulesListParams,
     options?: RequestInit
-): Promise<errorTrackingSuppressionRulesListResponse> => {
-    return apiMutator<errorTrackingSuppressionRulesListResponse>(
-        getErrorTrackingSuppressionRulesListUrl(projectId, params),
+): Promise<PaginatedErrorTrackingSuppressionRuleListApi> => {
+    return apiMutator<PaginatedErrorTrackingSuppressionRuleListApi>(
+        getEnvironmentsErrorTrackingSuppressionRulesListUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -1611,27 +1068,17 @@ export const errorTrackingSuppressionRulesList = async (
     )
 }
 
-export type errorTrackingSuppressionRulesCreateResponse201 = {
-    data: ErrorTrackingSuppressionRuleApi
-    status: 201
-}
-
-export type errorTrackingSuppressionRulesCreateResponseSuccess = errorTrackingSuppressionRulesCreateResponse201 & {
-    headers: Headers
-}
-export type errorTrackingSuppressionRulesCreateResponse = errorTrackingSuppressionRulesCreateResponseSuccess
-
-export const getErrorTrackingSuppressionRulesCreateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingSuppressionRulesCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/suppression_rules/`
 }
 
-export const errorTrackingSuppressionRulesCreate = async (
+export const environmentsErrorTrackingSuppressionRulesCreate = async (
     projectId: string,
     errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingSuppressionRulesCreateResponse> => {
-    return apiMutator<errorTrackingSuppressionRulesCreateResponse>(
-        getErrorTrackingSuppressionRulesCreateUrl(projectId),
+): Promise<ErrorTrackingSuppressionRuleApi> => {
+    return apiMutator<ErrorTrackingSuppressionRuleApi>(
+        getEnvironmentsErrorTrackingSuppressionRulesCreateUrl(projectId),
         {
             ...options,
             method: 'POST',
@@ -1641,27 +1088,17 @@ export const errorTrackingSuppressionRulesCreate = async (
     )
 }
 
-export type errorTrackingSuppressionRulesRetrieveResponse200 = {
-    data: ErrorTrackingSuppressionRuleApi
-    status: 200
-}
-
-export type errorTrackingSuppressionRulesRetrieveResponseSuccess = errorTrackingSuppressionRulesRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingSuppressionRulesRetrieveResponse = errorTrackingSuppressionRulesRetrieveResponseSuccess
-
-export const getErrorTrackingSuppressionRulesRetrieveUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingSuppressionRulesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/suppression_rules/${id}/`
 }
 
-export const errorTrackingSuppressionRulesRetrieve = async (
+export const environmentsErrorTrackingSuppressionRulesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingSuppressionRulesRetrieveResponse> => {
-    return apiMutator<errorTrackingSuppressionRulesRetrieveResponse>(
-        getErrorTrackingSuppressionRulesRetrieveUrl(projectId, id),
+): Promise<ErrorTrackingSuppressionRuleApi> => {
+    return apiMutator<ErrorTrackingSuppressionRuleApi>(
+        getEnvironmentsErrorTrackingSuppressionRulesRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -1669,28 +1106,18 @@ export const errorTrackingSuppressionRulesRetrieve = async (
     )
 }
 
-export type errorTrackingSuppressionRulesUpdateResponse200 = {
-    data: ErrorTrackingSuppressionRuleApi
-    status: 200
-}
-
-export type errorTrackingSuppressionRulesUpdateResponseSuccess = errorTrackingSuppressionRulesUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingSuppressionRulesUpdateResponse = errorTrackingSuppressionRulesUpdateResponseSuccess
-
-export const getErrorTrackingSuppressionRulesUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingSuppressionRulesUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/suppression_rules/${id}/`
 }
 
-export const errorTrackingSuppressionRulesUpdate = async (
+export const environmentsErrorTrackingSuppressionRulesUpdate = async (
     projectId: string,
     id: string,
     errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingSuppressionRulesUpdateResponse> => {
-    return apiMutator<errorTrackingSuppressionRulesUpdateResponse>(
-        getErrorTrackingSuppressionRulesUpdateUrl(projectId, id),
+): Promise<ErrorTrackingSuppressionRuleApi> => {
+    return apiMutator<ErrorTrackingSuppressionRuleApi>(
+        getEnvironmentsErrorTrackingSuppressionRulesUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PUT',
@@ -1700,30 +1127,18 @@ export const errorTrackingSuppressionRulesUpdate = async (
     )
 }
 
-export type errorTrackingSuppressionRulesPartialUpdateResponse200 = {
-    data: ErrorTrackingSuppressionRuleApi
-    status: 200
-}
-
-export type errorTrackingSuppressionRulesPartialUpdateResponseSuccess =
-    errorTrackingSuppressionRulesPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingSuppressionRulesPartialUpdateResponse =
-    errorTrackingSuppressionRulesPartialUpdateResponseSuccess
-
-export const getErrorTrackingSuppressionRulesPartialUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingSuppressionRulesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/suppression_rules/${id}/`
 }
 
-export const errorTrackingSuppressionRulesPartialUpdate = async (
+export const environmentsErrorTrackingSuppressionRulesPartialUpdate = async (
     projectId: string,
     id: string,
     patchedErrorTrackingSuppressionRuleApi: NonReadonly<PatchedErrorTrackingSuppressionRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingSuppressionRulesPartialUpdateResponse> => {
-    return apiMutator<errorTrackingSuppressionRulesPartialUpdateResponse>(
-        getErrorTrackingSuppressionRulesPartialUpdateUrl(projectId, id),
+): Promise<ErrorTrackingSuppressionRuleApi> => {
+    return apiMutator<ErrorTrackingSuppressionRuleApi>(
+        getEnvironmentsErrorTrackingSuppressionRulesPartialUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PATCH',
@@ -1733,77 +1148,42 @@ export const errorTrackingSuppressionRulesPartialUpdate = async (
     )
 }
 
-export type errorTrackingSuppressionRulesDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type errorTrackingSuppressionRulesDestroyResponseSuccess = errorTrackingSuppressionRulesDestroyResponse204 & {
-    headers: Headers
-}
-export type errorTrackingSuppressionRulesDestroyResponse = errorTrackingSuppressionRulesDestroyResponseSuccess
-
-export const getErrorTrackingSuppressionRulesDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingSuppressionRulesDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/suppression_rules/${id}/`
 }
 
-export const errorTrackingSuppressionRulesDestroy = async (
+export const environmentsErrorTrackingSuppressionRulesDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingSuppressionRulesDestroyResponse> => {
-    return apiMutator<errorTrackingSuppressionRulesDestroyResponse>(
-        getErrorTrackingSuppressionRulesDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingSuppressionRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
-export type errorTrackingSuppressionRulesReorderPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSuppressionRulesReorderPartialUpdateResponseSuccess =
-    errorTrackingSuppressionRulesReorderPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingSuppressionRulesReorderPartialUpdateResponse =
-    errorTrackingSuppressionRulesReorderPartialUpdateResponseSuccess
-
-export const getErrorTrackingSuppressionRulesReorderPartialUpdateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingSuppressionRulesReorderPartialUpdateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/suppression_rules/reorder/`
 }
 
-export const errorTrackingSuppressionRulesReorderPartialUpdate = async (
+export const environmentsErrorTrackingSuppressionRulesReorderPartialUpdate = async (
     projectId: string,
     patchedErrorTrackingSuppressionRuleApi: NonReadonly<PatchedErrorTrackingSuppressionRuleApi>,
     options?: RequestInit
-): Promise<errorTrackingSuppressionRulesReorderPartialUpdateResponse> => {
-    return apiMutator<errorTrackingSuppressionRulesReorderPartialUpdateResponse>(
-        getErrorTrackingSuppressionRulesReorderPartialUpdateUrl(projectId),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingSuppressionRuleApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingSuppressionRulesReorderPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingSuppressionRuleApi),
+    })
 }
 
-export type errorTrackingSymbolSetsListResponse200 = {
-    data: PaginatedErrorTrackingSymbolSetListApi
-    status: 200
-}
-
-export type errorTrackingSymbolSetsListResponseSuccess = errorTrackingSymbolSetsListResponse200 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsListResponse = errorTrackingSymbolSetsListResponseSuccess
-
-export const getErrorTrackingSymbolSetsListUrl = (projectId: string, params?: ErrorTrackingSymbolSetsListParams) => {
+export const getEnvironmentsErrorTrackingSymbolSetsListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingSymbolSetsListParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1819,287 +1199,172 @@ export const getErrorTrackingSymbolSetsListUrl = (projectId: string, params?: Er
         : `/api/environments/${projectId}/error_tracking/symbol_sets/`
 }
 
-export const errorTrackingSymbolSetsList = async (
+export const environmentsErrorTrackingSymbolSetsList = async (
     projectId: string,
-    params?: ErrorTrackingSymbolSetsListParams,
+    params?: EnvironmentsErrorTrackingSymbolSetsListParams,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsListResponse> => {
-    return apiMutator<errorTrackingSymbolSetsListResponse>(getErrorTrackingSymbolSetsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type errorTrackingSymbolSetsCreateResponse201 = {
-    data: ErrorTrackingSymbolSetApi
-    status: 201
-}
-
-export type errorTrackingSymbolSetsCreateResponseSuccess = errorTrackingSymbolSetsCreateResponse201 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsCreateResponse = errorTrackingSymbolSetsCreateResponseSuccess
-
-export const getErrorTrackingSymbolSetsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/symbol_sets/`
-}
-
-export const errorTrackingSymbolSetsCreate = async (
-    projectId: string,
-    errorTrackingSymbolSetsCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
-    options?: RequestInit
-): Promise<errorTrackingSymbolSetsCreateResponse> => {
-    return apiMutator<errorTrackingSymbolSetsCreateResponse>(getErrorTrackingSymbolSetsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        body: JSON.stringify(errorTrackingSymbolSetsCreateBody),
-    })
-}
-
-export type errorTrackingSymbolSetsRetrieveResponse200 = {
-    data: ErrorTrackingSymbolSetApi
-    status: 200
-}
-
-export type errorTrackingSymbolSetsRetrieveResponseSuccess = errorTrackingSymbolSetsRetrieveResponse200 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsRetrieveResponse = errorTrackingSymbolSetsRetrieveResponseSuccess
-
-export const getErrorTrackingSymbolSetsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
-}
-
-export const errorTrackingSymbolSetsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<errorTrackingSymbolSetsRetrieveResponse> => {
-    return apiMutator<errorTrackingSymbolSetsRetrieveResponse>(getErrorTrackingSymbolSetsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export type errorTrackingSymbolSetsUpdateResponse200 = {
-    data: ErrorTrackingSymbolSetApi
-    status: 200
-}
-
-export type errorTrackingSymbolSetsUpdateResponseSuccess = errorTrackingSymbolSetsUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsUpdateResponse = errorTrackingSymbolSetsUpdateResponseSuccess
-
-export const getErrorTrackingSymbolSetsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
-}
-
-export const errorTrackingSymbolSetsUpdate = async (
-    projectId: string,
-    id: string,
-    errorTrackingSymbolSetsUpdateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
-    options?: RequestInit
-): Promise<errorTrackingSymbolSetsUpdateResponse> => {
-    return apiMutator<errorTrackingSymbolSetsUpdateResponse>(getErrorTrackingSymbolSetsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        body: JSON.stringify(errorTrackingSymbolSetsUpdateBody),
-    })
-}
-
-export type errorTrackingSymbolSetsPartialUpdateResponse200 = {
-    data: ErrorTrackingSymbolSetApi
-    status: 200
-}
-
-export type errorTrackingSymbolSetsPartialUpdateResponseSuccess = errorTrackingSymbolSetsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsPartialUpdateResponse = errorTrackingSymbolSetsPartialUpdateResponseSuccess
-
-export const getErrorTrackingSymbolSetsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
-}
-
-export const errorTrackingSymbolSetsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    errorTrackingSymbolSetsPartialUpdateBody: NonReadonly<PatchedErrorTrackingSymbolSetApi | Blob>,
-    options?: RequestInit
-): Promise<errorTrackingSymbolSetsPartialUpdateResponse> => {
-    return apiMutator<errorTrackingSymbolSetsPartialUpdateResponse>(
-        getErrorTrackingSymbolSetsPartialUpdateUrl(projectId, id),
+): Promise<PaginatedErrorTrackingSymbolSetListApi> => {
+    return apiMutator<PaginatedErrorTrackingSymbolSetListApi>(
+        getEnvironmentsErrorTrackingSymbolSetsListUrl(projectId, params),
         {
             ...options,
-            method: 'PATCH',
-            body: JSON.stringify(errorTrackingSymbolSetsPartialUpdateBody),
+            method: 'GET',
         }
     )
 }
 
-export type errorTrackingSymbolSetsDestroyResponse204 = {
-    data: void
-    status: 204
+export const getEnvironmentsErrorTrackingSymbolSetsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/`
 }
 
-export type errorTrackingSymbolSetsDestroyResponseSuccess = errorTrackingSymbolSetsDestroyResponse204 & {
-    headers: Headers
+export const environmentsErrorTrackingSymbolSetsCreate = async (
+    projectId: string,
+    environmentsErrorTrackingSymbolSetsCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetApi> => {
+    return apiMutator<ErrorTrackingSymbolSetApi>(getEnvironmentsErrorTrackingSymbolSetsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: JSON.stringify(environmentsErrorTrackingSymbolSetsCreateBody),
+    })
 }
-export type errorTrackingSymbolSetsDestroyResponse = errorTrackingSymbolSetsDestroyResponseSuccess
 
-export const getErrorTrackingSymbolSetsDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingSymbolSetsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
 }
 
-export const errorTrackingSymbolSetsDestroy = async (
+export const environmentsErrorTrackingSymbolSetsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsDestroyResponse> => {
-    return apiMutator<errorTrackingSymbolSetsDestroyResponse>(getErrorTrackingSymbolSetsDestroyUrl(projectId, id), {
+): Promise<ErrorTrackingSymbolSetApi> => {
+    return apiMutator<ErrorTrackingSymbolSetApi>(getEnvironmentsErrorTrackingSymbolSetsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentsErrorTrackingSymbolSetsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const environmentsErrorTrackingSymbolSetsUpdate = async (
+    projectId: string,
+    id: string,
+    environmentsErrorTrackingSymbolSetsUpdateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetApi> => {
+    return apiMutator<ErrorTrackingSymbolSetApi>(getEnvironmentsErrorTrackingSymbolSetsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        body: JSON.stringify(environmentsErrorTrackingSymbolSetsUpdateBody),
+    })
+}
+
+export const getEnvironmentsErrorTrackingSymbolSetsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const environmentsErrorTrackingSymbolSetsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    environmentsErrorTrackingSymbolSetsPartialUpdateBody: NonReadonly<PatchedErrorTrackingSymbolSetApi | Blob>,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetApi> => {
+    return apiMutator<ErrorTrackingSymbolSetApi>(
+        getEnvironmentsErrorTrackingSymbolSetsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            body: JSON.stringify(environmentsErrorTrackingSymbolSetsPartialUpdateBody),
+        }
+    )
+}
+
+export const getEnvironmentsErrorTrackingSymbolSetsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const environmentsErrorTrackingSymbolSetsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingSymbolSetsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type errorTrackingSymbolSetsFinishUploadUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSymbolSetsFinishUploadUpdateResponseSuccess =
-    errorTrackingSymbolSetsFinishUploadUpdateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingSymbolSetsFinishUploadUpdateResponse = errorTrackingSymbolSetsFinishUploadUpdateResponseSuccess
-
-export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/finish_upload/`
 }
 
-export const errorTrackingSymbolSetsFinishUploadUpdate = async (
+export const environmentsErrorTrackingSymbolSetsFinishUploadUpdate = async (
     projectId: string,
     id: string,
     errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsFinishUploadUpdateResponse> => {
-    return apiMutator<errorTrackingSymbolSetsFinishUploadUpdateResponse>(
-        getErrorTrackingSymbolSetsFinishUploadUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSetApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingSymbolSetsFinishUploadUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
 }
 
-export type errorTrackingSymbolSetsBulkFinishUploadCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSymbolSetsBulkFinishUploadCreateResponseSuccess =
-    errorTrackingSymbolSetsBulkFinishUploadCreateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingSymbolSetsBulkFinishUploadCreateResponse =
-    errorTrackingSymbolSetsBulkFinishUploadCreateResponseSuccess
-
-export const getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/bulk_finish_upload/`
 }
 
-export const errorTrackingSymbolSetsBulkFinishUploadCreate = async (
+export const environmentsErrorTrackingSymbolSetsBulkFinishUploadCreate = async (
     projectId: string,
     errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsBulkFinishUploadCreateResponse> => {
-    return apiMutator<errorTrackingSymbolSetsBulkFinishUploadCreateResponse>(
-        getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSetApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingSymbolSetsBulkFinishUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
 }
 
-export type errorTrackingSymbolSetsBulkStartUploadCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSymbolSetsBulkStartUploadCreateResponseSuccess =
-    errorTrackingSymbolSetsBulkStartUploadCreateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingSymbolSetsBulkStartUploadCreateResponse =
-    errorTrackingSymbolSetsBulkStartUploadCreateResponseSuccess
-
-export const getErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/bulk_start_upload/`
 }
 
-export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
+export const environmentsErrorTrackingSymbolSetsBulkStartUploadCreate = async (
     projectId: string,
     errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsBulkStartUploadCreateResponse> => {
-    return apiMutator<errorTrackingSymbolSetsBulkStartUploadCreateResponse>(
-        getErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSetApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
 }
 
-export type errorTrackingSymbolSetsStartUploadCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSymbolSetsStartUploadCreateResponseSuccess =
-    errorTrackingSymbolSetsStartUploadCreateResponse200 & {
-        headers: Headers
-    }
-export type errorTrackingSymbolSetsStartUploadCreateResponse = errorTrackingSymbolSetsStartUploadCreateResponseSuccess
-
-export const getErrorTrackingSymbolSetsStartUploadCreateUrl = (projectId: string) => {
+export const getEnvironmentsErrorTrackingSymbolSetsStartUploadCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/start_upload/`
 }
 
-export const errorTrackingSymbolSetsStartUploadCreate = async (
+export const environmentsErrorTrackingSymbolSetsStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSetsStartUploadCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
+    environmentsErrorTrackingSymbolSetsStartUploadCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsStartUploadCreateResponse> => {
-    return apiMutator<errorTrackingSymbolSetsStartUploadCreateResponse>(
-        getErrorTrackingSymbolSetsStartUploadCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            body: JSON.stringify(errorTrackingSymbolSetsStartUploadCreateBody),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsErrorTrackingSymbolSetsStartUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: JSON.stringify(environmentsErrorTrackingSymbolSetsStartUploadCreateBody),
+    })
 }
 
-export type errorTrackingReleasesList2Response200 = {
-    data: PaginatedErrorTrackingReleaseListApi
-    status: 200
-}
-
-export type errorTrackingReleasesList2ResponseSuccess = errorTrackingReleasesList2Response200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesList2Response = errorTrackingReleasesList2ResponseSuccess
-
-export const getErrorTrackingReleasesList2Url = (projectId: string, params?: ErrorTrackingReleasesList2Params) => {
+export const getErrorTrackingReleasesListUrl = (projectId: string, params?: ErrorTrackingReleasesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -2115,37 +1380,27 @@ export const getErrorTrackingReleasesList2Url = (projectId: string, params?: Err
         : `/api/projects/${projectId}/error_tracking/releases/`
 }
 
-export const errorTrackingReleasesList2 = async (
+export const errorTrackingReleasesList = async (
     projectId: string,
-    params?: ErrorTrackingReleasesList2Params,
+    params?: ErrorTrackingReleasesListParams,
     options?: RequestInit
-): Promise<errorTrackingReleasesList2Response> => {
-    return apiMutator<errorTrackingReleasesList2Response>(getErrorTrackingReleasesList2Url(projectId, params), {
+): Promise<PaginatedErrorTrackingReleaseListApi> => {
+    return apiMutator<PaginatedErrorTrackingReleaseListApi>(getErrorTrackingReleasesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type errorTrackingReleasesCreate2Response201 = {
-    data: ErrorTrackingReleaseApi
-    status: 201
-}
-
-export type errorTrackingReleasesCreate2ResponseSuccess = errorTrackingReleasesCreate2Response201 & {
-    headers: Headers
-}
-export type errorTrackingReleasesCreate2Response = errorTrackingReleasesCreate2ResponseSuccess
-
-export const getErrorTrackingReleasesCreate2Url = (projectId: string) => {
+export const getErrorTrackingReleasesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/releases/`
 }
 
-export const errorTrackingReleasesCreate2 = async (
+export const errorTrackingReleasesCreate = async (
     projectId: string,
     errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
     options?: RequestInit
-): Promise<errorTrackingReleasesCreate2Response> => {
-    return apiMutator<errorTrackingReleasesCreate2Response>(getErrorTrackingReleasesCreate2Url(projectId), {
+): Promise<ErrorTrackingReleaseApi> => {
+    return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2153,52 +1408,32 @@ export const errorTrackingReleasesCreate2 = async (
     })
 }
 
-export type errorTrackingReleasesRetrieve2Response200 = {
-    data: ErrorTrackingReleaseApi
-    status: 200
-}
-
-export type errorTrackingReleasesRetrieve2ResponseSuccess = errorTrackingReleasesRetrieve2Response200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesRetrieve2Response = errorTrackingReleasesRetrieve2ResponseSuccess
-
-export const getErrorTrackingReleasesRetrieve2Url = (projectId: string, id: string) => {
+export const getErrorTrackingReleasesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/releases/${id}/`
 }
 
-export const errorTrackingReleasesRetrieve2 = async (
+export const errorTrackingReleasesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingReleasesRetrieve2Response> => {
-    return apiMutator<errorTrackingReleasesRetrieve2Response>(getErrorTrackingReleasesRetrieve2Url(projectId, id), {
+): Promise<ErrorTrackingReleaseApi> => {
+    return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type errorTrackingReleasesUpdate2Response200 = {
-    data: ErrorTrackingReleaseApi
-    status: 200
-}
-
-export type errorTrackingReleasesUpdate2ResponseSuccess = errorTrackingReleasesUpdate2Response200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesUpdate2Response = errorTrackingReleasesUpdate2ResponseSuccess
-
-export const getErrorTrackingReleasesUpdate2Url = (projectId: string, id: string) => {
+export const getErrorTrackingReleasesUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/releases/${id}/`
 }
 
-export const errorTrackingReleasesUpdate2 = async (
+export const errorTrackingReleasesUpdate = async (
     projectId: string,
     id: string,
     errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
     options?: RequestInit
-): Promise<errorTrackingReleasesUpdate2Response> => {
-    return apiMutator<errorTrackingReleasesUpdate2Response>(getErrorTrackingReleasesUpdate2Url(projectId, id), {
+): Promise<ErrorTrackingReleaseApi> => {
+    return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2206,101 +1441,55 @@ export const errorTrackingReleasesUpdate2 = async (
     })
 }
 
-export type errorTrackingReleasesPartialUpdate2Response200 = {
-    data: ErrorTrackingReleaseApi
-    status: 200
-}
-
-export type errorTrackingReleasesPartialUpdate2ResponseSuccess = errorTrackingReleasesPartialUpdate2Response200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesPartialUpdate2Response = errorTrackingReleasesPartialUpdate2ResponseSuccess
-
-export const getErrorTrackingReleasesPartialUpdate2Url = (projectId: string, id: string) => {
+export const getErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/releases/${id}/`
 }
 
-export const errorTrackingReleasesPartialUpdate2 = async (
+export const errorTrackingReleasesPartialUpdate = async (
     projectId: string,
     id: string,
     patchedErrorTrackingReleaseApi: NonReadonly<PatchedErrorTrackingReleaseApi>,
     options?: RequestInit
-): Promise<errorTrackingReleasesPartialUpdate2Response> => {
-    return apiMutator<errorTrackingReleasesPartialUpdate2Response>(
-        getErrorTrackingReleasesPartialUpdate2Url(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingReleaseApi),
-        }
-    )
+): Promise<ErrorTrackingReleaseApi> => {
+    return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingReleaseApi),
+    })
 }
 
-export type errorTrackingReleasesDestroy2Response204 = {
-    data: void
-    status: 204
-}
-
-export type errorTrackingReleasesDestroy2ResponseSuccess = errorTrackingReleasesDestroy2Response204 & {
-    headers: Headers
-}
-export type errorTrackingReleasesDestroy2Response = errorTrackingReleasesDestroy2ResponseSuccess
-
-export const getErrorTrackingReleasesDestroy2Url = (projectId: string, id: string) => {
+export const getErrorTrackingReleasesDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/releases/${id}/`
 }
 
-export const errorTrackingReleasesDestroy2 = async (
+export const errorTrackingReleasesDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingReleasesDestroy2Response> => {
-    return apiMutator<errorTrackingReleasesDestroy2Response>(getErrorTrackingReleasesDestroy2Url(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingReleasesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type errorTrackingReleasesHashRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingReleasesHashRetrieve2ResponseSuccess = errorTrackingReleasesHashRetrieve2Response200 & {
-    headers: Headers
-}
-export type errorTrackingReleasesHashRetrieve2Response = errorTrackingReleasesHashRetrieve2ResponseSuccess
-
-export const getErrorTrackingReleasesHashRetrieve2Url = (projectId: string, hashId: string) => {
+export const getErrorTrackingReleasesHashRetrieveUrl = (projectId: string, hashId: string) => {
     return `/api/projects/${projectId}/error_tracking/releases/hash/${hashId}/`
 }
 
-export const errorTrackingReleasesHashRetrieve2 = async (
+export const errorTrackingReleasesHashRetrieve = async (
     projectId: string,
     hashId: string,
     options?: RequestInit
-): Promise<errorTrackingReleasesHashRetrieve2Response> => {
-    return apiMutator<errorTrackingReleasesHashRetrieve2Response>(
-        getErrorTrackingReleasesHashRetrieve2Url(projectId, hashId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingReleasesHashRetrieveUrl(projectId, hashId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export type errorTrackingSymbolSetsList2Response200 = {
-    data: PaginatedErrorTrackingSymbolSetListApi
-    status: 200
-}
-
-export type errorTrackingSymbolSetsList2ResponseSuccess = errorTrackingSymbolSetsList2Response200 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsList2Response = errorTrackingSymbolSetsList2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsList2Url = (projectId: string, params?: ErrorTrackingSymbolSetsList2Params) => {
+export const getErrorTrackingSymbolSetsListUrl = (projectId: string, params?: ErrorTrackingSymbolSetsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -2316,273 +1505,161 @@ export const getErrorTrackingSymbolSetsList2Url = (projectId: string, params?: E
         : `/api/projects/${projectId}/error_tracking/symbol_sets/`
 }
 
-export const errorTrackingSymbolSetsList2 = async (
+export const errorTrackingSymbolSetsList = async (
     projectId: string,
-    params?: ErrorTrackingSymbolSetsList2Params,
+    params?: ErrorTrackingSymbolSetsListParams,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsList2Response> => {
-    return apiMutator<errorTrackingSymbolSetsList2Response>(getErrorTrackingSymbolSetsList2Url(projectId, params), {
+): Promise<PaginatedErrorTrackingSymbolSetListApi> => {
+    return apiMutator<PaginatedErrorTrackingSymbolSetListApi>(getErrorTrackingSymbolSetsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type errorTrackingSymbolSetsCreate2Response201 = {
-    data: ErrorTrackingSymbolSetApi
-    status: 201
-}
-
-export type errorTrackingSymbolSetsCreate2ResponseSuccess = errorTrackingSymbolSetsCreate2Response201 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsCreate2Response = errorTrackingSymbolSetsCreate2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsCreate2Url = (projectId: string) => {
+export const getErrorTrackingSymbolSetsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/`
 }
 
-export const errorTrackingSymbolSetsCreate2 = async (
+export const errorTrackingSymbolSetsCreate = async (
     projectId: string,
-    errorTrackingSymbolSetsCreate2Body: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
+    errorTrackingSymbolSetsCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsCreate2Response> => {
-    return apiMutator<errorTrackingSymbolSetsCreate2Response>(getErrorTrackingSymbolSetsCreate2Url(projectId), {
+): Promise<ErrorTrackingSymbolSetApi> => {
+    return apiMutator<ErrorTrackingSymbolSetApi>(getErrorTrackingSymbolSetsCreateUrl(projectId), {
         ...options,
         method: 'POST',
-        body: JSON.stringify(errorTrackingSymbolSetsCreate2Body),
+        body: JSON.stringify(errorTrackingSymbolSetsCreateBody),
     })
 }
 
-export type errorTrackingSymbolSetsRetrieve2Response200 = {
-    data: ErrorTrackingSymbolSetApi
-    status: 200
-}
-
-export type errorTrackingSymbolSetsRetrieve2ResponseSuccess = errorTrackingSymbolSetsRetrieve2Response200 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsRetrieve2Response = errorTrackingSymbolSetsRetrieve2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsRetrieve2Url = (projectId: string, id: string) => {
+export const getErrorTrackingSymbolSetsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
 }
 
-export const errorTrackingSymbolSetsRetrieve2 = async (
+export const errorTrackingSymbolSetsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsRetrieve2Response> => {
-    return apiMutator<errorTrackingSymbolSetsRetrieve2Response>(getErrorTrackingSymbolSetsRetrieve2Url(projectId, id), {
+): Promise<ErrorTrackingSymbolSetApi> => {
+    return apiMutator<ErrorTrackingSymbolSetApi>(getErrorTrackingSymbolSetsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type errorTrackingSymbolSetsUpdate2Response200 = {
-    data: ErrorTrackingSymbolSetApi
-    status: 200
-}
-
-export type errorTrackingSymbolSetsUpdate2ResponseSuccess = errorTrackingSymbolSetsUpdate2Response200 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsUpdate2Response = errorTrackingSymbolSetsUpdate2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsUpdate2Url = (projectId: string, id: string) => {
+export const getErrorTrackingSymbolSetsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
 }
 
-export const errorTrackingSymbolSetsUpdate2 = async (
+export const errorTrackingSymbolSetsUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSetsUpdate2Body: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
+    errorTrackingSymbolSetsUpdateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsUpdate2Response> => {
-    return apiMutator<errorTrackingSymbolSetsUpdate2Response>(getErrorTrackingSymbolSetsUpdate2Url(projectId, id), {
+): Promise<ErrorTrackingSymbolSetApi> => {
+    return apiMutator<ErrorTrackingSymbolSetApi>(getErrorTrackingSymbolSetsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
-        body: JSON.stringify(errorTrackingSymbolSetsUpdate2Body),
+        body: JSON.stringify(errorTrackingSymbolSetsUpdateBody),
     })
 }
 
-export type errorTrackingSymbolSetsPartialUpdate2Response200 = {
-    data: ErrorTrackingSymbolSetApi
-    status: 200
-}
-
-export type errorTrackingSymbolSetsPartialUpdate2ResponseSuccess = errorTrackingSymbolSetsPartialUpdate2Response200 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsPartialUpdate2Response = errorTrackingSymbolSetsPartialUpdate2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsPartialUpdate2Url = (projectId: string, id: string) => {
+export const getErrorTrackingSymbolSetsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
 }
 
-export const errorTrackingSymbolSetsPartialUpdate2 = async (
+export const errorTrackingSymbolSetsPartialUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSetsPartialUpdate2Body: NonReadonly<PatchedErrorTrackingSymbolSetApi | Blob>,
+    errorTrackingSymbolSetsPartialUpdateBody: NonReadonly<PatchedErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsPartialUpdate2Response> => {
-    return apiMutator<errorTrackingSymbolSetsPartialUpdate2Response>(
-        getErrorTrackingSymbolSetsPartialUpdate2Url(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            body: JSON.stringify(errorTrackingSymbolSetsPartialUpdate2Body),
-        }
-    )
+): Promise<ErrorTrackingSymbolSetApi> => {
+    return apiMutator<ErrorTrackingSymbolSetApi>(getErrorTrackingSymbolSetsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        body: JSON.stringify(errorTrackingSymbolSetsPartialUpdateBody),
+    })
 }
 
-export type errorTrackingSymbolSetsDestroy2Response204 = {
-    data: void
-    status: 204
-}
-
-export type errorTrackingSymbolSetsDestroy2ResponseSuccess = errorTrackingSymbolSetsDestroy2Response204 & {
-    headers: Headers
-}
-export type errorTrackingSymbolSetsDestroy2Response = errorTrackingSymbolSetsDestroy2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsDestroy2Url = (projectId: string, id: string) => {
+export const getErrorTrackingSymbolSetsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
 }
 
-export const errorTrackingSymbolSetsDestroy2 = async (
+export const errorTrackingSymbolSetsDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsDestroy2Response> => {
-    return apiMutator<errorTrackingSymbolSetsDestroy2Response>(getErrorTrackingSymbolSetsDestroy2Url(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type errorTrackingSymbolSetsFinishUploadUpdate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSymbolSetsFinishUploadUpdate2ResponseSuccess =
-    errorTrackingSymbolSetsFinishUploadUpdate2Response200 & {
-        headers: Headers
-    }
-export type errorTrackingSymbolSetsFinishUploadUpdate2Response =
-    errorTrackingSymbolSetsFinishUploadUpdate2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsFinishUploadUpdate2Url = (projectId: string, id: string) => {
+export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/finish_upload/`
 }
 
-export const errorTrackingSymbolSetsFinishUploadUpdate2 = async (
+export const errorTrackingSymbolSetsFinishUploadUpdate = async (
     projectId: string,
     id: string,
     errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsFinishUploadUpdate2Response> => {
-    return apiMutator<errorTrackingSymbolSetsFinishUploadUpdate2Response>(
-        getErrorTrackingSymbolSetsFinishUploadUpdate2Url(projectId, id),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSetApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsFinishUploadUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
 }
 
-export type errorTrackingSymbolSetsBulkFinishUploadCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSymbolSetsBulkFinishUploadCreate2ResponseSuccess =
-    errorTrackingSymbolSetsBulkFinishUploadCreate2Response200 & {
-        headers: Headers
-    }
-export type errorTrackingSymbolSetsBulkFinishUploadCreate2Response =
-    errorTrackingSymbolSetsBulkFinishUploadCreate2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsBulkFinishUploadCreate2Url = (projectId: string) => {
+export const getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_finish_upload/`
 }
 
-export const errorTrackingSymbolSetsBulkFinishUploadCreate2 = async (
+export const errorTrackingSymbolSetsBulkFinishUploadCreate = async (
     projectId: string,
     errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsBulkFinishUploadCreate2Response> => {
-    return apiMutator<errorTrackingSymbolSetsBulkFinishUploadCreate2Response>(
-        getErrorTrackingSymbolSetsBulkFinishUploadCreate2Url(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSetApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
 }
 
-export type errorTrackingSymbolSetsBulkStartUploadCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSymbolSetsBulkStartUploadCreate2ResponseSuccess =
-    errorTrackingSymbolSetsBulkStartUploadCreate2Response200 & {
-        headers: Headers
-    }
-export type errorTrackingSymbolSetsBulkStartUploadCreate2Response =
-    errorTrackingSymbolSetsBulkStartUploadCreate2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsBulkStartUploadCreate2Url = (projectId: string) => {
+export const getErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_start_upload/`
 }
 
-export const errorTrackingSymbolSetsBulkStartUploadCreate2 = async (
+export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
     projectId: string,
     errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsBulkStartUploadCreate2Response> => {
-    return apiMutator<errorTrackingSymbolSetsBulkStartUploadCreate2Response>(
-        getErrorTrackingSymbolSetsBulkStartUploadCreate2Url(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSetApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
 }
 
-export type errorTrackingSymbolSetsStartUploadCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type errorTrackingSymbolSetsStartUploadCreate2ResponseSuccess =
-    errorTrackingSymbolSetsStartUploadCreate2Response200 & {
-        headers: Headers
-    }
-export type errorTrackingSymbolSetsStartUploadCreate2Response = errorTrackingSymbolSetsStartUploadCreate2ResponseSuccess
-
-export const getErrorTrackingSymbolSetsStartUploadCreate2Url = (projectId: string) => {
+export const getErrorTrackingSymbolSetsStartUploadCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/start_upload/`
 }
 
-export const errorTrackingSymbolSetsStartUploadCreate2 = async (
+export const errorTrackingSymbolSetsStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSetsStartUploadCreate2Body: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
+    errorTrackingSymbolSetsStartUploadCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
-): Promise<errorTrackingSymbolSetsStartUploadCreate2Response> => {
-    return apiMutator<errorTrackingSymbolSetsStartUploadCreate2Response>(
-        getErrorTrackingSymbolSetsStartUploadCreate2Url(projectId),
-        {
-            ...options,
-            method: 'POST',
-            body: JSON.stringify(errorTrackingSymbolSetsStartUploadCreate2Body),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsStartUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: JSON.stringify(errorTrackingSymbolSetsStartUploadCreateBody),
+    })
 }

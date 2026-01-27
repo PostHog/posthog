@@ -95,7 +95,7 @@ export interface PatchedUserInterviewApi {
     audio?: string
 }
 
-export type UserInterviewsListParams = {
+export type EnvironmentsUserInterviewsListParams = {
     /**
      * Number of results to return per page.
      */

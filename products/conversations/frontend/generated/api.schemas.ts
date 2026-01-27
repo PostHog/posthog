@@ -156,6 +156,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `error_tracking` - error_tracking
  * `plan` - plan
  * `execution` - execution
+ * `survey` - survey
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -166,6 +167,7 @@ export const AgentModeEnumApi = {
     error_tracking: 'error_tracking',
     plan: 'plan',
     execution: 'execution',
+    survey: 'survey',
 } as const
 
 /**
@@ -350,7 +352,7 @@ export interface PatchedTicketApi {
     readonly session_context?: unknown
 }
 
-export type ConversationsListParams = {
+export type EnvironmentsConversationsListParams = {
     /**
      * Number of results to return per page.
      */

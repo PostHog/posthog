@@ -10,18 +10,18 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CreateGroupApi,
+    EnvironmentsGroupsActivityRetrieveParams,
+    EnvironmentsGroupsDeletePropertyCreateParams,
+    EnvironmentsGroupsFindRetrieveParams,
+    EnvironmentsGroupsListParams,
+    EnvironmentsGroupsRelatedRetrieveParams,
+    EnvironmentsGroupsUpdatePropertyCreateParams,
     GroupApi,
-    GroupsActivityRetrieve2Params,
     GroupsActivityRetrieveParams,
-    GroupsDeletePropertyCreate2Params,
     GroupsDeletePropertyCreateParams,
-    GroupsFindRetrieve2Params,
     GroupsFindRetrieveParams,
-    GroupsList2Params,
     GroupsListParams,
-    GroupsRelatedRetrieve2Params,
     GroupsRelatedRetrieveParams,
-    GroupsUpdatePropertyCreate2Params,
     GroupsUpdatePropertyCreateParams,
     PaginatedGroupListApi,
 } from './api.schemas'
@@ -46,17 +46,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 /**
  * List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
  */
-export type groupsListResponse200 = {
-    data: PaginatedGroupListApi
-    status: 200
-}
-
-export type groupsListResponseSuccess = groupsListResponse200 & {
-    headers: Headers
-}
-export type groupsListResponse = groupsListResponseSuccess
-
-export const getGroupsListUrl = (projectId: string, params: GroupsListParams) => {
+export const getEnvironmentsGroupsListUrl = (projectId: string, params: EnvironmentsGroupsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -72,37 +62,27 @@ export const getGroupsListUrl = (projectId: string, params: GroupsListParams) =>
         : `/api/environments/${projectId}/groups/`
 }
 
-export const groupsList = async (
+export const environmentsGroupsList = async (
     projectId: string,
-    params: GroupsListParams,
+    params: EnvironmentsGroupsListParams,
     options?: RequestInit
-): Promise<groupsListResponse> => {
-    return apiMutator<groupsListResponse>(getGroupsListUrl(projectId, params), {
+): Promise<PaginatedGroupListApi> => {
+    return apiMutator<PaginatedGroupListApi>(getEnvironmentsGroupsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsCreateResponse201 = {
-    data: GroupApi
-    status: 201
-}
-
-export type groupsCreateResponseSuccess = groupsCreateResponse201 & {
-    headers: Headers
-}
-export type groupsCreateResponse = groupsCreateResponseSuccess
-
-export const getGroupsCreateUrl = (projectId: string) => {
+export const getEnvironmentsGroupsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/groups/`
 }
 
-export const groupsCreate = async (
+export const environmentsGroupsCreate = async (
     projectId: string,
     createGroupApi: CreateGroupApi,
     options?: RequestInit
-): Promise<groupsCreateResponse> => {
-    return apiMutator<groupsCreateResponse>(getGroupsCreateUrl(projectId), {
+): Promise<GroupApi> => {
+    return apiMutator<GroupApi>(getEnvironmentsGroupsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -110,17 +90,10 @@ export const groupsCreate = async (
     })
 }
 
-export type groupsActivityRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type groupsActivityRetrieveResponseSuccess = groupsActivityRetrieveResponse200 & {
-    headers: Headers
-}
-export type groupsActivityRetrieveResponse = groupsActivityRetrieveResponseSuccess
-
-export const getGroupsActivityRetrieveUrl = (projectId: string, params: GroupsActivityRetrieveParams) => {
+export const getEnvironmentsGroupsActivityRetrieveUrl = (
+    projectId: string,
+    params: EnvironmentsGroupsActivityRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -136,28 +109,21 @@ export const getGroupsActivityRetrieveUrl = (projectId: string, params: GroupsAc
         : `/api/environments/${projectId}/groups/activity/`
 }
 
-export const groupsActivityRetrieve = async (
+export const environmentsGroupsActivityRetrieve = async (
     projectId: string,
-    params: GroupsActivityRetrieveParams,
+    params: EnvironmentsGroupsActivityRetrieveParams,
     options?: RequestInit
-): Promise<groupsActivityRetrieveResponse> => {
-    return apiMutator<groupsActivityRetrieveResponse>(getGroupsActivityRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsGroupsActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsDeletePropertyCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type groupsDeletePropertyCreateResponseSuccess = groupsDeletePropertyCreateResponse200 & {
-    headers: Headers
-}
-export type groupsDeletePropertyCreateResponse = groupsDeletePropertyCreateResponseSuccess
-
-export const getGroupsDeletePropertyCreateUrl = (projectId: string, params: GroupsDeletePropertyCreateParams) => {
+export const getEnvironmentsGroupsDeletePropertyCreateUrl = (
+    projectId: string,
+    params: EnvironmentsGroupsDeletePropertyCreateParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -173,13 +139,13 @@ export const getGroupsDeletePropertyCreateUrl = (projectId: string, params: Grou
         : `/api/environments/${projectId}/groups/delete_property/`
 }
 
-export const groupsDeletePropertyCreate = async (
+export const environmentsGroupsDeletePropertyCreate = async (
     projectId: string,
     groupApi: NonReadonly<GroupApi>,
-    params: GroupsDeletePropertyCreateParams,
+    params: EnvironmentsGroupsDeletePropertyCreateParams,
     options?: RequestInit
-): Promise<groupsDeletePropertyCreateResponse> => {
-    return apiMutator<groupsDeletePropertyCreateResponse>(getGroupsDeletePropertyCreateUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsGroupsDeletePropertyCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -187,17 +153,10 @@ export const groupsDeletePropertyCreate = async (
     })
 }
 
-export type groupsFindRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type groupsFindRetrieveResponseSuccess = groupsFindRetrieveResponse200 & {
-    headers: Headers
-}
-export type groupsFindRetrieveResponse = groupsFindRetrieveResponseSuccess
-
-export const getGroupsFindRetrieveUrl = (projectId: string, params: GroupsFindRetrieveParams) => {
+export const getEnvironmentsGroupsFindRetrieveUrl = (
+    projectId: string,
+    params: EnvironmentsGroupsFindRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -213,76 +172,49 @@ export const getGroupsFindRetrieveUrl = (projectId: string, params: GroupsFindRe
         : `/api/environments/${projectId}/groups/find/`
 }
 
-export const groupsFindRetrieve = async (
+export const environmentsGroupsFindRetrieve = async (
     projectId: string,
-    params: GroupsFindRetrieveParams,
+    params: EnvironmentsGroupsFindRetrieveParams,
     options?: RequestInit
-): Promise<groupsFindRetrieveResponse> => {
-    return apiMutator<groupsFindRetrieveResponse>(getGroupsFindRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsGroupsFindRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsPropertyDefinitionsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type groupsPropertyDefinitionsRetrieveResponseSuccess = groupsPropertyDefinitionsRetrieveResponse200 & {
-    headers: Headers
-}
-export type groupsPropertyDefinitionsRetrieveResponse = groupsPropertyDefinitionsRetrieveResponseSuccess
-
-export const getGroupsPropertyDefinitionsRetrieveUrl = (projectId: string) => {
+export const getEnvironmentsGroupsPropertyDefinitionsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/groups/property_definitions/`
 }
 
-export const groupsPropertyDefinitionsRetrieve = async (
+export const environmentsGroupsPropertyDefinitionsRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<groupsPropertyDefinitionsRetrieveResponse> => {
-    return apiMutator<groupsPropertyDefinitionsRetrieveResponse>(getGroupsPropertyDefinitionsRetrieveUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsGroupsPropertyDefinitionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsPropertyValuesRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type groupsPropertyValuesRetrieveResponseSuccess = groupsPropertyValuesRetrieveResponse200 & {
-    headers: Headers
-}
-export type groupsPropertyValuesRetrieveResponse = groupsPropertyValuesRetrieveResponseSuccess
-
-export const getGroupsPropertyValuesRetrieveUrl = (projectId: string) => {
+export const getEnvironmentsGroupsPropertyValuesRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/groups/property_values/`
 }
 
-export const groupsPropertyValuesRetrieve = async (
+export const environmentsGroupsPropertyValuesRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<groupsPropertyValuesRetrieveResponse> => {
-    return apiMutator<groupsPropertyValuesRetrieveResponse>(getGroupsPropertyValuesRetrieveUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsGroupsPropertyValuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsRelatedRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type groupsRelatedRetrieveResponseSuccess = groupsRelatedRetrieveResponse200 & {
-    headers: Headers
-}
-export type groupsRelatedRetrieveResponse = groupsRelatedRetrieveResponseSuccess
-
-export const getGroupsRelatedRetrieveUrl = (projectId: string, params: GroupsRelatedRetrieveParams) => {
+export const getEnvironmentsGroupsRelatedRetrieveUrl = (
+    projectId: string,
+    params: EnvironmentsGroupsRelatedRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -298,28 +230,21 @@ export const getGroupsRelatedRetrieveUrl = (projectId: string, params: GroupsRel
         : `/api/environments/${projectId}/groups/related/`
 }
 
-export const groupsRelatedRetrieve = async (
+export const environmentsGroupsRelatedRetrieve = async (
     projectId: string,
-    params: GroupsRelatedRetrieveParams,
+    params: EnvironmentsGroupsRelatedRetrieveParams,
     options?: RequestInit
-): Promise<groupsRelatedRetrieveResponse> => {
-    return apiMutator<groupsRelatedRetrieveResponse>(getGroupsRelatedRetrieveUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsGroupsRelatedRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsUpdatePropertyCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type groupsUpdatePropertyCreateResponseSuccess = groupsUpdatePropertyCreateResponse200 & {
-    headers: Headers
-}
-export type groupsUpdatePropertyCreateResponse = groupsUpdatePropertyCreateResponseSuccess
-
-export const getGroupsUpdatePropertyCreateUrl = (projectId: string, params: GroupsUpdatePropertyCreateParams) => {
+export const getEnvironmentsGroupsUpdatePropertyCreateUrl = (
+    projectId: string,
+    params: EnvironmentsGroupsUpdatePropertyCreateParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -335,13 +260,13 @@ export const getGroupsUpdatePropertyCreateUrl = (projectId: string, params: Grou
         : `/api/environments/${projectId}/groups/update_property/`
 }
 
-export const groupsUpdatePropertyCreate = async (
+export const environmentsGroupsUpdatePropertyCreate = async (
     projectId: string,
     groupApi: NonReadonly<GroupApi>,
-    params: GroupsUpdatePropertyCreateParams,
+    params: EnvironmentsGroupsUpdatePropertyCreateParams,
     options?: RequestInit
-): Promise<groupsUpdatePropertyCreateResponse> => {
-    return apiMutator<groupsUpdatePropertyCreateResponse>(getGroupsUpdatePropertyCreateUrl(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsGroupsUpdatePropertyCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -352,17 +277,7 @@ export const groupsUpdatePropertyCreate = async (
 /**
  * List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
  */
-export type groupsList2Response200 = {
-    data: PaginatedGroupListApi
-    status: 200
-}
-
-export type groupsList2ResponseSuccess = groupsList2Response200 & {
-    headers: Headers
-}
-export type groupsList2Response = groupsList2ResponseSuccess
-
-export const getGroupsList2Url = (projectId: string, params: GroupsList2Params) => {
+export const getGroupsListUrl = (projectId: string, params: GroupsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -378,37 +293,27 @@ export const getGroupsList2Url = (projectId: string, params: GroupsList2Params) 
         : `/api/projects/${projectId}/groups/`
 }
 
-export const groupsList2 = async (
+export const groupsList = async (
     projectId: string,
-    params: GroupsList2Params,
+    params: GroupsListParams,
     options?: RequestInit
-): Promise<groupsList2Response> => {
-    return apiMutator<groupsList2Response>(getGroupsList2Url(projectId, params), {
+): Promise<PaginatedGroupListApi> => {
+    return apiMutator<PaginatedGroupListApi>(getGroupsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsCreate2Response201 = {
-    data: GroupApi
-    status: 201
-}
-
-export type groupsCreate2ResponseSuccess = groupsCreate2Response201 & {
-    headers: Headers
-}
-export type groupsCreate2Response = groupsCreate2ResponseSuccess
-
-export const getGroupsCreate2Url = (projectId: string) => {
+export const getGroupsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/groups/`
 }
 
-export const groupsCreate2 = async (
+export const groupsCreate = async (
     projectId: string,
     createGroupApi: CreateGroupApi,
     options?: RequestInit
-): Promise<groupsCreate2Response> => {
-    return apiMutator<groupsCreate2Response>(getGroupsCreate2Url(projectId), {
+): Promise<GroupApi> => {
+    return apiMutator<GroupApi>(getGroupsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -416,17 +321,7 @@ export const groupsCreate2 = async (
     })
 }
 
-export type groupsActivityRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type groupsActivityRetrieve2ResponseSuccess = groupsActivityRetrieve2Response200 & {
-    headers: Headers
-}
-export type groupsActivityRetrieve2Response = groupsActivityRetrieve2ResponseSuccess
-
-export const getGroupsActivityRetrieve2Url = (projectId: string, params: GroupsActivityRetrieve2Params) => {
+export const getGroupsActivityRetrieveUrl = (projectId: string, params: GroupsActivityRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -442,28 +337,18 @@ export const getGroupsActivityRetrieve2Url = (projectId: string, params: GroupsA
         : `/api/projects/${projectId}/groups/activity/`
 }
 
-export const groupsActivityRetrieve2 = async (
+export const groupsActivityRetrieve = async (
     projectId: string,
-    params: GroupsActivityRetrieve2Params,
+    params: GroupsActivityRetrieveParams,
     options?: RequestInit
-): Promise<groupsActivityRetrieve2Response> => {
-    return apiMutator<groupsActivityRetrieve2Response>(getGroupsActivityRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getGroupsActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsDeletePropertyCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type groupsDeletePropertyCreate2ResponseSuccess = groupsDeletePropertyCreate2Response200 & {
-    headers: Headers
-}
-export type groupsDeletePropertyCreate2Response = groupsDeletePropertyCreate2ResponseSuccess
-
-export const getGroupsDeletePropertyCreate2Url = (projectId: string, params: GroupsDeletePropertyCreate2Params) => {
+export const getGroupsDeletePropertyCreateUrl = (projectId: string, params: GroupsDeletePropertyCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -479,13 +364,13 @@ export const getGroupsDeletePropertyCreate2Url = (projectId: string, params: Gro
         : `/api/projects/${projectId}/groups/delete_property/`
 }
 
-export const groupsDeletePropertyCreate2 = async (
+export const groupsDeletePropertyCreate = async (
     projectId: string,
     groupApi: NonReadonly<GroupApi>,
-    params: GroupsDeletePropertyCreate2Params,
+    params: GroupsDeletePropertyCreateParams,
     options?: RequestInit
-): Promise<groupsDeletePropertyCreate2Response> => {
-    return apiMutator<groupsDeletePropertyCreate2Response>(getGroupsDeletePropertyCreate2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getGroupsDeletePropertyCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -493,17 +378,7 @@ export const groupsDeletePropertyCreate2 = async (
     })
 }
 
-export type groupsFindRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type groupsFindRetrieve2ResponseSuccess = groupsFindRetrieve2Response200 & {
-    headers: Headers
-}
-export type groupsFindRetrieve2Response = groupsFindRetrieve2ResponseSuccess
-
-export const getGroupsFindRetrieve2Url = (projectId: string, params: GroupsFindRetrieve2Params) => {
+export const getGroupsFindRetrieveUrl = (projectId: string, params: GroupsFindRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -519,76 +394,40 @@ export const getGroupsFindRetrieve2Url = (projectId: string, params: GroupsFindR
         : `/api/projects/${projectId}/groups/find/`
 }
 
-export const groupsFindRetrieve2 = async (
+export const groupsFindRetrieve = async (
     projectId: string,
-    params: GroupsFindRetrieve2Params,
+    params: GroupsFindRetrieveParams,
     options?: RequestInit
-): Promise<groupsFindRetrieve2Response> => {
-    return apiMutator<groupsFindRetrieve2Response>(getGroupsFindRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getGroupsFindRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsPropertyDefinitionsRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type groupsPropertyDefinitionsRetrieve2ResponseSuccess = groupsPropertyDefinitionsRetrieve2Response200 & {
-    headers: Headers
-}
-export type groupsPropertyDefinitionsRetrieve2Response = groupsPropertyDefinitionsRetrieve2ResponseSuccess
-
-export const getGroupsPropertyDefinitionsRetrieve2Url = (projectId: string) => {
+export const getGroupsPropertyDefinitionsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/groups/property_definitions/`
 }
 
-export const groupsPropertyDefinitionsRetrieve2 = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<groupsPropertyDefinitionsRetrieve2Response> => {
-    return apiMutator<groupsPropertyDefinitionsRetrieve2Response>(getGroupsPropertyDefinitionsRetrieve2Url(projectId), {
+export const groupsPropertyDefinitionsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getGroupsPropertyDefinitionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsPropertyValuesRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type groupsPropertyValuesRetrieve2ResponseSuccess = groupsPropertyValuesRetrieve2Response200 & {
-    headers: Headers
-}
-export type groupsPropertyValuesRetrieve2Response = groupsPropertyValuesRetrieve2ResponseSuccess
-
-export const getGroupsPropertyValuesRetrieve2Url = (projectId: string) => {
+export const getGroupsPropertyValuesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/groups/property_values/`
 }
 
-export const groupsPropertyValuesRetrieve2 = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<groupsPropertyValuesRetrieve2Response> => {
-    return apiMutator<groupsPropertyValuesRetrieve2Response>(getGroupsPropertyValuesRetrieve2Url(projectId), {
+export const groupsPropertyValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getGroupsPropertyValuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsRelatedRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type groupsRelatedRetrieve2ResponseSuccess = groupsRelatedRetrieve2Response200 & {
-    headers: Headers
-}
-export type groupsRelatedRetrieve2Response = groupsRelatedRetrieve2ResponseSuccess
-
-export const getGroupsRelatedRetrieve2Url = (projectId: string, params: GroupsRelatedRetrieve2Params) => {
+export const getGroupsRelatedRetrieveUrl = (projectId: string, params: GroupsRelatedRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -604,28 +443,18 @@ export const getGroupsRelatedRetrieve2Url = (projectId: string, params: GroupsRe
         : `/api/projects/${projectId}/groups/related/`
 }
 
-export const groupsRelatedRetrieve2 = async (
+export const groupsRelatedRetrieve = async (
     projectId: string,
-    params: GroupsRelatedRetrieve2Params,
+    params: GroupsRelatedRetrieveParams,
     options?: RequestInit
-): Promise<groupsRelatedRetrieve2Response> => {
-    return apiMutator<groupsRelatedRetrieve2Response>(getGroupsRelatedRetrieve2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getGroupsRelatedRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type groupsUpdatePropertyCreate2Response200 = {
-    data: void
-    status: 200
-}
-
-export type groupsUpdatePropertyCreate2ResponseSuccess = groupsUpdatePropertyCreate2Response200 & {
-    headers: Headers
-}
-export type groupsUpdatePropertyCreate2Response = groupsUpdatePropertyCreate2ResponseSuccess
-
-export const getGroupsUpdatePropertyCreate2Url = (projectId: string, params: GroupsUpdatePropertyCreate2Params) => {
+export const getGroupsUpdatePropertyCreateUrl = (projectId: string, params: GroupsUpdatePropertyCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -641,13 +470,13 @@ export const getGroupsUpdatePropertyCreate2Url = (projectId: string, params: Gro
         : `/api/projects/${projectId}/groups/update_property/`
 }
 
-export const groupsUpdatePropertyCreate2 = async (
+export const groupsUpdatePropertyCreate = async (
     projectId: string,
     groupApi: NonReadonly<GroupApi>,
-    params: GroupsUpdatePropertyCreate2Params,
+    params: GroupsUpdatePropertyCreateParams,
     options?: RequestInit
-): Promise<groupsUpdatePropertyCreate2Response> => {
-    return apiMutator<groupsUpdatePropertyCreate2Response>(getGroupsUpdatePropertyCreate2Url(projectId, params), {
+): Promise<void> => {
+    return apiMutator<void>(getGroupsUpdatePropertyCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

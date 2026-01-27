@@ -9,7 +9,6 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    ErrorResponseApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
@@ -46,16 +45,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
  * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
  * @summary List tasks
  */
-export type tasksListResponse200 = {
-    data: PaginatedTaskListApi
-    status: 200
-}
-
-export type tasksListResponseSuccess = tasksListResponse200 & {
-    headers: Headers
-}
-export type tasksListResponse = tasksListResponseSuccess
-
 export const getTasksListUrl = (projectId: string, params?: TasksListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -76,8 +65,8 @@ export const tasksList = async (
     projectId: string,
     params?: TasksListParams,
     options?: RequestInit
-): Promise<tasksListResponse> => {
-    return apiMutator<tasksListResponse>(getTasksListUrl(projectId, params), {
+): Promise<PaginatedTaskListApi> => {
+    return apiMutator<PaginatedTaskListApi>(getTasksListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -86,26 +75,12 @@ export const tasksList = async (
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
-export type tasksCreateResponse201 = {
-    data: TaskApi
-    status: 201
-}
-
-export type tasksCreateResponseSuccess = tasksCreateResponse201 & {
-    headers: Headers
-}
-export type tasksCreateResponse = tasksCreateResponseSuccess
-
 export const getTasksCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/`
 }
 
-export const tasksCreate = async (
-    projectId: string,
-    taskApi: TaskApi,
-    options?: RequestInit
-): Promise<tasksCreateResponse> => {
-    return apiMutator<tasksCreateResponse>(getTasksCreateUrl(projectId), {
+export const tasksCreate = async (projectId: string, taskApi: TaskApi, options?: RequestInit): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -116,26 +91,12 @@ export const tasksCreate = async (
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
-export type tasksRetrieveResponse200 = {
-    data: TaskApi
-    status: 200
-}
-
-export type tasksRetrieveResponseSuccess = tasksRetrieveResponse200 & {
-    headers: Headers
-}
-export type tasksRetrieveResponse = tasksRetrieveResponseSuccess
-
 export const getTasksRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/`
 }
 
-export const tasksRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<tasksRetrieveResponse> => {
-    return apiMutator<tasksRetrieveResponse>(getTasksRetrieveUrl(projectId, id), {
+export const tasksRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -144,16 +105,6 @@ export const tasksRetrieve = async (
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
-export type tasksUpdateResponse200 = {
-    data: TaskApi
-    status: 200
-}
-
-export type tasksUpdateResponseSuccess = tasksUpdateResponse200 & {
-    headers: Headers
-}
-export type tasksUpdateResponse = tasksUpdateResponseSuccess
-
 export const getTasksUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/`
 }
@@ -163,8 +114,8 @@ export const tasksUpdate = async (
     id: string,
     taskApi: TaskApi,
     options?: RequestInit
-): Promise<tasksUpdateResponse> => {
-    return apiMutator<tasksUpdateResponse>(getTasksUpdateUrl(projectId, id), {
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -175,16 +126,6 @@ export const tasksUpdate = async (
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
-export type tasksPartialUpdateResponse200 = {
-    data: TaskApi
-    status: 200
-}
-
-export type tasksPartialUpdateResponseSuccess = tasksPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type tasksPartialUpdateResponse = tasksPartialUpdateResponseSuccess
-
 export const getTasksPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/`
 }
@@ -194,8 +135,8 @@ export const tasksPartialUpdate = async (
     id: string,
     patchedTaskApi: NonReadonly<PatchedTaskApi>,
     options?: RequestInit
-): Promise<tasksPartialUpdateResponse> => {
-    return apiMutator<tasksPartialUpdateResponse>(getTasksPartialUpdateUrl(projectId, id), {
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -206,26 +147,12 @@ export const tasksPartialUpdate = async (
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
-export type tasksDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type tasksDestroyResponseSuccess = tasksDestroyResponse204 & {
-    headers: Headers
-}
-export type tasksDestroyResponse = tasksDestroyResponseSuccess
-
 export const getTasksDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/`
 }
 
-export const tasksDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<tasksDestroyResponse> => {
-    return apiMutator<tasksDestroyResponse>(getTasksDestroyUrl(projectId, id), {
+export const tasksDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTasksDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -235,35 +162,12 @@ export const tasksDestroy = async (
  * Create a new task run and kick off the workflow.
  * @summary Run task
  */
-export type tasksRunCreateResponse200 = {
-    data: TaskApi
-    status: 200
-}
-
-export type tasksRunCreateResponse404 = {
-    data: void
-    status: 404
-}
-
-export type tasksRunCreateResponseSuccess = tasksRunCreateResponse200 & {
-    headers: Headers
-}
-export type tasksRunCreateResponseError = tasksRunCreateResponse404 & {
-    headers: Headers
-}
-
-export type tasksRunCreateResponse = tasksRunCreateResponseSuccess | tasksRunCreateResponseError
-
 export const getTasksRunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/run/`
 }
 
-export const tasksRunCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<tasksRunCreateResponse> => {
-    return apiMutator<tasksRunCreateResponse>(getTasksRunCreateUrl(projectId, id), {
+export const tasksRunCreate = async (projectId: string, id: string, options?: RequestInit): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -273,16 +177,6 @@ export const tasksRunCreate = async (
  * Get a list of runs for a specific task.
  * @summary List task runs
  */
-export type tasksRunsListResponse200 = {
-    data: PaginatedTaskRunDetailListApi
-    status: 200
-}
-
-export type tasksRunsListResponseSuccess = tasksRunsListResponse200 & {
-    headers: Headers
-}
-export type tasksRunsListResponse = tasksRunsListResponseSuccess
-
 export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: TasksRunsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -304,8 +198,8 @@ export const tasksRunsList = async (
     taskId: string,
     params?: TasksRunsListParams,
     options?: RequestInit
-): Promise<tasksRunsListResponse> => {
-    return apiMutator<tasksRunsListResponse>(getTasksRunsListUrl(projectId, taskId, params), {
+): Promise<PaginatedTaskRunDetailListApi> => {
+    return apiMutator<PaginatedTaskRunDetailListApi>(getTasksRunsListUrl(projectId, taskId, params), {
         ...options,
         method: 'GET',
     })
@@ -315,16 +209,6 @@ export const tasksRunsList = async (
  * Create a new run for a specific task.
  * @summary Create task run
  */
-export type tasksRunsCreateResponse201 = {
-    data: TaskRunDetailApi
-    status: 201
-}
-
-export type tasksRunsCreateResponseSuccess = tasksRunsCreateResponse201 & {
-    headers: Headers
-}
-export type tasksRunsCreateResponse = tasksRunsCreateResponseSuccess
-
 export const getTasksRunsCreateUrl = (projectId: string, taskId: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/`
 }
@@ -333,8 +217,8 @@ export const tasksRunsCreate = async (
     projectId: string,
     taskId: string,
     options?: RequestInit
-): Promise<tasksRunsCreateResponse> => {
-    return apiMutator<tasksRunsCreateResponse>(getTasksRunsCreateUrl(projectId, taskId), {
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsCreateUrl(projectId, taskId), {
         ...options,
         method: 'POST',
     })
@@ -343,16 +227,6 @@ export const tasksRunsCreate = async (
 /**
  * API for managing task runs. Each run represents an execution of a task.
  */
-export type tasksRunsRetrieveResponse200 = {
-    data: TaskRunDetailApi
-    status: 200
-}
-
-export type tasksRunsRetrieveResponseSuccess = tasksRunsRetrieveResponse200 & {
-    headers: Headers
-}
-export type tasksRunsRetrieveResponse = tasksRunsRetrieveResponseSuccess
-
 export const getTasksRunsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/`
 }
@@ -362,8 +236,8 @@ export const tasksRunsRetrieve = async (
     taskId: string,
     id: string,
     options?: RequestInit
-): Promise<tasksRunsRetrieveResponse> => {
-    return apiMutator<tasksRunsRetrieveResponse>(getTasksRunsRetrieveUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
     })
@@ -373,33 +247,6 @@ export const tasksRunsRetrieve = async (
  * API for managing task runs. Each run represents an execution of a task.
  * @summary Update task run
  */
-export type tasksRunsPartialUpdateResponse200 = {
-    data: TaskRunDetailApi
-    status: 200
-}
-
-export type tasksRunsPartialUpdateResponse400 = {
-    data: ErrorResponseApi
-    status: 400
-}
-
-export type tasksRunsPartialUpdateResponse404 = {
-    data: void
-    status: 404
-}
-
-export type tasksRunsPartialUpdateResponseSuccess = tasksRunsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type tasksRunsPartialUpdateResponseError = (
-    | tasksRunsPartialUpdateResponse400
-    | tasksRunsPartialUpdateResponse404
-) & {
-    headers: Headers
-}
-
-export type tasksRunsPartialUpdateResponse = tasksRunsPartialUpdateResponseSuccess | tasksRunsPartialUpdateResponseError
-
 export const getTasksRunsPartialUpdateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/`
 }
@@ -410,8 +257,8 @@ export const tasksRunsPartialUpdate = async (
     id: string,
     patchedTaskRunUpdateApi: PatchedTaskRunUpdateApi,
     options?: RequestInit
-): Promise<tasksRunsPartialUpdateResponse> => {
-    return apiMutator<tasksRunsPartialUpdateResponse>(getTasksRunsPartialUpdateUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -423,35 +270,6 @@ export const tasksRunsPartialUpdate = async (
  * Append one or more log entries to the task run log array
  * @summary Append log entries
  */
-export type tasksRunsAppendLogCreateResponse200 = {
-    data: TaskRunDetailApi
-    status: 200
-}
-
-export type tasksRunsAppendLogCreateResponse400 = {
-    data: ErrorResponseApi
-    status: 400
-}
-
-export type tasksRunsAppendLogCreateResponse404 = {
-    data: void
-    status: 404
-}
-
-export type tasksRunsAppendLogCreateResponseSuccess = tasksRunsAppendLogCreateResponse200 & {
-    headers: Headers
-}
-export type tasksRunsAppendLogCreateResponseError = (
-    | tasksRunsAppendLogCreateResponse400
-    | tasksRunsAppendLogCreateResponse404
-) & {
-    headers: Headers
-}
-
-export type tasksRunsAppendLogCreateResponse =
-    | tasksRunsAppendLogCreateResponseSuccess
-    | tasksRunsAppendLogCreateResponseError
-
 export const getTasksRunsAppendLogCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/append_log/`
 }
@@ -462,8 +280,8 @@ export const tasksRunsAppendLogCreate = async (
     id: string,
     taskRunAppendLogRequestApi: TaskRunAppendLogRequestApi,
     options?: RequestInit
-): Promise<tasksRunsAppendLogCreateResponse> => {
-    return apiMutator<tasksRunsAppendLogCreateResponse>(getTasksRunsAppendLogCreateUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsAppendLogCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -475,35 +293,6 @@ export const tasksRunsAppendLogCreate = async (
  * Persist task artifacts to S3 and attach them to the run manifest.
  * @summary Upload artifacts for a task run
  */
-export type tasksRunsArtifactsCreateResponse200 = {
-    data: TaskRunArtifactsUploadResponseApi
-    status: 200
-}
-
-export type tasksRunsArtifactsCreateResponse400 = {
-    data: ErrorResponseApi
-    status: 400
-}
-
-export type tasksRunsArtifactsCreateResponse404 = {
-    data: void
-    status: 404
-}
-
-export type tasksRunsArtifactsCreateResponseSuccess = tasksRunsArtifactsCreateResponse200 & {
-    headers: Headers
-}
-export type tasksRunsArtifactsCreateResponseError = (
-    | tasksRunsArtifactsCreateResponse400
-    | tasksRunsArtifactsCreateResponse404
-) & {
-    headers: Headers
-}
-
-export type tasksRunsArtifactsCreateResponse =
-    | tasksRunsArtifactsCreateResponseSuccess
-    | tasksRunsArtifactsCreateResponseError
-
 export const getTasksRunsArtifactsCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/`
 }
@@ -514,8 +303,8 @@ export const tasksRunsArtifactsCreate = async (
     id: string,
     taskRunArtifactsUploadRequestApi: TaskRunArtifactsUploadRequestApi,
     options?: RequestInit
-): Promise<tasksRunsArtifactsCreateResponse> => {
-    return apiMutator<tasksRunsArtifactsCreateResponse>(getTasksRunsArtifactsCreateUrl(projectId, taskId, id), {
+): Promise<TaskRunArtifactsUploadResponseApi> => {
+    return apiMutator<TaskRunArtifactsUploadResponseApi>(getTasksRunsArtifactsCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -527,35 +316,6 @@ export const tasksRunsArtifactsCreate = async (
  * Returns a temporary, signed URL that can be used to download a specific artifact.
  * @summary Generate presigned URL for an artifact
  */
-export type tasksRunsArtifactsPresignCreateResponse200 = {
-    data: TaskRunArtifactPresignResponseApi
-    status: 200
-}
-
-export type tasksRunsArtifactsPresignCreateResponse400 = {
-    data: ErrorResponseApi
-    status: 400
-}
-
-export type tasksRunsArtifactsPresignCreateResponse404 = {
-    data: void
-    status: 404
-}
-
-export type tasksRunsArtifactsPresignCreateResponseSuccess = tasksRunsArtifactsPresignCreateResponse200 & {
-    headers: Headers
-}
-export type tasksRunsArtifactsPresignCreateResponseError = (
-    | tasksRunsArtifactsPresignCreateResponse400
-    | tasksRunsArtifactsPresignCreateResponse404
-) & {
-    headers: Headers
-}
-
-export type tasksRunsArtifactsPresignCreateResponse =
-    | tasksRunsArtifactsPresignCreateResponseSuccess
-    | tasksRunsArtifactsPresignCreateResponseError
-
 export const getTasksRunsArtifactsPresignCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/presign/`
 }
@@ -566,43 +326,19 @@ export const tasksRunsArtifactsPresignCreate = async (
     id: string,
     taskRunArtifactPresignRequestApi: TaskRunArtifactPresignRequestApi,
     options?: RequestInit
-): Promise<tasksRunsArtifactsPresignCreateResponse> => {
-    return apiMutator<tasksRunsArtifactsPresignCreateResponse>(
-        getTasksRunsArtifactsPresignCreateUrl(projectId, taskId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(taskRunArtifactPresignRequestApi),
-        }
-    )
+): Promise<TaskRunArtifactPresignResponseApi> => {
+    return apiMutator<TaskRunArtifactPresignResponseApi>(getTasksRunsArtifactsPresignCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
 }
 
 /**
  * Update the output field for a task run (e.g., PR URL, commit SHA, etc.)
  * @summary Set run output
  */
-export type tasksRunsSetOutputPartialUpdateResponse200 = {
-    data: TaskRunDetailApi
-    status: 200
-}
-
-export type tasksRunsSetOutputPartialUpdateResponse404 = {
-    data: void
-    status: 404
-}
-
-export type tasksRunsSetOutputPartialUpdateResponseSuccess = tasksRunsSetOutputPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type tasksRunsSetOutputPartialUpdateResponseError = tasksRunsSetOutputPartialUpdateResponse404 & {
-    headers: Headers
-}
-
-export type tasksRunsSetOutputPartialUpdateResponse =
-    | tasksRunsSetOutputPartialUpdateResponseSuccess
-    | tasksRunsSetOutputPartialUpdateResponseError
-
 export const getTasksRunsSetOutputPartialUpdateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/set_output/`
 }
@@ -612,12 +348,9 @@ export const tasksRunsSetOutputPartialUpdate = async (
     taskId: string,
     id: string,
     options?: RequestInit
-): Promise<tasksRunsSetOutputPartialUpdateResponse> => {
-    return apiMutator<tasksRunsSetOutputPartialUpdateResponse>(
-        getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id),
-        {
-            ...options,
-            method: 'PATCH',
-        }
-    )
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'PATCH',
+    })
 }

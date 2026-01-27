@@ -33,16 +33,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type productToursListResponse200 = {
-    data: PaginatedProductTourListApi
-    status: 200
-}
-
-export type productToursListResponseSuccess = productToursListResponse200 & {
-    headers: Headers
-}
-export type productToursListResponse = productToursListResponseSuccess
-
 export const getProductToursListUrl = (projectId: string, params?: ProductToursListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -63,22 +53,12 @@ export const productToursList = async (
     projectId: string,
     params?: ProductToursListParams,
     options?: RequestInit
-): Promise<productToursListResponse> => {
-    return apiMutator<productToursListResponse>(getProductToursListUrl(projectId, params), {
+): Promise<PaginatedProductTourListApi> => {
+    return apiMutator<PaginatedProductTourListApi>(getProductToursListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type productToursCreateResponse201 = {
-    data: ProductTourSerializerCreateUpdateOnlyApi
-    status: 201
-}
-
-export type productToursCreateResponseSuccess = productToursCreateResponse201 & {
-    headers: Headers
-}
-export type productToursCreateResponse = productToursCreateResponseSuccess
 
 export const getProductToursCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/product_tours/`
@@ -88,24 +68,14 @@ export const productToursCreate = async (
     projectId: string,
     productTourSerializerCreateUpdateOnlyApi: NonReadonly<ProductTourSerializerCreateUpdateOnlyApi>,
     options?: RequestInit
-): Promise<productToursCreateResponse> => {
-    return apiMutator<productToursCreateResponse>(getProductToursCreateUrl(projectId), {
+): Promise<ProductTourSerializerCreateUpdateOnlyApi> => {
+    return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(productTourSerializerCreateUpdateOnlyApi),
     })
 }
-
-export type productToursRetrieveResponse200 = {
-    data: ProductTourApi
-    status: 200
-}
-
-export type productToursRetrieveResponseSuccess = productToursRetrieveResponse200 & {
-    headers: Headers
-}
-export type productToursRetrieveResponse = productToursRetrieveResponseSuccess
 
 export const getProductToursRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
@@ -115,22 +85,12 @@ export const productToursRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<productToursRetrieveResponse> => {
-    return apiMutator<productToursRetrieveResponse>(getProductToursRetrieveUrl(projectId, id), {
+): Promise<ProductTourApi> => {
+    return apiMutator<ProductTourApi>(getProductToursRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
-
-export type productToursUpdateResponse200 = {
-    data: ProductTourApi
-    status: 200
-}
-
-export type productToursUpdateResponseSuccess = productToursUpdateResponse200 & {
-    headers: Headers
-}
-export type productToursUpdateResponse = productToursUpdateResponseSuccess
 
 export const getProductToursUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
@@ -141,24 +101,14 @@ export const productToursUpdate = async (
     id: string,
     productTourApi: NonReadonly<ProductTourApi>,
     options?: RequestInit
-): Promise<productToursUpdateResponse> => {
-    return apiMutator<productToursUpdateResponse>(getProductToursUpdateUrl(projectId, id), {
+): Promise<ProductTourApi> => {
+    return apiMutator<ProductTourApi>(getProductToursUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(productTourApi),
     })
 }
-
-export type productToursPartialUpdateResponse200 = {
-    data: ProductTourSerializerCreateUpdateOnlyApi
-    status: 200
-}
-
-export type productToursPartialUpdateResponseSuccess = productToursPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type productToursPartialUpdateResponse = productToursPartialUpdateResponseSuccess
 
 export const getProductToursPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
@@ -169,8 +119,8 @@ export const productToursPartialUpdate = async (
     id: string,
     patchedProductTourSerializerCreateUpdateOnlyApi: NonReadonly<PatchedProductTourSerializerCreateUpdateOnlyApi>,
     options?: RequestInit
-): Promise<productToursPartialUpdateResponse> => {
-    return apiMutator<productToursPartialUpdateResponse>(getProductToursPartialUpdateUrl(projectId, id), {
+): Promise<ProductTourSerializerCreateUpdateOnlyApi> => {
+    return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -178,26 +128,12 @@ export const productToursPartialUpdate = async (
     })
 }
 
-export type productToursDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type productToursDestroyResponseSuccess = productToursDestroyResponse204 & {
-    headers: Headers
-}
-export type productToursDestroyResponse = productToursDestroyResponseSuccess
-
 export const getProductToursDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
-export const productToursDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<productToursDestroyResponse> => {
-    return apiMutator<productToursDestroyResponse>(getProductToursDestroyUrl(projectId, id), {
+export const productToursDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getProductToursDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -206,16 +142,6 @@ export const productToursDestroy = async (
 /**
  * Generate tour step content using AI.
  */
-export type productToursGenerateCreateResponse200 = {
-    data: ProductTourSerializerCreateUpdateOnlyApi
-    status: 200
-}
-
-export type productToursGenerateCreateResponseSuccess = productToursGenerateCreateResponse200 & {
-    headers: Headers
-}
-export type productToursGenerateCreateResponse = productToursGenerateCreateResponseSuccess
-
 export const getProductToursGenerateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/product_tours/generate/`
 }
@@ -224,8 +150,8 @@ export const productToursGenerateCreate = async (
     projectId: string,
     productTourSerializerCreateUpdateOnlyApi: NonReadonly<ProductTourSerializerCreateUpdateOnlyApi>,
     options?: RequestInit
-): Promise<productToursGenerateCreateResponse> => {
-    return apiMutator<productToursGenerateCreateResponse>(getProductToursGenerateCreateUrl(projectId), {
+): Promise<ProductTourSerializerCreateUpdateOnlyApi> => {
+    return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursGenerateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

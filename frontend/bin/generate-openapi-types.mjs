@@ -459,6 +459,9 @@ export default defineConfig({
           ...(info?.title ? [info.title] : []),
           ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
         ],
+        fetch: {
+          includeHttpResponseReturnType: false,
+        },
         mutator: {
           path: '${mutatorPath}',
           name: 'apiMutator',

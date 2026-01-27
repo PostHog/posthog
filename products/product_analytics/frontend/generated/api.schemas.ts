@@ -154,7 +154,18 @@ export interface PatchedElementApi {
     order?: number | null
 }
 
-export type ColumnConfigurationsListParams = {
+export type EnvironmentsColumnConfigurationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsElementsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -166,17 +177,6 @@ export type ColumnConfigurationsListParams = {
 }
 
 export type ElementsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ElementsList2Params = {
     /**
      * Number of results to return per page.
      */

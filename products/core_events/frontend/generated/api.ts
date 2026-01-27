@@ -8,7 +8,12 @@
  * OpenAPI spec version: 1.0.0
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
-import type { CoreEventApi, CoreEventsListParams, PaginatedCoreEventListApi, PatchedCoreEventApi } from './api.schemas'
+import type {
+    CoreEventApi,
+    EnvironmentsCoreEventsListParams,
+    PaginatedCoreEventListApi,
+    PatchedCoreEventApi,
+} from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -33,17 +38,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 Core events are reusable event definitions that can be shared across
 Marketing analytics, Customer analytics, and Revenue analytics.
  */
-export type coreEventsListResponse200 = {
-    data: PaginatedCoreEventListApi
-    status: 200
-}
-
-export type coreEventsListResponseSuccess = coreEventsListResponse200 & {
-    headers: Headers
-}
-export type coreEventsListResponse = coreEventsListResponseSuccess
-
-export const getCoreEventsListUrl = (projectId: string, params?: CoreEventsListParams) => {
+export const getEnvironmentsCoreEventsListUrl = (projectId: string, params?: EnvironmentsCoreEventsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -59,12 +54,12 @@ export const getCoreEventsListUrl = (projectId: string, params?: CoreEventsListP
         : `/api/environments/${projectId}/core_events/`
 }
 
-export const coreEventsList = async (
+export const environmentsCoreEventsList = async (
     projectId: string,
-    params?: CoreEventsListParams,
+    params?: EnvironmentsCoreEventsListParams,
     options?: RequestInit
-): Promise<coreEventsListResponse> => {
-    return apiMutator<coreEventsListResponse>(getCoreEventsListUrl(projectId, params), {
+): Promise<PaginatedCoreEventListApi> => {
+    return apiMutator<PaginatedCoreEventListApi>(getEnvironmentsCoreEventsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -76,26 +71,16 @@ export const coreEventsList = async (
 Core events are reusable event definitions that can be shared across
 Marketing analytics, Customer analytics, and Revenue analytics.
  */
-export type coreEventsCreateResponse201 = {
-    data: CoreEventApi
-    status: 201
-}
-
-export type coreEventsCreateResponseSuccess = coreEventsCreateResponse201 & {
-    headers: Headers
-}
-export type coreEventsCreateResponse = coreEventsCreateResponseSuccess
-
-export const getCoreEventsCreateUrl = (projectId: string) => {
+export const getEnvironmentsCoreEventsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/core_events/`
 }
 
-export const coreEventsCreate = async (
+export const environmentsCoreEventsCreate = async (
     projectId: string,
     coreEventApi: NonReadonly<CoreEventApi>,
     options?: RequestInit
-): Promise<coreEventsCreateResponse> => {
-    return apiMutator<coreEventsCreateResponse>(getCoreEventsCreateUrl(projectId), {
+): Promise<CoreEventApi> => {
+    return apiMutator<CoreEventApi>(getEnvironmentsCoreEventsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -109,26 +94,16 @@ export const coreEventsCreate = async (
 Core events are reusable event definitions that can be shared across
 Marketing analytics, Customer analytics, and Revenue analytics.
  */
-export type coreEventsRetrieveResponse200 = {
-    data: CoreEventApi
-    status: 200
-}
-
-export type coreEventsRetrieveResponseSuccess = coreEventsRetrieveResponse200 & {
-    headers: Headers
-}
-export type coreEventsRetrieveResponse = coreEventsRetrieveResponseSuccess
-
-export const getCoreEventsRetrieveUrl = (projectId: string, id: string) => {
+export const getEnvironmentsCoreEventsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/core_events/${id}/`
 }
 
-export const coreEventsRetrieve = async (
+export const environmentsCoreEventsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<coreEventsRetrieveResponse> => {
-    return apiMutator<coreEventsRetrieveResponse>(getCoreEventsRetrieveUrl(projectId, id), {
+): Promise<CoreEventApi> => {
+    return apiMutator<CoreEventApi>(getEnvironmentsCoreEventsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -140,27 +115,17 @@ export const coreEventsRetrieve = async (
 Core events are reusable event definitions that can be shared across
 Marketing analytics, Customer analytics, and Revenue analytics.
  */
-export type coreEventsUpdateResponse200 = {
-    data: CoreEventApi
-    status: 200
-}
-
-export type coreEventsUpdateResponseSuccess = coreEventsUpdateResponse200 & {
-    headers: Headers
-}
-export type coreEventsUpdateResponse = coreEventsUpdateResponseSuccess
-
-export const getCoreEventsUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsCoreEventsUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/core_events/${id}/`
 }
 
-export const coreEventsUpdate = async (
+export const environmentsCoreEventsUpdate = async (
     projectId: string,
     id: string,
     coreEventApi: NonReadonly<CoreEventApi>,
     options?: RequestInit
-): Promise<coreEventsUpdateResponse> => {
-    return apiMutator<coreEventsUpdateResponse>(getCoreEventsUpdateUrl(projectId, id), {
+): Promise<CoreEventApi> => {
+    return apiMutator<CoreEventApi>(getEnvironmentsCoreEventsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -174,27 +139,17 @@ export const coreEventsUpdate = async (
 Core events are reusable event definitions that can be shared across
 Marketing analytics, Customer analytics, and Revenue analytics.
  */
-export type coreEventsPartialUpdateResponse200 = {
-    data: CoreEventApi
-    status: 200
-}
-
-export type coreEventsPartialUpdateResponseSuccess = coreEventsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type coreEventsPartialUpdateResponse = coreEventsPartialUpdateResponseSuccess
-
-export const getCoreEventsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsCoreEventsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/core_events/${id}/`
 }
 
-export const coreEventsPartialUpdate = async (
+export const environmentsCoreEventsPartialUpdate = async (
     projectId: string,
     id: string,
     patchedCoreEventApi: NonReadonly<PatchedCoreEventApi>,
     options?: RequestInit
-): Promise<coreEventsPartialUpdateResponse> => {
-    return apiMutator<coreEventsPartialUpdateResponse>(getCoreEventsPartialUpdateUrl(projectId, id), {
+): Promise<CoreEventApi> => {
+    return apiMutator<CoreEventApi>(getEnvironmentsCoreEventsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -208,26 +163,16 @@ export const coreEventsPartialUpdate = async (
 Core events are reusable event definitions that can be shared across
 Marketing analytics, Customer analytics, and Revenue analytics.
  */
-export type coreEventsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type coreEventsDestroyResponseSuccess = coreEventsDestroyResponse204 & {
-    headers: Headers
-}
-export type coreEventsDestroyResponse = coreEventsDestroyResponseSuccess
-
-export const getCoreEventsDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsCoreEventsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/core_events/${id}/`
 }
 
-export const coreEventsDestroy = async (
+export const environmentsCoreEventsDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<coreEventsDestroyResponse> => {
-    return apiMutator<coreEventsDestroyResponse>(getCoreEventsDestroyUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsCoreEventsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })

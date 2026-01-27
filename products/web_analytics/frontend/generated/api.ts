@@ -18,16 +18,6 @@ import type {
 /**
  * This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get a breakdown by a property (e.g. browser, device type, country, etc.).
  */
-export type webAnalyticsBreakdownRetrieveResponse200 = {
-    data: WebAnalyticsBreakdownResponseApi
-    status: 200
-}
-
-export type webAnalyticsBreakdownRetrieveResponseSuccess = webAnalyticsBreakdownRetrieveResponse200 & {
-    headers: Headers
-}
-export type webAnalyticsBreakdownRetrieveResponse = webAnalyticsBreakdownRetrieveResponseSuccess
-
 export const getWebAnalyticsBreakdownRetrieveUrl = (projectId: string, params: WebAnalyticsBreakdownRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -48,8 +38,8 @@ export const webAnalyticsBreakdownRetrieve = async (
     projectId: string,
     params: WebAnalyticsBreakdownRetrieveParams,
     options?: RequestInit
-): Promise<webAnalyticsBreakdownRetrieveResponse> => {
-    return apiMutator<webAnalyticsBreakdownRetrieveResponse>(getWebAnalyticsBreakdownRetrieveUrl(projectId, params), {
+): Promise<WebAnalyticsBreakdownResponseApi> => {
+    return apiMutator<WebAnalyticsBreakdownResponseApi>(getWebAnalyticsBreakdownRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -58,16 +48,6 @@ export const webAnalyticsBreakdownRetrieve = async (
 /**
  * This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration.
  */
-export type webAnalyticsOverviewRetrieveResponse200 = {
-    data: WebAnalyticsOverviewResponseApi
-    status: 200
-}
-
-export type webAnalyticsOverviewRetrieveResponseSuccess = webAnalyticsOverviewRetrieveResponse200 & {
-    headers: Headers
-}
-export type webAnalyticsOverviewRetrieveResponse = webAnalyticsOverviewRetrieveResponseSuccess
-
 export const getWebAnalyticsOverviewRetrieveUrl = (projectId: string, params: WebAnalyticsOverviewRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -88,8 +68,8 @@ export const webAnalyticsOverviewRetrieve = async (
     projectId: string,
     params: WebAnalyticsOverviewRetrieveParams,
     options?: RequestInit
-): Promise<webAnalyticsOverviewRetrieveResponse> => {
-    return apiMutator<webAnalyticsOverviewRetrieveResponse>(getWebAnalyticsOverviewRetrieveUrl(projectId, params), {
+): Promise<WebAnalyticsOverviewResponseApi> => {
+    return apiMutator<WebAnalyticsOverviewResponseApi>(getWebAnalyticsOverviewRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

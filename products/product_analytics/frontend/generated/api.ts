@@ -10,10 +10,10 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ColumnConfigurationApi,
-    ColumnConfigurationsListParams,
     ElementApi,
-    ElementsList2Params,
     ElementsListParams,
+    EnvironmentsColumnConfigurationsListParams,
+    EnvironmentsElementsListParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PatchedColumnConfigurationApi,
@@ -37,17 +37,10 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type columnConfigurationsListResponse200 = {
-    data: PaginatedColumnConfigurationListApi
-    status: 200
-}
-
-export type columnConfigurationsListResponseSuccess = columnConfigurationsListResponse200 & {
-    headers: Headers
-}
-export type columnConfigurationsListResponse = columnConfigurationsListResponseSuccess
-
-export const getColumnConfigurationsListUrl = (projectId: string, params?: ColumnConfigurationsListParams) => {
+export const getEnvironmentsColumnConfigurationsListUrl = (
+    projectId: string,
+    params?: EnvironmentsColumnConfigurationsListParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -63,38 +56,30 @@ export const getColumnConfigurationsListUrl = (projectId: string, params?: Colum
         : `/api/environments/${projectId}/column_configurations/`
 }
 
-export const columnConfigurationsList = async (
+export const environmentsColumnConfigurationsList = async (
     projectId: string,
-    params?: ColumnConfigurationsListParams,
+    params?: EnvironmentsColumnConfigurationsListParams,
     options?: RequestInit
-): Promise<columnConfigurationsListResponse> => {
-    return apiMutator<columnConfigurationsListResponse>(getColumnConfigurationsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedColumnConfigurationListApi> => {
+    return apiMutator<PaginatedColumnConfigurationListApi>(
+        getEnvironmentsColumnConfigurationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-
-export type columnConfigurationsCreateResponse201 = {
-    data: ColumnConfigurationApi
-    status: 201
-}
-
-export type columnConfigurationsCreateResponseSuccess = columnConfigurationsCreateResponse201 & {
-    headers: Headers
-}
-export type columnConfigurationsCreateResponse = columnConfigurationsCreateResponseSuccess
-
-export const getColumnConfigurationsCreateUrl = (projectId: string) => {
+export const getEnvironmentsColumnConfigurationsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/column_configurations/`
 }
 
-export const columnConfigurationsCreate = async (
+export const environmentsColumnConfigurationsCreate = async (
     projectId: string,
     columnConfigurationApi: NonReadonly<ColumnConfigurationApi>,
     options?: RequestInit
-): Promise<columnConfigurationsCreateResponse> => {
-    return apiMutator<columnConfigurationsCreateResponse>(getColumnConfigurationsCreateUrl(projectId), {
+): Promise<ColumnConfigurationApi> => {
+    return apiMutator<ColumnConfigurationApi>(getEnvironmentsColumnConfigurationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -102,52 +87,32 @@ export const columnConfigurationsCreate = async (
     })
 }
 
-export type columnConfigurationsRetrieveResponse200 = {
-    data: ColumnConfigurationApi
-    status: 200
-}
-
-export type columnConfigurationsRetrieveResponseSuccess = columnConfigurationsRetrieveResponse200 & {
-    headers: Headers
-}
-export type columnConfigurationsRetrieveResponse = columnConfigurationsRetrieveResponseSuccess
-
-export const getColumnConfigurationsRetrieveUrl = (projectId: string, id: string) => {
+export const getEnvironmentsColumnConfigurationsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/column_configurations/${id}/`
 }
 
-export const columnConfigurationsRetrieve = async (
+export const environmentsColumnConfigurationsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<columnConfigurationsRetrieveResponse> => {
-    return apiMutator<columnConfigurationsRetrieveResponse>(getColumnConfigurationsRetrieveUrl(projectId, id), {
+): Promise<ColumnConfigurationApi> => {
+    return apiMutator<ColumnConfigurationApi>(getEnvironmentsColumnConfigurationsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type columnConfigurationsUpdateResponse200 = {
-    data: ColumnConfigurationApi
-    status: 200
-}
-
-export type columnConfigurationsUpdateResponseSuccess = columnConfigurationsUpdateResponse200 & {
-    headers: Headers
-}
-export type columnConfigurationsUpdateResponse = columnConfigurationsUpdateResponseSuccess
-
-export const getColumnConfigurationsUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsColumnConfigurationsUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/column_configurations/${id}/`
 }
 
-export const columnConfigurationsUpdate = async (
+export const environmentsColumnConfigurationsUpdate = async (
     projectId: string,
     id: string,
     columnConfigurationApi: NonReadonly<ColumnConfigurationApi>,
     options?: RequestInit
-): Promise<columnConfigurationsUpdateResponse> => {
-    return apiMutator<columnConfigurationsUpdateResponse>(getColumnConfigurationsUpdateUrl(projectId, id), {
+): Promise<ColumnConfigurationApi> => {
+    return apiMutator<ColumnConfigurationApi>(getEnvironmentsColumnConfigurationsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -155,73 +120,40 @@ export const columnConfigurationsUpdate = async (
     })
 }
 
-export type columnConfigurationsPartialUpdateResponse200 = {
-    data: ColumnConfigurationApi
-    status: 200
-}
-
-export type columnConfigurationsPartialUpdateResponseSuccess = columnConfigurationsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type columnConfigurationsPartialUpdateResponse = columnConfigurationsPartialUpdateResponseSuccess
-
-export const getColumnConfigurationsPartialUpdateUrl = (projectId: string, id: string) => {
+export const getEnvironmentsColumnConfigurationsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/column_configurations/${id}/`
 }
 
-export const columnConfigurationsPartialUpdate = async (
+export const environmentsColumnConfigurationsPartialUpdate = async (
     projectId: string,
     id: string,
     patchedColumnConfigurationApi: NonReadonly<PatchedColumnConfigurationApi>,
     options?: RequestInit
-): Promise<columnConfigurationsPartialUpdateResponse> => {
-    return apiMutator<columnConfigurationsPartialUpdateResponse>(
-        getColumnConfigurationsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedColumnConfigurationApi),
-        }
-    )
+): Promise<ColumnConfigurationApi> => {
+    return apiMutator<ColumnConfigurationApi>(getEnvironmentsColumnConfigurationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedColumnConfigurationApi),
+    })
 }
 
-export type columnConfigurationsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type columnConfigurationsDestroyResponseSuccess = columnConfigurationsDestroyResponse204 & {
-    headers: Headers
-}
-export type columnConfigurationsDestroyResponse = columnConfigurationsDestroyResponseSuccess
-
-export const getColumnConfigurationsDestroyUrl = (projectId: string, id: string) => {
+export const getEnvironmentsColumnConfigurationsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/column_configurations/${id}/`
 }
 
-export const columnConfigurationsDestroy = async (
+export const environmentsColumnConfigurationsDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<columnConfigurationsDestroyResponse> => {
-    return apiMutator<columnConfigurationsDestroyResponse>(getColumnConfigurationsDestroyUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsColumnConfigurationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type elementsListResponse200 = {
-    data: PaginatedElementListApi
-    status: 200
-}
-
-export type elementsListResponseSuccess = elementsListResponse200 & {
-    headers: Headers
-}
-export type elementsListResponse = elementsListResponseSuccess
-
-export const getElementsListUrl = (projectId: string, params?: ElementsListParams) => {
+export const getEnvironmentsElementsListUrl = (projectId: string, params?: EnvironmentsElementsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -237,37 +169,27 @@ export const getElementsListUrl = (projectId: string, params?: ElementsListParam
         : `/api/environments/${projectId}/elements/`
 }
 
-export const elementsList = async (
+export const environmentsElementsList = async (
     projectId: string,
-    params?: ElementsListParams,
+    params?: EnvironmentsElementsListParams,
     options?: RequestInit
-): Promise<elementsListResponse> => {
-    return apiMutator<elementsListResponse>(getElementsListUrl(projectId, params), {
+): Promise<PaginatedElementListApi> => {
+    return apiMutator<PaginatedElementListApi>(getEnvironmentsElementsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type elementsCreateResponse201 = {
-    data: ElementApi
-    status: 201
-}
-
-export type elementsCreateResponseSuccess = elementsCreateResponse201 & {
-    headers: Headers
-}
-export type elementsCreateResponse = elementsCreateResponseSuccess
-
-export const getElementsCreateUrl = (projectId: string) => {
+export const getEnvironmentsElementsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/elements/`
 }
 
-export const elementsCreate = async (
+export const environmentsElementsCreate = async (
     projectId: string,
     elementApi: ElementApi,
     options?: RequestInit
-): Promise<elementsCreateResponse> => {
-    return apiMutator<elementsCreateResponse>(getElementsCreateUrl(projectId), {
+): Promise<ElementApi> => {
+    return apiMutator<ElementApi>(getEnvironmentsElementsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -275,52 +197,32 @@ export const elementsCreate = async (
     })
 }
 
-export type elementsRetrieveResponse200 = {
-    data: ElementApi
-    status: 200
-}
-
-export type elementsRetrieveResponseSuccess = elementsRetrieveResponse200 & {
-    headers: Headers
-}
-export type elementsRetrieveResponse = elementsRetrieveResponseSuccess
-
-export const getElementsRetrieveUrl = (projectId: string, id: number) => {
+export const getEnvironmentsElementsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/elements/${id}/`
 }
 
-export const elementsRetrieve = async (
+export const environmentsElementsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<elementsRetrieveResponse> => {
-    return apiMutator<elementsRetrieveResponse>(getElementsRetrieveUrl(projectId, id), {
+): Promise<ElementApi> => {
+    return apiMutator<ElementApi>(getEnvironmentsElementsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type elementsUpdateResponse200 = {
-    data: ElementApi
-    status: 200
-}
-
-export type elementsUpdateResponseSuccess = elementsUpdateResponse200 & {
-    headers: Headers
-}
-export type elementsUpdateResponse = elementsUpdateResponseSuccess
-
-export const getElementsUpdateUrl = (projectId: string, id: number) => {
+export const getEnvironmentsElementsUpdateUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/elements/${id}/`
 }
 
-export const elementsUpdate = async (
+export const environmentsElementsUpdate = async (
     projectId: string,
     id: number,
     elementApi: ElementApi,
     options?: RequestInit
-): Promise<elementsUpdateResponse> => {
-    return apiMutator<elementsUpdateResponse>(getElementsUpdateUrl(projectId, id), {
+): Promise<ElementApi> => {
+    return apiMutator<ElementApi>(getEnvironmentsElementsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -328,27 +230,17 @@ export const elementsUpdate = async (
     })
 }
 
-export type elementsPartialUpdateResponse200 = {
-    data: ElementApi
-    status: 200
-}
-
-export type elementsPartialUpdateResponseSuccess = elementsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type elementsPartialUpdateResponse = elementsPartialUpdateResponseSuccess
-
-export const getElementsPartialUpdateUrl = (projectId: string, id: number) => {
+export const getEnvironmentsElementsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/elements/${id}/`
 }
 
-export const elementsPartialUpdate = async (
+export const environmentsElementsPartialUpdate = async (
     projectId: string,
     id: number,
     patchedElementApi: PatchedElementApi,
     options?: RequestInit
-): Promise<elementsPartialUpdateResponse> => {
-    return apiMutator<elementsPartialUpdateResponse>(getElementsPartialUpdateUrl(projectId, id), {
+): Promise<ElementApi> => {
+    return apiMutator<ElementApi>(getEnvironmentsElementsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -356,26 +248,16 @@ export const elementsPartialUpdate = async (
     })
 }
 
-export type elementsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type elementsDestroyResponseSuccess = elementsDestroyResponse204 & {
-    headers: Headers
-}
-export type elementsDestroyResponse = elementsDestroyResponseSuccess
-
-export const getElementsDestroyUrl = (projectId: string, id: number) => {
+export const getEnvironmentsElementsDestroyUrl = (projectId: string, id: number) => {
     return `/api/environments/${projectId}/elements/${id}/`
 }
 
-export const elementsDestroy = async (
+export const environmentsElementsDestroy = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<elementsDestroyResponse> => {
-    return apiMutator<elementsDestroyResponse>(getElementsDestroyUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsElementsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -387,65 +269,29 @@ If no include query parameter is sent this remains true.
 Now, you can pass a combination of include query parameters to get different types of elements
 Currently only $autocapture and $rageclick and $dead_click are supported
  */
-export type elementsStatsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type elementsStatsRetrieveResponseSuccess = elementsStatsRetrieveResponse200 & {
-    headers: Headers
-}
-export type elementsStatsRetrieveResponse = elementsStatsRetrieveResponseSuccess
-
-export const getElementsStatsRetrieveUrl = (projectId: string) => {
+export const getEnvironmentsElementsStatsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/elements/stats/`
 }
 
-export const elementsStatsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<elementsStatsRetrieveResponse> => {
-    return apiMutator<elementsStatsRetrieveResponse>(getElementsStatsRetrieveUrl(projectId), {
+export const environmentsElementsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsElementsStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type elementsValuesRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type elementsValuesRetrieveResponseSuccess = elementsValuesRetrieveResponse200 & {
-    headers: Headers
-}
-export type elementsValuesRetrieveResponse = elementsValuesRetrieveResponseSuccess
-
-export const getElementsValuesRetrieveUrl = (projectId: string) => {
+export const getEnvironmentsElementsValuesRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/elements/values/`
 }
 
-export const elementsValuesRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<elementsValuesRetrieveResponse> => {
-    return apiMutator<elementsValuesRetrieveResponse>(getElementsValuesRetrieveUrl(projectId), {
+export const environmentsElementsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsElementsValuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type elementsList2Response200 = {
-    data: PaginatedElementListApi
-    status: 200
-}
-
-export type elementsList2ResponseSuccess = elementsList2Response200 & {
-    headers: Headers
-}
-export type elementsList2Response = elementsList2ResponseSuccess
-
-export const getElementsList2Url = (projectId: string, params?: ElementsList2Params) => {
+export const getElementsListUrl = (projectId: string, params?: ElementsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -461,37 +307,27 @@ export const getElementsList2Url = (projectId: string, params?: ElementsList2Par
         : `/api/projects/${projectId}/elements/`
 }
 
-export const elementsList2 = async (
+export const elementsList = async (
     projectId: string,
-    params?: ElementsList2Params,
+    params?: ElementsListParams,
     options?: RequestInit
-): Promise<elementsList2Response> => {
-    return apiMutator<elementsList2Response>(getElementsList2Url(projectId, params), {
+): Promise<PaginatedElementListApi> => {
+    return apiMutator<PaginatedElementListApi>(getElementsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type elementsCreate2Response201 = {
-    data: ElementApi
-    status: 201
-}
-
-export type elementsCreate2ResponseSuccess = elementsCreate2Response201 & {
-    headers: Headers
-}
-export type elementsCreate2Response = elementsCreate2ResponseSuccess
-
-export const getElementsCreate2Url = (projectId: string) => {
+export const getElementsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/elements/`
 }
 
-export const elementsCreate2 = async (
+export const elementsCreate = async (
     projectId: string,
     elementApi: ElementApi,
     options?: RequestInit
-): Promise<elementsCreate2Response> => {
-    return apiMutator<elementsCreate2Response>(getElementsCreate2Url(projectId), {
+): Promise<ElementApi> => {
+    return apiMutator<ElementApi>(getElementsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -499,52 +335,28 @@ export const elementsCreate2 = async (
     })
 }
 
-export type elementsRetrieve2Response200 = {
-    data: ElementApi
-    status: 200
-}
-
-export type elementsRetrieve2ResponseSuccess = elementsRetrieve2Response200 & {
-    headers: Headers
-}
-export type elementsRetrieve2Response = elementsRetrieve2ResponseSuccess
-
-export const getElementsRetrieve2Url = (projectId: string, id: number) => {
+export const getElementsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/elements/${id}/`
 }
 
-export const elementsRetrieve2 = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<elementsRetrieve2Response> => {
-    return apiMutator<elementsRetrieve2Response>(getElementsRetrieve2Url(projectId, id), {
+export const elementsRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<ElementApi> => {
+    return apiMutator<ElementApi>(getElementsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type elementsUpdate2Response200 = {
-    data: ElementApi
-    status: 200
-}
-
-export type elementsUpdate2ResponseSuccess = elementsUpdate2Response200 & {
-    headers: Headers
-}
-export type elementsUpdate2Response = elementsUpdate2ResponseSuccess
-
-export const getElementsUpdate2Url = (projectId: string, id: number) => {
+export const getElementsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/elements/${id}/`
 }
 
-export const elementsUpdate2 = async (
+export const elementsUpdate = async (
     projectId: string,
     id: number,
     elementApi: ElementApi,
     options?: RequestInit
-): Promise<elementsUpdate2Response> => {
-    return apiMutator<elementsUpdate2Response>(getElementsUpdate2Url(projectId, id), {
+): Promise<ElementApi> => {
+    return apiMutator<ElementApi>(getElementsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -552,27 +364,17 @@ export const elementsUpdate2 = async (
     })
 }
 
-export type elementsPartialUpdate2Response200 = {
-    data: ElementApi
-    status: 200
-}
-
-export type elementsPartialUpdate2ResponseSuccess = elementsPartialUpdate2Response200 & {
-    headers: Headers
-}
-export type elementsPartialUpdate2Response = elementsPartialUpdate2ResponseSuccess
-
-export const getElementsPartialUpdate2Url = (projectId: string, id: number) => {
+export const getElementsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/elements/${id}/`
 }
 
-export const elementsPartialUpdate2 = async (
+export const elementsPartialUpdate = async (
     projectId: string,
     id: number,
     patchedElementApi: PatchedElementApi,
     options?: RequestInit
-): Promise<elementsPartialUpdate2Response> => {
-    return apiMutator<elementsPartialUpdate2Response>(getElementsPartialUpdate2Url(projectId, id), {
+): Promise<ElementApi> => {
+    return apiMutator<ElementApi>(getElementsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -580,26 +382,12 @@ export const elementsPartialUpdate2 = async (
     })
 }
 
-export type elementsDestroy2Response204 = {
-    data: void
-    status: 204
-}
-
-export type elementsDestroy2ResponseSuccess = elementsDestroy2Response204 & {
-    headers: Headers
-}
-export type elementsDestroy2Response = elementsDestroy2ResponseSuccess
-
-export const getElementsDestroy2Url = (projectId: string, id: number) => {
+export const getElementsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/elements/${id}/`
 }
 
-export const elementsDestroy2 = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<elementsDestroy2Response> => {
-    return apiMutator<elementsDestroy2Response>(getElementsDestroy2Url(projectId, id), {
+export const elementsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getElementsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -611,49 +399,23 @@ If no include query parameter is sent this remains true.
 Now, you can pass a combination of include query parameters to get different types of elements
 Currently only $autocapture and $rageclick and $dead_click are supported
  */
-export type elementsStatsRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type elementsStatsRetrieve2ResponseSuccess = elementsStatsRetrieve2Response200 & {
-    headers: Headers
-}
-export type elementsStatsRetrieve2Response = elementsStatsRetrieve2ResponseSuccess
-
-export const getElementsStatsRetrieve2Url = (projectId: string) => {
+export const getElementsStatsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/elements/stats/`
 }
 
-export const elementsStatsRetrieve2 = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<elementsStatsRetrieve2Response> => {
-    return apiMutator<elementsStatsRetrieve2Response>(getElementsStatsRetrieve2Url(projectId), {
+export const elementsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getElementsStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type elementsValuesRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type elementsValuesRetrieve2ResponseSuccess = elementsValuesRetrieve2Response200 & {
-    headers: Headers
-}
-export type elementsValuesRetrieve2Response = elementsValuesRetrieve2ResponseSuccess
-
-export const getElementsValuesRetrieve2Url = (projectId: string) => {
+export const getElementsValuesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/elements/values/`
 }
 
-export const elementsValuesRetrieve2 = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<elementsValuesRetrieve2Response> => {
-    return apiMutator<elementsValuesRetrieve2Response>(getElementsValuesRetrieve2Url(projectId), {
+export const elementsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getElementsValuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

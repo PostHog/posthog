@@ -35,16 +35,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type cohortsListResponse200 = {
-    data: PaginatedCohortListApi
-    status: 200
-}
-
-export type cohortsListResponseSuccess = cohortsListResponse200 & {
-    headers: Headers
-}
-export type cohortsListResponse = cohortsListResponseSuccess
-
 export const getCohortsListUrl = (projectId: string, params?: CohortsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -65,22 +55,12 @@ export const cohortsList = async (
     projectId: string,
     params?: CohortsListParams,
     options?: RequestInit
-): Promise<cohortsListResponse> => {
-    return apiMutator<cohortsListResponse>(getCohortsListUrl(projectId, params), {
+): Promise<PaginatedCohortListApi> => {
+    return apiMutator<PaginatedCohortListApi>(getCohortsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type cohortsCreateResponse201 = {
-    data: CohortApi
-    status: 201
-}
-
-export type cohortsCreateResponseSuccess = cohortsCreateResponse201 & {
-    headers: Headers
-}
-export type cohortsCreateResponse = cohortsCreateResponseSuccess
 
 export const getCohortsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/cohorts/`
@@ -90,8 +70,8 @@ export const cohortsCreate = async (
     projectId: string,
     cohortApi: NonReadonly<CohortApi>,
     options?: RequestInit
-): Promise<cohortsCreateResponse> => {
-    return apiMutator<cohortsCreateResponse>(getCohortsCreateUrl(projectId), {
+): Promise<CohortApi> => {
+    return apiMutator<CohortApi>(getCohortsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -99,40 +79,16 @@ export const cohortsCreate = async (
     })
 }
 
-export type cohortsRetrieveResponse200 = {
-    data: CohortApi
-    status: 200
-}
-
-export type cohortsRetrieveResponseSuccess = cohortsRetrieveResponse200 & {
-    headers: Headers
-}
-export type cohortsRetrieveResponse = cohortsRetrieveResponseSuccess
-
 export const getCohortsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
 }
 
-export const cohortsRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<cohortsRetrieveResponse> => {
-    return apiMutator<cohortsRetrieveResponse>(getCohortsRetrieveUrl(projectId, id), {
+export const cohortsRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<CohortApi> => {
+    return apiMutator<CohortApi>(getCohortsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
-
-export type cohortsUpdateResponse200 = {
-    data: CohortApi
-    status: 200
-}
-
-export type cohortsUpdateResponseSuccess = cohortsUpdateResponse200 & {
-    headers: Headers
-}
-export type cohortsUpdateResponse = cohortsUpdateResponseSuccess
 
 export const getCohortsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
@@ -143,24 +99,14 @@ export const cohortsUpdate = async (
     id: number,
     cohortApi: NonReadonly<CohortApi>,
     options?: RequestInit
-): Promise<cohortsUpdateResponse> => {
-    return apiMutator<cohortsUpdateResponse>(getCohortsUpdateUrl(projectId, id), {
+): Promise<CohortApi> => {
+    return apiMutator<CohortApi>(getCohortsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(cohortApi),
     })
 }
-
-export type cohortsPartialUpdateResponse200 = {
-    data: CohortApi
-    status: 200
-}
-
-export type cohortsPartialUpdateResponseSuccess = cohortsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type cohortsPartialUpdateResponse = cohortsPartialUpdateResponseSuccess
 
 export const getCohortsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
@@ -171,8 +117,8 @@ export const cohortsPartialUpdate = async (
     id: number,
     patchedCohortApi: NonReadonly<PatchedCohortApi>,
     options?: RequestInit
-): Promise<cohortsPartialUpdateResponse> => {
-    return apiMutator<cohortsPartialUpdateResponse>(getCohortsPartialUpdateUrl(projectId, id), {
+): Promise<CohortApi> => {
+    return apiMutator<CohortApi>(getCohortsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -183,67 +129,27 @@ export const cohortsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type cohortsDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type cohortsDestroyResponseError = cohortsDestroyResponse405 & {
-    headers: Headers
-}
-
-export type cohortsDestroyResponse = cohortsDestroyResponseError
-
 export const getCohortsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
 }
 
-export const cohortsDestroy = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<cohortsDestroyResponse> => {
-    return apiMutator<cohortsDestroyResponse>(getCohortsDestroyUrl(projectId, id), {
+export const cohortsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getCohortsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type cohortsActivityRetrieve2Response200 = {
-    data: void
-    status: 200
-}
-
-export type cohortsActivityRetrieve2ResponseSuccess = cohortsActivityRetrieve2Response200 & {
-    headers: Headers
-}
-export type cohortsActivityRetrieve2Response = cohortsActivityRetrieve2ResponseSuccess
-
 export const getCohortsActivityRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/activity/`
 }
 
-export const cohortsActivityRetrieve2 = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<cohortsActivityRetrieve2Response> => {
-    return apiMutator<cohortsActivityRetrieve2Response>(getCohortsActivityRetrieve2Url(projectId, id), {
+export const cohortsActivityRetrieve2 = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCohortsActivityRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
-
-export type cohortsAddPersonsToStaticCohortPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type cohortsAddPersonsToStaticCohortPartialUpdateResponseSuccess =
-    cohortsAddPersonsToStaticCohortPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type cohortsAddPersonsToStaticCohortPartialUpdateResponse =
-    cohortsAddPersonsToStaticCohortPartialUpdateResponseSuccess
 
 export const getCohortsAddPersonsToStaticCohortPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/add_persons_to_static_cohort/`
@@ -254,27 +160,14 @@ export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
     id: number,
     patchedAddPersonsToStaticCohortRequestApi: PatchedAddPersonsToStaticCohortRequestApi,
     options?: RequestInit
-): Promise<cohortsAddPersonsToStaticCohortPartialUpdateResponse> => {
-    return apiMutator<cohortsAddPersonsToStaticCohortPartialUpdateResponse>(
-        getCohortsAddPersonsToStaticCohortPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedAddPersonsToStaticCohortRequestApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getCohortsAddPersonsToStaticCohortPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAddPersonsToStaticCohortRequestApi),
+    })
 }
-
-export type cohortsCalculationHistoryRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type cohortsCalculationHistoryRetrieveResponseSuccess = cohortsCalculationHistoryRetrieveResponse200 & {
-    headers: Headers
-}
-export type cohortsCalculationHistoryRetrieveResponse = cohortsCalculationHistoryRetrieveResponseSuccess
 
 export const getCohortsCalculationHistoryRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/calculation_history/`
@@ -284,25 +177,12 @@ export const cohortsCalculationHistoryRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<cohortsCalculationHistoryRetrieveResponse> => {
-    return apiMutator<cohortsCalculationHistoryRetrieveResponse>(
-        getCohortsCalculationHistoryRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getCohortsCalculationHistoryRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
-
-export type cohortsPersonsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type cohortsPersonsRetrieveResponseSuccess = cohortsPersonsRetrieveResponse200 & {
-    headers: Headers
-}
-export type cohortsPersonsRetrieveResponse = cohortsPersonsRetrieveResponseSuccess
 
 export const getCohortsPersonsRetrieveUrl = (projectId: string, id: number, params?: CohortsPersonsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
@@ -325,24 +205,12 @@ export const cohortsPersonsRetrieve = async (
     id: number,
     params?: CohortsPersonsRetrieveParams,
     options?: RequestInit
-): Promise<cohortsPersonsRetrieveResponse> => {
-    return apiMutator<cohortsPersonsRetrieveResponse>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
+): Promise<void> => {
+    return apiMutator<void>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type cohortsRemovePersonFromStaticCohortPartialUpdateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type cohortsRemovePersonFromStaticCohortPartialUpdateResponseSuccess =
-    cohortsRemovePersonFromStaticCohortPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type cohortsRemovePersonFromStaticCohortPartialUpdateResponse =
-    cohortsRemovePersonFromStaticCohortPartialUpdateResponseSuccess
 
 export const getCohortsRemovePersonFromStaticCohortPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/remove_person_from_static_cohort/`
@@ -353,37 +221,21 @@ export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
     id: number,
     patchedRemovePersonRequestApi: PatchedRemovePersonRequestApi,
     options?: RequestInit
-): Promise<cohortsRemovePersonFromStaticCohortPartialUpdateResponse> => {
-    return apiMutator<cohortsRemovePersonFromStaticCohortPartialUpdateResponse>(
-        getCohortsRemovePersonFromStaticCohortPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedRemovePersonRequestApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getCohortsRemovePersonFromStaticCohortPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedRemovePersonRequestApi),
+    })
 }
-
-export type cohortsActivityRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type cohortsActivityRetrieveResponseSuccess = cohortsActivityRetrieveResponse200 & {
-    headers: Headers
-}
-export type cohortsActivityRetrieveResponse = cohortsActivityRetrieveResponseSuccess
 
 export const getCohortsActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/cohorts/activity/`
 }
 
-export const cohortsActivityRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<cohortsActivityRetrieveResponse> => {
-    return apiMutator<cohortsActivityRetrieveResponse>(getCohortsActivityRetrieveUrl(projectId), {
+export const cohortsActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

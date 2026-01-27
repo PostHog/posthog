@@ -13,16 +13,6 @@ import type { SessionSummariesApi } from './api.schemas'
 /**
  * Generate AI summary for a group of session recordings to find patterns and generate a notebook.
  */
-export type createSessionSummariesResponse200 = {
-    data: SessionSummariesApi
-    status: 200
-}
-
-export type createSessionSummariesResponseSuccess = createSessionSummariesResponse200 & {
-    headers: Headers
-}
-export type createSessionSummariesResponse = createSessionSummariesResponseSuccess
-
 export const getCreateSessionSummariesUrl = (projectId: string) => {
     return `/api/environments/${projectId}/session_summaries/create_session_summaries/`
 }
@@ -31,8 +21,8 @@ export const createSessionSummaries = async (
     projectId: string,
     sessionSummariesApi: SessionSummariesApi,
     options?: RequestInit
-): Promise<createSessionSummariesResponse> => {
-    return apiMutator<createSessionSummariesResponse>(getCreateSessionSummariesUrl(projectId), {
+): Promise<SessionSummariesApi> => {
+    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -43,16 +33,6 @@ export const createSessionSummaries = async (
 /**
  * Generate AI individual summary for each session, without grouping.
  */
-export type createSessionSummariesIndividuallyResponse200 = {
-    data: SessionSummariesApi
-    status: 200
-}
-
-export type createSessionSummariesIndividuallyResponseSuccess = createSessionSummariesIndividuallyResponse200 & {
-    headers: Headers
-}
-export type createSessionSummariesIndividuallyResponse = createSessionSummariesIndividuallyResponseSuccess
-
 export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
     return `/api/environments/${projectId}/session_summaries/create_session_summaries_individually/`
 }
@@ -61,8 +41,8 @@ export const createSessionSummariesIndividually = async (
     projectId: string,
     sessionSummariesApi: SessionSummariesApi,
     options?: RequestInit
-): Promise<createSessionSummariesIndividuallyResponse> => {
-    return apiMutator<createSessionSummariesIndividuallyResponse>(getCreateSessionSummariesIndividuallyUrl(projectId), {
+): Promise<SessionSummariesApi> => {
+    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
