@@ -1470,7 +1470,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Event,
                     operator: PropertyOperator.Exact,
                     key: params.eventProperty,
-                    value: params.eventPropertyValue,
+                    value: normalizePropertyFilterValue(params.eventPropertyValue, PropertyOperator.Exact),
                 }
             }
 
@@ -1479,7 +1479,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Person,
                     operator: PropertyOperator.Exact,
                     key: params.personProperty,
-                    value: params.personPropertyValue,
+                    value: normalizePropertyFilterValue(params.personPropertyValue, PropertyOperator.Exact),
                 }
             }
 
