@@ -57,6 +57,17 @@ var (
 		},
 		[]string{"channel"},
 	)
+	MsgSkippedNoSubscribers = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_kafka_skipped_no_subscribers_total",
+		Help: "Messages skipped because no active subscribers exist",
+	})
+	TokenSource = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_token_source_total",
+			Help: "Source of the token in parsed events",
+		},
+		[]string{"source"},
+	)
 
 	SessionRecordingMsgConsumed = promauto.NewCounterVec(
 		prometheus.CounterOpts{

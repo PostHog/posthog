@@ -67,7 +67,8 @@ func main() {
 	go stats.KeepStats(statsChan)
 	go sessionStats.KeepStats(ctx, sessionStatsChan)
 
-	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism)
+	filter := events.NewFilter(subChan, unSubChan, phEventChan)
+	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism, filter.ActiveTokens())
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
@@ -107,7 +108,6 @@ func main() {
 		}
 	}()
 
-	filter := events.NewFilter(subChan, unSubChan, phEventChan)
 	go filter.Run()
 
 	// Echo instance
