@@ -52,7 +52,7 @@
     window.APP_STATE_LOGGING_SAMPLE_RATE = {{  js_app_state_logging_sample_rate|default:"0" }};
 </script>
 
-{% if debug and not e2e_testing %}
+{% if debug %}
     {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe (dev-only, trusted Vite output) #}
     {{ vite_dev_scripts|safe }}
 {% endif %}
