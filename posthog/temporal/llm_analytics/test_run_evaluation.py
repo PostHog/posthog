@@ -15,6 +15,7 @@ from .run_evaluation import (
     BooleanWithNAEvalResult,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
+    disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
@@ -332,6 +333,19 @@ class TestRunEvaluationWorkflow:
                 assert "$ai_evaluation_result" not in call_kwargs["properties"]
                 assert call_kwargs["properties"]["$ai_evaluation_applicable"] is False
                 assert call_kwargs["properties"]["$ai_evaluation_allows_na"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_disable_evaluation_activity(self, setup_data):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        assert evaluation.enabled is True
+
+        await disable_evaluation_activity(str(evaluation.id), team.id)
+
+        evaluation.refresh_from_db()
+        assert evaluation.enabled is False
 
 
 class TestEvalResultModels:
