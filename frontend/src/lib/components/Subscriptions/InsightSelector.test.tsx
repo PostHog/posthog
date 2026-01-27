@@ -23,9 +23,9 @@ function renderInsightSelector(props: {
 }
 
 const createMockTiles = (): Partial<DashboardTile>[] => [
-    { id: 1, insight: { id: 101, name: 'Pageviews' } as any, layouts: { sm: { x: 0, y: 0 } } },
-    { id: 2, insight: { id: 102, name: 'Sessions' } as any, layouts: { sm: { x: 0, y: 1 } } },
-    { id: 3, insight: { id: 103, name: 'Users' } as any, layouts: { sm: { x: 0, y: 2 } } },
+    { id: 1, insight: { id: 101, name: 'Pageviews' } as any, layouts: { sm: { x: 0, y: 0, w: 1, h: 1 } } },
+    { id: 2, insight: { id: 102, name: 'Sessions' } as any, layouts: { sm: { x: 0, y: 1, w: 1, h: 1 } } },
+    { id: 3, insight: { id: 103, name: 'Users' } as any, layouts: { sm: { x: 0, y: 2, w: 1, h: 1 } } },
 ]
 
 describe('InsightSelector', () => {
@@ -123,7 +123,7 @@ describe('InsightSelector', () => {
         const sixInsightTiles = Array.from({ length: 6 }, (_, i) => ({
             id: i + 1,
             insight: { id: 100 + i, name: `Insight ${i}` } as any,
-            layouts: { sm: { x: 0, y: i } },
+            layouts: { sm: { x: 0, y: i, w: 1, h: 1 } },
         }))
         const selectedIds = sixInsightTiles.map((t) => t.insight.id)
 
@@ -178,7 +178,7 @@ describe('InsightSelector', () => {
             {
                 id: 1,
                 insight: { id: 101, derived_name: 'Derived Insight Name' } as any,
-                layouts: { sm: { x: 0, y: 0 } },
+                layouts: { sm: { x: 0, y: 0, w: 1, h: 1 } },
             },
         ]
 
@@ -193,7 +193,7 @@ describe('InsightSelector', () => {
 
     it('shows "Untitled insight" when no name available', () => {
         const tilesWithoutName: Partial<DashboardTile>[] = [
-            { id: 1, insight: { id: 101 } as any, layouts: { sm: { x: 0, y: 0 } } },
+            { id: 1, insight: { id: 101 } as any, layouts: { sm: { x: 0, y: 0, w: 1, h: 1 } } },
         ]
 
         renderInsightSelector({
@@ -209,7 +209,7 @@ describe('InsightSelector', () => {
         const manyTiles = Array.from({ length: 11 }, (_, i) => ({
             id: i + 1,
             insight: { id: 100 + i, name: i === 0 ? 'Special Insight' : `Insight ${i}` } as any,
-            layouts: { sm: { x: 0, y: i } },
+            layouts: { sm: { x: 0, y: i, w: 1, h: 1 } },
         }))
 
         renderInsightSelector({
@@ -230,7 +230,7 @@ describe('InsightSelector', () => {
         const manyTiles = Array.from({ length: 11 }, (_, i) => ({
             id: i + 1,
             insight: { id: 100 + i, name: `Insight ${i}` } as any,
-            layouts: { sm: { x: 0, y: i } },
+            layouts: { sm: { x: 0, y: i, w: 1, h: 1 } },
         }))
 
         renderInsightSelector({

@@ -137,6 +137,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     {"dashboard_export_insights": [f"Cannot select more than {DEFAULT_MAX_ASSET_COUNT} insights."]}
                 )
 
+            # Ensure all selected insights belong to the team
+            if Insight.objects.filter(id__in=selected_ids).exclude(team_id=self.context["team_id"]).exists():
+                raise ValidationError({"dashboard_export_insights": ["Some insights do not belong to your team."]})
+
             # Ensure all selected insights belong to the dashboard (and are not deleted)
             dashboard_insight_ids = set(
                 dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values_list(
@@ -149,10 +153,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError(
                     {"dashboard_export_insights": [f"{len(invalid_ids)} invalid insight(s) selected."]}
                 )
-
-            # Ensure all selected insights belong to the team
-            if Insight.objects.filter(id__in=selected_ids).exclude(team_id=self.context["team_id"]).exists():
-                raise ValidationError({"dashboard_export_insights": ["Some insights do not belong to your team."]})
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]
