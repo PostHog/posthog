@@ -187,8 +187,8 @@ class MprocsGenerator(ConfigGenerator):
         if not original_shell:
             return proc_config
 
-        # Create a friendly message
-        message = f"echo '▶ {process_name}: {reason}' && "
+        # Create a friendly message with config hint
+        message = f"echo '▶ {process_name}: {reason} (configure via: hogli dev:setup)' && "
 
         proc_config["shell"] = message + original_shell
         return proc_config
@@ -208,10 +208,10 @@ class MprocsGenerator(ConfigGenerator):
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
             profile_flags = " " + " ".join(f"--profile {p}" for p in profiles)
-            message = f"echo '▶ docker-compose: running with profiles: {', '.join(profiles)}' && "
+            message = f"echo '▶ docker-compose: profiles: {', '.join(profiles)} (configure via: hogli dev:setup)' && "
         else:
             profile_flags = ""
-            message = "echo '▶ docker-compose: running core services only' && "
+            message = "echo '▶ docker-compose: core services only (configure via: hogli dev:setup)' && "
 
         up_cmd = f"{compose_base}{profile_flags} up --pull always -d"
         logs_cmd = f"{compose_base}{profile_flags} logs --tail=0 -f"
