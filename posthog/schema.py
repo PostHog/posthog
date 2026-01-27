@@ -6016,7 +6016,8 @@ class SavedInsightNode(BaseModel):
     )
     showTable: bool | None = None
     showTableViews: bool | None = Field(
-        default=None, description="Show table views feature for this table (requires uniqueKey)"
+        default=None,
+        description="Show table views feature for this table (requires uniqueKey)",
     )
     showTestAccountFilters: bool | None = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: bool | None = Field(default=None, description="Show a detailed query timing breakdown")
@@ -18283,7 +18284,8 @@ class DataTableNode(BaseModel):
         default=None, description="Show actors query options and back to source"
     )
     showTableViews: bool | None = Field(
-        default=None, description="Show table views feature for this table (requires uniqueKey)"
+        default=None,
+        description="Show table views feature for this table (requires uniqueKey)",
     )
     showTestAccountFilters: bool | None = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: bool | None = Field(default=None, description="Show a detailed query timing breakdown")
