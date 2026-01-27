@@ -5066,7 +5066,7 @@ const api = {
         },
 
         async unreadCount(): Promise<{ count: number }> {
-            return await new ApiRequest().conversationsTickets().addPathComponent('unread_count').get()
+            return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
     },
 
