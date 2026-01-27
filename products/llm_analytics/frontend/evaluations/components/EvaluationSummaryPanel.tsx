@@ -111,6 +111,7 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
         runsToSummarizeCount,
         evaluationSummary,
         evaluationSummaryLoading,
+        evaluationSummaryError,
         evaluationSummaryFilter,
         summaryExpanded,
     } = useValues(llmEvaluationLogic)
@@ -126,6 +127,14 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
             <div className="flex items-center justify-center py-6 border rounded-lg bg-bg-light">
                 <Spinner className="text-primary" />
                 <span className="ml-2 text-muted">Analyzing {runsToSummarizeCount} evaluation results...</span>
+            </div>
+        )
+    }
+
+    if (evaluationSummaryError) {
+        return (
+            <div className="flex items-center justify-center py-6 border rounded-lg bg-bg-light">
+                <span className="text-muted text-sm">Failed to generate summary. Try again.</span>
             </div>
         )
     }
