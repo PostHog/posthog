@@ -12,10 +12,13 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.models.team import Team
-from posthog.temporal.ai.session_summary.activities.a3_analyze_video_segment import _parse_timestamp_to_seconds
 from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
 from posthog.temporal.ai.video_segment_clustering.models import PersistTasksActivityInputs, PersistTasksResult
-from posthog.temporal.ai.video_segment_clustering.priority import calculate_priority_score, calculate_task_metrics
+from posthog.temporal.ai.video_segment_clustering.priority import (
+    calculate_priority_score,
+    calculate_task_metrics,
+    parse_timestamp_to_seconds,
+)
 
 from products.tasks.backend.models import Task, TaskReference
 
@@ -122,7 +125,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
                 for segment in new_segments:
                     session_start_time = datetime.fromisoformat(segment.session_start_time.replace("Z", "+00:00"))
                     segment_start_time = session_start_time + timedelta(
-                        seconds=_parse_timestamp_to_seconds(segment.start_time)
+                        seconds=parse_timestamp_to_seconds(segment.start_time)
                     )
                     if task.last_occurrence_at is None or segment_start_time > task.last_occurrence_at:
                         task.last_occurrence_at = segment_start_time
@@ -162,8 +165,8 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
             continue
 
         session_start_time = datetime.fromisoformat(segment.session_start_time.replace("Z", "+00:00"))
-        segment_start_time = session_start_time + timedelta(seconds=_parse_timestamp_to_seconds(segment.start_time))
-        segment_end_time = session_start_time + timedelta(seconds=_parse_timestamp_to_seconds(segment.end_time))
+        segment_start_time = session_start_time + timedelta(seconds=parse_timestamp_to_seconds(segment.start_time))
+        segment_end_time = session_start_time + timedelta(seconds=parse_timestamp_to_seconds(segment.end_time))
         _, created = await TaskReference.objects.aget_or_create(
             task=task,
             session_id=segment.session_id,
