@@ -293,10 +293,11 @@ async function main() {
         await page.setViewport({ width, height })
         const recordStarted = Date.now()
         // Configure screen recorder
+        const customFps = 30 * playbackSpeed // TODO: Decide if it's not too much
         const recorderConfig = {
             followNewTab: false, // Always a single tab is recorded
             // Adjust FPS based on the playback speed, so we can speed up seamlessly later
-            fps: 30 * playbackSpeed, // TODO: Decide if it's not too much or if we need to adjust bitrate to match
+            fps: customFps,
             ffmpeg_Path: null, // TODO: Check if it picks the system one, or installs it instead
             videoFrame: {
                 width,
@@ -370,6 +371,7 @@ async function main() {
             measured_width: measuredWidth,
             inactivity_periods: inactivityPeriods,
             segment_start_timestamps: segmentStartTimestamps,
+            custom_fps: customFps,
         }
         console.log(JSON.stringify(result))
         process.exit(0)
