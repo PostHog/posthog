@@ -13,4 +13,9 @@ module.exports = {
     // For jest-image-snapshot, see https://github.com/americanexpress/jest-image-snapshot#removing-outdated-snapshots
     reporters: ['default', 'jest-image-snapshot/src/outdated-snapshot-reporter.js'],
     testEnvironment: './test-runner-jest-environment.js',
+    // Exclude Rust directory from Jest's file system scanning
+    // This prevents Rust/Insta snapshots from being detected as "obsolete" by Jest
+    haste: {
+        blockList: [/[\\/]rust[\\/]/],
+    },
 }
