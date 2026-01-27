@@ -209,7 +209,7 @@ export function VirtualizedLogsList({
 
     // Scroll to cursor when requested (subscription fires when cursorIndex changes)
     useEffect(() => {
-        if (!disableCursor && cursorIndex !== null) {
+        if (!disableCursor && cursorIndex !== null && cursorIndex >= 0) {
             listRef.current?.scrollToRow({ index: cursorIndex })
             const raf = requestAnimationFrame(() => {
                 listRef.current?.scrollToRow({ index: cursorIndex })
