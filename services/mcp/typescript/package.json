@@ -82,7 +82,7 @@
         "vite": "^5.4.21",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
-        "wrangler": "^4.14.4",
+        "wrangler": "^4.59.0",
         "zod-to-json-schema": "^3.24.6"
     },
     "files": [
