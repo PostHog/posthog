@@ -290,12 +290,12 @@ def fetch_item_summaries(
     # We'll filter by batch_run_id in Python after fetching
     max_rows = len(item_ids) * 5  # Allow for duplicates
 
-    # Always fetch $ai_trace_id - for trace-level it's the same as item_id,
-    # for generation-level it's the parent trace (needed for navigation)
+    # Use ast.Field placeholder for the ID property so HogQL can resolve materialized columns.
+    # JSONExtractString would bypass materialized column optimization.
     query = parse_select(
         """
         SELECT
-            JSONExtractString(properties, {id_property}) as item_id,
+            {id_prop} as item_id,
             properties.$ai_summary_title as title,
             properties.$ai_summary_flow_diagram as flow_diagram,
             properties.$ai_summary_bullets as bullets,
@@ -307,7 +307,7 @@ def fetch_item_summaries(
         WHERE event = {event_name}
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND JSONExtractString(properties, {id_property}) IN {item_ids}
+            AND {id_prop} IN {item_ids}
         LIMIT {max_rows}
         """
     )
@@ -321,7 +321,7 @@ def fetch_item_summaries(
             query=query,
             placeholders={
                 "event_name": ast.Constant(value=event_name),
-                "id_property": ast.Constant(value=id_property),
+                "id_prop": ast.Field(chain=["properties", id_property]),
                 "start_dt": ast.Constant(value=window_start),
                 "end_dt": ast.Constant(value=window_end),
                 "item_ids": item_ids_tuple,
