@@ -25,11 +25,11 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                ("rds_host", models.CharField(max_length=255)),
-                ("rds_port", models.IntegerField(default=5432)),
-                ("rds_database", models.CharField(default="ducklake", max_length=255)),
-                ("rds_username", models.CharField(max_length=255)),
-                ("rds_password", posthog.helpers.encrypted_fields.EncryptedTextField(max_length=500)),
+                ("db_host", models.CharField(max_length=255)),
+                ("db_port", models.IntegerField(default=5432)),
+                ("db_database", models.CharField(default="ducklake", max_length=255)),
+                ("db_username", models.CharField(max_length=255)),
+                ("db_password", posthog.helpers.encrypted_fields.EncryptedTextField(max_length=500)),
                 ("bucket", models.CharField(max_length=255)),
                 ("bucket_region", models.CharField(default="us-east-1", max_length=50)),
                 (

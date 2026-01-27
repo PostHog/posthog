@@ -5,8 +5,8 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "team_id",
-        "rds_host",
-        "rds_database",
+        "db_host",
+        "db_database",
         "bucket",
         "bucket_region",
         "cross_account_role_arn",
@@ -14,7 +14,7 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("bucket_region",)
-    search_fields = ("team__id", "rds_host", "bucket", "cross_account_role_arn")
+    search_fields = ("team__id", "db_host", "bucket", "cross_account_role_arn")
     readonly_fields = ("id", "created_at", "updated_at")
     raw_id_fields = ("team",)
 
@@ -26,9 +26,9 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "RDS connection",
+            "Database connection",
             {
-                "fields": ("rds_host", "rds_port", "rds_database", "rds_username", "rds_password"),
+                "fields": ("db_host", "db_port", "db_database", "db_username", "db_password"),
             },
         ),
         (

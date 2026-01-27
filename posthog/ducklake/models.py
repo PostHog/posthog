@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """Per-team DuckLake catalog configuration.
 
-    Stores RDS connection details and bucket configuration for teams that need
+    Stores database connection details and bucket configuration for teams that need
     isolated DuckLake catalogs (e.g., single-tenant Duckling customers).
 
     For teams without a DuckLakeCatalog entry, the system falls back to
@@ -27,12 +27,12 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         related_name="ducklake_catalog",
     )
 
-    # RDS connection settings
-    rds_host = models.CharField(max_length=255)
-    rds_port = models.IntegerField(default=5432)
-    rds_database = models.CharField(max_length=255, default="ducklake")
-    rds_username = models.CharField(max_length=255)
-    rds_password = EncryptedTextField(max_length=500)
+    # Database connection settings
+    db_host = models.CharField(max_length=255)
+    db_port = models.IntegerField(default=5432)
+    db_database = models.CharField(max_length=255, default="ducklake")
+    db_username = models.CharField(max_length=255)
+    db_password = EncryptedTextField(max_length=500)
 
     # Bucket settings (no secrets - credentials come from IRSA or storage.py)
     bucket = models.CharField(max_length=255)
@@ -56,11 +56,11 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     def to_config(self) -> dict[str, str]:
         """Convert to a config dict compatible with get_config()."""
         return {
-            "DUCKLAKE_RDS_HOST": self.rds_host,
-            "DUCKLAKE_RDS_PORT": str(self.rds_port),
-            "DUCKLAKE_RDS_DATABASE": self.rds_database,
-            "DUCKLAKE_RDS_USERNAME": self.rds_username,
-            "DUCKLAKE_RDS_PASSWORD": self.rds_password,
+            "DUCKLAKE_RDS_HOST": self.db_host,
+            "DUCKLAKE_RDS_PORT": str(self.db_port),
+            "DUCKLAKE_RDS_DATABASE": self.db_database,
+            "DUCKLAKE_RDS_USERNAME": self.db_username,
+            "DUCKLAKE_RDS_PASSWORD": self.db_password,
             "DUCKLAKE_BUCKET": self.bucket,
             "DUCKLAKE_BUCKET_REGION": self.bucket_region,
             # S3 credentials are not stored per-team; they come from environment or IRSA
