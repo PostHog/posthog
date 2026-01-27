@@ -12,7 +12,14 @@ import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/l
 import { queryEvaluationRuns } from '../utils'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
-import { EvaluationConditionSet, EvaluationConfig, EvaluationRun, ModelConfiguration } from './types'
+import {
+    EvaluationConditionSet,
+    EvaluationConfig,
+    EvaluationRun,
+    EvaluationSummary,
+    EvaluationSummaryFilter,
+    ModelConfiguration,
+} from './types'
 
 export interface AvailableModel {
     id: string
@@ -58,6 +65,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setSelectedProvider: (provider: LLMProvider) => ({ provider }),
         setSelectedKeyId: (keyId: string | null) => ({ keyId }),
         setSelectedModel: (model: string) => ({ model }),
+
+        // Evaluation summary actions
+        setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter) => ({ filter }),
+        toggleSummaryExpanded: true,
+        regenerateEvaluationSummary: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -98,6 +110,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         `/api/environments/${teamId}/llm_analytics/models/?${params.toString()}`
                     )
                     return response.models
+                },
+            },
+        ],
+        evaluationSummary: [
+            null as EvaluationSummary | null,
+            {
+                generateEvaluationSummary: async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !props.evaluationId || props.evaluationId === 'new') {
+                        return null
+                    }
+
+                    // Backend fetches data server-side by ID - we just pass the filter
+                    const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
+                        evaluation_id: props.evaluationId,
+                        filter: values.evaluationSummaryFilter,
+                        force_refresh: forceRefresh,
+                    })
+
+                    return response as EvaluationSummary
                 },
             },
         ],
@@ -186,6 +218,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 resetEvaluation: () => false,
             },
         ],
+        evaluationSummaryFilter: [
+            'all' as EvaluationSummaryFilter,
+            {
+                setEvaluationSummaryFilter: (_, { filter }) => filter,
+            },
+        ],
+        // Clear summary when filter changes so stale summary doesn't mismatch current filter
+        evaluationSummary: {
+            setEvaluationSummaryFilter: () => null,
+        },
+        summaryExpanded: [
+            true,
+            {
+                toggleSummaryExpanded: (state) => !state,
+                generateEvaluationSummarySuccess: () => true,
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -271,6 +320,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         refreshEvaluationRuns: () => {
             actions.loadEvaluationRuns()
+        },
+
+        regenerateEvaluationSummary: () => {
+            actions.generateEvaluationSummary({ forceRefresh: true })
         },
 
         resetEvaluation: () => {
@@ -440,6 +493,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     successRate: applicableRuns > 0 ? Math.round((successfulRuns / applicableRuns) * 100) : 0,
                     applicabilityRate: completedRuns > 0 ? Math.round((applicableRuns / completedRuns) * 100) : 0,
                 }
+            },
+        ],
+
+        runsToSummarizeCount: [
+            (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
+            (runs, filter) => {
+                // This is for UI display only - actual filtering happens server-side
+                let filteredRuns = runs.filter((r) => r.status === 'completed')
+                if (filter === 'pass') {
+                    filteredRuns = filteredRuns.filter((r) => r.result === true)
+                } else if (filter === 'fail') {
+                    filteredRuns = filteredRuns.filter((r) => r.result === false)
+                } else if (filter === 'na') {
+                    filteredRuns = filteredRuns.filter((r) => r.result === null)
+                }
+                return Math.min(filteredRuns.length, 100)
             },
         ],
 
