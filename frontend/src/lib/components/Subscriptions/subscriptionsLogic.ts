@@ -10,11 +10,9 @@ import { SubscriptionType } from '~/types'
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
 import { SubscriptionBaseProps } from './utils'
 
-export type SubscriptionsLogicProps = SubscriptionBaseProps
-
 export const subscriptionsLogic = kea<subscriptionsLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionsLogic']),
-    props({} as SubscriptionsLogicProps),
+    props({} as SubscriptionBaseProps),
     key(({ insightShortId, dashboardId }) =>
         insightShortId ? `insight-${insightShortId}` : dashboardId ? `dashboard-${dashboardId}` : 'subscriptions'
     ),
