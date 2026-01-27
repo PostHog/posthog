@@ -5,7 +5,7 @@ from django.conf import settings
 from openai import OpenAI
 
 Product = Literal[
-    "llm_gateway", "array", "wizard", "django", "growth"
+    "llm_gateway", "twig", "wizard", "django", "growth"
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
