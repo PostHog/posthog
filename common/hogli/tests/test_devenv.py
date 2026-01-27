@@ -421,23 +421,23 @@ class TestMprocsRegistry:
 class TestDevenvConfig:
     """Test DevenvConfig data class."""
 
-    def test_config_to_dict_minimal(self) -> None:
+    def test_config_model_dump_minimal(self) -> None:
         """Minimal config converts to dict cleanly."""
         config = DevenvConfig(intents=["error_tracking"])
 
-        data = config.to_dict()
+        data = config.model_dump(exclude_defaults=True)
 
         assert data["intents"] == ["error_tracking"]
         assert "exclude_units" not in data  # Empty lists not included
 
-    def test_config_to_dict_with_overrides(self) -> None:
+    def test_config_model_dump_with_overrides(self) -> None:
         """Config with overrides includes them."""
         config = DevenvConfig(
             intents=["error_tracking"],
             exclude_units=["typegen"],
         )
 
-        data = config.to_dict()
+        data = config.model_dump(exclude_defaults=True)
 
         assert data["intents"] == ["error_tracking"]
         assert data["exclude_units"] == ["typegen"]

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from pydantic import BaseModel, model_serializer
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from .registry import ProcessRegistry
@@ -31,25 +31,6 @@ class DevenvConfig(BaseModel):
     skip_autostart: list[str] = []
     enable_autostart: list[str] = []
     log_to_files: bool = False
-
-    @model_serializer
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to dict, excluding empty/default values."""
-        data: dict[str, Any] = {}
-        if self.intents:
-            data["intents"] = self.intents
-        if self.include_units:
-            data["include_units"] = self.include_units
-        if self.exclude_units:
-            data["exclude_units"] = self.exclude_units
-        if self.skip_autostart:
-            data["skip_autostart"] = self.skip_autostart
-        if self.enable_autostart:
-            data["enable_autostart"] = self.enable_autostart
-        if self.log_to_files:
-            data["log_to_files"] = self.log_to_files
-
-        return data
 
 
 class ConfigGenerator(ABC):
@@ -81,18 +62,14 @@ class MprocsConfig(BaseModel):
     scrollback: int = 10000
     posthog_config: DevenvConfig | None = None  # embedded source config
 
-    @model_serializer
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to dict with _posthog first for visibility."""
+    def to_yaml_dict(self) -> dict[str, Any]:
+        """Serialize to dict with _posthog first for YAML output."""
         result: dict[str, Any] = {}
-
         if self.posthog_config:
-            result["_posthog"] = self.posthog_config.model_dump()
-
+            result["_posthog"] = self.posthog_config.model_dump(exclude_defaults=True)
         result["procs"] = self.procs
         result["mouse_scroll_speed"] = self.mouse_scroll_speed
         result["scrollback"] = self.scrollback
-
         return result
 
 
@@ -245,7 +222,7 @@ class MprocsGenerator(ConfigGenerator):
             # Add header comment for log mode
             if config.posthog_config and config.posthog_config.log_to_files:
                 f.write("# Log mode: Output logged to /tmp/posthog-*.log\n")
-            yaml.dump(config.to_dict(), f, default_flow_style=False, sort_keys=False)
+            yaml.dump(config.to_yaml_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
 
 
