@@ -420,6 +420,8 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
+PLUGIN_SERVER_API_TOKEN = os.getenv("PLUGIN_SERVER_API_TOKEN", "")
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table

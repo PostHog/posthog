@@ -327,6 +327,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         POD_TERMINATION_BASE_TIMEOUT_MINUTES: 30, // Default: 30 minutes
         POD_TERMINATION_JITTER_MINUTES: 45, // Default: 45 hour, so timeout is between 30 minutes and 1h15m
 
+        // Internal API auth
+        PLUGIN_SERVER_API_TOKEN: '',
+
         // Logs ingestion
         LOGS_INGESTION_CONSUMER_GROUP_ID: 'ingestion-logs',
         LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_LOGS_INGESTION,

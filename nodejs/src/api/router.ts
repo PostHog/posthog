@@ -1,8 +1,9 @@
 import * as prometheus from 'prom-client'
 import express, { Request, Response } from 'ultimate-express'
 
+import { createApiAuthMiddleware } from '~/api/middleware/api-auth'
 import { corsMiddleware } from '~/api/middleware/cors'
-import { HealthCheckResultError, PluginServerService } from '~/types'
+import { HealthCheckResultError, PluginsServerConfig, PluginServerService } from '~/types'
 import { logger } from '~/utils/logger'
 
 prometheus.collectDefaultMetrics()
@@ -19,11 +20,13 @@ export function setupCommonRoutes(
     return app
 }
 
-export function setupExpressApp(): express.Application {
+export function setupExpressApp(config?: Pick<PluginsServerConfig, 'PLUGIN_SERVER_API_TOKEN'>): express.Application {
     const app = express()
 
     // Add CORS middleware before other middleware
     app.use(corsMiddleware)
+
+    app.use(createApiAuthMiddleware(config?.PLUGIN_SERVER_API_TOKEN ?? ''))
 
     app.use(
         express.json({

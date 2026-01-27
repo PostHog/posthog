@@ -484,6 +484,9 @@ export interface PluginsServerConfig
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
+
+    // Internal API auth
+    PLUGIN_SERVER_API_TOKEN: string
 }
 
 export interface Hub extends PluginsServerConfig {
