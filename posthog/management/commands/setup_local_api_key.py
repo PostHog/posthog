@@ -75,7 +75,7 @@ class Command(BaseCommand):
             label=DEV_KEY_LABEL,
             secure_value=secure_value,
             mask_value=mask_key_value(DEV_API_KEY),
-            scopes=scopes,
+            scopes=scopes or None,
         )
 
         print(f"Created personal API key for '{email}'")
