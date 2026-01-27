@@ -1,7 +1,7 @@
 import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
@@ -11,6 +11,7 @@ import {
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { objectsEqual } from 'lib/utils'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -95,9 +96,21 @@ export function PropertyFilters({
     const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
-    // Update the logic's internal filters when the props change
+    // Track previous props to avoid unnecessary resets
+    const prevPropertyFiltersRef = useRef<AnyPropertyFilter[] | null>(null)
+
+    // Update the logic's internal filters when the props actually change (deep comparison)
+    // This prevents resetting local state when parent re-renders with same content but different reference
     useEffect(() => {
-        setFilters(propertyFilters ?? [])
+        const newFilters = propertyFilters ?? []
+        const prevFilters = prevPropertyFiltersRef.current
+
+        // Only reset if the filters have actually changed (deep comparison)
+        // This is critical for notebooks where parent can re-render without real changes
+        if (!objectsEqual(newFilters, prevFilters)) {
+            prevPropertyFiltersRef.current = newFilters
+            setFilters(newFilters)
+        }
     }, [propertyFilters, setFilters])
 
     // do not open on initial render, only open if newly inserted
