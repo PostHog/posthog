@@ -1,5 +1,7 @@
 """Shared fixtures for all acceptance tests."""
 
+from collections.abc import Generator
+
 import pytest
 
 from ..client import PostHogClient
@@ -17,11 +19,13 @@ def config() -> Config:
 
 
 @pytest.fixture(scope="session")
-def client(config: Config) -> PostHogClient:
+def client(config: Config) -> Generator[PostHogClient, None, None]:
     """Create a PostHog client for the test session.
 
     This fixture is session-scoped, so a single client instance is
     shared across all tests. Each test should use unique identifiers
     to avoid interference.
     """
-    return PostHogClient(config)
+    client = PostHogClient(config)
+    yield client
+    client.shutdown()
