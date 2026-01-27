@@ -110,11 +110,6 @@ logger = structlog.get_logger(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 
-INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
-    "insight_refresh_initiated",
-    "Insight refreshes initiated, based on should_refresh_insight().",
-    labelnames=["is_shared"],
-)
 
 EXPORT_QUERY_CACHE_MISS = Counter(
     "export_query_cache_miss",

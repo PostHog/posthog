@@ -18,6 +18,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, LiveEvent } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
@@ -79,6 +80,12 @@ const columns: LemonTableColumns<LiveEvent> = [
         width: 0,
     },
 ]
+
+export const scene: SceneExport = {
+    component: LiveEventsTable,
+    logic: liveEventsTableSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
+}
 
 export function LiveEventsTable(): JSX.Element {
     const { events, streamPaused, filters } = useValues(liveEventsLogic)
@@ -162,10 +169,4 @@ export function LiveEventsTable(): JSX.Element {
             />
         </SceneContent>
     )
-}
-
-export const scene: SceneExport = {
-    component: LiveEventsTable,
-    logic: liveEventsTableSceneLogic,
-    settingSectionId: 'environment-autocapture',
 }

@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const FlagPayloadSnippet = memo(function FlagPayloadSnippet({ language = 'javascript' }: { language?: string }): JSX.Element {
+export const FlagPayloadSnippet = memo(({ language = 'javascript' }: { language?: string }): JSX.Element => {
     const { CodeBlock, dedent } = useMDXComponents()
 
     const snippets: Record<string, string> = {

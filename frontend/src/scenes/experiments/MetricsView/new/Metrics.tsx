@@ -45,7 +45,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         ) && hasMinimumExposureForResults
 
     return (
-        <div className="mb-4 -mt-2">
+        <div className="mb-4 -mt-2" data-attr="experiment-creation-goal-metric">
             {experiment?.id && (
                 <>
                     <MetricsReorderModal isSecondary={false} />
