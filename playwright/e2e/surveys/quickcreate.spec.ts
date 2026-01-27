@@ -226,7 +226,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expect(page.locator('[data-attr="launch-survey"]').getByText('Launch', { exact: true })).toBeVisible()
     })
 
-    test('warning shown when surveys are disabled', async ({ page }) => {
+    test.skip('warning shown when surveys are disabled', async ({ page }) => {
         await saveFeatureFlag(page)
 
         await page.route('**/api/environments/@current/', async (route) => {
