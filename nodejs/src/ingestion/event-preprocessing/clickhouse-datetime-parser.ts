@@ -4,9 +4,23 @@
  * A faithful JavaScript port of ClickHouse's parseDateTimeBestEffort logic.
  * Translated line-by-line from: ClickHouse/src/IO/parseDateTimeBestEffort.cpp
  *
- * Structure mirrors ClickHouse:
- * - parseDateTimeBestEffort: translates parseDateTimeBestEffortImpl (no EOF check)
- * - isValidClickHouseDateTime: translates wrapper in FunctionsConversion.h (adds EOF check)
+ * ARCHITECTURE (mirrors ClickHouse's two-layer design):
+ *
+ * In ClickHouse, parsing happens in two layers:
+ *
+ * 1. Parser (parseDateTimeBestEffort.cpp):
+ *    - Parses as much as it can from the input buffer
+ *    - Returns success/failure for the parsing itself
+ *    - Does NOT check if all input was consumed
+ *
+ * 2. Wrapper (FunctionsConversion.h:1464-1465):
+ *    - Calls the parser
+ *    - Then checks: if (!isAllRead(read_buffer)) parsed = false;
+ *    - This rejects inputs like "2020-01-01garbage" where parsing succeeds but trailing data remains
+ *
+ * We mirror this structure:
+ * - parseDateTimeBestEffort(): Layer 1 - returns { outcome, fullyConsumed }
+ * - isValidClickHouseDateTime(): Layer 2 - combines both checks
  */
 
 interface ParseResult {
@@ -21,10 +35,15 @@ interface ParseFailure {
 
 type ParseOutcome = ParseResult | ParseFailure
 
-// Internal result that includes buffer state (mirrors C++ where wrapper checks isAllRead)
+/**
+ * Internal result from the parser (Layer 1).
+ * The wrapper (Layer 2) uses both fields to determine final validity.
+ */
 interface ParseInternalResult {
+    /** Did parsing succeed? */
     outcome: ParseOutcome
-    fullyConsumed: boolean // mirrors isAllRead(read_buffer) in FunctionsConversion.h:1464
+    /** Was the entire input consumed? (false means trailing garbage like "2020-01-01xyz") */
+    fullyConsumed: boolean
 }
 
 // Helper: isNumericASCII - from StringUtils.h line 88-94
@@ -122,18 +141,20 @@ function readDecimalNumber(digits: number[], start: number, count: number): numb
 }
 
 /**
- * parseDateTimeBestEffortImpl - faithful translation from parseDateTimeBestEffort.cpp lines 93-825
+ * Layer 1: Parser - faithful translation from parseDateTimeBestEffort.cpp
  *
- * Returns both the parse outcome AND whether buffer was fully consumed.
- * This mirrors C++ structure where:
- * - parseDateTimeBestEffortImpl returns success/failure
- * - Wrapper in FunctionsConversion.h checks isAllRead(read_buffer)
+ * Parses as much as it can and returns:
+ * - outcome: did parsing succeed?
+ * - fullyConsumed: was all input consumed?
  *
- * Template parameters in C++:
- * - ReturnType: we use boolean (tryParse variant)
- * - is_us_style: passed as parameter
- * - strict: false (we're doing non-strict parsing)
- * - is_64: true (for DateTime64)
+ * Note: This function does NOT reject trailing garbage - that's Layer 2's job.
+ * For validation, use isValidClickHouseDateTime() which combines both checks.
+ *
+ * C++ template parameters mapped to our implementation:
+ * - ReturnType: bool (tryParse variant, returns success/failure instead of throwing)
+ * - is_us_style: passed as usStyle option (MM/DD vs DD/MM)
+ * - strict: false (non-strict parsing allows timestamps, compact formats)
+ * - is_64: true (DateTime64 support with fractional seconds)
  */
 export function parseDateTimeBestEffort(
     input: string,
@@ -759,12 +780,18 @@ export function parseDateTimeBestEffort(
 }
 
 /**
+ * Layer 2: Wrapper that mirrors FunctionsConversion.h
+ *
  * Checks if a value will be successfully parsed by ClickHouse's
  * parseDateTime64BestEffortOrNull function.
  *
- * This mirrors the wrapper code in FunctionsConversion.h:
- * - Calls the parsing function (parseDateTimeBestEffortImpl)
- * - Checks if entire input was consumed (isAllRead check at line 1464-1465)
+ * Combines two checks (just like ClickHouse):
+ * 1. Did parsing succeed? (from parseDateTimeBestEffort)
+ * 2. Was all input consumed? (mirrors: if (!isAllRead(read_buffer)) parsed = false)
+ *
+ * Example: "2020-01-01" -> true (valid, fully consumed)
+ * Example: "2020-01-01xyz" -> false (valid parse, but "xyz" left over)
+ * Example: "garbage" -> false (invalid parse)
  */
 export function isValidClickHouseDateTime(value: unknown): boolean {
     if (typeof value === 'number') {
