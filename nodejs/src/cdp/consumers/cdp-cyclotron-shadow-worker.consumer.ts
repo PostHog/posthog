@@ -1,12 +1,11 @@
+import { shadowFetchContext } from '../services/hog-executor.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
-import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpCyclotronWorker, CdpCyclotronWorkerHub } from './cdp-cyclotron-worker.consumer'
 
 /**
  * Shadow worker that consumes from the shadow Cyclotron database.
- * Loads hog functions and produces mock successful results without making real HTTP calls.
- * This exercises the full queue infrastructure (dual-write, dequeue, result handling)
- * without side effects.
+ * Executes the full invocation pipeline (including bytecode) but with no-op HTTP fetches,
+ * scoped via AsyncLocalStorage so other workers in the same process are unaffected.
  */
 export class CdpCyclotronShadowWorker extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronShadowWorker'
@@ -23,8 +22,6 @@ export class CdpCyclotronShadowWorker extends CdpCyclotronWorker {
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
-        const loadedInvocations = await this.loadHogFunctions(invocations)
-
-        return loadedInvocations.map((invocation) => createInvocationResult(invocation, {}, { finished: true }))
+        return shadowFetchContext.run(true, () => super.processInvocations(invocations))
     }
 }
