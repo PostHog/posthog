@@ -15,7 +15,5 @@ module.exports = {
     testEnvironment: './test-runner-jest-environment.js',
     // Exclude Rust directory from Jest's file system scanning
     // This prevents Rust/Insta snapshots from being detected as "obsolete" by Jest
-    haste: {
-        blockList: [/[\\/]rust[\\/]/],
-    },
+    modulePathIgnorePatterns: ['<rootDir>/rust/'],
 }
