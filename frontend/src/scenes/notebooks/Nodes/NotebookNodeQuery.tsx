@@ -115,9 +115,9 @@ const Component = ({
     }
 
     return (
-        <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+        <div className="flex flex-col" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
-                <ScrollableShadows direction="vertical" className="flex-1">
+                <ScrollableShadows direction="vertical">
                     <Query
                         // use separate keys for the settings and visualization to avoid conflicts with insightProps
                         uniqueKey={nodeId + '-component'}
@@ -264,8 +264,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     nodeType: NotebookNodeType.Query,
     titlePlaceholder: 'Query',
     Component,
-    heightEstimate: 500,
-    minHeight: 200,
+    heightEstimate: 'auto',
+    minHeight: 100,
+    maxHeight: 600,
     resizeable: true,
     startExpanded: true,
     attributes: {
