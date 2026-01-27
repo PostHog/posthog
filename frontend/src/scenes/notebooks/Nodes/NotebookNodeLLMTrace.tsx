@@ -96,7 +96,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLLMTraceAttributes>): JSX.Element => {
     const { personId, groupKey, groupTypeIndex, nodeId } = attributes
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
-    const sharedLogic = llmAnalyticsSharedLogic({ logicKey: nodeId })
+    const sharedLogic = llmAnalyticsSharedLogic({ logicKey: nodeId, personId, group })
     const tracesLogic = llmAnalyticsTracesTabLogic({ personId, group })
     const { setDates, setPropertyFilters } = useActions(sharedLogic)
     const { setTracesQuery } = useActions(tracesLogic)
