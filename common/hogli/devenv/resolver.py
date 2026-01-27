@@ -352,7 +352,11 @@ class IntentResolver:
         lines.append("\nProcesses to start:")
         for unit_name in sorted(resolved.units):
             reason = resolved.get_unit_reason(unit_name)
-            lines.append(f"  • {unit_name}: {reason}")
+            proc_config = self.registry.get_process_config(unit_name)
+            if proc_config.get("autostart") is False:
+                lines.append(f"  • {unit_name}: {reason} (manual start)")
+            else:
+                lines.append(f"  • {unit_name}: {reason}")
 
         # Overrides
         if resolved.overrides_applied:
@@ -375,7 +379,7 @@ def get_default_intent_map_path() -> Path:
             return intent_map
 
     # Fallback: assume we're in the repo
-    return Path.cwd() / "dev" / "intent-map.yaml"
+    return Path.cwd() / "devenv" / "intent-map.yaml"
 
 
 def load_intent_map(path: Path | None = None) -> IntentMap:

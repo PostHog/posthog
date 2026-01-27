@@ -145,10 +145,6 @@ intents:
         description: 'User cohort management'
         capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler]
 
-    notebooks:
-        description: 'Interactive analysis notebooks'
-        capabilities: [event_ingestion, property_definitions]
-
     pipelines:
         description: 'Data pipeline transformations and destinations'
         capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]

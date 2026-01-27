@@ -45,7 +45,7 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     config = _setup_from_intents(intent_map)
 
     # Ask about overrides
-    config = _configure_overrides(config, registry)
+    config = _configure_overrides(config, registry, resolver)
 
     # Set log mode if requested
     config.log_to_files = log_to_files
@@ -134,12 +134,30 @@ def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
     return DevenvConfig(intents=selected_intents)
 
 
-def _configure_overrides(config: DevenvConfig, registry) -> DevenvConfig:
+def _configure_overrides(config: DevenvConfig, registry, resolver: IntentResolver) -> DevenvConfig:
     """Configure overrides."""
-    # Exclude units
+    # Show what will be started
+    resolved = resolver.resolve(config.intents)
+    units_list = sorted(resolved.units)
+
+    # Find manual-start processes
+    manual_start = set()
+    for unit in units_list:
+        proc_config = registry.get_process_config(unit)
+        if proc_config.get("autostart") is False:
+            manual_start.add(unit)
+
     click.echo("")
-    click.echo("Units to exclude (e.g., dagster, temporal-worker):")
-    exclude = click.prompt("Comma-separated, or blank", default="")
+    click.echo(click.style("Processes that will start:", fg="cyan"))
+    for unit in units_list:
+        if unit in manual_start:
+            click.echo(f"  {unit} (manual start)")
+        else:
+            click.echo(f"  {unit}")
+
+    click.echo("")
+    click.echo("Units to exclude (enter names from above, or blank to skip):")
+    exclude = click.prompt("Comma-separated", default="")
     if exclude.strip():
         config.exclude_units = [u.strip() for u in exclude.split(",") if u.strip()]
 
