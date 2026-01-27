@@ -1,0 +1,185 @@
+# Intent-based developer environment configuration
+#
+# This file defines the domain model for developer environments:
+# - Intent: What the developer is working on (products like error_tracking, session_replay)
+# - Capabilities: Stable abstractions (event_ingestion, replay_storage, etc.)
+#
+# Process definitions (which processes provide which capability) are in bin/mprocs.yaml.
+# Each process declares its capability via the `capability` field.
+
+version: '1.0'
+
+# Capabilities are stable abstractions over processes
+# - requires: dependencies resolved transitively
+# - docker_profiles: docker compose profiles to activate (see docker-compose.profiles.yml)
+# - Processes are NOT listed here - they declare their capability in mprocs.yaml
+capabilities:
+    core_infra:
+        description: 'Essential infrastructure (docker, postgres, clickhouse)'
+        docker_profiles: []
+
+    event_ingestion:
+        description: 'Kafka-based event pipeline for event capture'
+        requires: [core_infra]
+        docker_profiles: []
+
+    property_definitions:
+        description: 'Track and define event/person properties'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    replay_storage:
+        description: 'Session replay blob storage and capture'
+        requires: [event_ingestion]
+        docker_profiles: [replay]
+
+    error_symbolication:
+        description: 'Error stack trace symbolication service'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    flag_evaluation:
+        description: 'Fast feature flag evaluation service'
+        requires: [core_infra]
+        docker_profiles: []
+
+    celery_workers:
+        description: 'Celery background job processing'
+        requires: [core_infra]
+        docker_profiles: []
+
+    celery_scheduler:
+        description: 'Celery beat scheduler for periodic tasks'
+        requires: [celery_workers]
+        docker_profiles: []
+
+    temporal_workflows:
+        description: 'Temporal workflow orchestration'
+        requires: [core_infra]
+        docker_profiles: [temporal]
+
+    dagster_pipelines:
+        description: 'Dagster data pipeline orchestration'
+        requires: [core_infra]
+        docker_profiles: []
+
+    llm_gateway:
+        description: 'LLM gateway for AI features'
+        requires: [core_infra]
+        docker_profiles: []
+
+    ai_capture:
+        description: 'AI event capture service'
+        requires: [event_ingestion, llm_gateway]
+        docker_profiles: []
+
+    embedding_service:
+        description: 'Vector embedding worker for AI features'
+        requires: [core_infra]
+        docker_profiles: []
+
+    livestream:
+        description: 'Real-time event streaming'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    cyclotron:
+        description: 'Cyclotron janitor service'
+        requires: [core_infra]
+        docker_profiles: []
+
+    batch_imports:
+        description: 'Batch data import worker'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    observability:
+        description: 'OpenTelemetry tracing with Jaeger'
+        requires: [core_infra]
+        docker_profiles: [observability]
+
+    dev_tools:
+        description: 'Development debugging tools (Kafka UI, Flower, etc.)'
+        requires: [core_infra]
+        docker_profiles: [dev_tools]
+
+# Intents map to products/features developers work on
+intents:
+    product_analytics:
+        description: 'Core product analytics - insights, funnels, trends'
+        capabilities: [event_ingestion, property_definitions, celery_workers]
+
+    error_tracking:
+        description: 'Track and analyze application errors'
+        capabilities: [event_ingestion, error_symbolication, property_definitions]
+
+    session_replay:
+        description: 'Record and replay user sessions'
+        capabilities: [event_ingestion, replay_storage, property_definitions, celery_workers]
+
+    feature_flags:
+        description: 'Feature flag management and evaluation'
+        capabilities: [flag_evaluation, celery_workers, celery_scheduler]
+
+    experiments:
+        description: 'A/B testing and experimentation'
+        capabilities: [event_ingestion, flag_evaluation, property_definitions, celery_workers]
+
+    llm_analytics:
+        description: 'LLM/AI observability and analytics'
+        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions]
+
+    web_analytics:
+        description: 'Web analytics, traffic analysis, and heatmaps'
+        capabilities: [event_ingestion, replay_storage, property_definitions]
+
+    surveys:
+        description: 'User surveys and feedback collection'
+        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler]
+
+    data_warehouse:
+        description: 'Data warehouse queries and saved queries'
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+
+    cohorts:
+        description: 'User cohort management'
+        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler]
+
+    pipelines:
+        description: 'Data pipeline transformations and destinations'
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+
+    ai_features:
+        description: 'AI features'
+        capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions, temporal_workflows]
+
+    logs:
+        description: 'Log aggregation and viewing'
+        capabilities: [event_ingestion, property_definitions]
+
+    workflows:
+        description: 'Workflow automation and orchestration'
+        capabilities: [event_ingestion, property_definitions, temporal_workflows]
+
+    tracing:
+        description: 'OpenTelemetry tracing with Jaeger UI'
+        capabilities: [observability]
+
+    debug_tools:
+        description: 'Kafka UI, Flower (Celery), maildev, webhook tester'
+        capabilities: [dev_tools]
+
+# Always-required processes regardless of intent
+# This is the core stack needed for any development
+always_required:
+    - backend
+    - frontend
+    - typegen
+    - docker-compose
+    # Core services
+    - celery-worker
+    - celery-beat
+    - nodejs
+    - capture
+    - feature-flags
+    - property-defs-rs
