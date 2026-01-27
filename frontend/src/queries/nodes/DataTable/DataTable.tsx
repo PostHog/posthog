@@ -46,8 +46,8 @@ import {
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
-import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
-import { UnifiedEventsFilter } from '~/queries/nodes/EventsNode/UnifiedEventsFilter'
+import { AddPropertyFilterButton, EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { SelectedEventsChips, UnifiedEventsFilter } from '~/queries/nodes/EventsNode/UnifiedEventsFilter'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
@@ -683,7 +683,23 @@ export function DataTable({
             <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
         ) : null,
         showEventsFilter && isEventsQuery(query.source) ? (
-            <UnifiedEventsFilter key="unified-events-filter" query={query.source} setQuery={setQuerySource} />
+            <UnifiedEventsFilter
+                key="unified-events-filter"
+                query={query.source}
+                setQuery={setQuerySource}
+                showChipsInline={false}
+            />
+        ) : null,
+        showPropertyFilter &&
+        sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
+        !isSessionsQuery(query.source) &&
+        showEventsFilter ? (
+            <AddPropertyFilterButton
+                key="add-property-filter-button"
+                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}
+                setQuery={setQuerySource}
+                taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
+            />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
@@ -698,7 +714,8 @@ export function DataTable({
         ) : null,
         showPropertyFilter &&
         sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
-        !isSessionsQuery(query.source) ? (
+        !isSessionsQuery(query.source) &&
+        !showEventsFilter ? (
             <EventPropertyFilters
                 key="event-property"
                 query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}
@@ -761,6 +778,25 @@ export function DataTable({
         ) : null,
     ].filter((x) => !!x)
 
+    // Row for selected events chips and property filters when showEventsFilter is enabled
+    const filterRow = [
+        showEventsFilter && isEventsQuery(query.source) ? (
+            <SelectedEventsChips key="selected-events-chips" query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showPropertyFilter &&
+        sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
+        !isSessionsQuery(query.source) &&
+        showEventsFilter ? (
+            <EventPropertyFilters
+                key="event-property-filter-row"
+                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}
+                setQuery={setQuerySource}
+                taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
+                allowNew={false}
+            />
+        ) : null,
+    ].filter((x) => !!x)
+
     const shouldShowCount = showCount && sourceFeatures.has(QueryFeature.showCount)
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
@@ -793,6 +829,7 @@ export function DataTable({
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
+    const showFilterRow = !isReadOnly && filterRow.length > 0
     const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
@@ -825,10 +862,11 @@ export function DataTable({
                             {firstRowRight}
                         </div>
                     )}
+                    {showFilterRow && <div className="flex gap-2 items-center flex-wrap">{filterRow}</div>}
                     {showSavedFilters && uniqueKey && (
                         <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
                     )}
-                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
+                    {(showFirstRow || showFilterRow) && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
                         <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
                             <div className="flex gap-2 items-center">{secondRowLeft}</div>

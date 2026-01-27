@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconChevronDown } from '@posthog/icons'
+import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -15,20 +15,34 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
 } from 'lib/components/TaxonomicFilter/types'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { EventsQuery } from '~/queries/schema/schema-general'
 
-interface UnifiedEventsFilterProps {
-    query: EventsQuery
-    setQuery?: (query: EventsQuery) => void
-}
+import { unifiedEventsFilterLogic } from './unifiedEventsFilterLogic'
 
 let uniqueFilterIndex = 0
 
-export function UnifiedEventsFilter({ query, setQuery }: UnifiedEventsFilterProps): JSX.Element {
-    const [isOpen, setIsOpen] = useState(false)
-    const [filterKey] = useState(() => `unified-events-filter-${uniqueFilterIndex++}`)
+interface UnifiedEventsFilterProps {
+    query: EventsQuery
+    setQuery?: (query: EventsQuery) => void
+    filterKey?: string
+    /** If true, chips are rendered inline. If false, only the button is rendered. */
+    showChipsInline?: boolean
+}
+
+export function UnifiedEventsFilter({
+    query,
+    setQuery,
+    filterKey,
+    showChipsInline = true,
+}: UnifiedEventsFilterProps): JSX.Element {
+    // Generate a stable key for this component instance
+    const logicKey = useMemo(() => filterKey ?? `unified-events-filter-${uniqueFilterIndex++}`, [filterKey])
+
+    const { isOpen } = useValues(unifiedEventsFilterLogic({ key: logicKey }))
+    const { setIsOpen } = useActions(unifiedEventsFilterLogic({ key: logicKey }))
 
     const selectedEvents = query.events || []
 
@@ -39,82 +53,91 @@ export function UnifiedEventsFilter({ query, setQuery }: UnifiedEventsFilterProp
         setQuery?.({ ...query, events: newEvents.length > 0 ? newEvents : null })
     }
 
-    const displayText = useMemo(() => {
-        if (selectedEvents.length === 0) {
-            return 'Select events'
-        }
-        if (selectedEvents.length <= 3) {
-            return selectedEvents.join(', ')
-        }
-        return `${selectedEvents.slice(0, 2).join(', ')} +${selectedEvents.length - 2} more`
-    }, [selectedEvents])
-
-    return (
-        <LemonDropdown
-            visible={isOpen}
-            onVisibilityChange={setIsOpen}
-            closeOnClickInside={false}
-            matchWidth={false}
-            overlay={
-                <div className="w-[400px] max-h-[500px] overflow-hidden flex flex-col">
-                    <EventsSearchSection
-                        filterKey={filterKey}
-                        selectedEvents={selectedEvents}
-                        onToggleEvent={handleToggleEvent}
-                    />
-                </div>
-            }
-        >
-            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                <span className={selectedEvents.length === 0 ? 'text-secondary' : ''}>{displayText}</span>
-            </LemonButton>
-        </LemonDropdown>
-    )
-}
-
-interface EventsSearchSectionProps {
-    filterKey: string
-    selectedEvents: string[]
-    onToggleEvent: (eventName: string) => void
-}
-
-function EventsSearchSection({ filterKey, selectedEvents, onToggleEvent }: EventsSearchSectionProps): JSX.Element {
-    const searchInputRef = useRef<HTMLInputElement>(null)
+    const handleRemoveEvent = (eventName: string): void => {
+        const newEvents = selectedEvents.filter((e) => e !== eventName)
+        setQuery?.({ ...query, events: newEvents.length > 0 ? newEvents : null })
+    }
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
-        taxonomicFilterLogicKey: filterKey,
+        taxonomicFilterLogicKey: logicKey,
         groupType: TaxonomicFilterGroupType.Events,
         taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
         onChange: () => {},
         selectFirstItem: false,
-        popoverEnabled: true,
+        popoverEnabled: false,
     }
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
-            <EventsSearchContent
-                searchInputRef={searchInputRef}
-                taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                selectedEvents={selectedEvents}
-                onToggleEvent={onToggleEvent}
-            />
+            <LemonDropdown
+                visible={isOpen}
+                onVisibilityChange={setIsOpen}
+                closeOnClickInside={false}
+                matchWidth={false}
+                overlay={
+                    <EventsDropdownContent
+                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                        selectedEvents={selectedEvents}
+                        onToggleEvent={handleToggleEvent}
+                    />
+                }
+            >
+                <LemonButton type="secondary" size="small">
+                    {selectedEvents.length === 0 ? 'Select events' : 'Add event'}
+                </LemonButton>
+            </LemonDropdown>
+            {showChipsInline && selectedEvents.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap ml-1">
+                    {selectedEvents.map((eventName) => (
+                        <LemonSnack key={eventName} onClose={() => handleRemoveEvent(eventName)}>
+                            {eventName}
+                        </LemonSnack>
+                    ))}
+                </div>
+            )}
         </BindLogic>
     )
 }
 
-interface EventsSearchContentProps {
-    searchInputRef: React.RefObject<HTMLInputElement>
+interface SelectedEventsChipsProps {
+    query: EventsQuery
+    setQuery?: (query: EventsQuery) => void
+}
+
+export function SelectedEventsChips({ query, setQuery }: SelectedEventsChipsProps): JSX.Element | null {
+    const selectedEvents = query.events || []
+
+    const handleRemoveEvent = (eventName: string): void => {
+        const newEvents = selectedEvents.filter((e) => e !== eventName)
+        setQuery?.({ ...query, events: newEvents.length > 0 ? newEvents : null })
+    }
+
+    if (selectedEvents.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex items-center gap-1 flex-wrap">
+            {selectedEvents.map((eventName) => (
+                <LemonSnack key={eventName} onClose={() => handleRemoveEvent(eventName)}>
+                    {eventName}
+                </LemonSnack>
+            ))}
+        </div>
+    )
+}
+
+interface EventsDropdownContentProps {
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     selectedEvents: string[]
     onToggleEvent: (eventName: string) => void
 }
 
-function EventsSearchContent({
-    searchInputRef,
+function EventsDropdownContent({
     taxonomicFilterLogicProps,
     selectedEvents,
     onToggleEvent,
-}: EventsSearchContentProps): JSX.Element {
+}: EventsDropdownContentProps): JSX.Element {
     const { searchQuery } = useValues(taxonomicFilterLogic)
     const { setSearchQuery } = useActions(taxonomicFilterLogic)
 
@@ -125,19 +148,15 @@ function EventsSearchContent({
 
     return (
         <BindLogic logic={infiniteListLogic} props={listLogicProps}>
-            <div className="flex flex-col flex-1 min-h-0">
-                <div className="p-2 border-b border-border">
-                    <LemonInput
-                        ref={searchInputRef}
-                        type="search"
-                        placeholder="Search events..."
-                        value={searchQuery}
-                        onChange={setSearchQuery}
-                        fullWidth
-                        size="small"
-                        autoFocus
-                    />
-                </div>
+            <div className="max-w-100 space-y-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search events..."
+                    autoFocus
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    fullWidth
+                />
                 <EventsList selectedEvents={selectedEvents} onToggleEvent={onToggleEvent} searchQuery={searchQuery} />
             </div>
         </BindLogic>
@@ -151,15 +170,16 @@ interface EventsListProps {
 }
 
 function EventsList({ selectedEvents, onToggleEvent, searchQuery }: EventsListProps): JSX.Element {
-    const { results, isLoading, group } = useValues(infiniteListLogic)
-    const { updateRemoteItem } = useActions(infiniteListLogic)
+    const { results, isLoading } = useValues(infiniteListLogic)
+    const { activeTaxonomicGroup } = useValues(taxonomicFilterLogic)
+
     const [hoveredItem, setHoveredItem] = useState<TaxonomicDefinitionTypes | null>(null)
     const [hoveredElement, setHoveredElement] = useState<HTMLDivElement | null>(null)
-    const [isPopoverHovered, setIsPopoverHovered] = useState(false)
-    const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const isHoveringPopoverRef = useRef(false)
 
-    // Build a map of event names to their full definitions for the popover
-    const eventDefinitionsMap = useMemo(() => {
+    // Build a map of event names to their full item objects
+    const itemsByName = useMemo(() => {
         const map = new Map<string, TaxonomicDefinitionTypes>()
         for (const item of results) {
             const name = (item as { name: string }).name
@@ -189,94 +209,117 @@ function EventsList({ selectedEvents, onToggleEvent, searchQuery }: EventsListPr
         return [...filteredSelected, ...unselectedFromApi]
     }, [results, selectedEvents, searchQuery])
 
-    const handleMouseEnterRow = useCallback(
-        (eventDef: TaxonomicDefinitionTypes | undefined, element: HTMLDivElement) => {
-            if (hideTimeoutRef.current) {
-                clearTimeout(hideTimeoutRef.current)
-                hideTimeoutRef.current = null
-            }
-            if (eventDef) {
-                setHoveredItem(eventDef)
+    const handleMouseEnter = (eventName: string, element: HTMLDivElement): void => {
+        if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current)
+        }
+        hoverTimeoutRef.current = setTimeout(() => {
+            const item = itemsByName.get(eventName)
+            if (item) {
+                setHoveredItem(item)
                 setHoveredElement(element)
             }
-        },
-        []
-    )
+        }, 300)
+    }
 
-    const handleMouseLeaveRow = useCallback(() => {
-        hideTimeoutRef.current = setTimeout(() => {
-            if (!isPopoverHovered) {
+    const handleMouseLeave = (): void => {
+        // Only clear the pending hover timeout, don't hide the popover
+        // The popover will change when hovering a different item
+        if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current)
+            hoverTimeoutRef.current = null
+        }
+    }
+
+    const handleListMouseLeave = (): void => {
+        // When leaving the entire list, hide the popover after a delay
+        // unless the mouse moved to the popover
+        if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current)
+        }
+        hoverTimeoutRef.current = setTimeout(() => {
+            if (!isHoveringPopoverRef.current) {
                 setHoveredItem(null)
                 setHoveredElement(null)
             }
+        }, 300)
+    }
+
+    const handlePopoverMouseEnter = (): void => {
+        isHoveringPopoverRef.current = true
+        if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current)
+            hoverTimeoutRef.current = null
+        }
+    }
+
+    const handlePopoverMouseLeave = (): void => {
+        isHoveringPopoverRef.current = false
+        hoverTimeoutRef.current = setTimeout(() => {
+            setHoveredItem(null)
+            setHoveredElement(null)
         }, 100)
-    }, [isPopoverHovered])
+    }
 
     if (isLoading && sortedEvents.length === 0) {
         return (
-            <div className="flex items-center justify-center h-[200px]">
+            <div className="flex items-center justify-center p-4">
                 <Spinner />
             </div>
         )
     }
 
     if (sortedEvents.length === 0) {
-        return <div className="flex items-center justify-center h-[200px] text-secondary text-sm">No events found</div>
+        return <div className="p-2 text-secondary italic">No events found</div>
     }
 
     return (
-        <div className="flex-1 min-h-[200px] max-h-[350px] overflow-y-auto relative">
-            {sortedEvents.map((eventName: string) => {
-                const isSelected = selectedEvents.includes(eventName)
-                const eventDef = eventDefinitionsMap.get(eventName)
-                return (
-                    <div
-                        key={eventName}
-                        className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-tertiary-highlight"
-                        onClick={() => onToggleEvent(eventName)}
-                        onMouseEnter={(e) => handleMouseEnterRow(eventDef, e.currentTarget as HTMLDivElement)}
-                        onMouseLeave={handleMouseLeaveRow}
-                    >
-                        <div className="w-4 h-4 flex items-center justify-center">
-                            {isSelected && <IconCheck className="text-success w-4 h-4" />}
-                        </div>
-                        <span className={isSelected ? 'font-medium' : ''}>
-                            <PropertyKeyInfo value={eventName} type={TaxonomicFilterGroupType.Events} disablePopover />
-                        </span>
-                    </div>
-                )
-            })}
-            {hoveredItem && hoveredElement && group && (
-                <div
-                    onMouseEnter={() => {
-                        setIsPopoverHovered(true)
-                        if (hideTimeoutRef.current) {
-                            clearTimeout(hideTimeoutRef.current)
-                            hideTimeoutRef.current = null
-                        }
-                    }}
-                    onMouseLeave={() => {
-                        setIsPopoverHovered(false)
-                        setHoveredItem(null)
-                        setHoveredElement(null)
+        <>
+            <ul className="max-h-80 overflow-y-auto space-y-px" onMouseLeave={handleListMouseLeave}>
+                {sortedEvents.map((eventName: string) => {
+                    const isSelected = selectedEvents.includes(eventName)
+                    return (
+                        <li key={eventName}>
+                            <div
+                                onMouseEnter={(e) => handleMouseEnter(eventName, e.currentTarget)}
+                                onMouseLeave={handleMouseLeave}
+                            >
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitem"
+                                    size="small"
+                                    icon={isSelected ? <IconCheck className="text-success" /> : <div className="w-4" />}
+                                    onClick={() => onToggleEvent(eventName)}
+                                    active={isSelected}
+                                >
+                                    <PropertyKeyInfo
+                                        value={eventName}
+                                        type={TaxonomicFilterGroupType.Events}
+                                        disablePopover
+                                    />
+                                </LemonButton>
+                            </div>
+                        </li>
+                    )
+                })}
+            </ul>
+            {hoveredItem && activeTaxonomicGroup && (
+                <BindLogic
+                    logic={definitionPopoverLogic}
+                    props={{
+                        type: TaxonomicFilterGroupType.Events,
                     }}
                 >
-                    <BindLogic
-                        logic={definitionPopoverLogic}
-                        props={{
-                            type: TaxonomicFilterGroupType.Events,
-                            updateRemoteItem,
-                        }}
-                    >
-                        <ControlledDefinitionPopover
-                            visible={true}
-                            item={hoveredItem}
-                            group={group as TaxonomicFilterGroup}
-                            highlightedItemElement={hoveredElement}
-                        />
-                    </BindLogic>
-                </div>
+                    <ControlledDefinitionPopover
+                        visible={!!hoveredItem}
+                        item={hoveredItem}
+                        group={activeTaxonomicGroup as TaxonomicFilterGroup}
+                        highlightedItemElement={hoveredElement}
+                        onMouseEnterInside={handlePopoverMouseEnter}
+                        onMouseLeaveInside={handlePopoverMouseLeave}
+                    />
+                </BindLogic>
             )}
-        </div>
+        </>
     )
 }
