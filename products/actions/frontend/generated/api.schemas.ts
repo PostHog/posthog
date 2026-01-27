@@ -108,7 +108,7 @@ export interface UserBasicApi {
 }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface ActionApi {
     readonly id: number
@@ -153,7 +153,7 @@ export interface PaginatedActionListApi {
 }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface PatchedActionApi {
     readonly id?: number

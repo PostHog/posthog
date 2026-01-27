@@ -196,7 +196,6 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
-    TAGGING = 'tagging',
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     PRODUCT_ANALYTICS_RETENTION = 'product_analytics_retention',
     PRODUCT_ANALYTICS_STICKINESS = 'product_analytics_stickiness',
@@ -609,6 +608,9 @@ export interface ConversationsSettings {
 
 export interface LogsSettings {
     capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
 }
 
 export interface TeamType extends TeamBasicType {
@@ -887,6 +889,13 @@ export enum ActivityTab {
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
+    Complete = 'complete',
+}
+
+export enum ExperimentProgressStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Paused = 'paused',
     Complete = 'complete',
 }
 
@@ -1575,11 +1584,6 @@ export enum GroupsTabType {
     OVERVIEW = 'overview',
 }
 
-export enum LayoutView {
-    Card = 'card',
-    List = 'list',
-}
-
 export interface EventsTableAction {
     name: string
     id: string
@@ -2221,10 +2225,11 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface EndpointVersion {
+export interface EndpointVersionType {
     id: string
     version: number
     query: HogQLQuery | InsightQueryNode
+    is_active: boolean
     created_at: string
     created_by: UserBasicType | null
     change_summary: string
@@ -2554,6 +2559,7 @@ export enum ChartDisplayType {
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
     CalendarHeatmap = 'CalendarHeatmap',
+    TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -4705,6 +4711,7 @@ export const INTEGRATION_KINDS = [
     'vercel',
     'azure-blob',
     'firebase',
+    'jira',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4741,6 +4748,12 @@ export interface TwilioPhoneNumberType {
 }
 export interface LinearTeamType {
     id: string
+    name: string
+}
+
+export interface JiraProjectType {
+    id: string
+    key: string
     name: string
 }
 
@@ -5712,7 +5725,6 @@ export enum SidePanelTab {
     Support = 'support',
     Docs = 'docs',
     Changelog = 'changelog',
-    Activation = 'activation',
     Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',
@@ -5905,7 +5917,12 @@ export type HogFunctionType = {
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 
 // Contexts change the way the UI is rendered allowing different teams to customize the UI for their use case
-export type HogFunctionConfigurationContextId = 'standard' | 'error-tracking' | 'activity-log' | 'insight-alerts'
+export type HogFunctionConfigurationContextId =
+    | 'standard'
+    | 'error-tracking'
+    | 'activity-log'
+    | 'discussion-mention'
+    | 'insight-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -5914,6 +5931,7 @@ export type HogFunctionSubTemplateIdType =
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'
+    | 'discussion-mention'
     | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
@@ -6407,7 +6425,6 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-    TELL_US_MORE = 'tell_us_more',
 }
 
 export interface Dataset {

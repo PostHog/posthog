@@ -1,8 +1,11 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { PersonProfiles } from './_snippets/person-profiles'
-import { StepDefinition } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+import { StepDefinition } from '../steps'
+import { PersonProfiles } from './_snippets/person-profiles'
+
+export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install via CocoaPods',
@@ -99,17 +102,4 @@ export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
     ]
 }
 
-export const IOSInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getIOSSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const IOSInstallation = createInstallation(getIOSSteps)
