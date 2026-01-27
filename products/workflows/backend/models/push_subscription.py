@@ -11,6 +11,11 @@ class PushPlatform(models.TextChoices):
     IOS = "ios"
 
 
+class PushProvider(models.TextChoices):
+    FCM = "fcm"
+    APNS = "apns"
+
+
 class PushSubscription(UUIDModel):
     """
     Stores push notification tokens for devices.
@@ -30,16 +35,21 @@ class PushSubscription(UUIDModel):
 
     platform = models.CharField(max_length=16, choices=PushPlatform.choices)
 
+    provider = models.CharField(max_length=16, choices=PushProvider.choices)
+
     is_active = models.BooleanField(default=True, db_index=True)
 
     last_successfully_used_at = models.DateTimeField(null=True, blank=True)
 
     disabled_reason = models.CharField(max_length=128, null=True, blank=True)
 
+    firebase_app_id = models.CharField(max_length=256, null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "distinct_id", "is_active"]),
             models.Index(fields=["team", "token_hash"]),
+            models.Index(fields=["team", "distinct_id", "platform", "provider", "is_active"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -68,6 +78,8 @@ class PushSubscription(UUIDModel):
         distinct_id: str,
         token: str,
         platform: PushPlatform,
+        provider: PushProvider,
+        firebase_app_id: str | None = None,
     ) -> "PushSubscription":
         """
         Create or update a push subscription token.
@@ -82,8 +94,10 @@ class PushSubscription(UUIDModel):
             defaults={
                 "token": token,
                 "platform": platform,
+                "provider": provider,
                 "is_active": True,
                 "disabled_reason": None,
+                "firebase_app_id": firebase_app_id,
             },
         )
 

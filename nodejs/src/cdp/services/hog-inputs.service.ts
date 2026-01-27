@@ -42,6 +42,8 @@ export class HogInputsService {
             (schema) => schema.type === 'push_subscription_distinct_id'
         )
 
+        const integrationInputs = await this.loadIntegrationInputs(hogFunction)
+
         const inputs: HogFunctionType['inputs'] = {
             // Include the inputs from the hog function
             ...hogFunction.inputs,
@@ -49,7 +51,7 @@ export class HogInputsService {
             // Plus any additional inputs
             ...additionalInputs,
             // and decode any integration inputs
-            ...(await this.loadIntegrationInputs(hogFunction)),
+            ...integrationInputs,
         }
 
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -59,7 +61,11 @@ export class HogInputsService {
 
         // Resolve push subscription inputs after we have newGlobals for template resolution
         if (hasPushSubscriptionInputs) {
-            const pushSubscriptionInputs = await this.loadPushSubscriptionInputs(hogFunction, newGlobals)
+            const pushSubscriptionInputs = await this.loadPushSubscriptionInputs(
+                hogFunction,
+                newGlobals,
+                integrationInputs
+            )
 
             // Update the input values with resolved tokens
             for (const [key, resolvedInput] of Object.entries(pushSubscriptionInputs)) {
@@ -181,7 +187,8 @@ export class HogInputsService {
 
     public async loadPushSubscriptionInputs(
         hogFunction: HogFunctionType,
-        globals: HogFunctionInvocationGlobalsWithInputs
+        globals: HogFunctionInvocationGlobalsWithInputs,
+        integrationInputs?: Record<string, { value: Record<string, any> | null }>
     ): Promise<Record<string, { value: string | null }>> {
         const inputsToLoad: Record<string, { rawValue: string; schema: HogFunctionInputSchemaType }> = {}
 
@@ -221,11 +228,29 @@ export class HogInputsService {
 
             const distinctId = resolvedValue
 
+            // Get firebase_app_id from firebase_account integration if available
+            let firebaseAppId: string | undefined = undefined
+            let provider: 'fcm' | 'apns' | undefined = undefined
+            if (integrationInputs) {
+                console.log('integrationInputs', integrationInputs)
+                const firebaseAccountInput = integrationInputs['firebase_account']
+                console.log('firebaseAccountInput', firebaseAccountInput)
+                if (firebaseAccountInput?.value) {
+                    firebaseAppId = firebaseAccountInput.value.firebase_app_id || firebaseAccountInput.value.app_id
+                    // For firebase-push-notifications destination, filter by provider="fcm"
+                    if (firebaseAccountInput.value) {
+                        provider = 'fcm'
+                    }
+                }
+            }
+
             // Step 1: Look up subscription by distinct_id directly
             const subscriptions = await this.pushSubscriptionsManager.get({
                 teamId: hogFunction.team_id,
                 distinctId,
                 platform: schema.platform,
+                firebaseAppId,
+                provider,
             })
 
             let subscription = subscriptions.length > 0 ? subscriptions[0] : null
@@ -241,7 +266,9 @@ export class HogInputsService {
                     subscription = await this.pushSubscriptionsManager.findSubscriptionByPersonDistinctIds(
                         hogFunction.team_id,
                         relatedDistinctIds,
-                        schema.platform
+                        schema.platform,
+                        firebaseAppId,
+                        provider
                     )
 
                     // Step 3: If found, update subscription to use new distinct_id
