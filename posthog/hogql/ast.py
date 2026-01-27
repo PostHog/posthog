@@ -826,6 +826,13 @@ class LimitByExpr(Expr):
 
 
 @dataclass(kw_only=True)
+class LockClause(AST):
+    mode: Literal["UPDATE", "NO KEY UPDATE", "SHARE", "KEY SHARE"]
+    tables: list[Table] = field(default_factory=list)
+    wait_policy: Optional[Literal["NOWAIT", "SKIP LOCKED"]] = None
+
+
+@dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -847,6 +854,7 @@ class SelectQuery(Expr):
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
+    lock: Optional[LockClause] = None
 
     @classmethod
     def empty(

@@ -2989,4 +2989,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ast.Constant(value="mixed ' and \\ characters \n"),
             )
 
+        @unittest.skipIf(backend == "cpp", "Lock clauses are not supported in the legacy C++ backend")
+        def test_lock_clause(self):
+            node = self._select("SELECT 1 FROM events FOR UPDATE OF events")
+            self.assertIsNotNone(node.lock)
+            self.assertEqual(node.lock.mode, "UPDATE")
+            self.assertEqual(len(node.lock.tables), 1)
+            self.assertEqual(node.lock.tables[0], ast.Field(chain=["events"]))
+
+            node = self._select("SELECT 1 FROM events FOR SHARE OF events, persons")
+            self.assertIsNotNone(node.lock)
+            self.assertEqual(node.lock.mode, "SHARE")
+            self.assertEqual(len(node.lock.tables), 2)
+            self.assertEqual(node.lock.tables[0], ast.Field(chain=["events"]))
+            self.assertEqual(node.lock.tables[1], ast.Field(chain=["persons"]))
+
+            node = self._select("SELECT 1 FROM events FOR NO KEY UPDATE")
+            self.assertIsNotNone(node.lock)
+            self.assertEqual(node.lock.mode, "NO KEY UPDATE")
+            self.assertEqual(len(node.lock.tables), 0)
+
+            node = self._select("SELECT 1 FROM events FOR KEY SHARE OF events")
+            self.assertIsNotNone(node.lock)
+            self.assertEqual(node.lock.mode, "KEY SHARE")
+            self.assertEqual(len(node.lock.tables), 1)
+            self.assertEqual(node.lock.tables[0], ast.Field(chain=["events"]))
+
     return TestParser

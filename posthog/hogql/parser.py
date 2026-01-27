@@ -465,6 +465,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
             limit_by=self.visit(ctx.limitByClause()) if ctx.limitByClause() else None,
+            lock=self.visit(ctx.lockClause()) if ctx.lockClause() else None,
         )
 
         if window_clause := ctx.windowClause():
@@ -549,6 +550,43 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         # If no offset, just use limit_expr as n
         return ast.LimitByExpr(n=limit_expr, offset_value=None, exprs=self.visit(ctx.columnExprList()))
+
+    def visitLockClause(self, ctx: HogQLParser.LockClauseContext):
+        if ctx.NO() and ctx.KEY() and ctx.UPDATE():
+            mode = "NO KEY UPDATE"
+        elif ctx.UPDATE():
+            mode = "UPDATE"
+        elif ctx.SHARE():
+            mode = "KEY SHARE" if ctx.KEY() else "SHARE"
+        else:
+            raise SyntaxError("Invalid lock mode", start=ctx.start.start, end=ctx.stop.stop + 1)
+
+        tables = [self.visit(expr) for expr in ctx.tableExpr()] if ctx.tableExpr() else []
+
+        tables: list[ast.Expr] = []
+        for table_expr in ctx.tableExpr():
+            table = self.visit(table_expr)
+            if isinstance(table, ast.Field) and len(table.chain) == 1:
+                tables.append(table)
+            else:
+                raise SyntaxError(
+                    "FOR UPDATE must specify unqualified relation name", start=table_expr.start, end=table_expr.end
+                )
+
+        if ctx.NOWAIT():
+            wait_policy = "NOWAIT"
+        elif ctx.SKIP_():
+            wait_policy = "SKIP LOCKED"
+        else:
+            wait_policy = None
+
+        return ast.LockClause(
+            mode=mode,
+            tables=tables,
+            wait_policy=wait_policy,
+            start=None if self.start is None else ctx.start.start,
+            end=None if self.start is None else ctx.stop.stop + 1,
+        )
 
     def visitLimitExpr(self, ctx: HogQLParser.LimitExprContext):
         # First expression is always the limit value (n)

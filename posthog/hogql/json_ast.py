@@ -56,7 +56,7 @@ def _deserialize_node(data: Any) -> Any:
         start = data.get("start", {})
         end = data.get("end", {})
 
-        if error_type == "SyntaxError" and "reserved keyword" in message:
+        if error_type == "SyntaxError":
             raise HogQLSyntaxError(message, start=start.get("offset"), end=end.get("offset"))
         else:
             raise ExposedHogQLError(message, start=start.get("offset"), end=end.get("offset"))
@@ -90,7 +90,7 @@ def _deserialize_node(data: Any) -> Any:
                 kwargs[key] = _convert_special_float(value)
                 continue
 
-        if isinstance(value, dict) and "node" not in value and key in ("window_exprs", "ctes"):
+        if isinstance(value, dict) and "node" not in value and key in ("window_exprs", "ctes", "lock"):
             deserialized_value: Any = {k: _deserialize_node(v) for k, v in value.items()}
         else:
             deserialized_value = _deserialize_node(value)

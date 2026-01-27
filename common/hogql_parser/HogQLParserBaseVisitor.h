@@ -179,6 +179,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitLockClause(HogQLParser::LockClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitJoinExprOp(HogQLParser::JoinExprOpContext *ctx) override {
     return visitChildren(ctx);
   }

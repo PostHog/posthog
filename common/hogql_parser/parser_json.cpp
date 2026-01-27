@@ -614,6 +614,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["having"] = visitAsJSONOrNull(ctx->havingClause());
     json["group_by"] = visitAsJSONOrNull(ctx->groupByClause());
     json["order_by"] = visitAsJSONOrNull(ctx->orderByClause());
+    json["lock"] = visitAsJSONOrNull(ctx->lockClause());
 
     // Handle window clause
     if (const auto window_clause_ctx = ctx->windowClause()) {
@@ -743,6 +744,42 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     }
 
     json["exprs"] = exprs;
+    return json;
+  }
+
+  VISIT(LockClause) {
+    Json json = Json::object();
+    json["node"] = "LockClause";
+    if (!is_internal) addPositionInfo(json, ctx);
+
+    if (ctx->NO() && ctx->KEY() && ctx->UPDATE())
+      json["mode"] = "NO KEY UPDATE";
+    else if (ctx->UPDATE())
+      json["mode"] = "UPDATE";
+    else if (ctx->SHARE())
+      json["mode"] = ctx->KEY() ? "KEY SHARE" : "SHARE";
+    else
+      throw ParsingError("Invalid lock mode");
+
+    Json tables_json = Json::array();
+    for (const auto& table_ctx : ctx->tableExpr()) {
+      Json table_json = visitAsJSON(table_ctx);
+      if (!isNodeOfType(table_json, "Field") || table_json.getObject().count("chain") == 0 ||
+          !table_json["chain"].isArray() && table_json["chain"].getArray().size() != 1) {
+        throw SyntaxError("FOR UPDATE must specify unqualified relation name");
+      }
+      tables_json.pushBack(table_json);
+    }
+
+    json["tables"] = tables_json;
+
+    if (ctx->NOWAIT())
+      json["wait_policy"] = "NOWAIT";
+    else if (ctx->SKIP_())
+      json["wait_policy"] = "SKIP LOCKED";
+    else
+      json["wait_policy"] = Json::Null();
+
     return json;
   }
 

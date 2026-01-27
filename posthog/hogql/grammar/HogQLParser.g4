@@ -73,6 +73,7 @@ selectStmt:
     limitByClause?
     (limitAndOffsetClause | offsetOnlyClause)?
     settingsClause?
+    lockClause?
     ;
 
 withClause: WITH withExprList;
@@ -93,6 +94,7 @@ limitAndOffsetClause
     ;
 offsetOnlyClause: OFFSET columnExpr;
 settingsClause: SETTINGS settingExprList;
+lockClause: FOR (UPDATE | NO KEY UPDATE | SHARE | KEY SHARE) (OF tableExpr (COMMA tableExpr)*)? (NOWAIT | SKIP_ LOCKED)?;
 
 joinExpr
     : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
@@ -299,7 +301,7 @@ keyword
     | PRECEDING | PREWHERE | RANGE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
-    | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
+    | UNBOUNDED | UNION | UPDATE | USING | WHEN | WHERE | WINDOW | WITH
     ;
 keywordForAlias
     : DATE | FIRST | ID | KEY
