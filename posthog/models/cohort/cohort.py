@@ -559,10 +559,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         try:
             # Use optimized ClickHouse query with GROUP BY HAVING
             query = """
-            SELECT DISTINCT person.id
+            SELECT person.id
             FROM person
             WHERE person.team_id = %(team_id)s
-              AND has(%(emails)s, person.pmat_email)
+              AND person.pmat_email IN %(emails)s
             GROUP BY person.id
             HAVING argMax(person.is_deleted, person.version) = 0
             SETTINGS optimize_aggregation_in_order = 1
