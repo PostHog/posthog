@@ -129,6 +129,23 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_distinct_id_usage
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_embeddings]
   '''
   
@@ -791,11 +808,7 @@
       distinct_id String,
       minute DateTime,
       event_count UInt64
-  ) ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.distinct_id_usage', '{replica}-{shard}', (event_count))
-  
-  PARTITION BY toYYYYMMDD(minute)
-  ORDER BY (team_id, minute, distinct_id)
-  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_distinct_id_usage', sipHash64(distinct_id))
   
   '''
 # ---
@@ -809,8 +822,7 @@
       distinct_id,
       toStartOfMinute(timestamp) AS minute,
       1 AS event_count
-  FROM posthog_test.sharded_events
-  WHERE timestamp >= now() - INTERVAL 7 DAY
+  FROM posthog_test.kafka_distinct_id_usage
   
   '''
 # ---
@@ -1536,6 +1548,23 @@
       `status` Enum8('entered' = 1, 'left' = 2, 'member' = 3, 'not_member' = 4),
       `last_updated` DateTime64(6)
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'cohort_membership_changed', kafka_group_name = 'clickhouse_cohort_membership_changed', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_distinct_id_usage
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -3803,6 +3832,24 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_distinct_id_usage
+  (
+      team_id Int64,
+      distinct_id String,
+      minute DateTime,
+      event_count UInt64
+  ) ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.distinct_id_usage', '{replica}', (event_count))
+  
+  PARTITION BY toYYYYMMDD(minute)
+  ORDER BY (team_id, minute, distinct_id)
+  
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_events]
   '''
   
@@ -5043,7 +5090,7 @@
       distinct_id String,
       minute DateTime,
       event_count UInt64
-  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'distinct_id_usage')
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_distinct_id_usage', sipHash64(distinct_id))
   
   '''
 # ---
@@ -6566,6 +6613,24 @@
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_distinct_id_usage
+  (
+      team_id Int64,
+      distinct_id String,
+      minute DateTime,
+      event_count UInt64
+  ) ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.distinct_id_usage', '{replica}', (event_count))
+  
+  PARTITION BY toYYYYMMDD(minute)
+  ORDER BY (team_id, minute, distinct_id)
+  
+  SETTINGS ttl_only_drop_parts = 1
   
   '''
 # ---
