@@ -13,7 +13,6 @@
  */
 export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const VisibilityEnumApi = {
     private: 'private',
     shared: 'shared',
@@ -26,7 +25,7 @@ export interface ColumnConfigurationApi {
     columns?: string[]
     /** @maxLength 255 */
     name?: string
-    filters?: unknown
+    filters?: unknown | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
@@ -50,7 +49,7 @@ export interface PatchedColumnConfigurationApi {
     columns?: string[]
     /** @maxLength 255 */
     name?: string
-    filters?: unknown
+    filters?: unknown | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
