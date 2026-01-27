@@ -128,9 +128,6 @@ def get_resource(
             "endpoint": {
                 "data_selector": "data",
                 "path": "/metrics",
-                "params": {
-                    "page[size]": 100,
-                },
             },
             "table_format": "delta",
         },
