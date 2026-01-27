@@ -1,1 +1,1 @@
-0199_query_log_archive_initial_query
+0200_initial_logs_migration
