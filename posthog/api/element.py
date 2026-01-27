@@ -14,7 +14,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
-from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.models.property.util import filter_element, parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
 
@@ -102,12 +102,27 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     hogql_context=filter.hogql_context,
                 )
 
+                # Optional CSS selector filter to constrain results to elements within a container
+                container_selector = request.query_params.get("container_selector")
+                selector_filter = ""
+                selector_params: dict = {}
+                if container_selector:
+                    try:
+                        selector_filter, selector_params = filter_element(
+                            "selector", container_selector, prepend="container"
+                        )
+                        if selector_filter:
+                            selector_filter = f" AND {selector_filter}"
+                    except Exception:
+                        # Invalid selector, ignore silently
+                        pass
+
             with timer("execute_query"):
                 result = sync_execute(
                     GET_ELEMENTS.format(
                         date_from=date_from,
                         date_to=date_to,
-                        query=prop_filters,
+                        query=prop_filters + selector_filter,
                         sampling_factor=sampling_factor,
                         limit=limit + 1,
                         offset=offset,
@@ -117,6 +132,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "timezone": self.team.timezone,
                         "sampling_factor": sampling_factor,
                         **prop_filter_params,
+                        **selector_params,
                         **date_params,
                         "filter_event_types": events_filter,
                         **filter.hogql_context.values,

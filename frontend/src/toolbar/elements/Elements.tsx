@@ -30,6 +30,8 @@ export function Elements(): JSX.Element {
         inspectEnabled,
         highlightElementMeta,
         relativePositionCompensation,
+        containerPickerRect,
+        effectiveHoverElement,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
@@ -82,6 +84,21 @@ export function Elements(): JSX.Element {
                 <ScrollDepth />
                 {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
+
+                {/* Container picker overlay - shown when selecting a container for clickmap filtering */}
+                {containerPickerRect && effectiveHoverElement && (
+                    <AutocaptureElement
+                        rect={containerPickerRect}
+                        style={{
+                            pointerEvents: 'none',
+                            cursor: 'pointer',
+                            zIndex: 10,
+                            borderRadius: 5,
+                            ...getBoxColors('green', true, 0.15),
+                        }}
+                        onClick={() => selectElement(effectiveHoverElement)}
+                    />
+                )}
                 {selectedTourId !== null && !isPreviewingProductTour && (
                     <>
                         {tourForm?.steps?.map((step, index: number) => {

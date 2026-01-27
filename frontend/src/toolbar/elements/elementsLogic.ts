@@ -12,7 +12,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
-import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
+import { elementToActionStep, findContainerElement, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
@@ -158,22 +158,50 @@ export const elementsLogic = kea<elementsLogicType>([
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
                 experimentsTabLogic.selectors.inspectingElement,
+                heatmapToolbarMenuLogic.selectors.pickingClickmapContainer,
             ],
             (
                 inspectEnabledRaw,
                 actionsInspectingElement,
                 actionsButtonActionsVisible,
-                experimentsInspectingElement
+                experimentsInspectingElement,
+                pickingClickmapContainer
             ) => {
                 return (
                     inspectEnabledRaw ||
                     (actionsButtonActionsVisible && actionsInspectingElement !== null) ||
-                    experimentsInspectingElement !== null
+                    experimentsInspectingElement !== null ||
+                    pickingClickmapContainer
                 )
             },
         ],
 
         heatmapEnabled: [() => [heatmapToolbarMenuLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
+
+        // When picking a container, show the container element that would be selected
+        effectiveHoverElement: [
+            (s) => [s.hoverElement, heatmapToolbarMenuLogic.selectors.pickingClickmapContainer],
+            (hoverElement, pickingClickmapContainer) => {
+                if (!hoverElement) {
+                    return null
+                }
+                if (pickingClickmapContainer) {
+                    return findContainerElement(hoverElement)
+                }
+                return hoverElement
+            },
+        ],
+
+        // Rect for the container picker overlay
+        containerPickerRect: [
+            (s) => [s.effectiveHoverElement, s.rectUpdateCounter, heatmapToolbarMenuLogic.selectors.pickingClickmapContainer],
+            (effectiveHoverElement, _rectUpdateCounter, pickingClickmapContainer) => {
+                if (!pickingClickmapContainer || !effectiveHoverElement) {
+                    return null
+                }
+                return getRectForElement(effectiveHoverElement)
+            },
+        ],
 
         heatmapElements: [
             (s) => [
@@ -201,9 +229,10 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         allInspectElements: [
-            (s) => [s.inspectEnabled, s.href],
-            (inspectEnabled) => {
-                if (!inspectEnabled) {
+            (s) => [s.inspectEnabled, s.href, heatmapToolbarMenuLogic.selectors.pickingClickmapContainer],
+            (inspectEnabled, _href, pickingClickmapContainer) => {
+                // Don't show all click targets when picking a container - we show a single overlay instead
+                if (!inspectEnabled || pickingClickmapContainer) {
                     return []
                 }
                 const inspectForExperiment =
@@ -451,6 +480,16 @@ export const elementsLogic = kea<elementsLogicType>([
             const inspectForExperiment =
                 experimentsTabLogic.values.buttonExperimentsVisible &&
                 experimentsTabLogic.values.inspectingElement !== null
+
+            const inspectForClickmapContainer = heatmapToolbarMenuLogic.values.pickingClickmapContainer
+
+            if (inspectForClickmapContainer) {
+                actions.setHoverElement(null)
+                if (element) {
+                    heatmapToolbarMenuLogic.actions.pickClickmapContainer(element)
+                }
+                return
+            }
 
             if (inspectForAction) {
                 actions.setHoverElement(null)

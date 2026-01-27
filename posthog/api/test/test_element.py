@@ -439,3 +439,181 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="one",
             properties={"$current_url": "http://example.com/demo"},
         )
+
+
+class TestElementContainerSelector(ClickhouseTestMixin, APIBaseTest):
+    """Tests for the container_selector parameter that filters clickmap results by CSS selector."""
+
+    def test_container_selector_filters_by_class(self) -> None:
+        # Create events with elements that have the container class
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Click me", order=0),
+                Element(tag_name="div", attr_class=["container", "main"], order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+        # Create events without the container class
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Nav button", order=0),
+                Element(tag_name="nav", attr_class=["navbar"], order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+
+        # Without filter, should return both
+        response = self.client.get("/api/element/stats/?paginate_response=true").json()
+        assert len(response["results"]) == 2
+
+        # With container_selector, should only return the one inside .container
+        response = self.client.get("/api/element/stats/?paginate_response=true&container_selector=.container").json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["elements"][0]["text"] == "Click me"
+
+    def test_container_selector_filters_by_id(self) -> None:
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Inside", order=0),
+                Element(tag_name="div", attr_id="main-content", order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Outside", order=0),
+                Element(tag_name="div", attr_id="sidebar", order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+
+        response = self.client.get(
+            "/api/element/stats/?paginate_response=true&container_selector=%23main-content"
+        ).json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["elements"][0]["text"] == "Inside"
+
+    def test_container_selector_filters_by_tag_and_class(self) -> None:
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="/link1", text="Link 1", order=0),
+                Element(tag_name="main", attr_class=["content"], order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="/link2", text="Link 2", order=0),
+                Element(tag_name="div", attr_class=["content"], order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+
+        # Only match main.content, not div.content
+        response = self.client.get("/api/element/stats/?paginate_response=true&container_selector=main.content").json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["elements"][0]["text"] == "Link 1"
+
+    @parameterized.expand(
+        [
+            ("hover\\:bg-blue-500", "hover:bg-blue-500"),
+            ("text-\\[14px\\]", "text-[14px]"),
+            ("md\\:flex", "md:flex"),
+            ("w-1\\/2", "w-1/2"),
+        ]
+    )
+    def test_container_selector_handles_tailwind_classes(self, selector_escaped: str, class_name: str) -> None:
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Styled button", order=0),
+                Element(tag_name="div", attr_class=[class_name], order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Plain button", order=0),
+                Element(tag_name="div", attr_class=["plain"], order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+
+        response = self.client.get(
+            f"/api/element/stats/?paginate_response=true&container_selector=.{selector_escaped}"
+        ).json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["elements"][0]["text"] == "Styled button"
+
+    def test_container_selector_with_data_attribute(self) -> None:
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Test button", order=0),
+                Element(
+                    tag_name="div",
+                    attributes={"attr__data-testid": "main-section"},
+                    order=1,
+                ),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Other button", order=0),
+                Element(tag_name="div", order=1),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+
+        response = self.client.get(
+            '/api/element/stats/?paginate_response=true&container_selector=[data-testid="main-section"]'
+        ).json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["elements"][0]["text"] == "Test button"
+
+    def test_container_selector_ignores_invalid_selector(self) -> None:
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Button", order=0),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+
+        # Invalid selector should be ignored and return all results
+        response = self.client.get("/api/element/stats/?paginate_response=true&container_selector=[invalid").json()
+        assert len(response["results"]) == 1
+
+    def test_container_selector_empty_returns_all(self) -> None:
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="Button", order=0),
+            ],
+            event="$autocapture",
+            distinct_id="user1",
+        )
+
+        # Empty selector should return all results
+        response = self.client.get("/api/element/stats/?paginate_response=true&container_selector=").json()
+        assert len(response["results"]) == 1

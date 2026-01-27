@@ -359,6 +359,14 @@ export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opa
             outline: `hsla(4, 90%, 58%, 0.5) solid 1px`,
         }
     }
+    if (color === 'green') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(141, 90%, 45%, ${opacity})`,
+            boxShadow: `hsla(141, 90%, 27%, 0.2) 0px 3px 10px ${hover ? 5 : 0}px`,
+            outline: `hsla(141, 90%, 45%, 0.5) solid 2px`,
+        }
+    }
 }
 
 export function actionStepToActionStepFormItem(
@@ -505,6 +513,104 @@ export function getHeatMapHue(count: number, maxCount: number): number {
  */
 export function slashDotDataAttrUnescape(foundSelector: string): string | undefined {
     return foundSelector.replace(/\\./g, '.')
+}
+
+const CONTAINER_TAGS = ['main', 'section', 'article', 'aside', 'nav', 'header', 'footer', 'div', 'form', 'ul', 'ol']
+const MIN_CHILDREN_FOR_CONTAINER = 2
+
+/**
+ * Find a suitable container element by walking up the DOM from the given element.
+ * Prefers elements with data-* attributes, then semantic container elements,
+ * then elements with multiple children.
+ */
+export function findContainerElement(element: HTMLElement): HTMLElement | null {
+    const rootElement = getToolbarRootElement()
+    if (rootElement && isParentOf(element, rootElement)) {
+        return null
+    }
+
+    let current: HTMLElement | null = element
+    let bestCandidate: HTMLElement | null = null
+    let bestScore = -1
+
+    while (current && current !== document.body && current !== document.documentElement) {
+        const score = scoreContainerElement(current)
+
+        if (score > bestScore) {
+            bestScore = score
+            bestCandidate = current
+        }
+
+        // If we found an element with a data attribute, that's likely the best choice
+        if (hasDataAttribute(current)) {
+            return current
+        }
+
+        current = getParent(current)
+    }
+
+    return bestCandidate
+}
+
+function hasDataAttribute(element: HTMLElement): boolean {
+    for (const { name } of Array.from(element.attributes)) {
+        if (name.startsWith('data-') && name !== 'data-reactroot') {
+            return true
+        }
+    }
+    return false
+}
+
+function scoreContainerElement(element: HTMLElement): number {
+    let score = 0
+    const tagName = element.tagName.toLowerCase()
+
+    // Prefer elements with data attributes
+    if (hasDataAttribute(element)) {
+        score += 100
+    }
+
+    // Prefer elements with an ID
+    if (element.id && !element.id.startsWith('__')) {
+        score += 50
+    }
+
+    // Prefer semantic container tags
+    if (CONTAINER_TAGS.includes(tagName)) {
+        score += 30
+        // Extra points for main, section, article
+        if (['main', 'section', 'article'].includes(tagName)) {
+            score += 20
+        }
+    }
+
+    // Prefer elements with meaningful classes (not utility classes)
+    const classes = Array.from(element.classList)
+    const meaningfulClasses = classes.filter(
+        (c) => c.length > 3 && !c.includes(':') && !c.includes('[') && !c.match(/^(p|m|w|h|flex|grid|bg|text)-/)
+    )
+    if (meaningfulClasses.length > 0) {
+        score += 10 * Math.min(meaningfulClasses.length, 3)
+    }
+
+    // Prefer elements with multiple children
+    const childCount = element.children.length
+    if (childCount >= MIN_CHILDREN_FOR_CONTAINER) {
+        score += Math.min(childCount, 10) * 2
+    }
+
+    // Penalize very small elements (likely not containers)
+    const rect = element.getBoundingClientRect()
+    if (rect.width < 100 || rect.height < 50) {
+        score -= 20
+    }
+
+    // Penalize elements that are likely click targets, not containers
+    if (['a', 'button', 'input', 'select', 'textarea'].includes(tagName)) {
+        score -= 50
+    }
+
+    return score
 }
 
 export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): () => () => void {

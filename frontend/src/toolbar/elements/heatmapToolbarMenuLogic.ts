@@ -16,7 +16,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { elementIsVisible, trimElement } from '~/toolbar/utils'
+import { elementIsVisible, findContainerElement, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
@@ -136,6 +136,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
         setElementsLoading: (loading: boolean) => ({ loading }),
         setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
+        setClickmapContainerSelector: (selector: string | null) => ({ selector }),
+        setPickingClickmapContainer: (picking: boolean) => ({ picking }),
+        pickClickmapContainer: (element: HTMLElement) => ({ element }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -220,6 +223,21 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 setIsRefreshing: (_, { isRefreshing }) => isRefreshing,
             },
         ],
+        clickmapContainerSelector: [
+            null as string | null,
+            {
+                setClickmapContainerSelector: (_, { selector }) => selector,
+                toggleClickmapsEnabled: (state, { enabled }) => (enabled ? state : null),
+            },
+        ],
+        pickingClickmapContainer: [
+            false,
+            {
+                setPickingClickmapContainer: (_, { picking }) => picking,
+                pickClickmapContainer: () => false,
+                toggleClickmapsEnabled: () => false,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         elementStats: [
@@ -252,10 +270,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             date_to: values.commonFilters.date_to,
                         }
 
-                        defaultUrl = `/api/element/stats/${encodeParams(
-                            { ...params, paginate_response: true, sampling_factor: values.samplingFactor },
-                            '?'
-                        )}`
+                        const apiParams: Record<string, any> = {
+                            ...params,
+                            paginate_response: true,
+                            sampling_factor: values.samplingFactor,
+                        }
+                        // Include container selector for backend filtering if set
+                        if (values.clickmapContainerSelector) {
+                            apiParams.container_selector = values.clickmapContainerSelector
+                        }
+                        defaultUrl = `/api/element/stats/${encodeParams(apiParams, '?')}`
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -341,13 +365,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 s.href,
                 s.matchLinksByHref,
                 s.clickmapsEnabled,
+                s.clickmapContainerSelector,
             ],
-            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled) => ({
+            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled, clickmapContainerSelector) => ({
                 elementStats,
                 dataAttributes,
                 href,
                 matchLinksByHref,
                 clickmapsEnabled,
+                clickmapContainerSelector,
             }),
         ],
     })),
@@ -364,7 +390,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             const BATCH_SIZE = 200
             const INITIAL_BATCH_SIZE = 50
 
-            const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled } = values.processingInputs
+            const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled, clickmapContainerSelector } =
+                values.processingInputs
 
             if (!clickmapsEnabled || !elementStats?.results?.length) {
                 actions.setProcessedElements([])
@@ -377,6 +404,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             const domIndex = buildDOMIndex(pageElements)
             const eventsToProcess = elementStats.results
             const totalEvents = eventsToProcess.length
+
+            // Resolve container element if selector is set
+            let containerElement: HTMLElement | null = null
+            if (clickmapContainerSelector) {
+                try {
+                    containerElement = document.querySelector(clickmapContainerSelector) as HTMLElement | null
+                } catch {
+                    // Invalid selector, ignore
+                }
+            }
 
             const allTrimmedElements: CountedHTMLElement[] = []
             let processedCount = 0
@@ -403,6 +440,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             trimmed &&
                             elementIsVisible(trimmed, cache.visibilityCache as WeakMap<HTMLElement, boolean>)
                         ) {
+                            // Filter by container if set
+                            if (containerElement && !containerElement.contains(trimmed)) {
+                                continue
+                            }
                             allTrimmedElements.push({ ...matched, element: trimmed })
                         }
                     }
@@ -530,6 +571,22 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setMatchLinksByHref: () => {
             actions.processElements()
+        },
+
+        setClickmapContainerSelector: () => {
+            // Re-fetch data with the new selector for backend filtering
+            actions.maybeLoadClickmap()
+        },
+
+        pickClickmapContainer: ({ element }) => {
+            // Find the best container element by walking up the DOM
+            const containerElement = findContainerElement(element)
+            if (containerElement) {
+                const selector = elementToSelector(containerElement, toolbarConfigLogic.values.dataAttributes)
+                if (selector) {
+                    actions.setClickmapContainerSelector(selector)
+                }
+            }
         },
 
         refreshClickmap: () => {
