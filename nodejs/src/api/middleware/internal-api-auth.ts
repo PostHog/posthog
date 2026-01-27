@@ -1,0 +1,42 @@
+import crypto from 'crypto'
+import { NextFunction, Request, Response } from 'ultimate-express'
+
+import { logger } from '~/utils/logger'
+
+const HEADER_NAME = 'X-Internal-Api-Secret'
+
+export function createInternalApiAuthMiddleware(secret: string) {
+    return (req: Request, res: Response, next: NextFunction): void => {
+        // Skip auth if no secret is configured (for backwards compatibility and local dev)
+        if (!secret) {
+            next()
+            return
+        }
+
+        const providedSecret = req.headers[HEADER_NAME.toLowerCase()]
+
+        if (!providedSecret || typeof providedSecret !== 'string') {
+            logger.warn('Internal API request missing authentication header', {
+                path: req.path,
+                method: req.method,
+            })
+            res.status(401).json({ error: 'Unauthorized: Missing authentication header' })
+            return
+        }
+
+        // Use timing-safe comparison to prevent timing attacks
+        const secretBuffer = Buffer.from(secret)
+        const providedBuffer = Buffer.from(providedSecret)
+
+        if (secretBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(secretBuffer, providedBuffer)) {
+            logger.warn('Internal API request with invalid secret', {
+                path: req.path,
+                method: req.method,
+            })
+            res.status(401).json({ error: 'Unauthorized: Invalid authentication' })
+            return
+        }
+
+        next()
+    }
+}
