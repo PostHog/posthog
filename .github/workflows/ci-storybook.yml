@@ -44,6 +44,8 @@ jobs:
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
+                        - 'test-runner-jest.config.js'
+                        - 'test-runner-jest-environment.js'
 
     build-storybook:
         name: Build Storybook
