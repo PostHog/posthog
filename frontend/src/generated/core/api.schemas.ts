@@ -612,6 +612,7 @@ export interface SubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type: TargetTypeEnumApi
     target_value: string
     frequency: FrequencyEnumApi
@@ -670,6 +671,7 @@ export interface PatchedSubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type?: TargetTypeEnumApi
     target_value?: string
     frequency?: FrequencyEnumApi
