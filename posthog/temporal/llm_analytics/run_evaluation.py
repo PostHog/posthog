@@ -172,6 +172,16 @@ async def increment_trial_eval_count_activity(team_id: int) -> None:
 
 
 @temporalio.activity.defn
+async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
+    """Disable an evaluation when trial limit is reached"""
+
+    def _disable():
+        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(enabled=False)
+
+    await database_sync_to_async(_disable)()
+
+
+@temporalio.activity.defn
 async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event.
 
@@ -542,6 +552,13 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
                 # Handle skippable errors - return success with skip info
                 if error_type in ("trial_limit_reached", "key_invalid"):
+                    if error_type == "trial_limit_reached":
+                        await temporalio.workflow.execute_activity(
+                            disable_evaluation_activity,
+                            args=[evaluation["id"], evaluation["team_id"]],
+                            schedule_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
                     return {
                         "verdict": None,
                         "skipped": True,

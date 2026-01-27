@@ -3439,6 +3439,7 @@ export interface ProductTourDisplayConditions {
     cancelEvents?: {
         values: SurveyEventsWithProperties[]
     } | null
+    linkedFlagVariant?: string
 }
 
 export interface ProductTourAppearance {
@@ -3476,8 +3477,9 @@ export interface ProductTour {
     name: string
     description: string
     internal_targeting_flag: FeatureFlagBasicType | null
-    feature_flag_key: string | null
     targeting_flag_filters: FeatureFlagFilters | null
+    linked_flag: FeatureFlagBasicType | null
+    linked_flag_id: number | null
     content: ProductTourContent
     auto_launch: boolean
     start_date: string | null
@@ -5119,6 +5121,34 @@ export interface DataWarehouseSavedQueryRunHistory {
 export interface DataWarehouseSavedQueryDependencies {
     upstream_count: number
     downstream_count: number
+}
+
+export type DataModelingNodeType = 'table' | 'view' | 'matview'
+
+export interface DataModelingNode {
+    /** UUID */
+    id: string
+    name: string
+    type: DataModelingNodeType
+    dag_id: string
+    saved_query_id?: string
+    properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+    upstream_count: number
+    downstream_count: number
+    last_run_at?: string
+}
+
+export interface DataModelingEdge {
+    /** UUID */
+    id: string
+    source_id: string
+    target_id: string
+    dag_id: string
+    properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
 }
 
 export interface DataWarehouseSavedQuery {
