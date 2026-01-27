@@ -7,13 +7,13 @@ from posthog.models.utils import UUIDModel
 
 
 class PushPlatform(models.TextChoices):
-    ANDROID = "android"
-    IOS = "ios"
+    ANDROID = "android", "Android"
+    IOS = "ios", "iOS"
 
 
 class PushProvider(models.TextChoices):
-    FCM = "fcm"
-    APNS = "apns"
+    FCM = "fcm", "fcm"
+    APNS = "apns", "apns"
 
 
 class PushSubscription(UUIDModel):
@@ -23,27 +23,18 @@ class PushSubscription(UUIDModel):
     are readable via API, but FCM tokens should not be exposed.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     distinct_id = models.CharField(max_length=512)
-
-    # FCM token or APNs device token
     token = EncryptedTextField()
     token_hash = models.CharField(max_length=64)
-
-    platform = models.CharField(max_length=16, choices=PushPlatform.choices)
-
-    provider = models.CharField(max_length=16, choices=PushProvider.choices)
-
-    is_active = models.BooleanField(default=True, db_index=True)
-
-    last_successfully_used_at = models.DateTimeField(null=True, blank=True)
-
-    disabled_reason = models.CharField(max_length=128, null=True, blank=True)
-
-    firebase_app_id = models.CharField(max_length=256, null=True, blank=True)
+    platform = models.CharField(choices=PushPlatform.choices, max_length=16)
+    provider = models.CharField(choices=PushProvider.choices, max_length=16)
+    is_active = models.BooleanField(db_index=True, default=True)
+    last_successfully_used_at = models.DateTimeField(blank=True, null=True)
+    disabled_reason = models.CharField(blank=True, max_length=128, null=True)
+    firebase_app_id = models.CharField(blank=True, max_length=256, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     class Meta:
         indexes = [
