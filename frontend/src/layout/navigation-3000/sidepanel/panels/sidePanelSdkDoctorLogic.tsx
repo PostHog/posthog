@@ -158,6 +158,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     return {}
                 }
 
+                // Threshold for considering an outdated version's traffic "significant"
+                // If an outdated version handles ≥10% of events, flag the SDK as needing attention
+                const SIGNIFICANT_TRAFFIC_THRESHOLD = 0.1
+
                 return Object.fromEntries(
                     Object.entries(rawData).map(([sdkType, teamSdkUsage]) => {
                         const isSingleVersion = teamSdkUsage.usage.length === 1
@@ -170,12 +174,29 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             )
                         )
 
+                        // Calculate total events across all versions of this SDK
+                        const totalEvents = releasesInfo.reduce((sum, r) => sum + r.count, 0)
+
+                        // Check if any outdated version handles significant traffic (≥10% of events)
+                        // Skip for mobile SDKs - users don't auto-update apps, so outdated versions are expected
+                        const isMobileSdk = DEVICE_CONTEXT_CONFIG.mobileSDKs.includes(sdkType as SdkType)
+                        const hasSignificantOutdatedTraffic =
+                            !isMobileSdk &&
+                            totalEvents > 0 &&
+                            releasesInfo.some(
+                                (r) => r.isOutdated && r.count / totalEvents >= SIGNIFICANT_TRAFFIC_THRESHOLD
+                            )
+
+                        // SDK is outdated if most recent version is outdated OR any outdated version has significant traffic
+                        // Safe: backend only includes SDKs with at least one usage entry
+                        const isOutdated = releasesInfo[0]!.isOutdated || hasSignificantOutdatedTraffic
+
                         return [
                             sdkType,
                             {
-                                isOutdated: releasesInfo[0]!.isOutdated,
+                                isOutdated,
                                 isOld: releasesInfo[0]!.isOld,
-                                needsUpdating: releasesInfo[0]!.needsUpdating,
+                                needsUpdating: isOutdated || releasesInfo[0]!.isOld,
                                 currentVersion: teamSdkUsage.latest_version,
                                 allReleases: releasesInfo,
                             },

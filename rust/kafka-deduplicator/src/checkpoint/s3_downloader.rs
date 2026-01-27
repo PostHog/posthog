@@ -15,7 +15,8 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 use chrono::{DateTime, Duration, Utc};
-use tracing::{error, info};
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info, warn};
 
 /// Build the S3 key prefix for listing checkpoints for a specific topic/partition.
 /// The trailing slash is critical: ensures partition "41" doesn't prefix-match "410", "419", etc.
@@ -113,10 +114,22 @@ impl CheckpointDownloader for S3Downloader {
         Ok(body.to_vec())
     }
 
-    // Download a single file from remote storage and store it in the given local file path.
-    // The method assumes the local path parent directories were pre-created
-    async fn download_and_store_file(&self, remote_key: &str, local_filepath: &Path) -> Result<()> {
+    async fn download_and_store_file_cancellable(
+        &self,
+        remote_key: &str,
+        local_filepath: &Path,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<()> {
         let start_time = Instant::now();
+
+        // Check cancellation before starting the request
+        if let Some(token) = cancel_token {
+            if token.is_cancelled() {
+                return Err(anyhow::anyhow!(
+                    "Download cancelled before starting: {remote_key}"
+                ));
+            }
+        }
 
         let get_object = match self
             .client
@@ -144,7 +157,30 @@ impl CheckpointDownloader for S3Downloader {
             .await
             .with_context(|| format!("Failed to create local file: {local_filepath:?}"))?;
         let mut stream = get_object.body.into_async_read();
-        if let Err(e) = tokio::io::copy(&mut stream, &mut file).await {
+
+        // If we have a cancellation token, race between the copy and cancellation.
+        // This ensures we drop the S3 stream immediately on cancellation rather than
+        // letting it complete in the background (which would waste bandwidth during
+        // overlapping rebalances).
+        let copy_result = if let Some(token) = cancel_token {
+            tokio::select! {
+                biased;
+                _ = token.cancelled() => {
+                    // Drop file handle before cleanup
+                    drop(file);
+                    let _ = tokio::fs::remove_file(local_filepath).await;
+                    metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "cancelled")
+                        .increment(1);
+                    warn!("Download of {remote_key} cancelled mid-stream");
+                    return Err(anyhow::anyhow!("Download cancelled: {remote_key}"));
+                }
+                result = tokio::io::copy(&mut stream, &mut file) => result,
+            }
+        } else {
+            tokio::io::copy(&mut stream, &mut file).await
+        };
+
+        if let Err(e) = copy_result {
             metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error").increment(1);
             return Err(e).with_context(|| {
                 format!("Failed to write remote contents to local file: {local_filepath:?}")
@@ -159,8 +195,22 @@ impl CheckpointDownloader for S3Downloader {
         Ok(())
     }
 
-    async fn download_files(&self, remote_keys: &[String], local_base_path: &Path) -> Result<()> {
+    async fn download_files_cancellable(
+        &self,
+        remote_keys: &[String],
+        local_base_path: &Path,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<()> {
         let start_time = Instant::now();
+
+        // Check cancellation before starting
+        if let Some(token) = cancel_token {
+            if token.is_cancelled() {
+                warn!("Download cancelled before starting");
+                return Err(anyhow::anyhow!("Download cancelled before starting"));
+            }
+        }
+
         let mut download_futures = Vec::with_capacity(remote_keys.len());
         for remote_key in remote_keys {
             let remote_filename = remote_key
@@ -172,9 +222,10 @@ impl CheckpointDownloader for S3Downloader {
                 .to_string();
             let local_filepath = local_base_path.join(&remote_filename);
 
+            // Pass cancel_token to each individual download so they can bail mid-stream
             download_futures.push(async move {
                 match self
-                    .download_and_store_file(remote_key, &local_filepath)
+                    .download_and_store_file_cancellable(remote_key, &local_filepath, cancel_token)
                     .await
                 {
                     Ok(()) => Ok::<String, anyhow::Error>(remote_filename),
@@ -183,7 +234,10 @@ impl CheckpointDownloader for S3Downloader {
             });
         }
 
+        // With cancellation now handled inside each download, we can just await all.
+        // Any cancellation will cause individual downloads to fail fast.
         let results = futures::future::try_join_all(download_futures).await?;
+
         let file_count = results.len();
         let elapsed = start_time.elapsed();
         metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM)

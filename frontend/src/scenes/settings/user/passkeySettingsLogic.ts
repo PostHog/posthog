@@ -29,6 +29,7 @@ export interface RegistrationBeginResponse {
     excludeCredentials: PublicKeyCredentialDescriptorJSON[]
     authenticatorSelection: { residentKey: string; userVerification: string }
     attestation: string
+    already_registered?: boolean
 }
 
 export interface RegistrationCompleteResponse {

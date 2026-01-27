@@ -5,13 +5,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
@@ -206,7 +205,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         },
         loadFeatureFlagsSuccess: () => {
             if (values.featureFlags.results.length > 0) {
-                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFeatureFlag)
             }
         },
     })),

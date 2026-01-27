@@ -29,7 +29,15 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "array": ProductConfig(
         allowed_application_ids=frozenset({ARRAY_US_APP_ID, ARRAY_EU_APP_ID}),
-        allowed_models=None,
+        allowed_models=frozenset(
+            {
+                "claude-opus-4-5",
+                "claude-sonnet-4-5",
+                "claude-haiku-4-5",
+                "gpt-5.2",
+                "gpt-5-mini",
+            }
+        ),
         allow_api_keys=False,
     ),
     "wizard": ProductConfig(
