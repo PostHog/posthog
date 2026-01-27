@@ -254,8 +254,14 @@ export function LemonInputSelect<T = string>({
                 // We don't want to show the input-based option again. The check for __isInput covers the case the user types something that is already an option, but we want to keep the original option
                 continue
             }
-            if (mode === 'single' && values.length > 0 && option.key === getStringKey(values[0])) {
+            if (
+                mode === 'single' &&
+                values.length > 0 &&
+                option.key === getStringKey(values[0]) &&
+                (!inputValue || stringKeys.includes(inputValue))
+            ) {
                 // In single-select mode, we've already added the selected value to the top earlier
+                // (only skip if we actually added it - which happens when there's no inputValue or inputValue matches a selected key)
                 continue
             }
             ret.push(option)
@@ -422,10 +428,8 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onFocus = (): void => {
-        // In single mode, when focusing with a selected value, enter edit mode right away
-        if (mode === 'single' && values.length > 0 && !inputValue) {
-            setInputValue(getStringKey(values[0]))
-        }
+        // In single mode, just show the dropdown - the selected value is shown via valuesPrefix
+        // User can start typing to search/filter options
         onFocus?.()
         setShowPopover(true)
         popoverFocusRef.current = true
@@ -604,6 +608,7 @@ export function LemonInputSelect<T = string>({
         sortable,
         handleDragEnd,
         size,
+        onChange,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
