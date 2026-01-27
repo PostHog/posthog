@@ -98,6 +98,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'isLoadingSnapshots',
                     'uuidToIndex',
                     'getWindowId',
+                    'isRecordingDeleted',
+                    'recordingDeletedAt',
                 ],
                 eventsLogic,
                 [

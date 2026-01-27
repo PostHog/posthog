@@ -322,6 +322,13 @@ export class RateLimitError extends Error {
     }
 }
 
+export class RecordingDeletedError extends Error {
+    constructor(public deletedAt: number | null) {
+        super('Recording has been permanently deleted')
+        this.name = 'RecordingDeletedError'
+    }
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -3557,11 +3564,20 @@ const api = {
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
         ): Promise<string[] | Uint8Array> {
-            const response = await new ApiRequest()
-                .recording(recordingId)
-                .withAction('snapshots')
-                .withQueryString(params)
-                .getResponse({ headers })
+            let response: Response
+            try {
+                response = await new ApiRequest()
+                    .recording(recordingId)
+                    .withAction('snapshots')
+                    .withQueryString(params)
+                    .getResponse({ headers })
+            } catch (error) {
+                // Check for 410 Gone (recording permanently deleted)
+                if (error instanceof ApiError && error.status === 410) {
+                    throw new RecordingDeletedError(error.data?.deleted_at ?? null)
+                }
+                throw error
+            }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
 

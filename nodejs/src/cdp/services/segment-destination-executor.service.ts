@@ -31,7 +31,7 @@ export type SegmentPluginMeta = {
 }
 
 // The module doesn't export this so we redeclare it here
-export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'> {
+export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers' | 'bytes'> {
     content: string
     data: unknown extends T ? undefined | unknown : T
     headers: Headers & {

@@ -1,5 +1,5 @@
 import { RedisPool, TeamId } from '../../types'
-import { ValidRetentionPeriods } from '../constants'
+import { RetentionPeriodToDaysMap, ValidRetentionPeriods } from '../constants'
 import { TeamService } from '../teams/team-service'
 import { RetentionPeriod } from '../types'
 import { RetentionServiceMetrics } from './metrics'
@@ -54,6 +54,18 @@ export class RetentionService {
 
         if (retentionPeriod !== null && isValidRetentionPeriod(retentionPeriod)) {
             return retentionPeriod
+        } else {
+            RetentionServiceMetrics.incrementLookupErrors()
+            throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
+        }
+    }
+
+    public async getSessionRetentionDays(teamId: TeamId, sessionId: string): Promise<number> {
+        const retentionPeriod = await this.getSessionRetention(teamId, sessionId)
+        const retentionPeriodDays = RetentionPeriodToDaysMap[retentionPeriod]
+
+        if (retentionPeriodDays !== null) {
+            return retentionPeriodDays
         } else {
             RetentionServiceMetrics.incrementLookupErrors()
             throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)

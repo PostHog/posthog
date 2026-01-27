@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
+import { BaseKeyStore, BaseRecordingEncryptor } from '../../recording-api/types'
 import { parseJSON } from '../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
@@ -153,6 +154,8 @@ describe('SessionBatchRecorder', () => {
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
+    let mockKeyStore: jest.Mocked<BaseKeyStore>
+    let mockEncryptor: jest.Mocked<BaseRecordingEncryptor>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -198,6 +201,30 @@ describe('SessionBatchRecorder', () => {
             handleNewSession: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFilter>
 
+        mockKeyStore = {
+            start: jest.fn().mockResolvedValue(undefined),
+            generateKey: jest.fn().mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }),
+            getKey: jest.fn().mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }),
+            deleteKey: jest.fn().mockResolvedValue(true),
+            stop: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<BaseKeyStore>
+
+        mockEncryptor = {
+            start: jest.fn().mockResolvedValue(undefined),
+            encryptBlock: jest.fn().mockImplementation((_sessionId, _teamId, buffer) => Promise.resolve(buffer)),
+            encryptBlockWithKey: jest.fn().mockImplementation((_sessionId, _teamId, buffer, _sessionKey) => buffer),
+        } as unknown as jest.Mocked<BaseRecordingEncryptor>
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
@@ -205,6 +232,8 @@ describe('SessionBatchRecorder', () => {
             mockConsoleLogStore,
             mockSessionTracker,
             mockSessionFilter,
+            mockKeyStore,
+            mockEncryptor,
             Number.MAX_SAFE_INTEGER
         )
     })
@@ -1426,6 +1455,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 Number.MAX_SAFE_INTEGER
             )
             await recorder.record(message)
@@ -1626,6 +1657,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 3
             )
 
@@ -1653,6 +1686,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 2
             )
 
@@ -1683,6 +1718,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1706,6 +1743,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1732,6 +1771,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 2
             )
 
@@ -1768,6 +1809,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 2
             )
 
@@ -1804,6 +1847,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1834,6 +1879,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1866,6 +1913,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 2
             )
 
@@ -1895,6 +1944,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1923,6 +1974,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1952,6 +2005,8 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 

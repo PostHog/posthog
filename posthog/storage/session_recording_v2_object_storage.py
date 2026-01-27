@@ -1,12 +1,14 @@
+import re
 import abc
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 
 import snappy
+import aiohttp
 import aioboto3
 import structlog
 import posthoganalytics
@@ -38,6 +40,39 @@ class FileUploadError(Exception):
 
 class FileDeleteError(Exception):
     pass
+
+
+class RecordingApiFetchError(Exception):
+    pass
+
+
+class RecordingDeletedError(Exception):
+    """Raised when attempting to access a recording that has been deleted (crypto shredding)."""
+
+    def __init__(self, message: str, deleted_at: Optional[int] = None):
+        super().__init__(message)
+        self.deleted_at = deleted_at
+
+
+@runtime_checkable
+class BlockStorage(Protocol):
+    """
+    Protocol for fetching recording blocks.
+
+    Both the S3 storage client and the Recording API client implement this interface,
+    allowing them to be used interchangeably when fetching blocks.
+
+    The session_id and team_id parameters are required for the Recording API client
+    to construct the correct URL, but are ignored by the S3 storage client.
+    """
+
+    async def fetch_block(self, block_url: str, session_id: str, team_id: int) -> str:
+        """Fetch and decompress a recording block. Returns decompressed content."""
+        ...
+
+    async def fetch_block_bytes(self, block_url: str, session_id: str, team_id: int) -> bytes:
+        """Fetch a recording block. Returns compressed bytes."""
+        ...
 
 
 class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
@@ -156,7 +191,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return s3_response["Body"].read()
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.read_bytes_failed",
+                "recording_block_storage.read_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -176,7 +211,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return s3_response["Body"].read()
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.read_all_bytes_failed",
+                "recording_block_storage.read_all_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -195,7 +230,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.write_failed",
+                "recording_block_storage.write_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -221,7 +256,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
             logger.exception(
-                "session_recording_v2_object_storage.fetch_file_failed",
+                "recording_block_storage.fetch_file_failed",
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
@@ -241,7 +276,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
             logger.exception(
-                "session_recording_v2_object_storage.fetch_file_bytes_failed",
+                "recording_block_storage.fetch_file_bytes_failed",
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
@@ -274,7 +309,8 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
 
         return compressed_block
 
-    def fetch_block(self, block_url: str) -> str:
+    def fetch_block(self, block_url: str, session_id: str | None = None, team_id: int | None = None) -> str:
+        # session_id and team_id are accepted for interface compatibility but not used for S3 storage
         try:
             compressed_block = self._fetch_compressed_block(block_url)
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
@@ -286,7 +322,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             raise
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.fetch_block_failed",
+                "recording_block_storage.fetch_block_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
@@ -294,14 +330,15 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
-    def fetch_block_bytes(self, block_url: str) -> bytes:
+    def fetch_block_bytes(self, block_url: str, session_id: str | None = None, team_id: int | None = None) -> bytes:
+        # session_id and team_id are accepted for interface compatibility but not used for S3 storage
         try:
             return self._fetch_compressed_block(block_url)
         except BlockFetchError:
             raise
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.fetch_block_bytes_failed",
+                "recording_block_storage.fetch_block_bytes_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
@@ -337,7 +374,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             raise
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.delete_block_failed",
+                "recording_block_storage.delete_block_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
@@ -354,7 +391,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.download_file_failed",
+                "recording_block_storage.download_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
@@ -371,7 +408,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.upload_file_failed",
+                "recording_block_storage.upload_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
@@ -387,7 +424,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.delete_file_failed",
+                "recording_block_storage.delete_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
@@ -413,7 +450,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             return await s3_response["Body"].read()
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.read_bytes_failed",
+                "async_recording_block_storage.read_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -433,7 +470,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             return await s3_response["Body"].read()
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.read_all_bytes_failed",
+                "async_recording_block_storage.read_all_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -452,7 +489,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.write_failed",
+                "async_recording_block_storage.write_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -477,7 +514,7 @@ class AsyncSessionRecordingV2ObjectStorage:
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
             logger.exception(
-                "async_session_recording_v2_object_storage.fetch_file_failed",
+                "async_recording_block_storage.fetch_file_failed",
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
@@ -497,7 +534,7 @@ class AsyncSessionRecordingV2ObjectStorage:
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
             logger.exception(
-                "async_session_recording_v2_object_storage.fetch_file_bytes_failed",
+                "async_recording_block_storage.fetch_file_bytes_failed",
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
@@ -530,7 +567,8 @@ class AsyncSessionRecordingV2ObjectStorage:
 
         return compressed_block
 
-    async def fetch_block(self, block_url: str) -> str:
+    async def fetch_block(self, block_url: str, session_id: str | None = None, team_id: int | None = None) -> str:
+        # session_id and team_id are accepted for interface compatibility but not used for S3 storage
         try:
             compressed_block = await self._fetch_compressed_block(block_url)
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
@@ -542,7 +580,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             raise
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.fetch_block_failed",
+                "async_recording_block_storage.fetch_block_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
@@ -550,14 +588,17 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
-    async def fetch_block_bytes(self, block_url: str) -> bytes:
+    async def fetch_block_bytes(
+        self, block_url: str, session_id: str | None = None, team_id: int | None = None
+    ) -> bytes:
+        # session_id and team_id are accepted for interface compatibility but not used for S3 storage
         try:
             return await self._fetch_compressed_block(block_url)
         except BlockFetchError:
             raise
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.fetch_block_bytes_failed",
+                "async_recording_block_storage.fetch_block_bytes_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
@@ -593,7 +634,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             raise
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.delete_block_failed",
+                "async_recording_block_storage.delete_block_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
@@ -610,7 +651,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.download_file_failed",
+                "async_recording_block_storage.download_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
@@ -627,7 +668,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.upload_file_failed",
+                "async_recording_block_storage.upload_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
@@ -643,7 +684,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
         except Exception as e:
             logger.exception(
-                "async_session_recording_v2_object_storage.delete_file_failed",
+                "async_recording_block_storage.delete_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
@@ -714,3 +755,159 @@ async def async_client() -> AsyncIterator[AsyncSessionRecordingV2ObjectStorage]:
                 client,
                 bucket=settings.SESSION_RECORDING_V2_S3_BUCKET,
             )
+
+
+class EncryptedBlockStorage:
+    """
+    Async client for fetching recording blocks via the Recording API.
+
+    The Recording API handles decryption transparently - encrypted sessions are
+    decrypted using KMS, while unencrypted sessions pass through unchanged.
+    This allows gradual migration from direct S3 reads to API-based reads.
+    """
+
+    def __init__(self, session: aiohttp.ClientSession, base_url: str):
+        self.session = session
+        self.base_url = base_url.rstrip("/")
+
+    def _parse_block_url(self, block_url: str) -> tuple[str, int, int]:
+        """
+        Parse a block URL to extract the key, start byte, and end byte.
+
+        The block_url is in the format: s3://bucket/key?range=bytes=start-end
+        Returns a tuple of (key, start, end).
+        """
+        parsed = urlparse(block_url)
+        key = parsed.path.lstrip("/")
+
+        match = re.match(r"^range=bytes=(\d+)-(\d+)$", parsed.query)
+        if not match:
+            raise ValueError(f"Invalid range format: {parsed.query}")
+
+        return key, int(match.group(1)), int(match.group(2))
+
+    async def fetch_block_bytes(self, block_url: str, session_id: str, team_id: int) -> bytes:
+        """
+        Fetch a recording block via the Recording API.
+
+        Returns the decrypted but still snappy-compressed block bytes.
+
+        Raises:
+            RecordingDeletedError: If the recording has been deleted (crypto shredding).
+            RecordingApiFetchError: If the block is not found or other fetch errors occur.
+        """
+        key, start, end = self._parse_block_url(block_url)
+        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/block"
+
+        try:
+            async with self.session.get(url, params={"key": key, "start": start, "end": end}) as response:
+                if response.status == 404:
+                    raise RecordingApiFetchError("Block not found")
+                if response.status == 410:
+                    data = await response.json()
+                    deleted_at = data.get("deleted_at")
+                    logger.info(
+                        "encrypted_block_storage.recording_deleted",
+                        session_id=session_id,
+                        team_id=team_id,
+                        deleted_at=deleted_at,
+                    )
+                    raise RecordingDeletedError("Recording has been deleted", deleted_at=deleted_at)
+                response.raise_for_status()
+                return await response.read()
+        except (RecordingDeletedError, RecordingApiFetchError):
+            raise
+        except aiohttp.ClientError as e:
+            logger.exception(
+                "encrypted_block_storage.fetch_block_bytes_failed",
+                url=url,
+                session_id=session_id,
+                team_id=team_id,
+                error=str(e),
+                exc_info=False,
+            )
+            raise RecordingApiFetchError(f"Failed to fetch block from Recording API: {str(e)}")
+
+    async def fetch_block(self, block_url: str, session_id: str, team_id: int) -> str:
+        """
+        Fetch and decompress a recording block via the Recording API.
+
+        Returns the decrypted and decompressed block content as a string.
+
+        Raises:
+            RecordingDeletedError: If the recording has been deleted (crypto shredding).
+            RecordingApiFetchError: If the block is not found or other fetch errors occur.
+        """
+        try:
+            compressed_block = await self.fetch_block_bytes(block_url, session_id, team_id)
+            decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
+            return decompressed_block.rstrip("\n")
+        except (RecordingDeletedError, RecordingApiFetchError):
+            raise
+        except Exception as e:
+            logger.exception(
+                "encrypted_block_storage.fetch_block_failed",
+                session_id=session_id,
+                team_id=team_id,
+                error=str(e),
+                exc_info=False,
+            )
+            raise RecordingApiFetchError(f"Failed to decompress block: {str(e)}")
+
+    async def delete_recording(self, session_id: str, team_id: int) -> bool:
+        """
+        Delete a recording's encryption key via the Recording API (crypto shredding).
+
+        Returns True if the key was deleted.
+
+        Raises:
+            RecordingDeletedError: If the recording has already been deleted.
+            RecordingApiFetchError: If the recording key is not found or other errors occur.
+        """
+        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}"
+
+        try:
+            async with self.session.delete(url) as response:
+                if response.status == 404:
+                    raise RecordingApiFetchError("Recording key not found")
+                if response.status == 410:
+                    data = await response.json()
+                    deleted_at = data.get("deleted_at")
+                    logger.info(
+                        "encrypted_block_storage.recording_already_deleted",
+                        session_id=session_id,
+                        team_id=team_id,
+                        deleted_at=deleted_at,
+                    )
+                    raise RecordingDeletedError("Recording has already been deleted", deleted_at=deleted_at)
+                response.raise_for_status()
+                return True
+        except (RecordingDeletedError, RecordingApiFetchError):
+            raise
+        except aiohttp.ClientError as e:
+            logger.exception(
+                "encrypted_block_storage.delete_recording_failed",
+                url=url,
+                session_id=session_id,
+                team_id=team_id,
+                error=str(e),
+                exc_info=False,
+            )
+            raise RecordingApiFetchError(f"Failed to delete recording: {str(e)}")
+
+
+@asynccontextmanager
+async def encrypted_block_storage() -> AsyncIterator[EncryptedBlockStorage]:
+    """
+    Async context manager for creating a EncryptedBlockStorage.
+
+    Usage:
+        async with encrypted_block_storage() as client:
+            content = await client.fetch_block(block_url, session_id, team_id)
+    """
+    if not settings.RECORDING_API_URL:
+        raise RuntimeError("RECORDING_API_URL is not configured")
+
+    timeout = aiohttp.ClientTimeout(total=30, connect=5)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        yield EncryptedBlockStorage(session, settings.RECORDING_API_URL)

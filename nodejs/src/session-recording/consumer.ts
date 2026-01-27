@@ -6,6 +6,10 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
+import { getKeyStore } from '../recording-api/keystore'
+import { MemoryCachedKeyStore } from '../recording-api/keystore-cache'
+import { getBlockEncryptor } from '../recording-api/recording-encryptor'
+import { BaseKeyStore, BaseRecordingEncryptor } from '../recording-api/types'
 import {
     HealthCheckResult,
     PluginServerService,
@@ -88,6 +92,8 @@ export class SessionRecordingIngester {
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
     private topTrackerLogInterval?: NodeJS.Timeout
+    private readonly keyStore: BaseKeyStore
+    private readonly encryptor: BaseRecordingEncryptor
 
     constructor(
         private hub: SessionRecordingIngesterHub,
@@ -221,6 +227,14 @@ export class SessionRecordingIngester {
             localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
         })
 
+        const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        const keyStore = getKeyStore(teamService, retentionService, region, {
+            kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+        })
+        this.keyStore = new MemoryCachedKeyStore(keyStore)
+        this.encryptor = getBlockEncryptor(this.keyStore)
+
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.hub.SESSION_RECORDING_MAX_BATCH_AGE_MS,
@@ -231,6 +245,8 @@ export class SessionRecordingIngester {
             consoleLogStore,
             sessionTracker,
             sessionFilter,
+            keyStore: this.keyStore,
+            encryptor: this.encryptor,
         })
     }
 
@@ -358,6 +374,9 @@ export class SessionRecordingIngester {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
+
+        await this.keyStore.start()
+        await this.encryptor.start()
 
         // Initialize overflow producer if not consuming from overflow
         if (!this.consumeOverflow) {
