@@ -129,7 +129,6 @@ def get_resource(
                 "path": "/profiles",
                 "params": {
                     "page[size]": 100,
-                    "additional_fields[profile]": "predictive_analytics",
                     "filter": f"greater-than(updated,{db_incremental_field_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
