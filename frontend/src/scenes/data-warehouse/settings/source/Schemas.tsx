@@ -293,7 +293,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             if (schema.table) {
                                 const query = defaultQuery(schema.table.name, schema.table.columns)
                                 return (
-                                    <Link to={urls.sqlEditor(query.source.query)}>
+                                    <Link to={urls.sqlEditor({ query: query.source.query })}>
                                         <code>{schema.table.name}</code>
                                     </Link>
                                 )

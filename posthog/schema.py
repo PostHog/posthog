@@ -41,6 +41,7 @@ class AgentMode(StrEnum):
     ERROR_TRACKING = "error_tracking"
     PLAN = "plan"
     EXECUTION = "execution"
+    SURVEY = "survey"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -333,6 +334,7 @@ class AssistantTool(StrEnum):
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
@@ -1736,6 +1738,7 @@ class FileSystemIconType(StrEnum):
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
+    SETTINGS = "settings"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2890,6 +2893,7 @@ class ProductIntentContext(StrEnum):
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     WORKFLOW_CREATED = "workflow_created"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
+    BATCH_EXPORT_CREATED = "batch_export_created"
     NOTEBOOK_CREATED = "notebook_created"
     PRODUCT_TOUR_CREATED = "product_tour_created"
     TASK_CREATED = "task_created"
@@ -2926,8 +2930,9 @@ class ProductKey(StrEnum):
     MOBILE_REPLAY = "mobile_replay"
     NOTEBOOKS = "notebooks"
     PERSONS = "persons"
-    PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
+    PIPELINE_BATCH_EXPORTS = "pipeline_batch_exports"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
+    PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"

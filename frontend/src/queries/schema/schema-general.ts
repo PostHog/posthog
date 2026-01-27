@@ -2881,6 +2881,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'settings'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -5176,8 +5177,9 @@ export enum ProductKey {
     MOBILE_REPLAY = 'mobile_replay',
     NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',
-    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_BATCH_EXPORTS = 'pipeline_batch_exports',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
@@ -5303,6 +5305,7 @@ export enum ProductIntentContext {
 
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
+    BATCH_EXPORT_CREATED = 'batch_export_created',
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',

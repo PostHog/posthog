@@ -8,6 +8,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
@@ -402,6 +403,7 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.resetWorkflow(originalWorkflow)
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            const tasksToMarkAsCompleted: SetupTaskId[] = []
             lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(
@@ -410,6 +412,39 @@ export const workflowLogic = kea<workflowLogicType>([
                         workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
                     )
                 )
+            }
+
+            // Mark workflow creation task as completed everytime it's saved for completeness
+            tasksToMarkAsCompleted.push(SetupTaskId.CreateFirstWorkflow)
+
+            // Check trigger configuration
+            const trigger = originalWorkflow.actions.find((a) => a.type === 'trigger')
+            if (trigger) {
+                const config = trigger.config as any
+                const hasValidTrigger =
+                    (config.type === 'event' &&
+                        (config.filters?.events?.length > 0 || config.filters?.actions?.length > 0)) ||
+                    (config.type === 'schedule' && config.scheduled_at) ||
+                    (config.type === 'batch' && config.filters?.properties?.length > 0)
+                if (hasValidTrigger) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureWorkflowTrigger)
+                }
+            }
+
+            // Check if workflow has actions beyond trigger and exit
+            const actionNodes = originalWorkflow.actions.filter((a) => a.type !== 'trigger' && a.type !== 'exit')
+            if (actionNodes.length > 0) {
+                tasksToMarkAsCompleted.push(SetupTaskId.AddWorkflowAction)
+            }
+
+            // Check if workflow is active (launched)
+            if (originalWorkflow.status === 'active') {
+                tasksToMarkAsCompleted.push(SetupTaskId.LaunchWorkflow)
+            }
+
+            // Make sure we submit all the tasks for completion at once in the end
+            if (tasksToMarkAsCompleted.length > 0) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToMarkAsCompleted)
             }
 
             actions.resetWorkflow(originalWorkflow)
