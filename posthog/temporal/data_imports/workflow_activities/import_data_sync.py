@@ -168,15 +168,21 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 logger=logger,
                 job_id=inputs.run_id,
             )
-            new_source = SourceRegistry.get_source(source_type)
-            config = new_source.parse_config(pipeline_job_inputs)
 
-            resumable_source_manager: ResumableSourceManager | None = None
-            if isinstance(new_source, ResumableSource):
-                resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                source = new_source.source_for_pipeline(config, resumable_source_manager, source_inputs)
-            else:
-                source = new_source.source_for_pipeline(config, source_inputs)
+            def _create_source() -> tuple[SourceResponse, ResumableSourceManager | None]:
+                new_source = SourceRegistry.get_source(source_type)
+                config = new_source.parse_config(pipeline_job_inputs)
+
+                resumable_source_manager: ResumableSourceManager | None = None
+                if isinstance(new_source, ResumableSource):
+                    resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                    source = new_source.source_for_pipeline(config, resumable_source_manager, source_inputs)
+                else:
+                    source = new_source.source_for_pipeline(config, source_inputs)
+
+                return source, resumable_source_manager
+
+            source, resumable_source_manager = await asyncio.to_thread(_create_source)
 
             return await asyncio.to_thread(
                 _run,

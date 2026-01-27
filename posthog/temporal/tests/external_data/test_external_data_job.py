@@ -804,7 +804,7 @@ async def test_run_postgres_job(
         DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
         DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
-        await sync_to_async(activity_environment.run)(import_data_activity_sync, job_1_inputs)
+        await activity_environment.run(import_data_activity_sync, job_1_inputs)
 
         folder_path = await sync_to_async(job_1.folder_path)()
         job_1_team_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/")

@@ -24,6 +24,7 @@ from deltalake import DeltaTable
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
 from stripe import ListObject
+from temporalio import workflow as temporalio_workflow
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -74,12 +75,21 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DataImportsDuckLakeCopyInputs
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
 from products.data_warehouse.backend.models.external_table_definitions import external_tables
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
+
+
+@temporalio_workflow.defn(name="ducklake-copy.data-imports")
+class MockDuckLakeCopyDataImportsWorkflow:
+    @temporalio_workflow.run
+    async def run(self, inputs: DataImportsDuckLakeCopyInputs) -> None:
+        pass
+
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -347,7 +357,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow],
+                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, MockDuckLakeCopyDataImportsWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -2395,7 +2405,7 @@ async def test_worker_shutdown_desc_sort_order(team):
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+            "posthog.temporal.data_imports.external_data_job.a_trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
         mock.patch("posthog.temporal.data_imports.sources.temporalio.temporalio._get_workflows", mock_get_workflows),
@@ -2440,7 +2450,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
         mock.patch(
-            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+            "posthog.temporal.data_imports.external_data_job.a_trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
     ):
