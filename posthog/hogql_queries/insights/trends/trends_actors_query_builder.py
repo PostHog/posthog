@@ -13,6 +13,7 @@ from posthog.schema import (
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     TrendsFilter,
     TrendsQuery,
@@ -44,7 +45,7 @@ class TrendsActorsQueryBuilder:
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
 
-    entity: EventsNode | ActionsNode
+    entity: EventsNode | ActionsNode | GroupNode
     time_frame: Optional[datetime]
     breakdown_value: Optional[str | int | list[str]] = None
     compare_value: Optional[Compare] = None
@@ -353,9 +354,44 @@ class TrendsActorsQueryBuilder:
                     left=ast.Field(chain=["event"]),
                     right=ast.Constant(value=str(self.entity.event)),
                 )
-
+        elif isinstance(self.entity, GroupNode):
+            return self._get_group_expr(self.entity)
         else:
             raise ValueError(f"Invalid entity kind {self.entity.kind}")
+
+        return None
+
+    def _get_group_expr(self, group: GroupNode) -> ast.Expr | None:
+        group_filters: list[ast.Expr] = []
+        for node in group.nodes:
+            if isinstance(node, EventsNode):
+                if node.event is not None:
+                    group_filters.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value=str(node.event)),
+                        )
+                    )
+            elif isinstance(node, ActionsNode):
+                try:
+                    action = Action.objects.get(pk=int(node.id), team__project_id=self.team.project_id)
+                    group_filters.append(action_to_expr(action))
+                except Action.DoesNotExist:
+                    # If an action doesn't exist, skip it
+                    pass
+
+        if len(group_filters) == 0:
+            return None
+
+        if len(group_filters) == 1:
+            return group_filters[0]
+
+        if group.operator == "OR":
+            return ast.Or(exprs=group_filters)
+
+        if group.operator == "AND":
+            return ast.And(exprs=group_filters)
 
         return None
 
@@ -393,17 +429,17 @@ class TrendsActorsQueryBuilder:
         actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         if self.is_total_value:
-            assert (
-                self.time_frame is None
-            ), "A `day` is forbidden for trends actors queries with total value aggregation"
+            assert self.time_frame is None, (
+                "A `day` is forbidden for trends actors queries with total value aggregation"
+            )
 
             actors_from = query_from
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
-            assert (
-                self.time_frame is not None
-            ), "A `day` is required for trends actors queries without total value aggregation"
+            assert self.time_frame is not None, (
+                "A `day` is required for trends actors queries without total value aggregation"
+            )
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:

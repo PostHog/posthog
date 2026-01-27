@@ -1,4 +1,4 @@
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     distinct_id String,
+    person_id UUID,
     condition String,
     matches Bool,
     source String,
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     distinct_id String,
+    person_id UUID,
     condition String,
     matches Bool,
     source String,
@@ -113,6 +115,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     distinct_id String,
+    person_id UUID,
     condition String,
     matches Bool,
     source String
@@ -121,7 +124,7 @@ SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kaf
 """.format(
         table_name=PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE,
         engine=kafka_engine(
-            topic="clickhouse_precalculated_person_properties", group="clickhouse_precalculated_person_properties"
+            topic="clickhouse_precalculated_person_properties", group=CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES
         ),
     )
 
@@ -132,6 +135,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
     team_id,
     distinct_id,
+    person_id,
     condition,
     matches,
     source,

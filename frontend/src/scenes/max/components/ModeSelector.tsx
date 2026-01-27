@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { IconArrowRight, IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
@@ -139,7 +139,21 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
     )
 }
 
-function getModeOptions(deepResearchEnabled: boolean, webSearchEnabled: boolean): LemonSelectSection<ModeValue>[] {
+interface GetModeOptionsParams {
+    planModeEnabled: boolean
+    deepResearchEnabled: boolean
+    webSearchEnabled: boolean
+    errorTrackingModeEnabled: boolean
+    surveyModeEnabled: boolean
+}
+
+function getModeOptions({
+    planModeEnabled,
+    deepResearchEnabled,
+    webSearchEnabled,
+    errorTrackingModeEnabled,
+    surveyModeEnabled,
+}: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
             value: null as ModeValue,
@@ -148,6 +162,14 @@ function getModeOptions(deepResearchEnabled: boolean, webSearchEnabled: boolean)
             tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools({ webSearchEnabled })),
         },
     ]
+    if (planModeEnabled) {
+        specialOptions.push({
+            value: 'plan' as ModeValue,
+            label: SPECIAL_MODES.plan.name,
+            icon: SPECIAL_MODES.plan.icon,
+            tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools({ webSearchEnabled })),
+        })
+    }
 
     if (deepResearchEnabled) {
         specialOptions.push({
@@ -158,10 +180,20 @@ function getModeOptions(deepResearchEnabled: boolean, webSearchEnabled: boolean)
         })
     }
 
+    const modeEntries = Object.entries(MODE_DEFINITIONS).filter(([mode]) => {
+        if (mode === AgentMode.ErrorTracking && !errorTrackingModeEnabled) {
+            return false
+        }
+        if (mode === AgentMode.Survey && !surveyModeEnabled) {
+            return false
+        }
+        return true
+    })
+
     return [
         { options: specialOptions },
         {
-            options: Object.entries(MODE_DEFINITIONS).map(([mode, def]) => ({
+            options: modeEntries.map(([mode, def]) => ({
                 value: mode as AgentMode,
                 label: def.name,
                 icon: def.icon,
@@ -171,33 +203,50 @@ function getModeOptions(deepResearchEnabled: boolean, webSearchEnabled: boolean)
     ]
 }
 
-export function ModeSelector(): JSX.Element {
-    const { agentMode, deepResearchMode } = useValues(maxThreadLogic)
+export function ModeSelector(): JSX.Element | null {
+    const { agentMode, deepResearchMode, contextDisabledReason } = useValues(maxThreadLogic)
     const { setAgentMode, setDeepResearchMode } = useActions(maxThreadLogic)
     const deepResearchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
+    const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
+    const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
+    const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
 
-    const currentValue: ModeValue = deepResearchMode ? 'deep_research' : agentMode
+    const currentValue: ModeValue =
+        agentMode && (deepResearchMode ? 'deep_research' : agentMode === AgentMode.Plan ? 'plan' : agentMode)
 
     const modeOptions = useMemo(
-        () => getModeOptions(deepResearchEnabled, webSearchEnabled),
-        [deepResearchEnabled, webSearchEnabled]
+        () =>
+            getModeOptions({
+                planModeEnabled,
+                deepResearchEnabled,
+                webSearchEnabled,
+                errorTrackingModeEnabled,
+                surveyModeEnabled,
+            }),
+        [planModeEnabled, deepResearchEnabled, webSearchEnabled, errorTrackingModeEnabled, surveyModeEnabled]
     )
 
-    const handleChange = (value: ModeValue): void => {
-        posthog.capture('phai mode switched', {
-            previous_mode: currentValue,
-            new_mode: value,
-        })
+    const handleChange = useCallback(
+        (value: ModeValue): void => {
+            posthog.capture('phai mode switched', {
+                previous_mode: currentValue,
+                new_mode: value,
+            })
 
-        if (value === 'deep_research') {
-            setDeepResearchMode(true)
-            setAgentMode(null)
-        } else {
-            setDeepResearchMode(false)
-            setAgentMode(value as AgentMode | null)
-        }
-    }
+            if (value === 'deep_research') {
+                setDeepResearchMode(true)
+                setAgentMode(null)
+            } else if (value === 'plan') {
+                setDeepResearchMode(false)
+                setAgentMode(AgentMode.Plan)
+            } else {
+                setDeepResearchMode(false)
+                setAgentMode(value as AgentMode | null)
+            }
+        },
+        [currentValue, setAgentMode, setDeepResearchMode]
+    )
 
     return (
         <LemonSelect
@@ -214,6 +263,7 @@ export function ModeSelector(): JSX.Element {
             dropdownMatchSelectWidth={false}
             menu={{ className: 'min-w-48' }}
             className="flex-shrink-0 border [&>span]:text-secondary"
+            disabledReason={contextDisabledReason}
         />
     )
 }

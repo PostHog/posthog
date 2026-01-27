@@ -158,7 +158,7 @@ class MailjetSourceConfig(config.Config):
 class MetaAdsSourceConfig(config.Config):
     account_id: str
     meta_ads_integration_id: int = config.value(converter=config.str_to_int)
-    sync_lookback_days: int | None = config.value(converter=int, default_factory=lambda: None)
+    sync_lookback_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
 
 
 @config.config
@@ -269,6 +269,11 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
+class SnapchatAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -314,6 +319,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
+        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]

@@ -185,6 +185,60 @@ class HyperCache:
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
+    def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str]]:
+        """
+        Batch get cached values for multiple teams using MGET.
+
+        Only reads from Redis (no S3 or DB fallback). This is optimized for
+        verification where we want to check what's in cache without side effects.
+
+        Args:
+            teams: List of Team objects to get cached values for
+
+        Returns:
+            Dict mapping team_id to (cached_data, source) tuples.
+            source is "redis" for hits, "miss" for cache misses.
+            Teams not in the result had no cache entry.
+        """
+        if not teams:
+            return {}
+
+        # Build cache keys for all teams
+        cache_keys = [self.get_cache_key(team) for team in teams]
+
+        # Batch get from Redis using get_many (Django cache's MGET wrapper)
+        cached_values = self.cache_client.get_many(cache_keys)
+
+        # Map results back to team IDs, counting hits and misses for batch metrics
+        results: dict[int, tuple[dict | None, str]] = {}
+        hit_count = 0
+        miss_count = 0
+
+        for team, cache_key in zip(teams, cache_keys):
+            data = cached_values.get(cache_key)
+            if data is not None:
+                hit_count += 1
+                if data == _HYPER_CACHE_EMPTY_VALUE:
+                    results[team.id] = (None, "redis")
+                else:
+                    results[team.id] = (json.loads(data), "redis")
+            else:
+                # Cache miss - no S3/DB fallback in batch mode
+                miss_count += 1
+                results[team.id] = (None, "miss")
+
+        # Batch increment Prometheus counters once per batch (avoids O(n) labels() overhead)
+        if hit_count:
+            HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc(
+                hit_count
+            )
+        if miss_count:
+            HYPERCACHE_CACHE_COUNTER.labels(result="batch_miss", namespace=self.namespace, value=self.value).inc(
+                miss_count
+            )
+
+        return results
+
     def get_etag(self, key: KeyType) -> str | None:
         """Get just the ETag for a cached value without loading the full response."""
         if not self.enable_etag:

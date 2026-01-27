@@ -60,7 +60,9 @@ const Component = ({
         let title = 'Query'
 
         if (query.kind === NodeKind.DataTableNode) {
-            if (query.source.kind) {
+            if (query.source.kind === 'HogQLQuery') {
+                title = 'SQL'
+            } else if (query.source.kind) {
                 title = query.source.kind.replace('Node', '').replace('Query', '')
             } else {
                 title = 'Data exploration'
@@ -141,6 +143,7 @@ type NotebookNodeQueryAttributes = {
     query: QuerySchema
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
+    showSettings?: boolean
 }
 
 export const Settings = ({
@@ -272,6 +275,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         isDefaultFilterApplied: {
             default: false,
         },
+        showSettings: {
+            default: false,
+        },
     },
     href: ({ query }) =>
         isSavedInsightNode(query)
@@ -280,6 +286,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
               ? urls.insightNew({ query })
               : undefined,
     Settings,
+    settingsPlacement: 'inline',
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
         getAttributes: async (match) => {
@@ -316,9 +323,7 @@ export function buildNodeQueryContent(query: QuerySchema): JSONContent {
         type: NotebookNodeType.Query,
         attrs: {
             query: query,
-            __init: {
-                showSettings: true,
-            },
+            showSettings: true,
         },
     }
 }

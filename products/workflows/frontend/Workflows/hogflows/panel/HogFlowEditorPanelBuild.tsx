@@ -149,10 +149,10 @@ function HogFlowEditorToolbarNode({
     onDragStart?: (event: React.DragEvent) => void
     children?: React.ReactNode
 }): JSX.Element | null {
-    const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
+    const { setNodeToBeAdded } = useActions(hogFlowEditorLogic)
 
     const onDragStart = (event: React.DragEvent): void => {
-        setNewDraggingNode(action)
+        setNodeToBeAdded(action)
         event.dataTransfer.setData('application/reactflow', action.type)
         event.dataTransfer.effectAllowed = 'move'
         onDragStartProp?.(event)
@@ -267,7 +267,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
     return (
-        <div className="flex overflow-y-auto flex-col gap-px p-2">
+        <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Dispatch <LemonDivider className="flex-1" />
             </span>

@@ -1,3 +1,4 @@
+import json
 import asyncio
 import logging
 from uuid import uuid4
@@ -10,6 +11,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.temporal.ai import WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
+from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
 from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
@@ -142,6 +144,7 @@ class Command(BaseCommand):
             + EXPORT_RECORDING_WORKFLOWS
             + IMPORT_RECORDING_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS
+            + DATA_MODELING_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
@@ -163,4 +166,4 @@ class Command(BaseCommand):
                 retry_policy=retry_policy,
             )
         )
-        logging.info("Workflow output: %s", result)
+        logging.info("Workflow output:\n%s", json.dumps(result, indent=2, default=str))

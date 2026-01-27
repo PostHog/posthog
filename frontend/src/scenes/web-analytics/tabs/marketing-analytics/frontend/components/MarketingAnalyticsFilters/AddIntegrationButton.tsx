@@ -5,15 +5,19 @@ import { useEffect, useState } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
-import { VALID_NON_NATIVE_MARKETING_SOURCES, VALID_SELF_MANAGED_MARKETING_SOURCES } from '../../logic/utils'
+import {
+    VALID_NON_NATIVE_MARKETING_SOURCES,
+    VALID_SELF_MANAGED_MARKETING_SOURCES,
+    getEnabledNativeMarketingSources,
+} from '../../logic/utils'
 
 interface AddIntegrationButtonProps {
     onIntegrationSelect?: (integrationId: string) => void
@@ -22,6 +26,7 @@ interface AddIntegrationButtonProps {
 export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButtonProps = {}): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [showPopover, setShowPopover] = useState(false)
     const [pendingNavigation, setPendingNavigation] = useState<{
@@ -30,7 +35,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
     } | null>(null)
 
     const groupedIntegrations = {
-        native: [...VALID_NATIVE_MARKETING_SOURCES],
+        native: getEnabledNativeMarketingSources(featureFlags),
         external: VALID_NON_NATIVE_MARKETING_SOURCES,
         'self-managed': VALID_SELF_MANAGED_MARKETING_SOURCES,
     }
@@ -93,7 +98,11 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         setShowPopover(false)
     }
 
-    const renderIntegrationGroup = (type: string, integrations: string[], title: string): JSX.Element | null => {
+    const renderIntegrationGroup = (
+        type: string,
+        integrations: readonly string[],
+        title: string
+    ): JSX.Element | null => {
         if (integrations.length === 0) {
             return null
         }

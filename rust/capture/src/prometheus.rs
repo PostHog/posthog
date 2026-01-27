@@ -118,11 +118,6 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
             S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
         )
         .unwrap()
-        .set_buckets_for_metric(
-            Matcher::Prefix("capture_debug_".to_string()),
-            EXPONENTIAL_SECONDS,
-        )
-        .unwrap()
         .install_recorder()
         .unwrap()
 }

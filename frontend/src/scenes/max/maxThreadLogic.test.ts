@@ -354,6 +354,7 @@ describe('maxThreadLogic', () => {
                     type: AssistantMessageType.Human,
                     content: 'hello',
                     status: 'completed',
+                    trace_id: expect.any(String),
                 },
                 partial({
                     type: AssistantMessageType.Assistant,
@@ -635,50 +636,6 @@ describe('maxThreadLogic', () => {
             expect(logic.values.threadRaw).toHaveLength(0)
 
             otherLogic.unmount()
-        })
-    })
-
-    describe('invisible tool call filtering', () => {
-        it('filters out invisible tool call messages from threadGrouped', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setThread([
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                    {
-                        type: AssistantMessageType.ToolCall,
-                        content: 'invisible tool call',
-                        status: 'completed',
-                        id: 'tool-1',
-                        tool_call_id: 'tool-1',
-                        ui_payload: {},
-                    },
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'response',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                ])
-            }).toMatchValues({
-                threadGrouped: [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'response',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                ],
-            })
         })
     })
 

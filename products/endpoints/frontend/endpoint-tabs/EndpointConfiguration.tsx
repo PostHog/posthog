@@ -9,6 +9,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { DataWarehouseSyncInterval } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
+import { endpointSceneLogic } from '../endpointSceneLogic'
 
 interface EndpointConfigurationProps {
     tabId: string
@@ -16,12 +17,12 @@ interface EndpointConfigurationProps {
 
 type CacheAgeOption = number | null
 const CACHE_AGE_OPTIONS: { value: CacheAgeOption; label: string }[] = [
-    { value: null, label: 'Default caching behavior' },
     { value: 300, label: '5 minutes' },
     { value: 900, label: '15 minutes' },
     { value: 1800, label: '30 minutes' },
     { value: 3600, label: '1 hour' },
     { value: 10800, label: '3 hours' },
+    { value: null, label: '6 hours (default)' },
     { value: 86400, label: '1 day' },
     { value: 259200, label: '3 days' },
 ]
@@ -50,16 +51,10 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 }
 
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
-    const { setCacheAge, setSyncFrequency, setIsMaterialized, loadMaterializationStatus } = useActions(
-        endpointLogic({ tabId })
-    )
-    const {
-        endpoint,
-        cacheAge,
-        syncFrequency,
-        isMaterialized: localIsMaterialized,
-        materializationStatusLoading,
-    } = useValues(endpointLogic({ tabId }))
+    const { loadMaterializationStatus } = useActions(endpointLogic({ tabId }))
+    const { endpoint, materializationStatusLoading } = useValues(endpointLogic({ tabId }))
+    const { setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(endpointSceneLogic({ tabId }))
+    const { cacheAge, syncFrequency, isMaterialized: localIsMaterialized } = useValues(endpointSceneLogic({ tabId }))
 
     if (!endpoint) {
         return <></>
@@ -88,7 +83,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                 </LemonField.Pure>
                 <LemonField.Pure
                     label="Materialization"
-                    info="Pre-compute and store query results in S3 for faster response times. Best for queries that don't need real-time data."
+                    info="Pre-compute and store query results in S3 for faster response times. Best for queries that don't need real-time data. Enabled by default for new endpoints."
                 >
                     <LemonSwitch
                         label="Enable materialization"

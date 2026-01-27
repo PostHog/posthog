@@ -880,13 +880,15 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
-        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded permissions acs, preloaded acs for the list
+        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag IDs
+        with self.assertNumQueries(baseline + 8):
             self.client.get("/api/projects/@current/feature_flags/")
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
-        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded permissions acs, preloaded acs for the list
+        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag IDs
+        with self.assertNumQueries(baseline + 8):
             self.client.get("/api/projects/@current/feature_flags/")
 
 

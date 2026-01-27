@@ -64,6 +64,7 @@ class SharePassword(models.Model):
             raw_password = generate_default_password()
 
         share_password = cls(sharing_configuration=sharing_configuration, created_by=created_by, note=note or "")
+        # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (share link passwords, not user auth - complexity validation not applicable)
         share_password.set_password(raw_password)
         share_password.save()
 

@@ -22,7 +22,7 @@ class TestValidatePendingChangeRequests(BaseTest):
             validation_status="valid",
             intent={
                 "current_state": {"active": False},
-                "desired_state": {"active": True},
+                "gated_changes": {"active": True},
             },
             intent_display={"description": "Enable feature flag"},
             policy_snapshot={"quorum": 1, "users": [self.user.id]},
@@ -50,7 +50,7 @@ class TestExpireOldChangeRequests(BaseTest):
             resource_type="feature_flag",
             state="pending",
             validation_status="valid",
-            intent={"desired_state": {"active": True}},
+            intent={"gated_changes": {"active": True}},
             intent_display={"description": "Enable feature flag"},
             policy_snapshot={"quorum": 1, "users": [self.user.id]},
             expires_at=timezone.now() - timedelta(hours=1),

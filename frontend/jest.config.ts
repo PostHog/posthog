@@ -17,6 +17,20 @@ const esmModules = [
     'escape-string-regexp',
     'unist-util-visit-parents',
     'unist-util-is',
+    '@tiptap',
+    'lowlight',
+    'devlop',
+    'hast-util-to-html',
+    'html-void-elements',
+    'property-information',
+    'stringify-entities',
+    'character-entities-html4',
+    'character-entities-legacy',
+    'ccount',
+    'hast-util-whitespace',
+    'space-separated-tokens',
+    'comma-separated-tokens',
+    'zwitch',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
@@ -180,7 +194,7 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/products/mcp/'],
+    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/'],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],

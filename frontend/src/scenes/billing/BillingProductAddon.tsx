@@ -7,7 +7,7 @@ import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { humanFriendlyCurrency } from 'lib/utils'
-import { getProductIcon } from 'scenes/products/Products'
+import { getProductIcon } from 'scenes/onboarding/productSelection/ProductSelection'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -72,7 +72,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             <div className="sm:flex justify-between gap-x-4">
                 {/* Header */}
                 <div className="flex gap-x-4">
-                    <div>{getProductIcon(addon.name, addon.icon_key, 'text-2xl shrink-0')}</div>
+                    <div>{getProductIcon(addon.icon_key, { className: 'text-2xl shrink-0' })}</div>
                     <div>
                         <div className="flex gap-x-2 items-center mt-0 mb-2 ">
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>

@@ -19,7 +19,7 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -78,21 +78,25 @@ interface SegmentMetaProps {
 
 function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
         if (operation !== undefined) {
-            setElapsedSeconds(0) // Reset timer only when operation changes and is provided
+            setElapsedSeconds(0)
         }
     }, [operation])
 
-    // Run on mount only to avoid resetting interval
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         const interval = setInterval(() => {
             setElapsedSeconds((prev) => prev + 1)
         }, 1000)
 
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
 }

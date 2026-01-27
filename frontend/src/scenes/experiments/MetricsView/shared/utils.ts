@@ -1,3 +1,5 @@
+import { humanFriendlyLargeNumber } from 'lib/utils'
+
 import type {
     ActionsNode,
     EventsNode,
@@ -147,7 +149,9 @@ export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number =
 }
 
 export function formatPValue(pValue: number | null | undefined): string {
-    if (!pValue) {
+    // Use explicit null check instead of falsy check
+    // This prevents treating 0 or very small numbers as invalid
+    if (pValue == null) {
         return '—'
     }
 
@@ -263,7 +267,9 @@ export function formatMetricValue(data: any, metric: ExperimentMetric): string {
     if (isNaN(primaryValue)) {
         return '—'
     }
-    return isExperimentMeanMetric(metric) ? primaryValue.toFixed(2) : `${(primaryValue * 100).toFixed(2)}%`
+    return isExperimentMeanMetric(metric)
+        ? humanFriendlyLargeNumber(primaryValue)
+        : `${(primaryValue * 100).toFixed(2)}%`
 }
 
 export function getMetricSubtitleValues(

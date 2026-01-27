@@ -19,9 +19,9 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
     TEST_S3_MODELS,
-    _run_activity,
     assert_clickhouse_records_in_s3,
     has_valid_gcs_credentials,
+    run_activity,
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import (
     assert_files_in_s3,
@@ -117,7 +117,7 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
         destination_default_fields=s3_default_fields(),
     )
 
-    result = await _run_activity(activity_environment, insert_inputs)
+    result = await run_activity(activity_environment, insert_inputs)
     records_exported = result.records_completed
     bytes_exported = result.bytes_exported
     assert result.error is None
@@ -237,7 +237,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
         destination_default_fields=s3_default_fields(),
     )
 
-    result = await _run_activity(activity_environment, insert_inputs)
+    result = await run_activity(activity_environment, insert_inputs)
     records_exported = result.records_completed
     bytes_exported = result.bytes_exported
     assert result.error is None

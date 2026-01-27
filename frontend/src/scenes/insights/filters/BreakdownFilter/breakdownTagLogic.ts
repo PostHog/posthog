@@ -7,10 +7,12 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { InsightLogicProps } from '~/types'
+import { AvailableFeature, InsightLogicProps } from '~/types'
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
@@ -33,12 +35,17 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             ['getPropertyDefinition'],
             cohortsModel,
             ['cohortsById'],
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['hasAvailableFeature'],
             taxonomicBreakdownFilterLogic,
             [
                 'isMultipleBreakdownsEnabled',
                 'histogramBinsUsed as globalHistogramBinsUsed',
                 'histogramBinCount as globalBinCount',
                 'normalizeBreakdownUrl as globalNormalizeBreakdownUrl',
+                'pathCleaningEnabled as globalPathCleaningEnabled',
                 'breakdownFilter',
             ],
         ],
@@ -48,6 +55,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 'removeBreakdown as removeBreakdownFromList',
                 'setHistogramBinCount as setHistogramBinCountInList',
                 'setNormalizeBreakdownURL as setNormalizeBreakdownURLInList',
+                'setPathCleaningEnabled as setPathCleaningEnabledInList',
                 'setHistogramBinsUsed as setHistogramBinsUsedInList',
             ],
         ],
@@ -62,6 +70,9 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         }),
         setNormalizeBreakdownURL: (normalizeURL: boolean) => ({
             normalizeURL,
+        }),
+        setPathCleaningEnabled: (pathCleaningEnabled: boolean) => ({
+            pathCleaningEnabled,
         }),
     })),
     reducers({
@@ -141,6 +152,23 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 return globalNormalizeBreakdownUrl
             },
         ],
+        pathCleaningEnabled: [
+            (s) => [s.globalPathCleaningEnabled],
+            (globalPathCleaningEnabled) => globalPathCleaningEnabled,
+        ],
+        hasAdvancedPaths: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.PATHS_ADVANCED),
+        ],
+        hasPathCleaningFilters: [
+            (s) => [s.currentTeam],
+            (currentTeam) => (currentTeam?.path_cleaning_filters || []).length > 0,
+        ],
+        isPathCleaningAvailable: [
+            (s) => [s.isNormalizeable, s.hasAdvancedPaths, s.hasPathCleaningFilters],
+            (isNormalizeable, hasAdvancedPaths, hasPathCleaningFilters) =>
+                isNormalizeable && hasAdvancedPaths && hasPathCleaningFilters,
+        ],
         taxonomicBreakdownType: [
             (s) => [s.isMultipleBreakdownsEnabled, s.breakdownFilter, s.multipleBreakdown],
             (isMultipleBreakdownsEnabled, breakdownFilter, multipleBreakdown): TaxonomicFilterGroupType | undefined => {
@@ -169,6 +197,9 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         },
         setNormalizeBreakdownURL: ({ normalizeURL }) => {
             actions.setNormalizeBreakdownURLInList(values.breakdown, values.breakdownType, normalizeURL)
+        },
+        setPathCleaningEnabled: ({ pathCleaningEnabled }) => {
+            actions.setPathCleaningEnabledInList(values.breakdown, values.breakdownType, pathCleaningEnabled)
         },
         setHistogramBinsUsed: ({ binsUsed }) => {
             actions.setHistogramBinsUsedInList(

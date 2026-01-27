@@ -3,31 +3,35 @@ import { useActions } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 
 import { customerAnalyticsDashboardEventsLogic } from '../scenes/CustomerAnalyticsConfigurationScene/events/customerAnalyticsDashboardEventsLogic'
 
 type ConfigureWithAIButtonProps = LemonButtonProps & {
     prompt: string
+    event?: string
     eventToHighlight?: string
     children?: React.ReactNode
 }
 
 export function ConfigureWithAIButton({
     prompt,
+    event,
     eventToHighlight,
     children,
     ...props
 }: ConfigureWithAIButtonProps): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { openAi } = useOpenAi()
     const { addEventToHighlight } = useActions(customerAnalyticsDashboardEventsLogic)
+    const { reportCustomerAnalyticsDashboardConfigureEventWithAIClicked } = useActions(eventUsageLogic)
 
     const handleClick = (): void => {
-        openSidePanel(SidePanelTab.Max, prompt)
+        openAi(prompt)
         if (eventToHighlight) {
             addEventToHighlight(eventToHighlight)
         }
+        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked({ event: event || eventToHighlight })
     }
 
     return (

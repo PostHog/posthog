@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -232,10 +233,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
 
-                    if (template.id.startsWith('managed-') || template.id.startsWith('self-managed-')) {
-                        return urls.dataWarehouseSourceNew(
-                            template.id.replace('self-managed-', '').replace('managed-', '')
-                        )
+                    if (isManagedSourceId(template.id) || isSelfManagedSourceId(template.id)) {
+                        return urls.dataWarehouseSourceNew(cleanSourceId(template.id))
                     }
 
                     if (template.id.startsWith('batch-export-')) {

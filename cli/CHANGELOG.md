@@ -1,5 +1,25 @@
 # posthog-cli
 
+# 0.5.26
+
+- feat: use env variables provided by github actions when available
+
+# 0.5.24
+
+- chore: add endpoints use case to cli auth flow
+
+# 0.5.23
+
+- feat: add experimental commands for endpoints management
+
+# 0.5.22
+
+- feat: add `--project` and `--version` to upload command to define release
+
+# 0.5.20
+
+- chore: add global `--rate-limit` option for Posthog client
+
 # 0.5.19
 
 - chore: upgrade cargo-dist to 0.30.3

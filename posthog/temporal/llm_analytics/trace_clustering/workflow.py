@@ -4,22 +4,104 @@ from datetime import timedelta
 
 from temporalio import workflow
 
-with workflow.unsafe.imports_passed_through():
-    from posthog.temporal.llm_analytics.trace_clustering.activities import (
-        emit_cluster_events_activity,
-        generate_cluster_labels_activity,
-        perform_clustering_compute_activity,
-    )
-    from posthog.temporal.llm_analytics.trace_clustering.models import (
-        ClusteringActivityInputs,
-        ClusteringResult,
-        ClusteringWorkflowInputs,
-        EmitEventsActivityInputs,
-        GenerateLabelsActivityInputs,
-    )
+from posthog.temporal.llm_analytics.trace_clustering.activities import (
+    emit_cluster_events_activity,
+    generate_cluster_labels_activity,
+    perform_clustering_compute_activity,
+)
+from posthog.temporal.llm_analytics.trace_clustering.constants import (
+    COMPUTE_ACTIVITY_RETRY_POLICY,
+    COMPUTE_ACTIVITY_TIMEOUT,
+    EMIT_ACTIVITY_RETRY_POLICY,
+    EMIT_ACTIVITY_TIMEOUT,
+    LLM_ACTIVITY_RETRY_POLICY,
+    NOISE_CLUSTER_ID,
+    WORKFLOW_NAME,
+)
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusteringActivityInputs,
+    ClusteringComputeResult,
+    ClusteringParams,
+    ClusteringResult,
+    ClusteringWorkflowInputs,
+    EmitEventsActivityInputs,
+    GenerateLabelsActivityInputs,
+    TraceLabelingMetadata,
+)
 
 
-@workflow.defn(name="daily-trace-clustering")
+def _compute_trace_labeling_metadata(
+    compute_result: "ClusteringComputeResult",
+) -> list["TraceLabelingMetadata"]:
+    """Compute per-trace metadata for the labeling activity.
+
+    Extracts each trace's distance to its own cluster centroid and computes
+    rank within cluster. This avoids passing the full O(n × k) distances matrix.
+
+    Returns:
+        List of TraceLabelingMetadata, one per trace (same order as trace_ids)
+    """
+    import numpy as np
+
+    labels = np.array(compute_result.labels)
+    distances = np.array(compute_result.distances)
+    coords_2d = np.array(compute_result.coords_2d)
+
+    n_traces = len(labels)
+    unique_labels = np.unique(labels)
+
+    # Map non-noise cluster IDs to distance matrix column indices
+    non_noise_ids = sorted([cid for cid in unique_labels if cid != NOISE_CLUSTER_ID])
+    cluster_to_col = {cid: idx for idx, cid in enumerate(non_noise_ids)}
+
+    # Compute per-trace distance to own centroid
+    trace_distances = np.zeros(n_traces)
+    for i, label in enumerate(labels):
+        if label == NOISE_CLUSTER_ID:
+            # For noise, we'll compute distance to noise cluster mean later
+            trace_distances[i] = 0.0
+        else:
+            col = cluster_to_col.get(label, 0)
+            if col < distances.shape[1]:
+                trace_distances[i] = distances[i, col]
+
+    # Handle noise cluster: compute distance to mean of noise traces
+    noise_mask = labels == NOISE_CLUSTER_ID
+    if noise_mask.any():
+        noise_coords = coords_2d[noise_mask]
+        noise_centroid = noise_coords.mean(axis=0)
+        noise_distances = np.linalg.norm(noise_coords - noise_centroid, axis=1)
+        trace_distances[noise_mask] = noise_distances
+
+    # Compute ranks within each cluster
+    ranks = np.zeros(n_traces, dtype=int)
+    for cluster_id in unique_labels:
+        cluster_mask = labels == cluster_id
+        cluster_indices = np.where(cluster_mask)[0]
+        cluster_dists = trace_distances[cluster_indices]
+
+        # Rank by distance (1 = closest to centroid)
+        order = np.argsort(cluster_dists)
+        cluster_ranks = np.empty_like(order)
+        cluster_ranks[order] = np.arange(1, len(order) + 1)
+        ranks[cluster_indices] = cluster_ranks
+
+    # Build metadata list
+    metadata = []
+    for i in range(n_traces):
+        metadata.append(
+            TraceLabelingMetadata(
+                x=float(coords_2d[i, 0]),
+                y=float(coords_2d[i, 1]),
+                distance_to_centroid=float(trace_distances[i]),
+                rank=int(ranks[i]),
+            )
+        )
+
+    return metadata
+
+
+@workflow.defn(name=WORKFLOW_NAME)
 class DailyTraceClusteringWorkflow:
     """
     Daily workflow to cluster LLM traces based on their embeddings.
@@ -45,14 +127,13 @@ class DailyTraceClusteringWorkflow:
         Returns:
             ClusteringResult with clustering metrics and cluster info
         """
-        from posthog.temporal.llm_analytics.trace_clustering import constants
 
         # Calculate window from workflow time (deterministic for replays)
         now = workflow.now()
         window_end = now.isoformat()
         window_start = (now - timedelta(days=inputs.lookback_days)).isoformat()
 
-        # Activity 1: Compute clustering (fetch embeddings, k-means, distances)
+        # Activity 1: Compute clustering (fetch embeddings, cluster, distances)
         compute_result = await workflow.execute_activity(
             perform_clustering_compute_activity,
             args=[
@@ -63,26 +144,40 @@ class DailyTraceClusteringWorkflow:
                     max_samples=inputs.max_samples,
                     min_k=inputs.min_k,
                     max_k=inputs.max_k,
+                    embedding_normalization=inputs.embedding_normalization,
+                    dimensionality_reduction_method=inputs.dimensionality_reduction_method,
+                    dimensionality_reduction_ndims=inputs.dimensionality_reduction_ndims,
+                    run_label=inputs.run_label,
+                    clustering_method=inputs.clustering_method,
+                    clustering_method_params=inputs.clustering_method_params,
+                    visualization_method=inputs.visualization_method,
+                    trace_filters=inputs.trace_filters,
                 )
             ],
-            start_to_close_timeout=constants.COMPUTE_ACTIVITY_TIMEOUT,
-            retry_policy=constants.COMPUTE_ACTIVITY_RETRY_POLICY,
+            start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
+            retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
         )
 
-        # Activity 2: Generate LLM labels (longer timeout for API call)
+        # Compute per-trace metadata for labeling (O(n) instead of O(n × k))
+        trace_metadata = _compute_trace_labeling_metadata(compute_result)
+
+        # Activity 2: Generate LLM labels (longer timeout for agent run)
         labels_result = await workflow.execute_activity(
             generate_cluster_labels_activity,
             args=[
                 GenerateLabelsActivityInputs(
                     team_id=inputs.team_id,
+                    trace_ids=compute_result.trace_ids,
                     labels=compute_result.labels,
-                    representative_trace_ids=compute_result.representative_trace_ids,
+                    trace_metadata=trace_metadata,
+                    centroid_coords_2d=compute_result.centroid_coords_2d,
                     window_start=window_start,
                     window_end=window_end,
+                    batch_run_ids=compute_result.batch_run_ids,
                 )
             ],
-            start_to_close_timeout=constants.LLM_ACTIVITY_TIMEOUT,
-            retry_policy=constants.LLM_ACTIVITY_RETRY_POLICY,
+            start_to_close_timeout=timedelta(seconds=600),  # 10 minutes for agent run
+            retry_policy=LLM_ACTIVITY_RETRY_POLICY,
         )
 
         # Activity 3: Emit events to ClickHouse
@@ -99,10 +194,22 @@ class DailyTraceClusteringWorkflow:
                     centroids=compute_result.centroids,
                     distances=compute_result.distances,
                     cluster_labels=labels_result.cluster_labels,
+                    coords_2d=compute_result.coords_2d,
+                    centroid_coords_2d=compute_result.centroid_coords_2d,
+                    batch_run_ids=compute_result.batch_run_ids,
+                    clustering_params=ClusteringParams(
+                        clustering_method=inputs.clustering_method,
+                        clustering_method_params=inputs.clustering_method_params,
+                        embedding_normalization=inputs.embedding_normalization,
+                        dimensionality_reduction_method=inputs.dimensionality_reduction_method,
+                        dimensionality_reduction_ndims=inputs.dimensionality_reduction_ndims,
+                        visualization_method=inputs.visualization_method,
+                        max_samples=inputs.max_samples,
+                    ),
                 )
             ],
-            start_to_close_timeout=constants.EMIT_ACTIVITY_TIMEOUT,
-            retry_policy=constants.EMIT_ACTIVITY_RETRY_POLICY,
+            start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
+            retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
         )
 
         return result

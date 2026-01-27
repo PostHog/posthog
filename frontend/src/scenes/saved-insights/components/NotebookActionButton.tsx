@@ -7,7 +7,13 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { QueryBasedInsightModel } from '~/types'
 
-export function NotebookActionButton({ insight }: { insight: QueryBasedInsightModel }): JSX.Element {
+export function NotebookActionButton({
+    insight,
+    insertionPosition,
+}: {
+    insight: QueryBasedInsightModel
+    insertionPosition: number | null
+}): JSX.Element {
     const { addSavedInsightToNotebook } = useActions(notebookLogic)
 
     return (
@@ -17,7 +23,7 @@ export function NotebookActionButton({ insight }: { insight: QueryBasedInsightMo
             fullWidth
             onClick={(e) => {
                 e.preventDefault()
-                addSavedInsightToNotebook(insight.short_id)
+                addSavedInsightToNotebook(insight.short_id, insertionPosition)
             }}
             icon={<IconPlusSmall />}
         />

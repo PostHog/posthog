@@ -39,6 +39,34 @@ export function AbsoluteTimestamp(): JSX.Element {
     )
 }
 
+export function WithDisplayTimezone(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-4">
+            <div>
+                <strong>UTC:</strong>{' '}
+                <TZLabel time={now()} displayTimezone="UTC" formatDate="YYYY-MM-DD" formatTime="HH:mm:ss" />
+            </div>
+            <div>
+                <strong>America/New_York:</strong>{' '}
+                <TZLabel
+                    time={now()}
+                    displayTimezone="America/New_York"
+                    formatDate="YYYY-MM-DD"
+                    formatTime="HH:mm:ss"
+                />
+            </div>
+            <div>
+                <strong>Asia/Tokyo:</strong>{' '}
+                <TZLabel time={now()} displayTimezone="Asia/Tokyo" formatDate="YYYY-MM-DD" formatTime="HH:mm:ss" />
+            </div>
+            <div>
+                <strong>No displayTimezone (local):</strong>{' '}
+                <TZLabel time={now()} formatDate="YYYY-MM-DD" formatTime="HH:mm:ss" />
+            </div>
+        </div>
+    )
+}
+
 export function MoreThanADayAgoWithPopover(): JSX.Element {
     return <TZLabel time={now().subtract(2, 'day')} showPopover={false} />
 }

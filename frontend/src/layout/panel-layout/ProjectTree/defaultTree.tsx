@@ -17,6 +17,7 @@ import {
     IconFolder,
     IconFolderOpen,
     IconFunnels,
+    IconGear,
     IconGraph,
     IconHogQL,
     IconHome,
@@ -25,7 +26,6 @@ import {
     IconLlmAnalytics,
     IconMegaphone,
     IconMessage,
-    IconNewspaper,
     IconNotebook,
     IconNotification,
     IconPeople,
@@ -39,8 +39,10 @@ import {
     IconServer,
     IconSpotlight,
     IconStickiness,
+    IconSupport,
     IconToggle,
     IconToggleOff,
+    IconToolbar,
     IconTrends,
     IconUser,
     IconUserPaths,
@@ -247,9 +249,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
-    feed: {
-        icon: <IconNewspaper />,
-    },
     apps: {
         icon: <IconApps />,
     },
@@ -267,6 +266,16 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     folder_open: {
         icon: <IconFolderOpen />,
+    },
+    conversations: {
+        icon: <IconSupport />,
+        iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'],
+    },
+    toolbar: {
+        icon: <IconToolbar />,
+    },
+    settings: {
+        icon: <IconGear />,
     },
 }
 

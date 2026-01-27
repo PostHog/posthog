@@ -14,7 +14,7 @@ from posthog.approvals.exceptions import (
     ReasonRequiredError,
 )
 from posthog.approvals.models import Approval, ApprovalDecision, ChangeRequest, ChangeRequestState
-from posthog.approvals.notifications import send_approval_decision_notification
+from posthog.approvals.notifications import send_approval_applied_notification, send_approval_decision_notification
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
@@ -51,7 +51,7 @@ def apply_change_request(change_request: ChangeRequest) -> Any:
     request_context = RequestContext(
         method=change_request.intent.get("http_method", "PATCH"),  # Stored in intent JSON
         user=change_request.created_by,  # Already in ChangeRequest
-        data=change_request.intent.get("desired_state", change_request.intent),  # Already in ChangeRequest
+        data=change_request.intent.get("gated_changes", change_request.intent),  # Already in ChangeRequest
     )
 
     # Build base context with common metadata
@@ -114,6 +114,8 @@ def apply_change_request(change_request: ChangeRequest) -> Any:
                     "change_request_id": str(change_request.id),
                 },
             )
+
+        send_approval_applied_notification(change_request)
 
         return result
 
@@ -323,6 +325,14 @@ class ChangeRequestService:
 
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
+
+            # Create a rejection record with the cancellation reason
+            Approval.objects.create(
+                change_request=change_request,
+                created_by=self.user,
+                decision=ApprovalDecision.REJECTED,
+                reason=reason,
+            )
 
             change_request.state = ChangeRequestState.REJECTED
             change_request.save()

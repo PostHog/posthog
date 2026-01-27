@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { debounce, slugify } from 'lib/utils'
@@ -11,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { EndpointRequest } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval, EndpointType } from '~/types'
+import { EndpointType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
@@ -36,9 +37,8 @@ export const endpointLogic = kea<endpointLogicType>([
         setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
-        setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
-        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
-        setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
+        openCreateFromInsightModal: true,
+        setDuplicateEndpoint: (endpoint: EndpointType | null) => ({ endpoint }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: () => ({}),
@@ -77,22 +77,10 @@ export const endpointLogic = kea<endpointLogicType>([
                 setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
             },
         ],
-        cacheAge: [
-            null as number | null,
+        duplicateEndpoint: [
+            null as EndpointType | null,
             {
-                setCacheAge: (_, { cacheAge }) => cacheAge,
-            },
-        ],
-        syncFrequency: [
-            '24hour' as DataWarehouseSyncInterval | null,
-            {
-                setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
-            },
-        ],
-        isMaterialized: [
-            null as boolean | null,
-            {
-                setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
+                setDuplicateEndpoint: (_, { endpoint }) => endpoint,
             },
         ],
     }),
@@ -116,11 +104,6 @@ export const endpointLogic = kea<endpointLogicType>([
                         console.error('Failed to fetch last execution time:', error)
                     }
 
-                    // TODO: This does not belong here. Refactor to the endpointSceneLogic?
-                    actions.setCacheAge(endpoint.cache_age_seconds ?? null)
-                    actions.setSyncFrequency(endpoint.materialization?.sync_frequency ?? null)
-                    actions.setIsMaterialized(endpoint.is_materialized ?? null)
-
                     return endpoint
                 },
             },
@@ -133,11 +116,6 @@ export const endpointLogic = kea<endpointLogicType>([
                         return null
                     }
                     const materializationStatus = await api.endpoint.getMaterializationStatus(name)
-
-                    // Update the local state if needed
-                    if (materializationStatus?.sync_frequency) {
-                        actions.setSyncFrequency(materializationStatus.sync_frequency)
-                    }
 
                     // Update the endpoint object with the new materialization status
                     if (values.endpoint) {
@@ -161,6 +139,9 @@ export const endpointLogic = kea<endpointLogicType>([
             actions.loadMaterializationStatus(name)
         }, 2000)
         return {
+            openCreateFromInsightModal: () => {
+                actions.loadEndpoints()
+            },
             createEndpoint: async ({ request }) => {
                 try {
                     if (request.name) {
@@ -176,6 +157,7 @@ export const endpointLogic = kea<endpointLogicType>([
             createEndpointSuccess: ({ response }) => {
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
+                actions.loadEndpoints()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
@@ -188,6 +170,9 @@ export const endpointLogic = kea<endpointLogicType>([
                         },
                     },
                 })
+
+                // Mark endpoint creation task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
             },
             createEndpointFailure: () => {
                 lemonToast.error('Failed to create endpoint')
@@ -213,7 +198,13 @@ export const endpointLogic = kea<endpointLogicType>([
                 } else {
                     lemonToast.success('Endpoint updated')
                 }
+
                 reloadMaterializationStatus(response.name)
+
+                // Mark activation task as completed when endpoint is activated
+                if (response.is_active) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureEndpoint)
+                }
             },
             updateEndpointFailure: () => {
                 lemonToast.error('Failed to update endpoint')

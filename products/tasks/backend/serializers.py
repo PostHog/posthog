@@ -264,3 +264,4 @@ class TaskListQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
+    created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")

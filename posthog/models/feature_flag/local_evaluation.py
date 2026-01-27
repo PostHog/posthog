@@ -14,6 +14,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.surveys.survey import Survey
 from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
@@ -382,10 +383,20 @@ def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) ->
         - Client only needs to evaluate simplified property-based filters
     """
 
-    feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-        ~Q(is_remote_configuration=True),
-        team__project_id=team.project_id,
-        deleted=False,
+    # Exclude survey-linked flags from local evaluation. See GitHub issue #43631.
+    survey_flag_ids = Survey.get_internal_flag_ids(
+        team_id=team.id,
+        using=DATABASE_FOR_LOCAL_EVALUATION,
+    )
+
+    feature_flags = (
+        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+        .filter(
+            ~Q(is_remote_configuration=True),
+            team_id=team.id,
+            deleted=False,
+        )
+        .exclude(id__in=survey_flag_ids)
     )
 
     cohorts = {}

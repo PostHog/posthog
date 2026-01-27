@@ -7,11 +7,11 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.db import connection
 
-from inline_snapshot import snapshot
 from rest_framework import status
 
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.action.action import Action
@@ -886,14 +886,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["masking"] == snapshot(
-            {
-                "ttl": 60,
-                "threshold": 20,
-                "hash": "{person.properties.email}",
-                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "email", 32, "properties", 32, "person", 1, 3],
-            }
-        )
+        assert response.json()["masking"] == {
+            "ttl": 60,
+            "threshold": 20,
+            "hash": "{person.properties.email}",
+            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "email", 32, "properties", 32, "person", 1, 3],
+        }
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_loads_status_when_enabled_and_available(self, *args):
@@ -1239,7 +1237,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true,false")
         assert len(response.json()["results"]) == 2
 
-    def test_create_hog_function_with_site_app_type(self):
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_create_hog_function_with_site_app_type(self, mock_transpile_fn):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
@@ -1253,7 +1252,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["bytecode"] is None
         assert "Hello, site_app" in response.json()["transpiled"]
 
-    def test_create_hog_function_with_site_destination_type(self):
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_create_hog_function_with_site_destination_type(self, mock_transpile_fn):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
@@ -1311,7 +1311,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "detail" in response.json()
         assert "Error in TypeScript code" in response.json()["detail"]
 
-    def test_create_typescript_destination_with_inputs(self):
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_create_typescript_destination_with_inputs(self, mock_transpile_fn):
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "export function onLoad() { console.log(inputs.message); }",
@@ -1374,14 +1375,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = create(payload)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json() == snapshot(
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "This field is required.",
-                "attr": "mappings__0__inputs__required_field",
-            }
-        )
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is required.",
+            "attr": "mappings__0__inputs__required_field",
+        }
 
     def test_compiles_valid_mappings(self):
         payload = {
@@ -1411,92 +1410,90 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = create(payload)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["mappings"] == snapshot(
-            [
-                {
-                    "inputs_schema": [
-                        {
-                            "type": "string",
-                            "key": "message",
-                            "label": "Message",
-                            "required": True,
-                            "secret": False,
-                            "hidden": False,
-                        }
-                    ],
-                    "inputs": {
-                        "message": {
-                            "value": "Hello, {arrayMap(a -> a, [1, 2, 3])}!",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "Hello, ",
-                                52,
-                                "lambda",
-                                1,
-                                0,
-                                3,
-                                36,
-                                0,
-                                38,
-                                53,
-                                0,
-                                33,
-                                1,
-                                33,
-                                2,
-                                33,
-                                3,
-                                43,
-                                3,
-                                2,
-                                "arrayMap",
-                                2,
-                                32,
-                                "!",
-                                2,
-                                "concat",
-                                3,
-                            ],
-                            "order": 0,
-                        }
-                    },
-                    "filters": {
-                        "source": "events",
-                        "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+        assert response.json()["mappings"] == [
+            {
+                "inputs_schema": [
+                    {
+                        "type": "string",
+                        "key": "message",
+                        "label": "Message",
+                        "required": True,
+                        "secret": False,
+                        "hidden": False,
+                    }
+                ],
+                "inputs": {
+                    "message": {
+                        "value": "Hello, {arrayMap(a -> a, [1, 2, 3])}!",
                         "bytecode": [
                             "_H",
                             1,
                             32,
-                            "%@posthog.com%",
-                            32,
-                            "email",
-                            32,
-                            "properties",
-                            32,
-                            "person",
+                            "Hello, ",
+                            52,
+                            "lambda",
                             1,
+                            0,
+                            3,
+                            36,
+                            0,
+                            38,
+                            53,
+                            0,
+                            33,
+                            1,
+                            33,
+                            2,
+                            33,
+                            3,
+                            43,
                             3,
                             2,
-                            "toString",
-                            1,
-                            20,
-                            32,
-                            "$pageview",
-                            32,
-                            "event",
-                            1,
-                            1,
-                            11,
-                            3,
+                            "arrayMap",
                             2,
+                            32,
+                            "!",
+                            2,
+                            "concat",
+                            3,
                         ],
-                        "filter_test_accounts": True,
-                    },
-                }
-            ]
-        )
+                        "order": 0,
+                    }
+                },
+                "filters": {
+                    "source": "events",
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "bytecode": [
+                        "_H",
+                        1,
+                        32,
+                        "%@posthog.com%",
+                        32,
+                        "email",
+                        32,
+                        "properties",
+                        32,
+                        "person",
+                        1,
+                        3,
+                        2,
+                        "toString",
+                        1,
+                        20,
+                        32,
+                        "$pageview",
+                        32,
+                        "event",
+                        1,
+                        1,
+                        11,
+                        3,
+                        2,
+                    ],
+                    "filter_test_accounts": True,
+                },
+            }
+        ]
 
     def test_transformation_type_gets_execution_order_automatically(self):
         # Create first transformation function

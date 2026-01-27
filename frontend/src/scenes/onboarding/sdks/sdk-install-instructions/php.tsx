@@ -13,8 +13,9 @@ function PHPSetupSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.PHP}>
-            {`PostHog\\PostHog::init('${currentTeam?.api_token}',
-    array('host' => '${apiHostOrigin()}')
+            {`PostHog\\PostHog::init(
+    '${currentTeam?.api_token}',
+    ['host' => '${apiHostOrigin()}']
 );`}
         </CodeSnippet>
     )

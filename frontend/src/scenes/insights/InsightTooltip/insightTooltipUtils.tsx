@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
@@ -186,15 +187,26 @@ function getDatumTitle(s: SeriesDatum, breakdownFilter: BreakdownFilter | null |
     const cohorts = cohortsModel.findMounted()?.values?.allCohorts
     const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const pillValues = getPillValues(s, breakdownFilter, cohorts, formatPropertyValueForDisplay)
+    const showPathCleaningHighlight = breakdownFilter?.breakdown_path_cleaning
+
     if (pillValues.length > 0) {
         return (
             <>
-                {pillValues.map((pill, index) => (
-                    <React.Fragment key={pill}>
-                        <span>{midEllipsis(pill, 60)}</span>
-                        {index < pillValues.length - 1 && ' · '}
-                    </React.Fragment>
-                ))}
+                {pillValues.map((pill, index) => {
+                    const isBreakdownValue = index === 0 && s.breakdown_value !== undefined
+                    const shouldHighlight = showPathCleaningHighlight && isBreakdownValue && typeof pill === 'string'
+
+                    return (
+                        <React.Fragment key={pill}>
+                            {shouldHighlight ? (
+                                <span>{parseAliasToReadable(pill)}</span>
+                            ) : (
+                                <span>{midEllipsis(pill, 60)}</span>
+                            )}
+                            {index < pillValues.length - 1 && ' · '}
+                        </React.Fragment>
+                    )
+                })}
             </>
         )
     }

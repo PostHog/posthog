@@ -7,6 +7,8 @@ import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -29,11 +31,10 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -44,7 +45,6 @@ import {
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
-    AvailableFeature,
     BaseMathType,
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
@@ -255,7 +255,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.FEATURE_FLAGS,
 }
 
 export function OverViewTab({
@@ -272,7 +272,6 @@ export function OverViewTab({
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const page = filters.page || 1
@@ -312,30 +311,26 @@ export function OverViewTab({
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof FeatureFlagType,
-                      render: function Render(_, featureFlag: FeatureFlagType) {
-                          const tags = featureFlag.tags
-                          if (!tags || tags.length === 0) {
-                              return null
-                          }
-                          return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                              <FeatureFlagEvaluationTags
-                                  tags={tags}
-                                  evaluationTags={featureFlag.evaluation_tags || []}
-                                  staticOnly
-                                  flagId={featureFlag.id}
-                              />
-                          ) : (
-                              <ObjectTags tags={tags} staticOnly />
-                          )
-                      },
-                  } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof FeatureFlagType,
+            render: function Render(_, featureFlag: FeatureFlagType) {
+                const tags = featureFlag.tags
+                if (!tags || tags.length === 0) {
+                    return null
+                }
+                return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                    <FeatureFlagEvaluationTags
+                        tags={tags}
+                        evaluationTags={featureFlag.evaluation_tags || []}
+                        flagId={featureFlag.id}
+                        context="static"
+                    />
+                ) : (
+                    <ObjectTags tags={tags} staticOnly />
+                )
+            },
+        } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         updatedAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
@@ -512,6 +507,7 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab, loadFeatureFlags } = useActions(featureFlagsLogic)
+
     return (
         <SceneContent className="feature_flags">
             <SceneTitleSection
@@ -549,14 +545,23 @@ export function FeatureFlags(): JSX.Element {
                             active={true}
                             context={{}}
                         >
-                            <LemonButton
-                                type="primary"
-                                to={urls.featureFlag('new')}
-                                data-attr="new-feature-flag"
-                                size="small"
+                            <AppShortcut
+                                name="NewFeatureFlag"
+                                keybind={[keyBinds.new]}
+                                intent="New feature flag"
+                                interaction="click"
+                                scope={Scene.FeatureFlags}
                             >
-                                <span className="pr-4">New feature flag</span>
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    to={urls.featureFlag('new')}
+                                    data-attr="new-feature-flag"
+                                    size="small"
+                                    tooltip="New feature flag"
+                                >
+                                    <span className="pr-4">New feature flag</span>
+                                </LemonButton>
+                            </AppShortcut>
                         </MaxTool>
                     </AccessControlAction>
                 }

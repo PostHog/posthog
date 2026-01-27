@@ -137,8 +137,6 @@ export function InsightMeta({
           )
         : true
 
-    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES]
-
     const summary = useSummarizeInsight()(insight.query)
 
     // Feedback buttons for Customer Analytics
@@ -163,14 +161,13 @@ export function InsightMeta({
         ) : null
 
     const surveyOpportunityButton =
-        surveyOpportunity &&
-        featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
-        isSurveyableFunnelInsight(insight) ? (
+        surveyOpportunity && isSurveyableFunnelInsight(insight) ? (
             <SurveyOpportunityButton
                 insight={insight}
                 disableAutoPromptSubmit={true}
                 source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
                 fromProduct={ProductKey.PRODUCT_ANALYTICS}
+                tooltip="Create a survey to understand why users are dropping off"
             />
         ) : null
 
@@ -249,12 +246,26 @@ export function InsightMeta({
             moreButtons={
                 <>
                     {/* Insight related */}
+                    {canViewInsight && (
+                        <LemonButton
+                            to={urls.insightView(
+                                short_id,
+                                dashboardId,
+                                variablesOverride,
+                                filtersOverride,
+                                tile?.filters_overrides
+                            )}
+                            fullWidth
+                        >
+                            View
+                        </LemonButton>
+                    )}
                     {canEditInsight && (
                         <>
                             <LemonButton
                                 to={
                                     isDataVisualizationNode(insight.query)
-                                        ? urls.sqlEditor(undefined, undefined, short_id)
+                                        ? urls.sqlEditor({ insightShortId: short_id })
                                         : urls.insightEdit(short_id)
                                 }
                                 fullWidth
@@ -265,7 +276,7 @@ export function InsightMeta({
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
-                            {canAccessTileOverrides && tile && (
+                            {tile && (
                                 <LemonButton onClick={setOverride} fullWidth>
                                     Set override
                                 </LemonButton>
@@ -473,7 +484,11 @@ export function InsightMetaContent({
         </h4>
     )
     if (link) {
-        titleEl = <Link to={link}>{titleEl}</Link>
+        titleEl = (
+            <Link to={link} className="max-w-full truncate">
+                {titleEl}
+            </Link>
+        )
     }
 
     return (

@@ -20,6 +20,7 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Product, tag_queries
@@ -180,8 +181,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             format="Delta"  # Use deltaLake() to get table schema for evolved tables
             if self.format == "DeltaS3Wrapper"
             else self.format,
-            access_key=self.credential.access_key,
-            access_secret=self.credential.access_secret,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
@@ -256,8 +257,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key,
-                access_secret=self.credential.access_secret,
+                access_key=self.credential.access_key if self.credential else None,
+                access_secret=self.credential.access_secret if self.credential else None,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -270,7 +271,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 product=Product.WAREHOUSE,
             )
             result = sync_execute(
-                f"SELECT max(`{column}`) FROM {s3_table_func}",
+                f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
                 args=placeholder_context.values,
             )
 
@@ -285,8 +286,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key,
-            access_secret=self.credential.access_secret,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
@@ -334,8 +335,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key,
-                access_secret=self.credential.access_secret,
+                access_key=self.credential.access_key if self.credential else None,
+                access_secret=self.credential.access_secret if self.credential else None,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -405,19 +406,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
 
-        access_key: str | None = None
-        access_secret: str | None = None
-        if self.credential:
-            access_key = self.credential.access_key
-            access_secret = self.credential.access_secret
-
         return HogQLDataWarehouseTable(
             name=self.name,
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=access_key,
-            access_secret=access_secret,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),

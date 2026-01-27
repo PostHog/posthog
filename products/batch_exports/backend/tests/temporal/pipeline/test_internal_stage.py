@@ -22,7 +22,6 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
-    get_s3_staging_folder,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -234,7 +233,7 @@ async def minio_client():
 
 
 async def _generate_record_batches_from_internal_stage(
-    batch_export_id: str, data_interval_start: dt.datetime, data_interval_end: dt.datetime
+    batch_export_id: str, data_interval_start: dt.datetime, data_interval_end: dt.datetime, stage_folder: str
 ) -> AsyncGenerator[pa.RecordBatch, None]:
     """Generate record batches from the internal stage."""
     queue = RecordBatchQueue()
@@ -244,6 +243,7 @@ async def _generate_record_batches_from_internal_stage(
         batch_export_id=batch_export_id,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
+        stage_folder=stage_folder,
     )
     await wait_for_schema_or_producer(queue, producer_task)
 
@@ -285,23 +285,18 @@ async def _run_activity(
         destination_default_fields=None,
     )
 
-    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
-
+    stage_folder = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     await assert_files_in_s3(
         minio_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
-        key_prefix=get_s3_staging_folder(
-            batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
-        ),
+        key_prefix=stage_folder,
         file_format="Arrow",
         compression=None,
         json_columns=None,
     )
     exported_rows = []
     async for record_batch in _generate_record_batches_from_internal_stage(
-        batch_export_id, data_interval_start, data_interval_end
+        batch_export_id, data_interval_start, data_interval_end, stage_folder
     ):
         exported_rows.extend(record_batch.to_pylist())
     return exported_rows

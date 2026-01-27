@@ -10,6 +10,7 @@ from posthog.clickhouse.query_tagging import DagsterTags
 
 class JobOwners(str, Enum):
     TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
+    TEAM_BILLING = "team-billing"
     TEAM_CLICKHOUSE = "team-clickhouse"
     TEAM_DATA_STACK = "team-data-stack"
     TEAM_ERROR_TRACKING = "team-error-tracking"
@@ -25,16 +26,18 @@ class JobOwners(str, Enum):
 def dagster_tags(
     context: dagster.OpExecutionContext | dagster.AssetCheckExecutionContext | dagster.AssetExecutionContext,
 ) -> DagsterTags:
-    r = context.run
-    tags = DagsterTags(
-        job_name=r.job_name,
-        run_id=r.run_id,
-        tags=r.tags,
-        root_run_id=r.root_run_id,
-        parent_run_id=r.parent_run_id,
-        job_snapshot_id=r.job_snapshot_id,
-        execution_plan_snapshot_id=r.execution_plan_snapshot_id,
-    )
+    tags = DagsterTags()
+    with suppress(Exception):
+        r = context.run
+        tags = DagsterTags(
+            job_name=r.job_name,
+            run_id=r.run_id,
+            tags=r.tags,
+            root_run_id=r.root_run_id,
+            parent_run_id=r.parent_run_id,
+            job_snapshot_id=r.job_snapshot_id,
+            execution_plan_snapshot_id=r.execution_plan_snapshot_id,
+        )
 
     with suppress(Exception):
         if isinstance(context, dagster.AssetCheckExecutionContext):

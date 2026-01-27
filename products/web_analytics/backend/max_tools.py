@@ -188,6 +188,9 @@ class FilterWebAnalyticsTool(MaxTool):
     context_prompt_template: str = "Current web analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterWebAnalyticsArgs
 
+    def get_required_resource_access(self):
+        return [("web_analytics", "viewer")]
+
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         graph = WebAnalyticsFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)

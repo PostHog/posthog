@@ -161,6 +161,7 @@ class SSHTunnel:
                 ssh_username=self.username,
                 ssh_password=self.password,
                 remote_bind_address=(remote_host, remote_port),
+                local_bind_address=("127.0.0.1",),
             )
         else:
             return SSHTunnelForwarder(
@@ -169,4 +170,5 @@ class SSHTunnel:
                 ssh_pkey=self.parse_private_key(),
                 ssh_private_key_password=self.passphrase,
                 remote_bind_address=(remote_host, remote_port),
+                local_bind_address=("127.0.0.1",),
             )

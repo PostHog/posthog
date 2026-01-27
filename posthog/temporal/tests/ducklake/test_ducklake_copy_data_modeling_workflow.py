@@ -23,7 +23,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     prepare_data_modeling_ducklake_metadata_activity,
     verify_ducklake_copy_activity,
 )
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -211,8 +211,8 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
     with override_settings(
-        AIRBYTE_BUCKET_KEY="test",
-        AIRBYTE_BUCKET_SECRET="secret",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY="test",
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET="secret",
         OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
         USE_LOCAL_SETUP=True,
     ):

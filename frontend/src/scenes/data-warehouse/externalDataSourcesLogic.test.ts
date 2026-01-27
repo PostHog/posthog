@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api, { PaginatedResponse } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
-import { DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
+import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
 
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 
@@ -32,6 +32,7 @@ describe('externalDataSourcesLogic', () => {
                     status: 'Running',
                     schemas: [],
                     prefix: 'test',
+                    description: null,
                     latest_error: null,
                     revenue_analytics_config: {
                         enabled: false,
@@ -39,6 +40,7 @@ describe('externalDataSourcesLogic', () => {
                     },
                     sync_frequency: '24hour' as DataWarehouseSyncInterval,
                     job_inputs: {},
+                    user_access_level: AccessControlLevel.Manager,
                 },
             ],
             next: null,

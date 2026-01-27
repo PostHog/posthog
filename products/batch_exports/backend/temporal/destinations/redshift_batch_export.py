@@ -117,6 +117,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ClientError",
     # An S3 bucket doesn't exist when using `copy_into_redshift_activity_from_stage`.
     "NoSuchBucket",
+    # S3 parameter validation failed.
+    "ParamValidationError",
+    # Invalid S3 credentials when using `copy_into_redshift_activity_from_stage`.
+    "InvalidCredentialsError",
 )
 
 
@@ -129,10 +133,12 @@ class StringLimitExceededError(Exception):
         else:
             msg = f"A column "
 
-        msg += f"in '{schema}.{table}' exceeds Redshift's string limit and cannot be exported"
+        msg += (
+            f"in '{schema}.{table}' exceeds Redshift's string limit and cannot be exported."
+            " The 'json_parse_truncate_strings' setting can be enabled in Redshift to"
+            " automatically truncate strings to the maximum limit."
+        )
 
-        if column in {"properties", "set", "set_once", "person_properties"}:
-            msg += ". Consider switching this column to 'SUPER' type which can support longer documents compared to 'VARCHAR'"
         super().__init__(msg)
 
 
@@ -240,6 +246,7 @@ class RedshiftClient(PostgreSQLClient):
         final_table_fields: Fields,
         stage_fields_cast_to_super: collections.abc.Container[str] | None = None,
         remove_duplicates: bool = True,
+        skip_delete: bool = False,
     ) -> None:
         """Merge two tables in Redshift.
 
@@ -311,7 +318,10 @@ class RedshiftClient(PostgreSQLClient):
         merge_query = sql.SQL(
             """\
         MERGE INTO {final_table}
-        USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
+        USING (
+            SELECT {select_stage_table_fields}
+            FROM {stage_table}
+        ) AS stage
         ON {merge_condition}
         """
         ).format(
@@ -345,10 +355,19 @@ class RedshiftClient(PostgreSQLClient):
                 """
             ).format(update_values=update_values, insert_values=insert_values)
 
+        # This means the default is to not lock, even if we can't get the isolation level.
+        isolation_level = await self.aget_isolation_level()
+        needs_lock = isolation_level == "SERIALIZABLE"
+
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
+                if needs_lock:
+                    await cursor.execute(sql.SQL("LOCK TABLE {final_table}").format(final_table=final_table_identifier))
+                    self.logger.info("Table locked")
+
                 try:
-                    await cursor.execute(delete_query)
+                    if not skip_delete:
+                        await cursor.execute(delete_query)
                 except psycopg.errors.UndefinedFunction:
                     self.logger.exception(
                         "Query failed",
@@ -386,6 +405,39 @@ class RedshiftClient(PostgreSQLClient):
                         raise StringLimitExceededError(column=None, schema=schema, table=final_table_name) from e
                     else:
                         raise
+
+    async def aget_isolation_level(self) -> typing.Literal["SERIALIZABLE", "SNAPSHOT", "UNKNOWN"]:
+        """Return the isolation level from the current database.
+
+        This method is safe in the sense that it will never raise: In case of any
+        issues, 'UNKNOWN' will be returned.
+        """
+        try:
+            async with self.connection.transaction():
+                async with self.connection.cursor() as cursor:
+                    await cursor.execute(
+                        sql.SQL("SELECT isolation_level FROM STV_DB_ISOLATION_LEVEL WHERE db_name = %s"),
+                        (self.database,),
+                    )
+                    row = await cursor.fetchone()
+
+        except Exception:
+            self.logger.exception("Check isolation level failed")
+            return "UNKNOWN"
+
+        else:
+            if not row:
+                return "UNKNOWN"
+
+            isolation_level = row[0]
+
+            match isolation_level.lower():
+                case "serializable":
+                    return "SERIALIZABLE"
+                case "snapshot isolation":
+                    return "SNAPSHOT"
+                case _:
+                    return "UNKNOWN"
 
     async def acopy_from_s3_bucket(
         self,
@@ -818,7 +870,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
                 table_fields = [field for field in table_fields if field[0] in columns]
 
-            except psycopg.errors.UndefinedTable:
+            except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
                 pass
 
             async with (
@@ -1110,7 +1162,8 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             batch_export_id=inputs.batch_export.batch_export_id,
             data_interval_start=inputs.batch_export.data_interval_start,
             data_interval_end=inputs.batch_export.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
+            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            stage_folder=inputs.batch_export.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1159,7 +1212,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     )
 
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
-            except psycopg.errors.UndefinedTable:
+            except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
                 table_fields = list(table_schemas.table_schema)
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
@@ -1294,10 +1347,15 @@ async def upload_manifest_file(
 
         manifest = {"entries": entries}
 
+        optional_kwargs = {}
+        if endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+
         await client.put_object(
             Bucket=bucket,
             Key=manifest_key,
             Body=json.dumps(manifest),
+            **optional_kwargs,  # type: ignore
         )
 
 
@@ -1408,6 +1466,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             data_interval_start=inputs.batch_export.data_interval_start,
             data_interval_end=inputs.batch_export.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+            stage_folder=inputs.batch_export.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1502,7 +1561,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
 
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
 
-            except psycopg.errors.UndefinedTable:
+            except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
                 table_fields = list(table_schemas.table_schema)
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
@@ -1563,6 +1622,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             update_key=merge_settings.update_key,
                             stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
                             remove_duplicates=remove_duplicates,
+                            skip_delete=isinstance(model, BatchExportModel)
+                            and model.name == "events"
+                            and str(inputs.batch_export.team_id) in settings.BATCH_EXPORT_REDSHIFT_SKIP_DELETE_TEAM_IDS,
                         )
 
                     external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")

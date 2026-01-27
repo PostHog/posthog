@@ -1,0 +1,28 @@
+node_modules
+
+# wrangler files
+.wrangler
+.dev.vars
+!.dev.vars.example
+.mcp.json
+.env.test
+
+# Editor-specific files
+.cursor/
+.claude/
+.vscode/
+
+# Python
+python/venv/
+__pycache__/
+.mypy_cache/.ruff_cache/
+.pytest_cache/
+.ruff_cache/
+
+.env
+
+dist/
+
+.venv/
+
+.husy/

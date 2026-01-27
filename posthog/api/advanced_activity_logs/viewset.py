@@ -134,6 +134,20 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         return queryset
 
 
+class OptionalBooleanField(serializers.BooleanField):
+    """
+    A BooleanField that returns None when not present in the request.
+
+    DRF's standard BooleanField evaluates missing fields to False.
+    """
+
+    default_empty_html = None
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("allow_null", True)
+        super().__init__(**kwargs)
+
+
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     start_date = serializers.DateTimeField(required=False)
     end_date = serializers.DateTimeField(required=False)
@@ -143,8 +157,8 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     search_text = serializers.CharField(required=False, allow_blank=True)
     detail_filters = serializers.JSONField(required=False, default={})
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
-    was_impersonated = serializers.BooleanField(required=False)
-    is_system = serializers.BooleanField(required=False)
+    was_impersonated = OptionalBooleanField(required=False)
+    is_system = OptionalBooleanField(required=False)
     item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
 
 

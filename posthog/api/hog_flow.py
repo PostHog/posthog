@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -26,9 +27,11 @@ from posthog.cdp.validation import (
 )
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
-from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
+
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +72,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
+                # Move filter_test_accounts into filters for bytecode compilation
+                if data.get("config", {}).get("filter_test_accounts") is not None:
+                    filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
                 if filters:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
@@ -150,7 +156,7 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
 
 
 class HogFlowMaskingSerializer(serializers.Serializer):
-    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365, allow_null=True)
+    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365 * 3, allow_null=True)
     threshold = serializers.IntegerField(required=False, allow_null=True)
     hash = serializers.CharField(required=True)
     bytecode = serializers.JSONField(required=False, allow_null=True)
@@ -183,6 +189,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "actions",
             "abort_action",
             "variables",
+            "billable_action_types",
         ]
         read_only_fields = fields
 
@@ -211,6 +218,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "actions",
             "abort_action",
             "variables",
+            "billable_action_types",
         ]
         read_only_fields = [
             "id",
@@ -218,6 +226,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_at",
             "created_by",
             "abort_action",
+            "billable_action_types",  # Computed field, not user-editable
         ]
 
     def validate(self, data):
@@ -230,6 +239,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
 
         data["trigger"] = trigger_actions[0]["config"]
+
+        # Compute and store unique billable action types for efficient quota checking
+        # Only track billable actions defined in BILLABLE_ACTION_TYPES
+        billable_action_types = sorted(
+            {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
+        )
+        data["billable_action_types"] = billable_action_types
 
         return data
 
@@ -305,11 +321,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             detail=Detail(name=serializer.instance.name, type="standard"),
         )
 
-        # PostHog capture for hog_flow started
         try:
-            # Extract trigger type from the trigger config
-            # trigger_type = serializer.instance.trigger.get("type", "unknown")
-
             # Count edges and actions
             edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
             actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
@@ -328,7 +340,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 },
             )
         except Exception as e:
-            logger.warning("Failed to capture hog_flow_started event", error=str(e))
+            logger.warning("Failed to capture hog_flow_created event", error=str(e))
 
     def perform_update(self, serializer):
         # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
@@ -419,3 +431,24 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "total_users": total_users,
             }
         )
+
+    @action(detail=True, methods=["GET", "POST"])
+    def batch_jobs(self, request: Request, *args, **kwargs):
+        try:
+            hog_flow = self.get_object()
+        except Exception:
+            raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
+
+        if request.method == "POST":
+            serializer = HogFlowBatchJobSerializer(
+                data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
+            )
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=400)
+
+            batch_job = serializer.save()
+            return Response(HogFlowBatchJobSerializer(batch_job).data)
+        else:
+            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+            serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
+            return Response(serializer.data)

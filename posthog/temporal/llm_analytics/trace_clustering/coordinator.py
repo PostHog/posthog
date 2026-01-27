@@ -18,7 +18,11 @@ from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_clustering import constants
-from posthog.temporal.llm_analytics.trace_clustering.constants import ALLOWED_TEAM_IDS
+from posthog.temporal.llm_analytics.trace_clustering.constants import (
+    ALLOWED_TEAM_IDS,
+    CHILD_WORKFLOW_ID_PREFIX,
+    COORDINATOR_WORKFLOW_NAME,
+)
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringResult, ClusteringWorkflowInputs
 from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
@@ -49,7 +53,7 @@ def get_allowed_team_ids() -> list[int]:
     return ALLOWED_TEAM_IDS.copy()
 
 
-@temporalio.workflow.defn(name="trace-clustering-coordinator")
+@temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
 class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
     """
     Coordinator workflow that processes traces for teams in ALLOWED_TEAM_IDS.
@@ -115,7 +119,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                         min_k=inputs.min_k,
                         max_k=inputs.max_k,
                     ),
-                    id=f"trace-clustering-team-{team_id}-{temporalio.workflow.now().isoformat()}",
+                    id=f"{CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,

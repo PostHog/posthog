@@ -105,7 +105,12 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        {
+                            "key": "email",
+                            "operator": "not_icontains",
+                            "value": example_email.group(),
+                            "type": "person",
+                        },
                         *filters,
                     ]
         return filters
@@ -125,6 +130,17 @@ class TeamManager(models.Manager):
         team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
 
         team.test_account_filters = self.set_test_account_filters(organization.id)
+
+        # Self-hosted deployments get 5-year session recording retention by default
+        if not is_cloud():
+            team.session_recording_retention_period = kwargs.get(
+                "session_recording_retention_period",
+                SessionRecordingRetentionPeriod.FIVE_YEARS,
+            )
+
+        if team.extra_settings is None:
+            team.extra_settings = {}
+        team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
@@ -287,7 +303,10 @@ class Team(UUIDTClassicModel):
     )
     # NOTE: To be removed in favour of parent_team
     project = models.ForeignKey(
-        "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
+        "posthog.Project",
+        on_delete=models.CASCADE,
+        related_name="teams",
+        related_query_name="team",
     )
     api_token = models.CharField(
         max_length=200,
@@ -370,7 +389,9 @@ class Team(UUIDTClassicModel):
         "editor",
     )
     session_recording_trigger_match_type_config = field_access_control(
-        models.CharField(null=True, blank=True, max_length=24), "session_recording", "editor"
+        models.CharField(null=True, blank=True, max_length=24),
+        "session_recording",
+        "editor",
     )
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
@@ -378,6 +399,11 @@ class Team(UUIDTClassicModel):
         choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
+    session_recording_encryption = models.BooleanField(null=True, blank=True, default=False)
+
+    # Conversations
+    conversations_enabled = models.BooleanField(null=True, blank=True)
+    conversations_settings = models.JSONField(null=True, blank=True)
 
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
@@ -395,6 +421,11 @@ class Team(UUIDTClassicModel):
     autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+
+    # Capture logs
+    # Kind of confusing but this is separate from capture_console_log_opt_in, which is for session replay
+    # This captures console logs to the Logs product, not as part of a recording
+    logs_settings = models.JSONField(null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
@@ -414,17 +445,21 @@ class Team(UUIDTClassicModel):
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
-    default_evaluation_environments_enabled = models.BooleanField(
+    # DEPRECATED: Use default_evaluation_contexts_enabled instead. Will be removed in a future migration after full rollout.
+    default_evaluation_environments_enabled = models.BooleanField(null=True, blank=True, default=False)
+    # DEPRECATED: Use require_evaluation_contexts instead. Will be removed in a future migration after full rollout.
+    require_evaluation_environment_tags = models.BooleanField(null=True, blank=True, default=False)
+    default_evaluation_contexts_enabled = models.BooleanField(
         null=True,
         blank=True,
         default=False,
-        help_text="Whether to automatically apply default evaluation environments to new feature flags",
+        help_text="Whether to automatically apply default evaluation contexts to new feature flags",
     )
-    require_evaluation_environment_tags = models.BooleanField(
+    require_evaluation_contexts = models.BooleanField(
         null=True,
         blank=True,
         default=False,
-        help_text="Whether to require at least one evaluation environment tag when creating new feature flags",
+        help_text="Whether to require at least one evaluation context tag when creating new feature flags",
     )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
@@ -450,7 +485,9 @@ class Team(UUIDTClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
     human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
     cookieless_server_hash_mode = models.SmallIntegerField(
-        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
+        default=CookielessServerHashMode.DISABLED,
+        choices=CookielessServerHashMode.choices,
+        null=True,
     )
 
     primary_dashboard = models.ForeignKey(
@@ -534,6 +571,14 @@ class Team(UUIDTClassicModel):
         help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
     )
 
+    default_experiment_confidence_level = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
+    )
+
     business_model = models.CharField(
         max_length=10,
         choices=BusinessModel.choices,
@@ -614,7 +659,13 @@ class Team(UUIDTClassicModel):
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
                 groups={"project": str(self.id)},
-                group_properties={"project": {"id": str(self.id), "created_at": self.created_at, "uuid": self.uuid}},
+                group_properties={
+                    "project": {
+                        "id": str(self.id),
+                        "created_at": self.created_at,
+                        "uuid": self.uuid,
+                    }
+                },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
@@ -667,10 +718,11 @@ class Team(UUIDTClassicModel):
             {**person_query_params, **filter.hogql_context.values},
         )[0][0]
 
-    @lru_cache(maxsize=5)
+    @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
+        # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
         return sync_execute(
             f"""
             SELECT
@@ -781,6 +833,39 @@ class Team(UUIDTClassicModel):
             ),
         )
 
+    def generate_conversations_public_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+        """Generate or regenerate the conversations public token for widget authentication."""
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        settings = self.conversations_settings or {}
+        old_token = settings.get("widget_public_token")
+        new_token = generate_random_token_project()
+        settings["widget_public_token"] = new_token
+        self.conversations_settings = settings
+        self.save()
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="created" if old_token is None else "changed",
+                        field="conversations_settings.widget_public_token",
+                        before=mask_key_value(old_token) if old_token else None,
+                        after=mask_key_value(new_token),
+                    )
+                ],
+            ),
+        )
+
     def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
         from posthog.models.utils import mask_key_value
@@ -855,7 +940,8 @@ class Team(UUIDTClassicModel):
 
             # Get all organization admins and owners
             admin_user_ids = OrganizationMembership.objects.filter(
-                organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
+                organization_id=self.organization_id,
+                level__gte=OrganizationMembership.Level.ADMIN,
             ).values_list("user_id", flat=True)
 
             # Get users with specific access control entries for this team

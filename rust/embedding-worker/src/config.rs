@@ -21,6 +21,11 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
+    // To other services, like ET, that want to take some action after a document is embedded and written to CH
+    #[envconfig(default = "document_embedding_results")]
+    pub response_topic: String,
+
+    // To clickhouse
     #[envconfig(default = "clickhouse_document_embeddings")]
     pub output_topic: String,
 

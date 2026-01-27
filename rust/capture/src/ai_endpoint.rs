@@ -1,8 +1,9 @@
-use axum::body::Bytes;
-use axum::extract::State;
+use axum::body::Body;
+use axum::extract::{MatchedPath, State};
 use axum::http::HeaderMap;
 use axum::response::Json;
 use axum_client_ip::InsecureClientIp;
+use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
 use flate2::read::GzDecoder;
 use futures::stream;
@@ -24,6 +25,7 @@ const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_eve
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::extractors::extract_body_with_timeout;
 use crate::prometheus::report_dropped_events;
 use crate::router::State as AppState;
 use crate::timestamp;
@@ -108,19 +110,29 @@ struct ParsedMultipartData {
 pub async fn ai_handler(
     State(state): State<AppState>,
     ip: Option<InsecureClientIp>,
+    path: MatchedPath,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Json<AIEndpointResponse>, CaptureError> {
     debug!("Received request to /i/v0/ai endpoint");
+
+    // Extract body with timed streaming (same pattern as analytics/recordings handlers)
+    // Use 110% of ai_max_sum_of_parts_bytes to account for multipart overhead (matches DefaultBodyLimit layer)
+    let body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
+    let body = extract_body_with_timeout(
+        body,
+        body_limit,
+        state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
+        path.as_str(),
+    )
+    .await?;
 
     // Check for empty body
     if body.is_empty() {
         warn!("AI endpoint received empty body");
         return Err(CaptureError::EmptyPayload);
     }
-
-    // Note: Request body size limit is enforced by Axum's DefaultBodyLimit layer
-    // (110% of ai_max_sum_of_parts_bytes to account for multipart overhead)
 
     // Check for Content-Encoding header and decompress if needed
     let content_encoding = headers

@@ -78,6 +78,12 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         user = request.user
         policy = obj.policy_snapshot
 
+        # If user is the requester and self-approve is not allowed, they cannot approve
+        is_requester = obj.created_by_id == user.id
+        allow_self_approve = policy.get("allow_self_approve", False)
+        if is_requester and not allow_self_approve:
+            return False
+
         # Check if user is in approver users list
         approver_users = policy.get("users", [])
         if user.id in approver_users:
@@ -100,10 +106,6 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
                     return True
             except ImportError:
                 pass
-
-        # Check self-approval policy
-        if policy.get("allow_self_approve") and obj.created_by_id == user.id:
-            return True
 
         return False
 

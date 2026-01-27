@@ -28,10 +28,8 @@ export type MetricsPanelProps = {
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
     onPrevious: () => void
+    showNewExperimentFormLayout?: boolean
 }
-
-const sortMetrics = (metrics: ExperimentMetric[], orderedUuids: string[]): ExperimentMetric[] =>
-    orderedUuids.map((uuid) => metrics.find((metric) => metric.uuid === uuid)).filter(Boolean) as ExperimentMetric[]
 
 const convertSharedMetricToExperimentMetric = ({ id, query, name }: SharedMetric): ExperimentMetric =>
     ({
@@ -48,6 +46,7 @@ export const MetricsPanel = ({
     onDeleteMetric,
     onSaveSharedMetrics,
     onPrevious,
+    showNewExperimentFormLayout = false,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
@@ -55,17 +54,24 @@ export const MetricsPanel = ({
     // we need this value to calculate the recent activity on the metrics list
     const filterTestAccounts = experiment.exposure_criteria?.filterTestAccounts ?? false
 
-    const primaryMetrics = sortMetrics(
-        [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary],
-        experiment.primary_metrics_ordered_uuids || []
-    )
-    const secondaryMetrics = sortMetrics(
-        [...(experiment.metrics_secondary || []).filter(isExperimentMetric), ...sharedMetrics.secondary],
-        experiment.secondary_metrics_ordered_uuids || []
-    )
+    const primaryMetrics = [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary]
+    const secondaryMetrics = [
+        ...(experiment.metrics_secondary || []).filter(isExperimentMetric),
+        ...sharedMetrics.secondary,
+    ]
 
     return (
         <div>
+            {showNewExperimentFormLayout && (
+                <>
+                    <div className="font-semibold mb-2">Metrics</div>
+                    <div className="text-muted mb-4">
+                        Add at least one primary metric to launch an experiment. You can always add or remove metrics
+                        later.
+                    </div>
+                </>
+            )}
+
             {primaryMetrics.length > 0 ? (
                 <MetricList
                     metrics={primaryMetrics}
@@ -89,12 +95,16 @@ export const MetricsPanel = ({
                 <EmptyMetricsPanel className="mt-6" metricContext={METRIC_CONTEXTS.secondary} />
             )}
 
-            <LemonDivider className="mt-4" />
-            <div className="flex justify-end pt-4">
-                <LemonButton type="primary" size="small" onClick={onPrevious}>
-                    Previous
-                </LemonButton>
-            </div>
+            {!showNewExperimentFormLayout && (
+                <>
+                    <LemonDivider className="mt-4" />
+                    <div className="flex justify-end pt-4">
+                        <LemonButton type="primary" size="small" onClick={onPrevious}>
+                            Previous
+                        </LemonButton>
+                    </div>
+                </>
+            )}
 
             <MetricSourceModal />
             <ExperimentMetricModal

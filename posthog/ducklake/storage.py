@@ -41,6 +41,31 @@ def _get_django_settings():
         return None
 
 
+def _get_boto3_credentials() -> tuple[str, str, str | None]:
+    """Fetch AWS credentials via boto3.
+
+    This is a workaround for DuckDB's CREDENTIAL_CHAIN not supporting
+    IRSA (Web Identity Token) authentication. boto3 properly supports IRSA,
+    so we use it to fetch credentials and pass them explicitly to DuckDB.
+
+    See: https://github.com/duckdb/duckdb-aws/issues/31
+
+    Returns:
+        Tuple of (access_key, secret_key, session_token).
+        session_token may be None for static credentials.
+    """
+    import boto3
+
+    session = boto3.Session()
+    credentials = session.get_credentials()
+    if credentials is None:
+        raise RuntimeError("No AWS credentials available via boto3")
+    frozen = credentials.get_frozen_credentials()
+    if frozen.access_key is None or frozen.secret_key is None:
+        raise RuntimeError("AWS credentials missing access_key or secret_key")
+    return frozen.access_key, frozen.secret_key, frozen.token
+
+
 def normalize_endpoint(endpoint: str) -> tuple[str, bool]:
     """Normalize object storage endpoint URL.
 
@@ -136,23 +161,28 @@ class DuckLakeStorageConfig:
                 is_local=False,
             )
 
-    def to_duckdb_secret_sql(self, secret_name: str = "ducklake_s3") -> str:
+    def to_duckdb_secret_sql(self) -> str:
         """Generate DuckDB CREATE SECRET SQL statement.
-
-        Args:
-            secret_name: Name for the secret (default: "ducklake_s3")
 
         Returns:
             SQL statement to create the S3 secret.
         """
+        secret_name = "ducklake_s3"
         if not self.is_local:
-            return f"""
-                CREATE OR REPLACE SECRET {secret_name} (
-                    TYPE S3,
-                    PROVIDER CREDENTIAL_CHAIN,
-                    REGION '{ducklake_escape(self.region)}'
-                )
-            """
+            # Workaround: DuckDB's CREDENTIAL_CHAIN doesn't support IRSA (Web Identity Token).
+            # Fetch credentials via boto3 which properly supports IRSA.
+            # See: https://github.com/duckdb/duckdb-aws/issues/31
+            access_key, secret_key, session_token = _get_boto3_credentials()
+            secret_parts = [
+                "TYPE S3",
+                f"KEY_ID '{ducklake_escape(access_key)}'",
+                f"SECRET '{ducklake_escape(secret_key)}'",
+            ]
+            if session_token:
+                secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(session_token)}'")
+            if self.region:
+                secret_parts.append(f"REGION '{ducklake_escape(self.region)}'")
+            return f"CREATE OR REPLACE SECRET {secret_name} ({', '.join(secret_parts)})"
 
         secret_parts = ["TYPE S3"]
         if self.access_key:
@@ -204,7 +234,6 @@ def configure_connection(
     storage_config: DuckLakeStorageConfig | None = None,
     *,
     install_extensions: bool = True,
-    secret_name: str = "ducklake_s3",
 ) -> None:
     """Configure DuckDB connection for DuckLake storage access.
 
@@ -215,7 +244,6 @@ def configure_connection(
         conn: DuckDB connection to configure.
         storage_config: Storage config to use. If None, creates one from runtime.
         install_extensions: Whether to install httpfs and delta extensions.
-        secret_name: Name for the S3 secret.
     """
     if storage_config is None:
         storage_config = DuckLakeStorageConfig.from_runtime()
@@ -228,7 +256,7 @@ def configure_connection(
     conn.execute("LOAD ducklake")
     conn.execute("LOAD httpfs")
     conn.execute("LOAD delta")
-    conn.execute(storage_config.to_duckdb_secret_sql(secret_name))
+    conn.execute(storage_config.to_duckdb_secret_sql())
 
 
 def ensure_ducklake_bucket_exists(

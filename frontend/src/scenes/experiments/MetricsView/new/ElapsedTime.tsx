@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+
 interface ElapsedTimeProps {
     startTime: string | null | undefined
 }
 
 export function ElapsedTime({ startTime }: ElapsedTimeProps): JSX.Element | null {
     const [elapsedSeconds, setElapsedSeconds] = useState<number>(0)
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
-        if (!startTime) {
+        if (!startTime || !isPageVisible) {
             return
         }
 
@@ -24,7 +27,7 @@ export function ElapsedTime({ startTime }: ElapsedTimeProps): JSX.Element | null
         const interval = setInterval(updateElapsed, 1000)
 
         return () => clearInterval(interval)
-    }, [startTime])
+    }, [startTime, isPageVisible])
 
     if (!startTime) {
         return null

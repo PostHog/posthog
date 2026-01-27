@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
@@ -70,7 +70,8 @@ def query_events_list(
     unbounded_date_from: bool = False,
     limit: int = DEFAULT_RETURNED_ROWS,
     offset: int = 0,
-) -> tuple[list, bool]:
+    time_window_seconds: Optional[int] = None,
+) -> tuple[list, Optional[int]]:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
     hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.pk, enable_select_queries=True)
@@ -98,19 +99,20 @@ def query_events_list(
         if date_range > timedelta(days=366) and (settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or random.random() < 0.01):
             raise ValueError("Date range cannot exceed 1 year")
 
-    bound_to_same_day = False
+    applied_window_seconds: Optional[int] = None
     if (
         not unbounded_date_from
         and order == "DESC"
+        and time_window_seconds is not None
         and (
             not request_get_query_dict.get("after")
-            or request_get_query_dict["after"].date() != request_get_query_dict["before"].date()
+            or (request_get_query_dict["before"] - request_get_query_dict["after"]).total_seconds()
+            > time_window_seconds
         )
-        and request_get_query_dict["before"].time() != time.min
     ):
-        # If this is the first try, and after is not the same day as before, only load the current day, regardless of whether "after" is specified to reduce the amount of data we load
-        request_get_query_dict["after"] = datetime.combine(request_get_query_dict["before"], time.min)
-        bound_to_same_day = True
+        # Apply the specified time window to limit the query range
+        request_get_query_dict["after"] = request_get_query_dict["before"] - timedelta(seconds=time_window_seconds)
+        applied_window_seconds = time_window_seconds
 
     request_get_query_dict["before"] = request_get_query_dict["before"].strftime("%Y-%m-%d %H:%M:%S.%f")
     if request_get_query_dict.get("after"):
@@ -133,47 +135,53 @@ def query_events_list(
         try:
             action = Action.objects.get(pk=action_id, team__project_id=team.project_id)
             if not action.steps:
-                return [], bound_to_same_day
+                return [], applied_window_seconds
         except Action.DoesNotExist:
-            return [], bound_to_same_day
+            return [], applied_window_seconds
 
         action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
     if prop_filters != "":
-        return insight_query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                conditions=conditions,
-                limit=limit_sql,
-                filters=prop_filters,
-                order=order,
+        return (
+            insight_query_with_columns(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+                    conditions=conditions,
+                    limit=limit_sql,
+                    filters=prop_filters,
+                    order=order,
+                ),
+                {
+                    "team_id": team.pk,
+                    "limit": limit,
+                    "offset": offset,
+                    **condition_params,
+                    **prop_filter_params,
+                    **hogql_context.values,
+                },
+                query_type="events_list",
+                workload=Workload.OFFLINE,
+                team_id=team.pk,
+                settings={"max_threads": settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS},
             ),
-            {
-                "team_id": team.pk,
-                "limit": limit,
-                "offset": offset,
-                **condition_params,
-                **prop_filter_params,
-                **hogql_context.values,
-            },
-            query_type="events_list",
-            workload=Workload.OFFLINE,
-            team_id=team.pk,
-            settings={"max_threads": settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS},
-        ), bound_to_same_day
+            applied_window_seconds,
+        )
     else:
-        return insight_query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-            {
-                "team_id": team.pk,
-                "limit": limit,
-                "offset": offset,
-                **condition_params,
-                **hogql_context.values,
-            },
-            query_type="events_list",
-            workload=Workload.OFFLINE,
-            team_id=team.pk,
-            settings={"max_threads": settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS},
-        ), bound_to_same_day
+        return (
+            insight_query_with_columns(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
+                {
+                    "team_id": team.pk,
+                    "limit": limit,
+                    "offset": offset,
+                    **condition_params,
+                    **hogql_context.values,
+                },
+                query_type="events_list",
+                workload=Workload.OFFLINE,
+                team_id=team.pk,
+                settings={"max_threads": settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS},
+            ),
+            applied_window_seconds,
+        )

@@ -7,16 +7,13 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AvailableFeature } from '~/types'
 
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { appendMetricToOrderingArray, removeMetricFromOrderingArray } from '../utils'
 
 /**
  * @deprecated
@@ -25,18 +22,12 @@ import { appendMetricToOrderingArray, removeMetricFromOrderingArray } from '../u
  */
 export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, compatibleSharedMetrics, editingSharedMetricId } = useValues(experimentLogic)
-    const {
-        addSharedMetricsToExperiment,
-        removeSharedMetricFromExperiment,
-        restoreUnmodifiedExperiment,
-        setExperiment,
-    } = useActions(experimentLogic)
+    const { addSharedMetricsToExperiment, removeSharedMetricFromExperiment, restoreUnmodifiedExperiment } =
+        useActions(experimentLogic)
     const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(modalsLogic)
     const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
     const mode = editingSharedMetricId ? 'edit' : 'create'
-
-    const { hasAvailableFeature } = useValues(userLogic)
 
     if (!compatibleSharedMetrics) {
         return <></>
@@ -81,19 +72,6 @@ export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean
                             <LemonButton
                                 status="danger"
                                 onClick={() => {
-                                    const metric = compatibleSharedMetrics.find((m) => m.id === editingSharedMetricId)
-                                    if (metric) {
-                                        const newOrderingArray = removeMetricFromOrderingArray(
-                                            experiment,
-                                            metric.query.uuid,
-                                            !!isSecondary
-                                        )
-                                        setExperiment({
-                                            [isSecondary
-                                                ? 'secondary_metrics_ordered_uuids'
-                                                : 'primary_metrics_ordered_uuids']: newOrderingArray,
-                                        })
-                                    }
                                     removeSharedMetricFromExperiment(editingSharedMetricId)
                                     isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
                                 }}
@@ -112,32 +90,6 @@ export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean
                         {mode === 'create' && (
                             <LemonButton
                                 onClick={() => {
-                                    let newOrderingArray = isSecondary
-                                        ? (experiment.secondary_metrics_ordered_uuids ?? [])
-                                        : (experiment.primary_metrics_ordered_uuids ?? [])
-
-                                    selectedMetricIds.forEach((metricId) => {
-                                        const metric = compatibleSharedMetrics.find((m) => m.id === metricId)
-                                        if (metric) {
-                                            newOrderingArray = appendMetricToOrderingArray(
-                                                {
-                                                    ...experiment,
-                                                    [isSecondary
-                                                        ? 'secondary_metrics_ordered_uuids'
-                                                        : 'primary_metrics_ordered_uuids']: newOrderingArray,
-                                                },
-                                                metric.query.uuid,
-                                                !!isSecondary
-                                            )
-                                        }
-                                    })
-
-                                    setExperiment({
-                                        [isSecondary
-                                            ? 'secondary_metrics_ordered_uuids'
-                                            : 'primary_metrics_ordered_uuids']: newOrderingArray,
-                                    })
-
                                     addSharedMetricsToExperiment(selectedMetricIds, {
                                         type: isSecondary ? 'secondary' : 'primary',
                                     })
@@ -164,7 +116,7 @@ export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean
                                     } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
-                            {hasAvailableFeature(AvailableFeature.TAGGING) && availableTags.length > 0 && (
+                            {availableTags.length > 0 && (
                                 <div className="flex flex-wrap gap-2">
                                     <LemonLabel>Quick select:</LemonLabel>
                                     {availableTags.map((tag: string, index: number) => (
@@ -217,18 +169,14 @@ export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean
                                         dataIndex: 'description',
                                         key: 'description',
                                     },
-                                    ...(hasAvailableFeature(AvailableFeature.TAGGING)
-                                        ? [
-                                              {
-                                                  title: 'Tags',
-                                                  dataIndex: 'tags' as keyof SharedMetric,
-                                                  key: 'tags',
-                                                  render: (_: any, metric: SharedMetric) => (
-                                                      <ObjectTags tags={metric.tags || []} staticOnly />
-                                                  ),
-                                              },
-                                          ]
-                                        : []),
+                                    {
+                                        title: 'Tags',
+                                        dataIndex: 'tags' as keyof SharedMetric,
+                                        key: 'tags',
+                                        render: (_: any, metric: SharedMetric) => (
+                                            <ObjectTags tags={metric.tags || []} staticOnly />
+                                        ),
+                                    },
                                     {
                                         title: 'Type',
                                         key: 'type',

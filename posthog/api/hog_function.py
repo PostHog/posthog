@@ -8,6 +8,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -390,6 +391,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
+@extend_schema(tags=["hog_functions"])
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
@@ -406,7 +408,12 @@ class HogFunctionViewSet(
     app_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+        if self.action == "list":
+            # Use full serializer (including inputs, mappings, etc.) when ?full=true
+            if self.request.GET.get("full") == "true":
+                return HogFunctionSerializer
+            return HogFunctionMinimalSerializer
+        return HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):

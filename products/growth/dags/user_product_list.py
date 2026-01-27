@@ -1,8 +1,6 @@
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Literal
-
-from django.utils import timezone
+from urllib.parse import urlparse
 
 import dagster
 import pydantic
@@ -12,7 +10,7 @@ from posthog.dags.common.ops import get_all_team_ids_op
 from posthog.exceptions_capture import capture_exception
 from posthog.models.file_system.user_product_list import UserProductList, get_user_product_list_count
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import ROLE_CHOICES, User
 from posthog.products import Products
 
 
@@ -20,6 +18,42 @@ def get_valid_product_paths() -> set[str]:
     """Get all valid product paths from products.json and hardcoded sidebar products"""
     valid_paths = set[str](Products.get_product_paths())
     return valid_paths
+
+
+def download_emails_from_s3(s3_url: str, s3_client) -> set[str]:
+    """Download a list of emails from an S3 URL and return them as a set.
+
+    Args:
+        s3_url: S3 URL in format s3://bucket/key
+        s3_client: boto3 S3 client from Dagster resource
+
+    Returns:
+        Set of email addresses (lowercased and stripped)
+
+    Raises:
+        ValueError: If S3 URL format is invalid
+        Exception: If S3 download fails
+    """
+    parsed = urlparse(s3_url)
+    if parsed.scheme != "s3":
+        raise ValueError(f"Invalid S3 URL scheme: {s3_url}. Expected s3://bucket/key")
+
+    bucket = parsed.netloc
+    key = parsed.path.lstrip("/")
+
+    if not bucket or not key:
+        raise ValueError(f"Invalid S3 URL format: {s3_url}. Expected s3://bucket/key")
+
+    response = s3_client.get_object(Bucket=bucket, Key=key)
+    content = response["Body"].read().decode("utf-8")
+
+    emails = set()
+    for line in content.splitlines():
+        email = line.strip().lower()
+        if email:
+            emails.add(email)
+
+    return emails
 
 
 class PopulateConfig(dagster.Config):
@@ -42,28 +76,29 @@ class PopulateConfig(dagster.Config):
         default=None,
         description="Only create entries for users who already have this product enabled in their UserProductList",
     )
-    user_created_before: str | None = pydantic.Field(
+    role_at_organization: str | None = pydantic.Field(
         default=None,
-        description="ISO format date string. Only process users created before this date (e.g., '2024-01-01T00:00:00Z')",
+        description="Only process users with this role_at_organization value (e.g., 'engineering', 'data', 'product')",
     )
-
-    # TODO: This should be removed after we've finished running the initial populate job
-    # since it's a very confusing configuration knob
-    only_users_without_products: bool = pydantic.Field(
-        default=False,
-        description="Only process users who don't have any existing UserProductList entries",
+    email_filter_s3_url: str | None = pydantic.Field(
+        default=None,
+        description="S3 URL (s3://bucket/key) to a file containing emails (one per line) to filter users by",
     )
 
 
 @dagster.op()
-def populate_user_product_list(context: dagster.OpExecutionContext, config: PopulateConfig) -> None:
+def populate_user_product_list(
+    context: dagster.OpExecutionContext,
+    config: PopulateConfig,
+    s3: dagster.ResourceParam,
+) -> None:
     """
     Populate UserProductList with configurable options:
     - Set a specific reason for created entries
     - Set optional reason_text for display to users
     - Only create for users who have a specific product enabled
-    - Filter by user creation date
-    - Option to process only users without existing entries
+    - Filter by role_at_organization (e.g., 'engineering', 'data', 'product')
+    - Filter by emails from an S3 URL (s3://bucket/key) containing one email per line
     """
     if not config.product_paths:
         raise dagster.Failure("product_paths cannot be empty")
@@ -80,27 +115,23 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
             f"Invalid require_existing_product: {config.require_existing_product}. Valid options: {sorted(valid_paths)}"
         )
 
-    # Validate these arguments are mutually exclusive
-    if config.require_existing_product is not None and config.only_users_without_products:
-        raise dagster.Failure("require_existing_product and only_users_without_products cannot be used together")
-
     # Validate reason if provided
     if config.reason:
         if config.reason not in UserProductList.Reason.values:
             raise dagster.Failure(f"Invalid reason: {config.reason}. Valid options: {UserProductList.Reason.values}")
 
+    # Validate role_at_organization if provided
+
+    valid_roles = [choice[0] for choice in ROLE_CHOICES]
+    if config.role_at_organization is not None and config.role_at_organization not in valid_roles:
+        raise dagster.Failure(
+            f"Invalid role_at_organization: {config.role_at_organization}. Valid options: {valid_roles}"
+        )
+
     context.log.info(f"Starting populate for {len(config.product_paths)} products: {config.product_paths}")
 
     # Build user queryset with filters
     users = User.objects.all().order_by("date_joined")
-
-    # Filter by creation date if specified
-    if config.user_created_before is not None:
-        created_before = datetime.fromisoformat(config.user_created_before.replace("Z", "+00:00"))
-        if created_before.tzinfo is None:
-            created_before = timezone.make_aware(created_before)
-        users = users.filter(date_joined__lt=created_before)
-        context.log.info(f"Filtering users created before {created_before}")
 
     # Filter by existing products requirement
     if config.require_existing_product:
@@ -112,11 +143,23 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
         users = users.filter(id__in=users_with_product)
         context.log.info(f"Only processing users with '{config.require_existing_product}' enabled")
 
-    # Filter to only users without any products if specified
-    if config.only_users_without_products:
-        user_ids_with_products = UserProductList.objects.values_list("user_id", flat=True).distinct()
-        users = users.exclude(id__in=user_ids_with_products)
-        context.log.info("Only processing users without existing UserProductList entries")
+    # Filter by role_at_organization if specified
+    if config.role_at_organization:
+        users = users.filter(role_at_organization=config.role_at_organization)
+        context.log.info(f"Only processing users with role_at_organization='{config.role_at_organization}'")
+
+    # Download emails from S3 if specified (will filter in loop for performance)
+    allowed_emails: set[str] | None = None
+    if config.email_filter_s3_url:
+        try:
+            context.log.info(f"Downloading email filter from S3: {config.email_filter_s3_url}")
+            s3_client = s3.get_client()
+            allowed_emails = download_emails_from_s3(config.email_filter_s3_url, s3_client)
+            context.log.info(f"Loaded {len(allowed_emails)} emails from S3")
+            if not allowed_emails:
+                context.log.warning("Email filter from S3 is empty, no users will match")
+        except Exception as e:
+            raise dagster.Failure(f"Failed to download or process email filter from S3: {str(e)}")
 
     # Respect user preference for sidebar suggestions
     users = users.exclude(allow_sidebar_suggestions=False)
@@ -129,6 +172,11 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
     skipped_count = 0
 
     for user in users.iterator(chunk_size=1000):
+        # Filter by email if email filter is specified
+        if allowed_emails is not None and user.email.lower() not in allowed_emails:
+            context.log.debug(f"Skipping user {user.id} because their email {user.email} is not in the allowed emails")
+            continue
+
         # Get all teams this user has access to through organization membership
         teams = Team.objects.filter(organization__members=user).distinct()
 
@@ -138,7 +186,11 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
                     team=team,
                     user=user,
                     product_path=product_path,
-                    defaults={"enabled": True, "reason": config.reason, "reason_text": config.reason_text},
+                    defaults={
+                        "enabled": True,
+                        "reason": config.reason,
+                        "reason_text": config.reason_text,
+                    },
                 )
 
                 if created:
@@ -171,8 +223,8 @@ def populate_user_product_list_job():
     - reason: Optional reason from UserProductList.Reason
     - reason_text: Optional freeform text to display to users on hover
     - require_existing_product: Only add for users who have this product enabled
-    - user_created_before: Only process users created before this date (ISO format)
-    - only_users_without_products: Only process users without existing entries
+    - role_at_organization: Only process users with this role (e.g., 'engineering', 'data')
+    - email_filter_s3_url: S3 URL (s3://bucket/key) to a file containing emails (one per line) to filter users by
     """
     populate_user_product_list()
 
@@ -206,7 +258,9 @@ def sync_colleagues_products_for_team_op(
                     continue
 
                 created_items = UserProductList.sync_from_team_colleagues(
-                    user=user, team=team, colleague_product_counts=colleague_product_counts
+                    user=user,
+                    team=team,
+                    colleague_product_counts=colleague_product_counts,
                 )
                 users_processed += 1
                 products_created += len(created_items)
@@ -264,7 +318,8 @@ def sync_colleagues_products_for_team_op(
 
 @dagster.op
 def aggregate_colleagues_sync_results_op(
-    context: dagster.OpExecutionContext, results: list[list[SyncColleaguesProductsResult]]
+    context: dagster.OpExecutionContext,
+    results: list[list[SyncColleaguesProductsResult]],
 ) -> None:
     """Aggregate results from all team processing ops."""
     flat_results = [r for batch in results for r in batch]
@@ -401,7 +456,8 @@ def sync_cross_sell_products_for_team_op(
 
 @dagster.op
 def aggregate_cross_sell_sync_results_op(
-    context: dagster.OpExecutionContext, results: list[list[SyncCrossSellProductsResult]]
+    context: dagster.OpExecutionContext,
+    results: list[list[SyncCrossSellProductsResult]],
 ) -> None:
     """Aggregate results from all team processing ops."""
     flat_results = [r for batch in results for r in batch]

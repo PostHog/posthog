@@ -1,7 +1,7 @@
 import { formatHclValue, sanitizeResourceName } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
 // Schema version this exporter targets - update when provider schema changes
-export const POSTHOG_PROVIDER_VERSION = '1.0'
+export const POSTHOG_PROVIDER_VERSION = '1.0.2'
 
 export interface HclExportResult {
     hcl: string
@@ -11,17 +11,19 @@ export interface HclExportResult {
 export interface HclExportOptions {
     /** Include import block for existing resources (default: true for saved resources) */
     includeImport?: boolean
+    /** Project ID for import block format */
+    projectId?: number
 }
 
-export interface ResourceExporter<T> {
+export interface ResourceExporter<T, O extends HclExportOptions = HclExportOptions> {
     /** Terraform resource type (e.g., 'posthog_insight') */
     resourceType: string
     /** Human-readable label for comments (e.g., 'insight') */
     resourceLabel: string
     /** Field mappings from source model to Terraform schema */
-    fieldMappings: FieldMapping<T>[]
-    /** Validation function returning warnings */
-    validate: (resource: T) => string[]
+    fieldMappings: FieldMapping<T, O>[]
+    /** Validation function returning warnings. Receives options for context-aware validation. */
+    validate: (resource: T, options: O) => string[]
     /** Get the resource name for Terraform (used in resource block name) */
     getResourceName: (resource: T) => string
     /** Get the resource ID (for import blocks) */
@@ -30,26 +32,26 @@ export interface ResourceExporter<T> {
     getShortId?: (resource: T) => string | undefined
 }
 
-export interface FieldMapping<T> {
+export interface FieldMapping<T, O extends HclExportOptions = HclExportOptions> {
     /** Field name in the source model */
     source: keyof T | string
     /** Field name in Terraform provider schema */
     target: string
     /** Whether to include this field (receives the field value and full resource) */
     shouldInclude?: (value: unknown, resource: T) => boolean
-    /** Transform the value before formatting (returns raw HCL string if provided) */
-    transform?: (value: unknown) => string
+    /** Transform the value. Receives resource and options for full context. */
+    transform?: (value: unknown, resource: T, options: O) => string
 }
 
-export function generateHCL<T>(
+export function generateHCL<T, O extends HclExportOptions = HclExportOptions>(
     resource: T,
-    exporter: ResourceExporter<T>,
-    options: HclExportOptions = {}
+    exporter: ResourceExporter<T, O>,
+    options: O = {} as O
 ): HclExportResult {
     const resourceId = exporter.getId(resource)
     const { includeImport = resourceId !== undefined } = options
 
-    const warnings = exporter.validate(resource)
+    const warnings = exporter.validate(resource, options)
     const resourceName = sanitizeResourceName(exporter.getResourceName(resource), exporter.resourceLabel)
 
     const lines: string[] = []
@@ -69,9 +71,12 @@ export function generateHCL<T>(
 
     // Import block for existing resources only
     if (includeImport && resourceId !== undefined) {
+        // Since v1.0.2 of the TF provider (https://github.com/PostHog/terraform-provider-posthog/pull/24/)
+        // we can specify the project to which a resource belongs when importing it.
+        const importId = options.projectId ? `${options.projectId}/${resourceId}` : String(resourceId)
         lines.push(`import {`)
         lines.push(`  to = ${exporter.resourceType}.${resourceName}`)
-        lines.push(`  id = "${resourceId}"`)
+        lines.push(`  id = "${importId}"`)
         lines.push(`}`)
         lines.push('')
     }
@@ -85,7 +90,9 @@ export function generateHCL<T>(
         const shouldInclude = mapping.shouldInclude ? mapping.shouldInclude(value, resource) : value !== undefined
 
         if (shouldInclude) {
-            const formattedValue = mapping.transform ? mapping.transform(value) : formatHclValue(value)
+            const formattedValue = mapping.transform
+                ? mapping.transform(value, resource, options)
+                : formatHclValue(value)
             lines.push(`  ${mapping.target} = ${formattedValue}`)
         }
     }

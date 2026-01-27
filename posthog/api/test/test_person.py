@@ -565,6 +565,103 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )[0][0]
         self.assertEqual(ch_events, 3)
 
+    def test_bulk_delete_with_keep_person(self):
+        """Test that bulk_delete with keep_person=True doesn't delete the person record"""
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [person.uuid], "delete_events": True, "keep_person": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # Person should still exist
+        self.assertEqual(Person.objects.filter(team=self.team, uuid=person.uuid).count(), 1)
+        # But async deletion for events should be scheduled
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
+        self.assertIsNotNone(async_deletion)
+        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
+        self.assertEqual(async_deletion.key, str(person.uuid))
+
+    def test_bulk_delete_with_recordings(self):
+        """Test that bulk_delete queues recording deletion"""
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+
+        with patch("posthog.api.person.sync_connect") as mock_connect:
+            with patch("posthog.api.person.uuid") as mock_uuid:
+                mock_uuid.uuid4.return_value = "1234"
+                mock_client = mock.AsyncMock()
+                mock_connect.return_value = mock_client
+
+                response = self.client.post(
+                    f"/api/person/bulk_delete/",
+                    {"ids": [person.uuid], "delete_recordings": True},
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+                mock_connect.assert_called_once()
+                mock_client.start_workflow.assert_called_once()
+                # Verify workflow was called with correct parameters
+                call_args = mock_client.start_workflow.call_args
+                self.assertEqual(call_args[0][0], "delete-recordings-with-person")
+                self.assertEqual(call_args[1]["id"], f"delete-recordings-with-person-{person.uuid}-1234")
+
+    def test_bulk_delete_validation_too_many_ids(self):
+        """Test that bulk_delete rejects more than 1000 IDs"""
+        # Test with ids
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [str(uuid4()) for _ in range(1001)]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("1000", str(response.content))
+
+        # Test with distinct_ids
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"distinct_ids": [f"id_{i}" for i in range(1001)]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("1000", str(response.content))
+
+    def test_bulk_delete_validation_missing_ids(self):
+        """Test that bulk_delete requires either ids or distinct_ids"""
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"delete_events": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("distinct_ids or ids", str(response.content))
+
+    def test_destroy_with_keep_person_param(self):
+        """Test that destroy endpoint respects keep_person parameter"""
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+
+        response = self.client.delete(f"/api/person/{person.uuid}/?keep_person=true&delete_events=true")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # Person should still exist when keep_person=true
+        self.assertEqual(Person.objects.filter(team=self.team, uuid=person.uuid).count(), 1)
+        # But async deletion should be scheduled
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 1)
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
         # created first
@@ -1124,7 +1221,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]

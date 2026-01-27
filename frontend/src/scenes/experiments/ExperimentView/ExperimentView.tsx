@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
-import { ActivityScope, ProgressStatus } from '~/types'
+import { ActivityScope, ExperimentProgressStatus } from '~/types'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -37,7 +37,7 @@ import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -218,15 +218,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const {
-        experimentLoading,
-        experimentId,
-        experiment,
-        usesNewQueryRunner,
-        isExperimentDraft,
-        exposureCriteria,
-        featureFlags,
-    } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
+        useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
@@ -251,7 +244,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
 
     if (
         !experimentLoading &&
-        getExperimentStatus(experiment) === ProgressStatus.Draft &&
+        getExperimentStatus(experiment) === ExperimentProgressStatus.Draft &&
         experiment.type === 'product' &&
         allPrimaryMetrics.length === 0
     ) {
@@ -296,7 +289,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'History',
                                 content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
                             },
-                            ...(experiment.feature_flag && featureFlags[FEATURE_FLAGS.SURVEYS_EXPERIMENTS_CROSS_SELL]
+                            ...(experiment.feature_flag
                                 ? [
                                       {
                                           key: 'feedback',
@@ -329,19 +322,12 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                         [context.field]: isNew
                                             ? [...metrics, metric]
                                             : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
-                                        ...(isNew && {
-                                            [context.orderingField]: [
-                                                ...(experiment[context.orderingField] ?? []),
-                                                metric.uuid,
-                                            ],
-                                        }),
                                     })
 
                                     updateExperimentMetrics()
                                     closeExperimentMetricModal()
                                 }}
                                 onDelete={(metric, context) => {
-                                    //bail if the metric has no uuid
                                     if (!metric.uuid) {
                                         return
                                     }
@@ -349,11 +335,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     setExperiment({
                                         [context.field]: experiment[context.field].filter(
                                             (m) => m.uuid !== metric.uuid
-                                        ),
-                                        [context.orderingField]: removeMetricFromOrderingArray(
-                                            experiment,
-                                            metric.uuid,
-                                            context.type === 'secondary'
                                         ),
                                     })
 
@@ -364,33 +345,13 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             <SharedMetricModal
                                 experiment={experiment}
                                 onSave={(metrics, context) => {
-                                    const existingOrderingArray = experiment[context.orderingField] ?? []
-                                    const newMetricUuids = metrics
-                                        .map((metric) => metric.query.uuid)
-                                        .filter((uuid) => !existingOrderingArray.includes(uuid))
-                                    const newOrderingArray = [...existingOrderingArray, ...newMetricUuids]
-
-                                    setExperiment({
-                                        [context.orderingField]: newOrderingArray,
-                                    })
-
                                     addSharedMetricsToExperiment(
                                         metrics.map(({ id }) => id),
                                         { type: context.type }
                                     )
                                     closeSharedMetricModal()
                                 }}
-                                onDelete={(metric, context) => {
-                                    const newOrderingArray = removeMetricFromOrderingArray(
-                                        experiment,
-                                        metric.query.uuid,
-                                        context.type === 'secondary'
-                                    )
-
-                                    setExperiment({
-                                        [context.orderingField]: newOrderingArray,
-                                    })
-
+                                onDelete={(metric) => {
                                     removeSharedMetricFromExperiment(metric.id)
                                     closeSharedMetricModal()
                                 }}

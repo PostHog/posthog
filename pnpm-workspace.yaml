@@ -7,10 +7,10 @@ packages:
     - common/tailwind
     - frontend
     - playwright
-    - plugin-server
+    - nodejs
     - products/*
     - docs/onboarding
-    - products/mcp/typescript
+    - services/mcp/typescript
     - rust/cyclotron-node
 
 # posthog-js needs to be excluded because we only update our CDN

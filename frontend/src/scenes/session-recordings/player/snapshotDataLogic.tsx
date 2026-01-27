@@ -5,10 +5,7 @@ import posthog from 'posthog-js'
 import '@posthog/rrweb-types'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { normalizeMode } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -43,8 +40,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     connect((props: SnapshotLogicProps) => ({
         actions: [windowIdRegistryLogic({ sessionRecordingId: props.sessionRecordingId }), ['registerWindowId']],
         values: [
-            featureFlagLogic,
-            ['featureFlags'],
             windowIdRegistryLogic({ sessionRecordingId: props.sessionRecordingId }),
             ['uuidToIndex', 'getWindowId'],
         ],
@@ -165,9 +160,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers
                     )
 
-                    const processingMode = values.featureFlags[FEATURE_FLAGS.REPLAY_YIELDING_PROCESSING]
-                    const decompressionMode = normalizeMode(processingMode)
-
                     // Create a local copy of the registry state for synchronous lookups during parsing
                     const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
                     const registerWindowIdCallback = (uuid: string): number => {
@@ -184,7 +176,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         await parseEncodedSnapshots(
                             response,
                             props.sessionRecordingId,
-                            decompressionMode,
                             posthog,
                             registerWindowIdCallback
                         )
@@ -220,12 +211,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 'file-file': {
                     snapshots: snapshots,
                     source: { source: SnapshotSourceType.file },
+                    sourceLoaded: true,
                 },
             }
+            // Set sources first, then trigger the success action
+            // Otherwise processSnapshotsAsync will see null sources
+            actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
             actions.loadSnapshotsForSourceSuccess({
                 source: { source: SnapshotSourceType.file },
             })
-            actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
         },
 
         loadSnapshots: () => {

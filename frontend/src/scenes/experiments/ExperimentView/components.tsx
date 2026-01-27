@@ -2,7 +2,16 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCopy, IconEye, IconFlask, IconPause, IconPlusSmall, IconRefresh } from '@posthog/icons'
+import {
+    IconCopy,
+    IconEye,
+    IconFlask,
+    IconPause,
+    IconPlay,
+    IconPlusSmall,
+    IconRefresh,
+    IconStopFilled,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -23,6 +32,7 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -54,8 +64,8 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     ExperimentConclusion,
+    ExperimentProgressStatus,
     InsightShortId,
-    ProgressStatus,
 } from '~/types'
 
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
@@ -275,8 +285,13 @@ export function ResultsHeader(): JSX.Element {
 
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
+    const { isVisible: isPageVisible } = usePageVisibility()
 
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         let count = 1
         let direction = 1
 
@@ -290,7 +305,7 @@ export function EllipsisAnimation(): JSX.Element {
         }, 300)
 
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     return <span>{ellipsis}</span>
 }
@@ -329,7 +344,8 @@ export function PageHeaderCustom(): JSX.Element {
         updateExperiment,
         setHogfettiTrigger,
     } = useActions(experimentLogic)
-    const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
+    const { openShipVariantModal, openStopExperimentModal, openPauseExperimentModal, openResumeExperimentModal } =
+        useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
@@ -505,6 +521,27 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <ResetButton />
 
+                        {!experiment.end_date &&
+                            experiment.feature_flag &&
+                            (experiment.feature_flag.active ? (
+                                <ButtonPrimitive
+                                    variant="danger"
+                                    menuItem
+                                    data-attr="pause-experiment"
+                                    onClick={() => openPauseExperimentModal()}
+                                >
+                                    <IconPause /> Pause experiment
+                                </ButtonPrimitive>
+                            ) : (
+                                <ButtonPrimitive
+                                    menuItem
+                                    data-attr="resume-experiment"
+                                    onClick={() => openResumeExperimentModal()}
+                                >
+                                    <IconPlay /> Resume experiment
+                                </ButtonPrimitive>
+                            ))}
+
                         {!experiment.end_date && (
                             <ButtonPrimitive
                                 variant="danger"
@@ -512,9 +549,11 @@ export function PageHeaderCustom(): JSX.Element {
                                 data-attr="stop-experiment"
                                 onClick={() => openStopExperimentModal()}
                             >
-                                <IconPause /> Stop
+                                <IconStopFilled /> Stop
                             </ButtonPrimitive>
                         )}
+                        <PauseExperimentModal />
+                        <ResumeExperimentModal />
                     </ScenePanelActionsSection>
                 </ScenePanel>
             )}
@@ -673,10 +712,87 @@ export function StopExperimentModal(): JSX.Element {
                     later if needed.
                 </div>
                 <div>
-                    To roll out a specific variant to all users, use the 'Ship a variant' button or adjust the feature
-                    flag settings.
+                    To roll out a specific variant to all users instead, use the 'Ship a variant' button or adjust the
+                    feature flag settings.
                 </div>
                 <ConclusionForm />
+            </div>
+        </LemonModal>
+    )
+}
+
+export function PauseExperimentModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { pauseExperiment } = useActions(experimentLogic)
+    const { closePauseExperimentModal } = useActions(modalsLogic)
+    const { isPauseExperimentModalOpen } = useValues(modalsLogic)
+
+    return (
+        <LemonModal
+            isOpen={isPauseExperimentModalOpen}
+            onClose={closePauseExperimentModal}
+            title="Pause experiment"
+            width={600}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={closePauseExperimentModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => pauseExperiment()}
+                        type="primary"
+                        status="danger"
+                        disabledReason={!experiment.feature_flag && 'No feature flag linked'}
+                    >
+                        Pause experiment
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div>
+                    Pausing the experiment will <b>disable the feature flag</b>, preventing any users from seeing the
+                    experiment variants. This is useful when you need to quickly stop exposing users to the experiment.
+                </div>
+                <div>The experiment can be resumed at any time. All collected data will be preserved.</div>
+            </div>
+        </LemonModal>
+    )
+}
+
+export function ResumeExperimentModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { resumeExperiment } = useActions(experimentLogic)
+    const { closeResumeExperimentModal } = useActions(modalsLogic)
+    const { isResumeExperimentModalOpen } = useValues(modalsLogic)
+
+    return (
+        <LemonModal
+            isOpen={isResumeExperimentModalOpen}
+            onClose={closeResumeExperimentModal}
+            title="Resume experiment"
+            width={600}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={closeResumeExperimentModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => resumeExperiment()}
+                        type="primary"
+                        disabledReason={!experiment.feature_flag && 'No feature flag linked'}
+                    >
+                        Resume experiment
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div>
+                    Resuming the experiment will <b>enable the feature flag</b>, allowing users to see the experiment
+                    variants again. This will continue the experiment from where it was paused.
+                </div>
+                <div>All previously collected data is preserved and new events will be tracked.</div>
             </div>
         </LemonModal>
     )
@@ -831,7 +947,7 @@ export const ResetButton = (): JSX.Element => {
     )
 }
 
-export function StatusTag({ status }: { status: ProgressStatus }): JSX.Element {
+export function StatusTag({ status }: { status: ExperimentProgressStatus }): JSX.Element {
     return (
         <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
             <b className="uppercase">{status}</b>

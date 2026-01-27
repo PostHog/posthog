@@ -3,6 +3,8 @@ import { router } from 'kea-router'
 
 import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -19,7 +21,7 @@ import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 export const scene: SceneExport = {
     component: EarlyAccessFeatures,
     logic: earlyAccessFeaturesLogic,
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.EARLY_ACCESS_FEATURES,
 }
 
 const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
@@ -45,9 +47,23 @@ export function EarlyAccessFeatures(): JSX.Element {
                     type: sceneConfigurations[Scene.EarlyAccessFeatures].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton size="small" type="primary" to={urls.earlyAccessFeature('new')}>
-                        New feature
-                    </LemonButton>
+                    <AppShortcut
+                        name="NewEarlyAccessFeature"
+                        keybind={[keyBinds.new]}
+                        intent="New early access feature"
+                        interaction="click"
+                        scope={Scene.EarlyAccessFeatures}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            to={urls.earlyAccessFeature('new')}
+                            tooltip="New feature"
+                            data-attr="create-feature"
+                        >
+                            New feature
+                        </LemonButton>
+                    </AppShortcut>
                 }
             />
 
@@ -103,6 +119,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                                                       : 'default'
                                             }
                                             className="uppercase cursor-default"
+                                            data-attr="feature-stage"
                                         >
                                             {stage}
                                         </LemonTag>

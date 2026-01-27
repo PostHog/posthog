@@ -385,7 +385,7 @@ class Migration(migrations.Migration):
 
 Deploy this separately. Validation scans the table but uses `SHARE UPDATE EXCLUSIVE` lock which allows normal reads and writes but blocks other schema changes on that table.
 
-**Note:** This pattern also works for `FOREIGN KEY` constraints.
+**Note:** This pattern applies to `FOREIGN KEY` constraints on existing columns. New nullable FK columns don't need it - the column starts empty, so there's nothing to validate.
 
 ### Key Points
 

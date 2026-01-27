@@ -1,6 +1,6 @@
 from typing import Any
 
-import posthog
+import posthoganalytics
 import structlog
 
 from llm_gateway.config import get_settings
@@ -16,10 +16,10 @@ def _ensure_initialized() -> bool:
         return True
 
     settings = get_settings()
-    if not settings.posthog_api_key:
+    if not settings.posthog_project_token:
         return False
 
-    posthog.api_key = settings.posthog_api_key  # type: ignore[attr-defined]
+    posthoganalytics.api_key = settings.posthog_project_token
     _initialized = True
     return True
 
@@ -34,7 +34,7 @@ def capture_exception(
         return
 
     try:
-        posthog.capture(  # type: ignore[attr-defined]
+        posthoganalytics.capture(
             distinct_id="llm-gateway-service",
             event="$exception",
             properties={

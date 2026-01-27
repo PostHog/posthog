@@ -5,7 +5,12 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
+import {
+    DEFAULT_OAUTH_SCOPES,
+    MCP_SERVER_OAUTH_SCOPES,
+    getMinimumEquivalentScopes,
+    getScopeDescription,
+} from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
@@ -18,14 +23,26 @@ export type OAuthAuthorizationFormValues = {
     access_type: 'all' | 'organizations' | 'teams'
 }
 
-const oauthAuthorize = async (values: OAuthAuthorizationFormValues & { allow: boolean }): Promise<void> => {
+const isNativeProtocol = (url: string): boolean => {
+    try {
+        const parsed = new URL(url)
+        return !['http:', 'https:'].includes(parsed.protocol)
+    } catch {
+        return false
+    }
+}
+
+const oauthAuthorize = async (
+    values: OAuthAuthorizationFormValues & { allow: boolean; scopes: string[] },
+    onNativeRedirectComplete?: () => void
+): Promise<void> => {
     try {
         const response = await api.create('/oauth/authorize/', {
             client_id: router.values.searchParams['client_id'],
             redirect_uri: router.values.searchParams['redirect_uri'],
             response_type: router.values.searchParams['response_type'],
             state: router.values.searchParams['state'],
-            scope: router.values.searchParams['scope'],
+            scope: values.scopes.join(' '),
             code_challenge: router.values.searchParams['code_challenge'],
             code_challenge_method: router.values.searchParams['code_challenge_method'],
             nonce: router.values.searchParams['nonce'],
@@ -38,7 +55,13 @@ const oauthAuthorize = async (values: OAuthAuthorizationFormValues & { allow: bo
         })
 
         if (response.redirect_to) {
+            const isNative = isNativeProtocol(response.redirect_to)
             location.href = response.redirect_to
+
+            if (isNative && onNativeRedirectComplete) {
+                // Small delay to ensure redirect is initiated before showing success
+                setTimeout(() => onNativeRedirectComplete(), 100)
+            }
         }
     } catch (error: any) {
         lemonToast.error('Something went wrong while authorizing the application')
@@ -56,8 +79,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
+        setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
+        setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
+        loadResourceScopes: (resourceUrl: string) => ({ resourceUrl }),
+        setResourceScopesLoading: (loading: boolean) => ({ loading }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
+        setAuthorizationComplete: (complete: boolean) => ({ complete }),
     }),
     loaders({
         allTeams: [
@@ -88,10 +116,36 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     scoped_teams: values.oauthAuthorization.scoped_teams,
                     access_type: values.oauthAuthorization.access_type,
                     allow: false,
+                    scopes: values.scopes,
                 })
             } finally {
                 actions.setCanceling(false)
             }
+        },
+        loadResourceScopes: async ({ resourceUrl }) => {
+            // Fetch scopes from the OAuth Protected Resource Metadata endpoint
+            // Per RFC 9728, the metadata is at /.well-known/oauth-protected-resource
+            actions.setResourceScopesLoading(true)
+            try {
+                const url = new URL(resourceUrl)
+                const metadataUrl = `${url.origin}/.well-known/oauth-protected-resource`
+                const response = await fetch(metadataUrl)
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch protected resource metadata: ${response.status}`)
+                }
+                const metadata = await response.json()
+                if (metadata.scopes_supported && Array.isArray(metadata.scopes_supported)) {
+                    actions.setScopes(metadata.scopes_supported)
+                    return
+                }
+            } catch (e) {
+                // Fall back to hardcoded scopes on any error
+                console.warn('Failed to fetch resource scopes, using fallback:', e)
+            } finally {
+                actions.setResourceScopesLoading(false)
+            }
+            // Fallback to hardcoded MCP scopes
+            actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
         },
     })),
     reducers({
@@ -107,10 +161,34 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setRequiredAccessLevel: (_, { requiredAccessLevel }) => requiredAccessLevel,
             },
         ],
+        scopesWereDefaulted: [
+            false,
+            {
+                setScopesWereDefaulted: (_, { scopesWereDefaulted }) => scopesWereDefaulted,
+            },
+        ],
+        isMcpResource: [
+            false,
+            {
+                setIsMcpResource: (_, { isMcpResource }) => isMcpResource,
+            },
+        ],
+        resourceScopesLoading: [
+            false,
+            {
+                setResourceScopesLoading: (_, { loading }) => loading,
+            },
+        ],
         isCanceling: [
             false,
             {
                 setCanceling: (_, { canceling }) => canceling,
+            },
+        ],
+        authorizationComplete: [
+            false,
+            {
+                setAuthorizationComplete: (_, { complete }) => complete,
             },
         ],
     }),
@@ -123,7 +201,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }
         },
     })),
-    forms(() => ({
+    forms(({ actions }) => ({
         oauthAuthorization: {
             defaults: {
                 scoped_organizations: [],
@@ -142,10 +220,15 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
-                await oauthAuthorize({
-                    ...values,
-                    allow: true,
-                })
+                const scopes = oauthAuthorizeLogic.values.scopes
+                await oauthAuthorize(
+                    {
+                        ...values,
+                        allow: true,
+                        scopes,
+                    },
+                    () => actions.setAuthorizationComplete(true)
+                )
             },
         },
     })),
@@ -180,17 +263,49 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
     })),
-    urlToAction(({ actions }) => ({
-        '/oauth/authorize': (_, searchParams) => {
+    urlToAction(({ actions }) => {
+        const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
-            const scopes = requestedScopes.length === 0 ? DEFAULT_OAUTH_SCOPES : requestedScopes
+            const resourceParam = searchParams['resource'] as string | undefined
+
+            // Check if this is an MCP server request with no scopes specified
+            // Per MCP spec, when clients don't specify scopes, they should use all scopes_supported
+            // from the Protected Resource Metadata. We default to MCP scopes for known MCP resources.
+            let isMcpResource = false
+            if (resourceParam) {
+                try {
+                    const resourceUrl = new URL(resourceParam)
+                    // Strict hostname check to prevent URL manipulation attacks
+                    isMcpResource = resourceUrl.hostname === 'mcp.posthog.com'
+                } catch {
+                    // Invalid URL, not an MCP resource
+                }
+            }
+            const scopesWereDefaulted = requestedScopes.length === 0
+
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
             const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
 
-            actions.setScopes(scopes)
+            actions.setScopesWereDefaulted(scopesWereDefaulted)
+            actions.setIsMcpResource(isMcpResource)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
-        },
-    })),
+
+            if (scopesWereDefaulted && isMcpResource && resourceParam) {
+                // Fetch scopes dynamically from the protected resource metadata
+                actions.loadResourceScopes(resourceParam)
+            } else if (scopesWereDefaulted) {
+                // Fallback to minimal OIDC scopes for non-MCP clients
+                actions.setScopes(DEFAULT_OAUTH_SCOPES)
+            } else {
+                actions.setScopes(requestedScopes)
+            }
+        }
+
+        return {
+            '/oauth/authorize': handleAuthorize,
+            '/oauth/authorize/': handleAuthorize,
+        }
+    }),
 ])

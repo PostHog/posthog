@@ -9,7 +9,7 @@ import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'r
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List } from 'react-virtualized/dist/es/List'
 
-import { IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -39,6 +39,8 @@ export interface LemonInputSelectOption<T = string> {
     tooltip?: TooltipTitle
     /** @internal */
     __isInput?: boolean
+    /** @internal - marks custom values (user-created, not in original options) */
+    __isCustomValue?: boolean
     /** Original typed value - when provided, this will be used in onChange callbacks */
     value?: T
 }
@@ -63,6 +65,10 @@ export type LemonInputSelectProps<T = string> = Pick<
     allowCustomValues?: boolean
     /** Disable editing functionality (hides edit icons) while still allowing custom values */
     disableEditing?: boolean
+    /** Format the label for custom values. Supports text (e.g. appending " (new entry)") and html. */
+    formatCreateLabel?: (input: string) => React.ReactNode
+    /** Transform input value as user types, e.g. normalization like replacing spaces with dashes. */
+    inputTransform?: (input: string) => string
     emptyStateComponent?: React.ReactNode
     onChange?: (newValue: T[]) => void
     onBlur?: () => void
@@ -98,6 +104,8 @@ export function LemonInputSelect<T = string>({
     mode,
     disabled,
     disableFiltering = false,
+    formatCreateLabel,
+    inputTransform,
     disablePrompting = false,
     allowCustomValues = false,
     disableEditing = false,
@@ -206,7 +214,9 @@ export function LemonInputSelect<T = string>({
         // Custom values are shown as options before other options (Map guarantees preserves insertion order)
         const allOptionsMap = new Map<string, LemonInputSelectOption<T>>()
         for (const customValue of customValues) {
-            allOptionsMap.set(customValue, { key: customValue, label: customValue })
+            // Mark custom values with __isCustomValue flag so they use formatCreateLabel in the dropdown not only when typing
+            // but also when re-opening the dropdown after typing
+            allOptionsMap.set(customValue, { key: customValue, label: customValue, __isCustomValue: true })
         }
         for (const option of options) {
             allOptionsMap.set(option.key, option)
@@ -220,7 +230,7 @@ export function LemonInputSelect<T = string>({
         const ret: LemonInputSelectOption<T>[] = []
         // Show the input value if custom values are allowed and it's not in the list
         if (inputValue && !stringKeys.includes(inputValue)) {
-            if (allowCustomValues) {
+            if (allowCustomValues && !optionMaps.keySet.has(inputValue)) {
                 const unescapedInputValue = inputValue.replaceAll('\\,', ',') // Transform escaped commas to plain commas
                 ret.push({ key: unescapedInputValue, label: unescapedInputValue, __isInput: true })
             }
@@ -240,8 +250,8 @@ export function LemonInputSelect<T = string>({
             relevantOptions = Array.from(allOptionsMap.values())
         }
         for (const option of relevantOptions) {
-            if (option.key === inputValue) {
-                // We also don't want to show the input-based option again
+            if (option.key === inputValue && option.__isInput) {
+                // We don't want to show the input-based option again. The check for __isInput covers the case the user types something that is already an option, but we want to keep the original option
                 continue
             }
             if (mode === 'single' && values.length > 0 && option.key === getStringKey(values[0])) {
@@ -269,6 +279,7 @@ export function LemonInputSelect<T = string>({
         disableFiltering,
         values.length,
         virtualized,
+        optionMaps,
     ])
 
     // Reset the selected index when the visible options change
@@ -277,6 +288,11 @@ export function LemonInputSelect<T = string>({
     }, [visibleOptions.map((option) => option.key).join(':::')])
 
     const setInputValue = (newValue: string): void => {
+        // Apply input transformation if provided
+        if (inputTransform) {
+            newValue = inputTransform(newValue)
+        }
+
         // Special case for multiple mode with custom values
         if (separateOnComma && newValue.match(NON_ESCAPED_COMMA_REGEX)) {
             const newValues = [...values]
@@ -368,10 +384,16 @@ export function LemonInputSelect<T = string>({
             popoverFocusRef.current = false
             // Prevent propagating to Popover's onClickInside, which would set popoverFocusRef.current back to true
             popoverOptionClickEvent?.stopPropagation()
+            // Remove focus from input after selecting an option, since in single mode that feels better UX-wise
+            inputRef.current?.blur()
         }
 
         if (stringKeys.includes(item)) {
-            _removeItem(item)
+            // In single mode, clicking an already-selected value should keep it selected, not toggle it off
+            // (clicking an already selected item to toggle it off makes sense for multiple-select, not for single-select)
+            if (mode !== 'single') {
+                _removeItem(item)
+            }
         } else {
             _addItem(item, itemBeingEditedIndex)
         }
@@ -400,9 +422,22 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onFocus = (): void => {
+        // In single mode, when focusing with a selected value, enter edit mode right away
+        if (mode === 'single' && values.length > 0 && !inputValue) {
+            setInputValue(getStringKey(values[0]))
+        }
         onFocus?.()
         setShowPopover(true)
         popoverFocusRef.current = true
+    }
+
+    const _onClick = (): void => {
+        // Open dropdown on click even if input already has focus
+        // This handles the case where user clicked outside to close dropdown but input stayed focused
+        if (!showPopover) {
+            setShowPopover(true)
+            popoverFocusRef.current = true
+        }
     }
 
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -420,6 +455,14 @@ export function LemonInputSelect<T = string>({
                 const newValues = [...values]
                 newValues.pop()
                 onChange?.(newValues)
+            } else if (mode === 'single') {
+                // In single mode, "selected all + backspace" should clear the selection
+                const input = e.currentTarget
+                if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
+                    e.preventDefault()
+                    setInputValue('')
+                    onChange?.([])
+                }
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
@@ -448,6 +491,18 @@ export function LemonInputSelect<T = string>({
     )
 
     const valuesPrefix = useMemo(() => {
+        // For single mode with a selected value and no active input, show the value as prefix since
+        // showing the entered value as placeholder was unintuitive
+        if (mode === 'single' && values.length > 0 && !inputValue) {
+            return (
+                <PopoverReferenceContext.Provider value={null}>
+                    <span className="font-medium truncate">
+                        {allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0])}
+                    </span>
+                </PopoverReferenceContext.Provider>
+            )
+        }
+
         if (mode !== 'multiple' || values.length === 0 || displayMode !== 'snacks') {
             return null
         }
@@ -470,30 +525,32 @@ export function LemonInputSelect<T = string>({
             </PopoverReferenceContext.Provider>
         )
     }, [
-        allOptionsMap,
-        allowCustomValues,
-        disableEditing,
-        itemBeingEditedIndex,
-        getStringKey,
-        displayMode,
+        mode,
         values,
         values.length,
-        mode,
+        inputValue,
+        allOptionsMap,
+        getStringKey,
+        getDisplayLabel,
+        displayMode,
+        itemBeingEditedIndex,
         options,
+        allowCustomValues,
+        disableEditing,
         _onActionItem,
         sortable,
         handleDragEnd,
     ])
 
-    const valuesAndEditButtonSuffix = useMemo(() => {
-        // The edit button only applies to single-select mode with custom values allowed, when in no-input state
-        const isEditButtonVisible =
+    const valuesAndClearButtonSuffix = useMemo(() => {
+        // In single-select mode with custom values, show a clear button when a value is selected and not in edit mode
+        const isClearButtonVisible =
             mode !== 'multiple' && allowCustomValues && !disableEditing && values.length && !inputValue
 
         const postInputValues =
             displayMode === 'snacks' && itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
 
-        if (!isEditButtonVisible && postInputValues.length === 0) {
+        if (!isClearButtonVisible && postInputValues.length === 0) {
             return null
         }
 
@@ -509,7 +566,7 @@ export function LemonInputSelect<T = string>({
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
                 />
-                {isEditButtonVisible && (
+                {isClearButtonVisible && (
                     <div
                         className={clsx(
                             'grow flex flex-col items-end LemonInputSelect__edit-button-wrapper',
@@ -517,13 +574,14 @@ export function LemonInputSelect<T = string>({
                         )}
                     >
                         <LemonButton
-                            icon={<IconPencil />}
-                            onClick={() => {
-                                setInputValue(getStringKey(values[0]))
-                                inputRef.current?.focus()
-                                _onFocus()
+                            icon={<IconX />}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setInputValue('')
+                                onChange?.([])
                             }}
-                            tooltip="Edit current value"
+                            tooltip="Clear selection"
                             noPadding
                         />
                     </div>
@@ -578,6 +636,37 @@ export function LemonInputSelect<T = string>({
 
     const wasLimitReached = values.length >= limit
 
+    const getInputLabel = (option: LemonInputSelectOption<T>): React.ReactNode => {
+        if (formatCreateLabel) {
+            return formatCreateLabel(option.key)
+        }
+        return mode === 'multiple' ? `Add "${option.key}"` : option.key
+    }
+
+    const getOptionIcon = (
+        option: LemonInputSelectOption<T>,
+        isSelected: boolean
+    ): React.ReactElement | null | undefined => {
+        if (option.__isInput) {
+            return undefined
+        }
+
+        if (isSelected) {
+            return mode === 'multiple' ? (
+                // No pointer events, since it's only for visual feedback
+                <LemonCheckbox checked={true} className="pointer-events-none" />
+            ) : (
+                <IconCheck />
+            )
+        }
+
+        if (mode === 'multiple') {
+            return <LemonCheckbox checked={false} className="pointer-events-none" />
+        }
+
+        return undefined
+    }
+
     return (
         <LemonDropdown
             matchWidth
@@ -587,6 +676,9 @@ export function LemonInputSelect<T = string>({
             onClickOutside={() => {
                 popoverFocusRef.current = false
                 setShowPopover(false)
+                // It seems more intuitive to lose focus of drop down entirely when clicking outside of the field.
+                // If this behavior at some point is not desired for multiple mode anymore, it should be kept for single mode.
+                inputRef.current?.blur()
             }}
             onClickInside={(e) => {
                 popoverFocusRef.current = true
@@ -690,15 +782,7 @@ export function LemonInputSelect<T = string>({
                                                             isDisabled ? `Limit of ${limit} options reached` : undefined
                                                         }
                                                         tooltip={option.tooltip}
-                                                        icon={
-                                                            mode === 'multiple' && !option.__isInput ? (
-                                                                // No pointer events, since it's only for visual feedback
-                                                                <LemonCheckbox
-                                                                    checked={isSelected}
-                                                                    className="pointer-events-none"
-                                                                />
-                                                            ) : undefined
-                                                        }
+                                                        icon={getOptionIcon(option, isSelected)}
                                                         sideAction={
                                                             !option.__isInput && allowCustomValues && !disableEditing
                                                                 ? {
@@ -727,11 +811,11 @@ export function LemonInputSelect<T = string>({
                                                         }
                                                     >
                                                         <span className="whitespace-nowrap ph-no-capture truncate">
-                                                            {!option.__isInput
-                                                                ? (option.labelComponent ?? option.label) // Regular option
-                                                                : mode === 'multiple'
-                                                                  ? `Add "${option.key}"` // Input-based option
-                                                                  : option.key}
+                                                            {
+                                                                !option.__isInput && !option.__isCustomValue
+                                                                    ? (option.labelComponent ?? option.label) // Regular option
+                                                                    : getInputLabel(option) // Input-based option
+                                                            }
                                                         </span>
                                                     </LemonButton>
                                                 )
@@ -756,12 +840,7 @@ export function LemonInputSelect<T = string>({
                                         onMouseEnter={() => setSelectedIndex(index)}
                                         disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
                                         tooltip={option.tooltip}
-                                        icon={
-                                            mode === 'multiple' && !option.__isInput ? (
-                                                // No pointer events, since it's only for visual feedback
-                                                <LemonCheckbox checked={isSelected} className="pointer-events-none" />
-                                            ) : undefined
-                                        }
+                                        icon={getOptionIcon(option, isSelected)}
                                         sideAction={
                                             !option.__isInput && allowCustomValues && !disableEditing
                                                 ? {
@@ -787,11 +866,11 @@ export function LemonInputSelect<T = string>({
                                         }
                                     >
                                         <span className="whitespace-nowrap ph-no-capture truncate">
-                                            {!option.__isInput
-                                                ? (option.labelComponent ?? option.label) // Regular option
-                                                : mode === 'multiple'
-                                                  ? `Add "${option.key}"` // Input-based option
-                                                  : option.key}
+                                            {
+                                                !option.__isInput && !option.__isCustomValue
+                                                    ? (option.labelComponent ?? option.label) // Regular option
+                                                    : getInputLabel(option) // Input-based option
+                                            }
                                         </span>
                                     </LemonButton>
                                 )
@@ -831,7 +910,7 @@ export function LemonInputSelect<T = string>({
                         : values.length === 0
                           ? placeholder
                           : mode === 'single'
-                            ? (allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0]))
+                            ? undefined // When value is selected in single mode, no placeholder (value shown but rendered as prefix)
                             : allowCustomValues
                               ? 'Add value'
                               : disablePrompting
@@ -844,13 +923,14 @@ export function LemonInputSelect<T = string>({
                 suffix={
                     <>
                         {countPlaceholder}
-                        {valuesAndEditButtonSuffix}
+                        {valuesAndClearButtonSuffix}
                     </>
                 }
                 onFocus={_onFocus}
                 onBlur={_onBlur}
                 value={inputValue}
                 onChange={setInputValue}
+                onClick={_onClick}
                 onKeyDown={_onKeyDown}
                 disabled={disabled}
                 autoFocus={autoFocus}

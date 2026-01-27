@@ -53,6 +53,9 @@ Examples:
     context_prompt_template: str = "Creates a new A/B test experiment in the project"
     args_schema: type[BaseModel] = CreateExperimentArgs
 
+    def get_required_resource_access(self):
+        return [("experiment", "editor")]
+
     async def _arun_impl(
         self,
         name: str,
@@ -91,6 +94,13 @@ Examples:
             if len(variants) < 2:
                 raise ValueError(
                     f"Feature flag '{feature_flag_key}' must have at least 2 variants for an experiment (e.g., control and test)"
+                )
+
+            # Validate that the first variant is "control" - required for experiment statistics
+            if variants[0].get("key") != "control":
+                raise ValueError(
+                    f"Feature flag '{feature_flag_key}' must have 'control' as the first variant. "
+                    f"Found '{variants[0].get('key')}' instead. Please update the feature flag variants."
                 )
 
             # If flag already exists and is already used by another experiment, raise error
@@ -206,6 +216,9 @@ class ExperimentSummaryTool(MaxTool):
 
     args_schema: type[BaseModel] = ExperimentSummaryArgs
 
+    def get_required_resource_access(self):
+        return [("experiment", "viewer")]
+
     async def _analyze_experiment(self, context: MaxExperimentSummaryContext) -> ExperimentSummaryOutput:
         """Analyze experiment and generate summary."""
         try:
@@ -286,6 +299,8 @@ class ExperimentSummaryTool(MaxTool):
             lines.append(f"\n{section_name}:")
             for metric in metrics:
                 lines.append(f"\nMetric: {metric.name}")
+                if metric.goal:
+                    lines.append(f"  Goal: {metric.goal.title()}")
 
                 if not metric.variant_results:
                     continue
@@ -301,6 +316,9 @@ class ExperimentSummaryTool(MaxTool):
                             ci_low, ci_high = variant.credible_interval[:2]
                             lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
 
+                        if hasattr(variant, "delta") and variant.delta is not None:
+                            lines.append(f"    Delta (effect size): {variant.delta:.1%}")
+
                         lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
                     else:
                         if hasattr(variant, "p_value") and variant.p_value is not None:
@@ -309,6 +327,9 @@ class ExperimentSummaryTool(MaxTool):
                         if hasattr(variant, "confidence_interval") and variant.confidence_interval:
                             ci_low, ci_high = variant.confidence_interval[:2]
                             lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
+
+                        if hasattr(variant, "delta") and variant.delta is not None:
+                            lines.append(f"    Delta (effect size): {variant.delta:.1%}")
 
                         lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
 

@@ -38,19 +38,22 @@ class TestSQLMixins(NonAtomicBaseTest):
         mixin = self._node
 
         # Test direct _parse_output method
-        test_output = {"query": "SELECT count() FROM events"}
+        test_output = {"query": "SELECT count() FROM events", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
         self.assertEqual(
-            result, SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT count() FROM events"))
+            result,
+            SQLSchemaGeneratorOutput(
+                query=AssistantHogQLQuery(query="SELECT count() FROM events"), name="", description=""
+            ),
         )
 
     def test_parse_output_with_empty_query(self):
         """Test parsing with empty query string."""
         mixin = self._node
 
-        test_output = {"query": ""}
+        test_output = {"query": "", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
@@ -60,7 +63,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test that semicolons are removed from the end of queries."""
         mixin = self._node
 
-        test_output = {"query": "SELECT count() FROM events;"}
+        test_output = {"query": "SELECT count() FROM events;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
@@ -70,7 +73,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test that multiple semicolons are removed from the end of queries."""
         mixin = self._node
 
-        test_output = {"query": "SELECT count() FROM events;;;"}
+        test_output = {"query": "SELECT count() FROM events;;;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
@@ -80,7 +83,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test that semicolons in the middle of queries are preserved."""
         mixin = self._node
 
-        test_output = {"query": "SELECT 'hello;world' FROM events;"}
+        test_output = {"query": "SELECT 'hello;world' FROM events;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
@@ -90,7 +93,9 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test successful quality check with simple valid query."""
         mixin = self._node
 
-        valid_output = SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT count() FROM events"))
+        valid_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(query="SELECT count() FROM events"), name="", description=""
+        )
 
         # Should not raise any exception for valid SQL
         await mixin._quality_check_output(valid_output)
@@ -100,7 +105,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         mixin = self._node
 
         valid_output = SQLSchemaGeneratorOutput(
-            query=AssistantHogQLQuery(query="SELECT properties FROM events WHERE {filters}")
+            query=AssistantHogQLQuery(query="SELECT properties FROM events WHERE {filters}"), name="", description=""
         )
 
         # Should not raise any exception for valid SQL with placeholders
@@ -110,7 +115,9 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test quality check failure with an invalid table in the SQL."""
         mixin = self._node
 
-        invalid_output = SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT * FROM nowhere"))
+        invalid_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(query="SELECT * FROM nowhere"), name="", description=""
+        )
 
         with self.assertRaises(PydanticOutputParserException) as context:
             await mixin._quality_check_output(invalid_output)
@@ -123,7 +130,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         mixin = self._node
 
         # Create output with None query using model_construct to bypass validation
-        empty_output = SQLSchemaGeneratorOutput.model_construct(query=None)  # type: ignore[arg-type]
+        empty_output = SQLSchemaGeneratorOutput.model_construct(query=None, name="", description="")  # type: ignore[arg-type]
 
         with self.assertRaises(PydanticOutputParserException) as context:
             await mixin._quality_check_output(empty_output)
@@ -135,7 +142,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test quality check failure with blank query string."""
         mixin = self._node
 
-        blank_output = SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=""))
+        blank_output = SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=""), name="", description="")
 
         with self.assertRaises(PydanticOutputParserException) as context:
             await mixin._quality_check_output(blank_output)
@@ -149,7 +156,9 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         # Create a query that will trigger the "no viable alternative" ANTLR error
         invalid_syntax_output = SQLSchemaGeneratorOutput(
-            query=AssistantHogQLQuery(query="SELECT FROM events")  # Missing column
+            query=AssistantHogQLQuery(query="SELECT FROM events"),
+            name="",
+            description="",  # Missing column
         )
 
         with self.assertRaises(PydanticOutputParserException) as context:
@@ -164,7 +173,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         mixin = self._node
 
         invalid_table_output = SQLSchemaGeneratorOutput(
-            query=AssistantHogQLQuery(query="SELECT count() FROM nonexistent_table")
+            query=AssistantHogQLQuery(query="SELECT count() FROM nonexistent_table"), name="", description=""
         )
 
         with self.assertRaises(PydanticOutputParserException) as context:
@@ -180,7 +189,9 @@ class TestSQLMixins(NonAtomicBaseTest):
         complex_output = SQLSchemaGeneratorOutput(
             query=AssistantHogQLQuery(
                 query="SELECT e.event, p.id FROM events e LEFT JOIN persons p ON e.person_id = p.id LIMIT 10"
-            )
+            ),
+            name="",
+            description="",
         )
 
         # Should not raise any exception for valid complex SQL

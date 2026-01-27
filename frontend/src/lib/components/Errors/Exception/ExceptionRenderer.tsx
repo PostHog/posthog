@@ -35,13 +35,31 @@ export function ExceptionRenderer({
     renderFilteredTrace,
 }: ExceptionRendererProps): JSX.Element {
     const knownException = useMemo(() => KnownExceptionRegistry.match(exception), [exception])
+
+    const hasProperStackTrace = useMemo(() => {
+        const stackTrace = exception.stacktrace
+        if (stackTrace === null || stackTrace === undefined) {
+            return false
+        }
+
+        if (!stackTrace.frames || stackTrace.frames.length === 0) {
+            return false
+        }
+
+        if (stackTrace.frames.some((frame) => frame === null || typeof frame !== 'object')) {
+            return false
+        }
+
+        return true
+    }, [exception])
+
     return (
         <div className={className}>
             <div>{renderExceptionHeader(exception)}</div>
             <div>
                 {match(exception.stacktrace)
                     .when(
-                        (stack) => stack === null || stack === undefined || !stack.frames || stack.frames.length === 0,
+                        () => !hasProperStackTrace,
                         () => renderUndefinedTrace(exception, knownException)
                     )
                     .when(

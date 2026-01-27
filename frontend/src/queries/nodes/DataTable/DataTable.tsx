@@ -7,7 +7,7 @@ import { useCallback, useState } from 'react'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -29,6 +29,7 @@ import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
+import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
@@ -46,6 +47,7 @@ import {
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { EventsFilter } from '~/queries/nodes/EventsNode/EventsFilter'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
@@ -207,9 +209,11 @@ export function DataTable({
         showTestAccountFilters,
         showSearch,
         showEventFilter,
+        showEventsFilter,
         showPropertyFilter,
         showHogQLEditor,
         showReload,
+        showCount,
         showExport,
         showElapsedTime,
         showColumnConfigurator,
@@ -611,8 +615,8 @@ export function DataTable({
                                       sessionId={event?.properties?.$session_id}
                                       recordingStatus={event?.properties?.$recording_status}
                                       timestamp={event?.timestamp}
-                                      hasRecording={event?.properties?.has_recording as boolean | undefined}
-                                      inModal
+                                      hasRecording={event?.properties?.$has_recording as boolean | undefined}
+                                      openPlayerIn={RecordingPlayerType.Modal}
                                       size="xsmall"
                                       type="secondary"
                                   />
@@ -677,6 +681,9 @@ export function DataTable({
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
+        ) : null,
+        showEventsFilter && isEventsQuery(query.source) ? (
+            <EventsFilter key="events-filter" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
@@ -754,8 +761,11 @@ export function DataTable({
         ) : null,
     ].filter((x) => !!x)
 
+    const shouldShowCount = showCount && sourceFeatures.has(QueryFeature.showCount)
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
+        showCount && sourceFeatures.has(QueryFeature.showCount) ? <DataTableCount key="count" /> : null,
+        shouldShowCount && showElapsedTime ? <LemonDivider vertical={true} key="divider" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 

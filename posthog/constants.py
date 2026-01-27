@@ -23,7 +23,6 @@ class AvailableFeature(StrEnum):
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
     GROUP_ANALYTICS = "group_analytics"
-    TAGGING = "tagging"
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
@@ -168,7 +167,6 @@ OFFSET = "offset"
 LIMIT = "limit"
 PERIOD = "period"
 STICKINESS_DAYS = "stickiness_days"
-FORMULA = "formula"
 ENTITY_ID = "entity_id"
 ENTITY_TYPE = "entity_type"
 ENTITY_MATH = "entity_math"
@@ -375,6 +373,11 @@ LOGIN_METHODS = [
         "key": "saml",
         "display": "SAML",
         "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+    {
+        "key": "passkey",
+        "display": "Passkey",
+        "backends": ["posthog.auth.WebauthnBackend"],
     },
 ]
 

@@ -8,8 +8,8 @@ from django.http import StreamingHttpResponse
 
 import pydantic
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
@@ -32,7 +32,6 @@ from posthog.temporal.ai.chat_agent import (
     ChatAgentWorkflow,
     ChatAgentWorkflowInputs,
 )
-from posthog.utils import get_instance_region
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationSerializer
@@ -51,27 +50,6 @@ STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "Time between iterations in the async stream loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
 )
-
-
-def is_team_exempt_from_rate_limits(team_id: int) -> bool:
-    """
-    Check if a team is exempt from AI rate limits using feature flag configuration.
-    Expected payload format: {"EU": [x, y, z], "US": [a, b, c]}
-    """
-    region = get_instance_region()
-    if not region:
-        return False
-
-    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
-        "posthog-ai-rate-limit-exemptions", "posthog-ai-rate-limits"
-    )
-
-    if not isinstance(payload, dict):
-        # Hardcoded fallback
-        return region == "US" and team_id in (2, 87921, 41124, 103224)
-
-    region_config = payload.get(region, [])
-    return isinstance(region_config, list) and team_id in region_config
 
 
 class MessageMinimalSerializer(serializers.Serializer):
@@ -96,12 +74,17 @@ class MessageSerializer(MessageMinimalSerializer):
     session_id = serializers.CharField(required=False)
     deep_research_mode = serializers.BooleanField(required=False, default=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
+    resume_payload = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, data):
         if data["content"] is not None:
             try:
                 message = HumanMessage.model_validate(
-                    {"content": data["content"], "ui_context": data.get("ui_context")}
+                    {
+                        "content": data["content"],
+                        "ui_context": data.get("ui_context"),
+                        "trace_id": str(data["trace_id"]) if data.get("trace_id") else None,
+                    }
                 )
             except pydantic.ValidationError:
                 if settings.DEBUG:
@@ -129,8 +112,9 @@ class MessageSerializer(MessageMinimalSerializer):
         return data
 
 
+@extend_schema(tags=["max"])
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
@@ -157,8 +141,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             not settings.DEBUG
             # Only for streaming
             and self.action == "create"
-            # Strict limits are skipped for exempt teams
-            and not is_team_exempt_from_rate_limits(self.team_id)
+            # No limits for customers
+            and not self.organization.customer_id
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
 
@@ -230,11 +214,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
+        has_resume_payload = serializer.validated_data.get("resume_payload") is not None
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
         # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
-        if not has_message and conversation.status == Conversation.Status.IDLE:
+        if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
         # Skip billing for impersonated sessions (support agents) and mark conversations as internal
@@ -254,6 +239,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             agent_mode=serializer.validated_data.get("agent_mode"),
             use_checkpointer=True,
             is_agent_billable=is_agent_billable,
+            resume_payload=serializer.validated_data.get("resume_payload"),
         )
         workflow_class = ChatAgentWorkflow
 

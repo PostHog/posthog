@@ -8,7 +8,7 @@ use axum::{
 };
 use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
-use common_types::embedding::EmbeddingRequest;
+use common_types::embedding::{EmbeddingRecord, EmbeddingRequest};
 use embedding_worker::{
     ad_hoc::{handle_ad_hoc_request, AdHocEmbeddingRequest, AdHocEmbeddingResponse},
     app_context::AppContext,
@@ -144,7 +144,7 @@ async fn main() {
             };
         }
 
-        let embeddings = match handle_batch(to_process, &offsets, context.clone()).await {
+        let responses = match handle_batch(to_process, &offsets, context.clone()).await {
             Ok(embeddings) => embeddings,
             Err(failure) => {
                 error!("Error handling batch: {failure}");
@@ -160,20 +160,40 @@ async fn main() {
             }
         };
 
-        let results = txn
+        // Write the callback messages
+        let emit_results = txn
             .send_keyed_iter_to_kafka(
-                &context.config.output_topic,
+                &context.config.response_topic,
                 |_| Some(Uuid::now_v7().to_string()),
-                embeddings,
+                &responses,
             )
             .await;
 
-        for result in results.into_iter() {
-            result.expect("We can emit to kafka");
+        for res in emit_results.into_iter() {
+            res.expect("We can emit to kafka");
+        }
+
+        // Write the embedding records to CH
+        let records: Vec<EmbeddingRecord> = responses
+            .into_iter()
+            .flat_map(Vec::<EmbeddingRecord>::from)
+            .collect();
+
+        let emit_results = txn
+            .send_keyed_iter_to_kafka(
+                &context.config.output_topic,
+                |_| Some(Uuid::now_v7().to_string()),
+                &records,
+            )
+            .await;
+
+        for res in emit_results.into_iter() {
+            res.expect("We can emit to kafka");
         }
 
         let metadata = context.kafka_consumer.metadata();
 
+        // Associate the embedding request records with the offsets
         match txn.associate_offsets(offsets, &metadata) {
             Ok(_) => {}
             Err(e) => {
@@ -185,6 +205,7 @@ async fn main() {
             }
         }
 
+        // Commit the transaction
         match txn.commit() {
             Ok(_) => {}
             Err(e) => {

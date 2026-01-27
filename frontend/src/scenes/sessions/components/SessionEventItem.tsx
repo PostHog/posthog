@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useActions } from 'kea'
 
 import {
     BaseIcon,
@@ -10,13 +11,15 @@ import {
     IconLeave,
     IconLogomark,
     IconTerminal,
+    IconVideoCamera,
 } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { RecordingEventType } from '~/types'
 
@@ -102,6 +105,9 @@ export interface SessionEventItemProps {
     isExpanded: boolean
     onToggleExpand: (index: number) => void
     onLoadEventDetails?: (eventId: string, eventName: string) => void
+    sessionId?: string
+    sessionStartTimestamp?: string
+    hasRecording?: boolean
 }
 
 export function SessionEventItem({
@@ -110,9 +116,30 @@ export function SessionEventItem({
     isExpanded,
     onToggleExpand,
     onLoadEventDetails,
+    sessionId,
+    sessionStartTimestamp,
+    hasRecording,
 }: SessionEventItemProps): JSX.Element {
     const EventIcon = eventToIcon(event.event)
     const highlightColor = getEventHighlightColor(event)
+
+    const playerLogicProps = sessionId
+        ? { sessionRecordingId: sessionId, playerKey: `session-profile-${sessionId}` }
+        : { sessionRecordingId: '', playerKey: 'session-profile-key' }
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic(playerLogicProps))
+
+    const handleJumpToRecording = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        if (!sessionStartTimestamp || !event.timestamp || !seekToTime) {
+            return
+        }
+        const sessionStart = new Date(sessionStartTimestamp).getTime()
+        const eventTime = new Date(event.timestamp).getTime()
+        const offsetMs = Math.max(0, eventTime - sessionStart)
+        seekToTime(offsetMs)
+
+        document.getElementById('session-recording-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
 
     const handleToggle = (): void => {
         if (!isExpanded && !event.fullyLoaded && onLoadEventDetails) {
@@ -173,15 +200,27 @@ export function SessionEventItem({
                         )
                     )}
                 </div>
-                <LemonButton
-                    icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                    size="small"
-                    noPadding
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        handleToggle()
-                    }}
-                />
+                <div className="flex items-center gap-1">
+                    {hasRecording && (
+                        <Tooltip title="Jump to this event in recording">
+                            <LemonButton
+                                icon={<IconVideoCamera />}
+                                size="small"
+                                noPadding
+                                onClick={handleJumpToRecording}
+                            />
+                        </Tooltip>
+                    )}
+                    <LemonButton
+                        icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                        size="small"
+                        noPadding
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            handleToggle()
+                        }}
+                    />
+                </div>
             </div>
 
             {isExpanded && (

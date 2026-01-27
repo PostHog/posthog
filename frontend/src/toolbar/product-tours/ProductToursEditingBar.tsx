@@ -6,6 +6,7 @@ import {
     IconCursorClick,
     IconMagicWand,
     IconMessage,
+    IconPlay,
     IconPlus,
     IconQuestion,
     IconTrash,
@@ -14,6 +15,7 @@ import {
 import { LemonButton, LemonInput, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { cn } from 'lib/utils/css-classes'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 
@@ -60,6 +62,7 @@ export function ProductToursEditingBar(): JSX.Element | null {
         editStep,
         removeStep,
         saveTour,
+        previewTour,
         generateWithAI,
         setTourFormValue,
         addStep,
@@ -110,6 +113,8 @@ export function ProductToursEditingBar(): JSX.Element | null {
         return null
     }
 
+    const isFreshTour = stepCount === 0 && editorState.mode === 'idle'
+
     return (
         <>
             <div
@@ -133,9 +138,6 @@ export function ProductToursEditingBar(): JSX.Element | null {
 
                 {/* Center: Step buttons with titles */}
                 <div className="flex-1 flex items-center justify-center gap-1.5">
-                    {stepCount === 0 && editorState.mode === 'idle' && (
-                        <span className="text-muted text-sm">Click + to start adding steps</span>
-                    )}
                     {steps.map((step: TourStep, index: number) => {
                         const isActive = editingStepIndex === index
                         const isDragging = dragIndex === index
@@ -204,17 +206,17 @@ export function ProductToursEditingBar(): JSX.Element | null {
                         items={[
                             {
                                 icon: <IconCursorClick />,
-                                label: 'Element step',
+                                label: 'Element tooltip',
                                 onClick: () => addStep('element'),
                             },
                             {
                                 icon: <IconMessage />,
-                                label: 'Modal step',
+                                label: 'Pop-up',
                                 onClick: () => addStep('modal'),
                             },
                             {
                                 icon: <IconQuestion />,
-                                label: 'Survey step',
+                                label: 'Survey',
                                 onClick: () => addStep('survey'),
                             },
                         ]}
@@ -224,8 +226,14 @@ export function ProductToursEditingBar(): JSX.Element | null {
                         <button
                             type="button"
                             disabled={aiGenerating || editorState.mode !== 'idle'}
-                            className="w-6 h-6 rounded-md border border-dashed border-border flex items-center justify-center text-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-50 ml-1"
+                            className={cn(
+                                isFreshTour ? 'py-2 px-4' : 'w-6 h-6',
+                                'cursor-pointer rounded-md border border-dashed border-border flex items-center justify-center text-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-50 ml-1'
+                            )}
                         >
+                            {isFreshTour && (
+                                <span className="text-muted text-sm mr-2">Click to start adding steps</span>
+                            )}
                             <IconPlus className="w-3 h-3" />
                         </button>
                     </LemonMenu>
@@ -250,8 +258,20 @@ export function ProductToursEditingBar(): JSX.Element | null {
                         </LemonButton>
                     )}
 
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconPlay />}
+                        onClick={previewTour}
+                        disabledReason={
+                            aiGenerating ? 'Wait for generation' : stepCount === 0 ? 'Add at least one step' : undefined
+                        }
+                    >
+                        Preview
+                    </LemonButton>
+
                     <LemonButton size="small" type="secondary" icon={<IconX />} onClick={() => selectTour(null)}>
-                        Discard
+                        Cancel
                     </LemonButton>
 
                     <LemonButton
