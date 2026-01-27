@@ -159,10 +159,13 @@ describe('the person header', () => {
             expect(getPersonColorIndex({ properties: { email: 'test@example.com' } })).toBeUndefined()
         })
 
-        it('returns a number between 0 and 7 for person with distinct_id', () => {
-            const index = getPersonColorIndex({ distinct_id: 'user-123' })
-            expect(index).toBeGreaterThanOrEqual(0)
-            expect(index).toBeLessThanOrEqual(7)
+        it('returns a number between 0 and 15 for person with distinct_id', () => {
+            for (let i = 0; i < 26; i++) {
+                const letter = String.fromCharCode(97 + i) // a-z
+                const idx = getPersonColorIndex({ distinct_id: `user-1234${letter}` })
+                expect(idx).toBeGreaterThanOrEqual(0)
+                expect(idx).toBeLessThanOrEqual(15)
+            }
         })
 
         it('returns consistent index for the same distinct_id', () => {
