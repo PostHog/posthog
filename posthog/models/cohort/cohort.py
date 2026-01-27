@@ -557,7 +557,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return []
 
         try:
-            # Use optimized ClickHouse query with GROUP BY (same pattern as person API)
+            # Use optimized ClickHouse query with GROUP BY HAVING
             query = """
             SELECT DISTINCT person.id
             FROM person
