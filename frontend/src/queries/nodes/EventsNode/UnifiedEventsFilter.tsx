@@ -1,14 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
+import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
 } from 'lib/components/TaxonomicFilter/types'
@@ -84,7 +87,7 @@ function EventsSearchSection({ filterKey, selectedEvents, onToggleEvent }: Event
         taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
         onChange: () => {},
         selectFirstItem: false,
-        popoverEnabled: false,
+        popoverEnabled: true,
     }
 
     return (
@@ -148,7 +151,24 @@ interface EventsListProps {
 }
 
 function EventsList({ selectedEvents, onToggleEvent, searchQuery }: EventsListProps): JSX.Element {
-    const { results, isLoading } = useValues(infiniteListLogic)
+    const { results, isLoading, group } = useValues(infiniteListLogic)
+    const { updateRemoteItem } = useActions(infiniteListLogic)
+    const [hoveredItem, setHoveredItem] = useState<TaxonomicDefinitionTypes | null>(null)
+    const [hoveredElement, setHoveredElement] = useState<HTMLDivElement | null>(null)
+    const [isPopoverHovered, setIsPopoverHovered] = useState(false)
+    const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+    // Build a map of event names to their full definitions for the popover
+    const eventDefinitionsMap = useMemo(() => {
+        const map = new Map<string, TaxonomicDefinitionTypes>()
+        for (const item of results) {
+            const name = (item as { name: string }).name
+            if (name) {
+                map.set(name, item)
+            }
+        }
+        return map
+    }, [results])
 
     const sortedEvents = useMemo(() => {
         // Filter out "All events" since default behavior already shows all events
@@ -169,6 +189,29 @@ function EventsList({ selectedEvents, onToggleEvent, searchQuery }: EventsListPr
         return [...filteredSelected, ...unselectedFromApi]
     }, [results, selectedEvents, searchQuery])
 
+    const handleMouseEnterRow = useCallback(
+        (eventDef: TaxonomicDefinitionTypes | undefined, element: HTMLDivElement) => {
+            if (hideTimeoutRef.current) {
+                clearTimeout(hideTimeoutRef.current)
+                hideTimeoutRef.current = null
+            }
+            if (eventDef) {
+                setHoveredItem(eventDef)
+                setHoveredElement(element)
+            }
+        },
+        []
+    )
+
+    const handleMouseLeaveRow = useCallback(() => {
+        hideTimeoutRef.current = setTimeout(() => {
+            if (!isPopoverHovered) {
+                setHoveredItem(null)
+                setHoveredElement(null)
+            }
+        }, 100)
+    }, [isPopoverHovered])
+
     if (isLoading && sortedEvents.length === 0) {
         return (
             <div className="flex items-center justify-center h-[200px]">
@@ -182,24 +225,58 @@ function EventsList({ selectedEvents, onToggleEvent, searchQuery }: EventsListPr
     }
 
     return (
-        <div className="flex-1 min-h-[200px] max-h-[350px] overflow-y-auto">
+        <div className="flex-1 min-h-[200px] max-h-[350px] overflow-y-auto relative">
             {sortedEvents.map((eventName: string) => {
                 const isSelected = selectedEvents.includes(eventName)
+                const eventDef = eventDefinitionsMap.get(eventName)
                 return (
                     <div
                         key={eventName}
                         className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-tertiary-highlight"
                         onClick={() => onToggleEvent(eventName)}
+                        onMouseEnter={(e) => handleMouseEnterRow(eventDef, e.currentTarget as HTMLDivElement)}
+                        onMouseLeave={handleMouseLeaveRow}
                     >
                         <div className="w-4 h-4 flex items-center justify-center">
                             {isSelected && <IconCheck className="text-success w-4 h-4" />}
                         </div>
                         <span className={isSelected ? 'font-medium' : ''}>
-                            <PropertyKeyInfo value={eventName} type={TaxonomicFilterGroupType.Events} />
+                            <PropertyKeyInfo value={eventName} type={TaxonomicFilterGroupType.Events} disablePopover />
                         </span>
                     </div>
                 )
             })}
+            {hoveredItem && hoveredElement && group && (
+                <div
+                    onMouseEnter={() => {
+                        setIsPopoverHovered(true)
+                        if (hideTimeoutRef.current) {
+                            clearTimeout(hideTimeoutRef.current)
+                            hideTimeoutRef.current = null
+                        }
+                    }}
+                    onMouseLeave={() => {
+                        setIsPopoverHovered(false)
+                        setHoveredItem(null)
+                        setHoveredElement(null)
+                    }}
+                >
+                    <BindLogic
+                        logic={definitionPopoverLogic}
+                        props={{
+                            type: TaxonomicFilterGroupType.Events,
+                            updateRemoteItem,
+                        }}
+                    >
+                        <ControlledDefinitionPopover
+                            visible={true}
+                            item={hoveredItem}
+                            group={group as TaxonomicFilterGroup}
+                            highlightedItemElement={hoveredElement}
+                        />
+                    </BindLogic>
+                </div>
+            )}
         </div>
     )
 }
