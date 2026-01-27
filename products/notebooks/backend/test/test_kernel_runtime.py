@@ -111,10 +111,28 @@ class TestKernelRuntimeService(BaseTest):
             (
                 "ok_with_type",
                 {
-                    "answer": {"status": "ok"},
                     "__type__answer": {"status": "ok", "data": {"text/plain": "'int'"}},
                 },
                 {"answer": {"status": "ok", "type": "int"}},
+            ),
+            (
+                "error_with_type_only",
+                {
+                    "__type__answer": {
+                        "status": "error",
+                        "ename": "NameError",
+                        "evalue": "missing",
+                        "traceback": ["traceback"],
+                    }
+                },
+                {
+                    "answer": {
+                        "status": "error",
+                        "ename": "NameError",
+                        "evalue": "missing",
+                        "traceback": ["traceback"],
+                    }
+                },
             ),
             (
                 "error_payload",
@@ -219,7 +237,6 @@ class TestKernelRuntimeService(BaseTest):
             "error_name": None,
             "traceback": [],
             "user_expressions": {
-                "answer": {"status": "ok"},
                 "__type__answer": {"status": "ok", "data": {"text/plain": "'int'"}},
             },
         }

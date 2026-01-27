@@ -327,12 +327,6 @@ class KernelRuntimeService:
         timeout: float | None = None,
     ) -> KernelExecutionResult:
         valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
-        user_expressions: dict[str, str] | None = None
-        if capture_variables and valid_variable_names:
-            user_expressions = {}
-            for name in valid_variable_names:
-                user_expressions[name] = name
-                user_expressions[f"{self._TYPE_EXPRESSION_PREFIX}{name}"] = f"type({name}).__name__"
         handle = self._ensure_handle(notebook, user)
 
         lock_timeout = (timeout or self._execution_timeout) + self._EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS
@@ -410,6 +404,7 @@ class KernelRuntimeService:
 
         parsed: dict[str, Any] = {}
         type_results: dict[str, str] = {}
+        type_errors: dict[str, dict[str, Any]] = {}
         for name, payload in user_expressions.items():
             if not isinstance(payload, dict):
                 continue
@@ -421,6 +416,13 @@ class KernelRuntimeService:
                     type_name = self._normalize_type_name(self._extract_user_expression_text(payload))
                     if type_name:
                         type_results[variable_name] = type_name
+                elif payload.get("status") == "error":
+                    type_errors[variable_name] = {
+                        "status": "error",
+                        "ename": payload.get("ename"),
+                        "evalue": payload.get("evalue"),
+                        "traceback": payload.get("traceback", []),
+                    }
                 continue
             status = payload.get("status")
             if status == "ok":
@@ -438,6 +440,12 @@ class KernelRuntimeService:
             type_name = type_results.get(name)
             if type_name and payload.get("status") == "ok":
                 payload["type"] = type_name
+        for name, error_payload in type_errors.items():
+            if name not in parsed:
+                parsed[name] = error_payload
+        for name, type_name in type_results.items():
+            if name not in parsed:
+                parsed[name] = {"status": "ok", "type": type_name}
         return parsed or None
 
     def _notebook_bridge_marker(self, handle: _KernelHandle) -> str:
@@ -1190,10 +1198,9 @@ class KernelRuntimeService:
         timeout_seconds = int(timeout or self._execution_timeout)
         user_expressions: dict[str, str] | None = None
         if capture_variables and variable_names:
-            user_expressions = {name: name for name in variable_names}
-            user_expressions.update(
-                {f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names}
-            )
+            user_expressions = {
+                f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names
+            }
 
         payload = {
             "connection_file": handle.runtime.connection_file,
@@ -1288,10 +1295,9 @@ class KernelRuntimeService:
         timeout_seconds = int(timeout or self._execution_timeout)
         user_expressions: dict[str, str] | None = None
         if capture_variables and variable_names:
-            user_expressions = {name: name for name in variable_names}
-            user_expressions.update(
-                {f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names}
-            )
+            user_expressions = {
+                f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names
+            }
 
         payload = {
             "connection_file": handle.runtime.connection_file,
