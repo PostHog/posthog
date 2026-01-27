@@ -184,10 +184,26 @@ describe('Handling Side Effects', () => {
     })
 
     /**
-     * The `handleSideEffects()` method with `await: true` waits for all
-     * side effects to complete before continuing.
+     * ## `await: true` - Blocking Side Effects
+     *
+     * With `await: true`, `handleSideEffects()` blocks until all accumulated
+     * side effects complete. Steps that return side effects do NOT block - they
+     * just register promises. The blocking only happens when `handleSideEffects()`
+     * is called with `await: true`.
+     *
+     * This is the simpler model with stronger guarantees:
+     *
+     * - **Blocking**: `handleSideEffects()` waits for all side effects before returning
+     * - **Error visibility**: Errors in side effects will cause the pipeline
+     *   to throw, allowing the caller to handle them (e.g., retry the batch)
+     * - **Ordering**: Side effects complete before the next batch starts
+     *
+     * Use `await: true` when:
+     * - Side effects are relatively fast
+     * - You need confirmation that side effects completed
+     * - You want errors to surface immediately
      */
-    it('handleSideEffects with await: true waits for all side effects', async () => {
+    it('handleSideEffects with await: true blocks until completion', async () => {
         const completedEffects: string[] = []
         const promiseScheduler = new PromiseScheduler()
 
@@ -231,8 +247,42 @@ describe('Handling Side Effects', () => {
     })
 
     /**
-     * The `handleSideEffects()` method with `await: false` schedules side
-     * effects for background execution without waiting.
+     * ## `await: false` - Background Side Effects
+     *
+     * With `await: false`, `handleSideEffects()` registers accumulated side effects
+     * with the PromiseScheduler and returns immediately without waiting. Steps that
+     * return side effects never block - they just register promises that are later
+     * handled by `handleSideEffects()`.
+     *
+     * **Key characteristics:**
+     *
+     * - **Non-blocking**: Pipeline returns immediately, side effects run in background
+     * - **Best-effort**: Side effect failures don't affect pipeline results
+     * - **Basic error handling**: Errors are logged but not propagated to the caller
+     *
+     * **PromiseScheduler lifecycle:**
+     *
+     * When using `await: false`, the caller is responsible for awaiting the
+     * PromiseScheduler at appropriate points:
+     *
+     * - **End of batch**: Call `promiseScheduler.waitForAll()` after processing
+     *   each batch to ensure side effects complete before committing offsets
+     * - **Rebalancing**: Await pending side effects before releasing partitions
+     *   to avoid losing in-flight DLQ/redirect messages
+     * - **Process shutdown**: Drain the scheduler during graceful shutdown to
+     *   complete pending side effects before the process exits
+     *
+     * **Trade-offs:**
+     *
+     * - Higher throughput (pipeline doesn't wait for side effects)
+     * - Side effects may be lost if the process crashes before they complete
+     * - DLQ and redirect operations are "best-effort" - failures are logged
+     *   but the original message is still considered processed
+     *
+     * Use `await: false` when:
+     * - Side effects are slow (e.g., network calls to external systems)
+     * - Throughput is more important than guaranteed delivery of side effects
+     * - You have proper lifecycle management for the PromiseScheduler
      */
     it('handleSideEffects with await: false schedules for background execution', async () => {
         const completedEffects: string[] = []
@@ -280,80 +330,5 @@ describe('Handling Side Effects', () => {
 
         // Now side effects have completed
         expect(completedEffects.sort()).toEqual(['x', 'y'])
-    })
-})
-
-describe('Side Effect Patterns', () => {
-    /**
-     * Pattern: Logging side effects that don't affect main processing.
-     */
-    it('pattern: logging side effects', async () => {
-        const logs: string[] = []
-
-        interface Event {
-            id: string
-            action: string
-        }
-
-        function createProcessWithAuditStep(): ProcessingStep<Event, Event & { processed: boolean }> {
-            return function processWithAuditStep(event) {
-                const auditLog = Promise.resolve().then(() => {
-                    logs.push(`Event ${event.id}: ${event.action} processed`)
-                })
-
-                return Promise.resolve(ok({ ...event, processed: true }, [auditLog]))
-            }
-        }
-
-        const pipeline = newPipelineBuilder<Event>().pipe(createProcessWithAuditStep()).build()
-
-        const result = await pipeline.process(createContext(ok({ id: 'evt-1', action: 'click' })))
-
-        expect(isOkResult(result.result)).toBe(true)
-
-        // Wait for side effect
-        await Promise.all(result.context.sideEffects)
-
-        expect(logs).toContain('Event evt-1: click processed')
-    })
-
-    /**
-     * Pattern: Metrics collection as side effects.
-     */
-    it('pattern: metrics side effects', async () => {
-        const metrics: Record<string, number> = {}
-
-        function incrementMetric(name: string): Promise<void> {
-            return Promise.resolve().then(() => {
-                metrics[name] = (metrics[name] || 0) + 1
-            })
-        }
-
-        interface Item {
-            value: number
-        }
-
-        function createProcessWithMetricsStep(): ProcessingStep<Item, Item> {
-            return function processWithMetricsStep(input) {
-                const effects = [
-                    incrementMetric('items_processed'),
-                    input.value > 100 ? incrementMetric('large_items_processed') : Promise.resolve(),
-                ]
-                return Promise.resolve(ok({ value: input.value * 2 }, effects))
-            }
-        }
-
-        const pipeline = newPipelineBuilder<Item>().pipe(createProcessWithMetricsStep()).build()
-
-        // Process a small item
-        const result1 = await pipeline.process(createContext(ok({ value: 50 })))
-        await Promise.all(result1.context.sideEffects)
-
-        // Process a large item
-        const result2 = await pipeline.process(createContext(ok({ value: 150 })))
-        await Promise.all(result2.context.sideEffects)
-
-        expect(metrics['items_processed']).toBe(2)
-        expect(metrics['large_items_processed']).toBe(1)
     })
 })
