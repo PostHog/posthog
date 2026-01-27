@@ -229,7 +229,7 @@ test.describe('Quick create survey from feature flag', () => {
     test('warning shown when surveys are disabled', async ({ page }) => {
         await saveFeatureFlag(page)
 
-        await page.route('**/api/environments/@current/', async (route) => {
+        await page.route(/\/api\/environments\/@current\/?/, async (route) => {
             const response = await route.fetch()
             const json = await response.json()
             json.surveys_opt_in = false
@@ -239,6 +239,9 @@ test.describe('Quick create survey from feature flag', () => {
 
         await page.reload()
         await clickCreateSurvey(page, name)
+
+        // Wait for the modal to be visible
+        await expect(page.getByTestId('quick-survey-create')).toBeVisible()
 
         await expect(page.locator('label').getByText('Enable surveys')).toBeVisible()
     })
