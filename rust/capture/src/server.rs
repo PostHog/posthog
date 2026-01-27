@@ -13,6 +13,8 @@ use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tower::Service;
 use tracing::{debug, error, info, warn};
 
@@ -368,7 +370,11 @@ where
         };
 
     // Create event restriction service if enabled and redis URL is configured
-    let event_restriction_service = if config.event_restrictions_enabled {
+    let (event_restriction_service, event_restrictions_cancel, event_restrictions_handle): (
+        Option<EventRestrictionService>,
+        Option<CancellationToken>,
+        Option<JoinHandle<()>>,
+    ) = if config.event_restrictions_enabled {
         if let Some(ref redis_url) = config.event_restrictions_redis_url {
             let restrictions_redis = Arc::new(
                 RedisClient::with_config(
@@ -395,13 +401,17 @@ where
                 Duration::from_secs(config.event_restrictions_fail_open_after_secs),
             );
 
-            // Spawn background refresh task
+            // Create cancellation token for graceful shutdown
+            let cancel_token = CancellationToken::new();
+
+            // Spawn background refresh task with cancellation support
             let service_clone = service.clone();
             let refresh_interval =
                 Duration::from_secs(config.event_restrictions_refresh_interval_secs);
-            tokio::spawn(async move {
+            let task_cancel_token = cancel_token.clone();
+            let handle = tokio::spawn(async move {
                 service_clone
-                    .start_refresh_task(restrictions_redis, refresh_interval)
+                    .start_refresh_task(restrictions_redis, refresh_interval, task_cancel_token)
                     .await;
             });
 
@@ -412,13 +422,13 @@ where
                 "Event restrictions enabled"
             );
 
-            Some(service)
+            (Some(service), Some(cancel_token), Some(handle))
         } else {
             warn!("Event restrictions enabled but EVENT_RESTRICTIONS_REDIS_URL not set");
-            None
+            (None, None, None)
         }
     } else {
-        None
+        (None, None, None)
     };
 
     let app = router::router(
@@ -588,4 +598,16 @@ where
     info!("Hyper accept loop (shutdown): waiting for in-flight request handlers to complete...");
     graceful.shutdown().await;
     info!("Hyper accept loop (shutdown): graceful shutdown completed");
+
+    // Shutdown event restrictions refresh task if running
+    if let (Some(cancel_token), Some(handle)) =
+        (event_restrictions_cancel, event_restrictions_handle)
+    {
+        info!("Shutting down event restrictions refresh task...");
+        cancel_token.cancel();
+        if let Err(e) = handle.await {
+            warn!("Event restrictions refresh task failed: {}", e);
+        }
+        info!("Event restrictions refresh task stopped");
+    }
 }

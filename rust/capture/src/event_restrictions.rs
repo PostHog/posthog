@@ -9,6 +9,7 @@ use metrics::{counter, gauge};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 use tokio::time::interval;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 const REDIS_KEY_PREFIX: &str = "event_ingestion_restriction_dynamic_config";
@@ -269,59 +270,71 @@ impl EventRestrictionService {
     }
 
     /// Returns a future that refreshes restrictions periodically. Caller should spawn this.
+    /// The task will run until the cancellation token is triggered.
     pub async fn start_refresh_task(
         &self,
         redis: Arc<dyn RedisClient + Send + Sync>,
         refresh_interval: Duration,
+        cancel_token: CancellationToken,
     ) {
-        let service = self.clone();
         let pipeline_str = self.pipeline.as_pipeline_name();
-
         let mut interval = interval(refresh_interval);
 
         loop {
-            interval.tick().await;
-
-            match RestrictionManager::fetch_from_redis(&redis, service.pipeline).await {
-                Ok(new_manager) => {
-                    let total_restrictions: usize =
-                        new_manager.restrictions.values().map(|v| v.len()).sum();
-                    let total_tokens = new_manager.restrictions.len();
-
-                    let now = service.update(new_manager).await;
-
-                    // Update metrics
-                    gauge!(
-                        "capture_event_restrictions_last_refresh_timestamp",
-                        "pipeline" => pipeline_str.to_string()
-                    )
-                    .set(now as f64);
-
-                    gauge!(
-                        "capture_event_restrictions_loaded_count",
-                        "pipeline" => pipeline_str.to_string()
-                    )
-                    .set(total_restrictions as f64);
-
-                    gauge!(
-                        "capture_event_restrictions_tokens_count",
-                        "pipeline" => pipeline_str.to_string()
-                    )
-                    .set(total_tokens as f64);
-
-                    gauge!(
-                        "capture_event_restrictions_stale",
-                        "pipeline" => pipeline_str.to_string()
-                    )
-                    .set(0.0);
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    info!(pipeline = %pipeline_str, "Event restrictions refresh task shutting down");
+                    break;
                 }
-                Err(e) => {
-                    error!(
-                        pipeline = %pipeline_str,
-                        error = %e,
-                        "Failed to refresh event restrictions from Redis"
-                    );
+                _ = interval.tick() => {
+                    self.refresh_from_redis(&redis).await;
                 }
+            }
+        }
+    }
+
+    /// Fetch restrictions from Redis and update the local cache.
+    async fn refresh_from_redis(&self, redis: &Arc<dyn RedisClient + Send + Sync>) {
+        let pipeline_str = self.pipeline.as_pipeline_name();
+
+        match RestrictionManager::fetch_from_redis(redis, self.pipeline).await {
+            Ok(new_manager) => {
+                let total_restrictions: usize =
+                    new_manager.restrictions.values().map(|v| v.len()).sum();
+                let total_tokens = new_manager.restrictions.len();
+
+                let now = self.update(new_manager).await;
+
+                gauge!(
+                    "capture_event_restrictions_last_refresh_timestamp",
+                    "pipeline" => pipeline_str.to_string()
+                )
+                .set(now as f64);
+
+                gauge!(
+                    "capture_event_restrictions_loaded_count",
+                    "pipeline" => pipeline_str.to_string()
+                )
+                .set(total_restrictions as f64);
+
+                gauge!(
+                    "capture_event_restrictions_tokens_count",
+                    "pipeline" => pipeline_str.to_string()
+                )
+                .set(total_tokens as f64);
+
+                gauge!(
+                    "capture_event_restrictions_stale",
+                    "pipeline" => pipeline_str.to_string()
+                )
+                .set(0.0);
+            }
+            Err(e) => {
+                error!(
+                    pipeline = %pipeline_str,
+                    error = %e,
+                    "Failed to refresh event restrictions from Redis"
+                );
             }
         }
     }
