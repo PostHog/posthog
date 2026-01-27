@@ -1,3 +1,4 @@
+import uuid
 import logging
 from typing import Any, cast
 
@@ -518,7 +519,6 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                 # Update existing survey
                 try:
                     survey = Survey.objects.get(id=linked_survey_id, team=instance.team)
-                    survey.name = survey_name
                     survey.questions = [survey_question]
                     # Ensure appearance has hideCancelButton set
                     survey.appearance = survey.appearance or {}
@@ -534,7 +534,6 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                     survey.enable_partial_responses = False  # Single question, no partial responses
                     survey.save(
                         update_fields=[
-                            "name",
                             "questions",
                             "appearance",
                             "start_date",
@@ -562,7 +561,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
                 survey = Survey.objects.create(
                     team=instance.team,
-                    name=survey_name,
+                    name=f"{survey_name} ({str(uuid.uuid4())[:8]})",
                     type="api",  # API type since we'll trigger it programmatically
                     questions=[survey_question],
                     appearance=survey_appearance,
