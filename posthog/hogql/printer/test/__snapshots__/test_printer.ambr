@@ -2780,7 +2780,12 @@
          events__person.properties___email AS email_value,
          isNull(events__person.properties___email) AS is_not_set_result,
          or(isNull(events__person.properties___email), not(JSONHas(events__person.properties, 'email'))) AS is_not_set_result_historical
-  FROM events
+  FROM
+    (SELECT events.distinct_id AS distinct_id,
+            events.event AS event,
+            events.person_id AS person_id
+     FROM events
+     WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))) AS events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2799,7 +2804,7 @@
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))
+  WHERE equals(events.event, 'is_not_set_test')
   ORDER BY distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2842,7 +2847,12 @@
          events__person.properties___email AS email_value,
          isNull(events__person.properties___email) AS is_not_set_result,
          or(isNull(events__person.properties___email), not(JSONHas(events__person.properties, 'email'))) AS is_not_set_result_historical
-  FROM events
+  FROM
+    (SELECT events.distinct_id AS distinct_id,
+            events.event AS event,
+            events.person_id AS person_id
+     FROM events
+     WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))) AS events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2861,7 +2871,7 @@
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))
+  WHERE equals(events.event, 'is_not_set_test')
   ORDER BY distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,

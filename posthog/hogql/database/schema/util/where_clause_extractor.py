@@ -526,3 +526,218 @@ def is_not_truthy(value):
 
 def is_truthy(value):
     return not is_not_truthy(value)
+
+
+class JoinedTableReferenceFinder(TraversingVisitor):
+    """Checks if an expression references any of the specified joined table aliases."""
+
+    def __init__(self, joined_table_aliases: set[str]):
+        super().__init__()
+        self.joined_table_aliases = joined_table_aliases
+        self.found_joined_reference = False
+
+    def visit_field(self, node: ast.Field):
+        # Check 1: Field chain references a known joined table alias
+        if node.chain and len(node.chain) > 0:
+            first_part = node.chain[0]
+            if isinstance(first_part, str) and first_part in self.joined_table_aliases:
+                self.found_joined_reference = True
+                return
+
+        # Check 2: Field type resolves to a lazy join or subquery (handles dynamic aliases)
+        if node.type is not None:
+            if self._type_references_lazy_join(node.type):
+                self.found_joined_reference = True
+
+    def _type_references_lazy_join(self, type_node) -> bool:
+        """
+        Recursively check if a type is not a simple, pushable events table field.
+
+        Returns True (don't push down) for:
+        - LazyJoinType: field references a lazy-joined table
+        - SelectQueryAliasType: field references a subquery
+        - FieldAliasType: field is an alias from SELECT clause
+        - VirtualTableType: field goes through a virtual table (e.g., person_properties via poe)
+        - TableAliasType: field references an aliased table (e.g., `e` instead of `events`)
+          This is important because unwrapping aliases can cause issues with how the printer
+          handles certain fields (like timestamps).
+
+        Returns False (ok to push down) only for:
+        - FieldType with TableType pointing directly to events table
+        - PropertyType wrapping such a FieldType
+        """
+        visited = set()  # Prevent infinite loops
+        to_check = [type_node]
+
+        while to_check:
+            current = to_check.pop()
+            if current is None or id(current) in visited:
+                continue
+            visited.add(id(current))
+
+            # Found types that should NOT be pushed down
+            if isinstance(current, ast.LazyJoinType):
+                return True
+            if isinstance(current, ast.SelectQueryAliasType):
+                return True
+            if isinstance(current, ast.FieldAliasType):
+                return True
+            if isinstance(current, ast.VirtualTableType):
+                # Virtual table fields (like person_properties via poe) have special handling
+                # that may not work correctly inside a pushdown subquery
+                return True
+            if isinstance(current, ast.TableAliasType):
+                # Unwrap table aliases - the field should be pushable as long as
+                # the underlying table is the events table (not a joined table)
+                to_check.append(current.table_type)
+                continue
+
+            # Unwrap type wrappers and add their inner types to the check list
+            if isinstance(current, ast.PropertyType):
+                to_check.append(current.field_type)
+            elif isinstance(current, ast.FieldType):
+                to_check.append(current.table_type)
+
+        return False
+
+
+def references_joined_table(expr: ast.Expr, joined_table_aliases: set[str]) -> bool:
+    """Check if an expression references any of the joined table aliases."""
+    finder = JoinedTableReferenceFinder(joined_table_aliases)
+    finder.visit(expr)
+    return finder.found_joined_reference
+
+
+class TableAliasUnwrapper(CloningVisitor):
+    """
+    Clones an expression and unwraps TableAliasType references to use the underlying TableType.
+
+    This is needed for predicate pushdown: when we push predicates into a subquery like
+    (SELECT * FROM events WHERE ...), the fields should reference 'events' not the alias
+    that's defined outside the subquery.
+    """
+
+    def visit_field(self, node: ast.Field):
+        # Clone the field and fix up its type if needed
+        new_type = node.type
+        if isinstance(node.type, ast.FieldType):
+            if isinstance(node.type.table_type, ast.TableAliasType):
+                # Unwrap the alias to get the underlying table type
+                new_type = ast.FieldType(
+                    name=node.type.name,
+                    table_type=node.type.table_type.table_type,
+                )
+        elif isinstance(node.type, ast.PropertyType):
+            # Handle PropertyType which wraps a FieldType
+            inner_field_type = node.type.field_type
+            if isinstance(inner_field_type.table_type, ast.TableAliasType):
+                # Unwrap the alias in the inner FieldType
+                new_inner_field_type = ast.FieldType(
+                    name=inner_field_type.name,
+                    table_type=inner_field_type.table_type.table_type,
+                )
+                new_type = ast.PropertyType(
+                    chain=node.type.chain.copy(),
+                    field_type=new_inner_field_type,
+                )
+        return ast.Field(
+            chain=node.chain.copy(),
+            type=new_type,
+        )
+
+
+def unwrap_table_aliases(expr: ast.Expr) -> ast.Expr:
+    """Clone an expression and unwrap TableAliasType references to use the underlying TableType."""
+    return TableAliasUnwrapper().visit(expr)
+
+
+class EventsPredicatePushdownExtractor:
+    """
+    Extracts predicates from a WHERE clause that can be pushed down into an events subquery.
+
+    This class analyzes WHERE clauses and splits them into:
+    - inner_where: Predicates that only reference the events table (can be pushed down)
+    - outer_where: Predicates that reference joined tables (must stay in outer query)
+
+    The design is fail-safe: if we can't determine whether a predicate is pushable,
+    we keep it in the outer WHERE (may scan more data but never incorrect).
+    """
+
+    def __init__(self, joined_table_aliases: set[str]):
+        self.joined_table_aliases = joined_table_aliases
+
+    def get_pushdown_predicates(self, where: ast.Expr) -> tuple[Optional[ast.Expr], Optional[ast.Expr]]:
+        """
+        Split a WHERE expression into inner (pushable) and outer (non-pushable) parts.
+
+        Returns:
+            (inner_where, outer_where) tuple where:
+            - inner_where: Predicates to push into events subquery (or None if none)
+            - outer_where: Predicates to keep in outer query (or None if none)
+        """
+        inner_exprs, outer_exprs = self._split_expression(where)
+
+        inner_where = self._combine_with_and(inner_exprs)
+        outer_where = self._combine_with_and(outer_exprs)
+
+        return (inner_where, outer_where)
+
+    def _split_expression(self, expr: ast.Expr) -> tuple[list[ast.Expr], list[ast.Expr]]:
+        """
+        Recursively split an expression into inner (pushable) and outer (non-pushable) parts.
+
+        Returns:
+            (inner_exprs, outer_exprs) - lists of expressions for inner and outer WHERE
+        """
+        if isinstance(expr, ast.And):
+            # For AND: we can split - pushable parts go inner, non-pushable stay outer
+            inner_exprs: list[ast.Expr] = []
+            outer_exprs: list[ast.Expr] = []
+            for sub_expr in flatten_ands(expr.exprs):
+                sub_inner, sub_outer = self._split_expression(sub_expr)
+                inner_exprs.extend(sub_inner)
+                outer_exprs.extend(sub_outer)
+            return (inner_exprs, outer_exprs)
+
+        elif isinstance(expr, ast.Or):
+            # For OR: if ANY branch references a joined table, the entire OR must stay in outer
+            if references_joined_table(expr, self.joined_table_aliases):
+                return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
+            else:
+                return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
+
+        elif isinstance(expr, ast.Not):
+            # For NOT: if inner references joined table, NOT stays outer
+            if references_joined_table(expr, self.joined_table_aliases):
+                return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
+            else:
+                return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
+
+        elif isinstance(expr, ast.Call):
+            # Handle function calls like and(), or(), not(), equals(), etc.
+            if expr.name == "and":
+                return self._split_expression(ast.And(exprs=expr.args))
+            elif expr.name == "or":
+                return self._split_expression(ast.Or(exprs=expr.args))
+            else:
+                # Other function calls - check if they reference joined tables
+                if references_joined_table(expr, self.joined_table_aliases):
+                    return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
+                else:
+                    return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
+
+        else:
+            # For all other expressions (comparisons, etc.)
+            if references_joined_table(expr, self.joined_table_aliases):
+                return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
+            else:
+                return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
+
+    def _combine_with_and(self, exprs: list[ast.Expr]) -> Optional[ast.Expr]:
+        """Combine a list of expressions with AND, or return None if empty."""
+        if len(exprs) == 0:
+            return None
+        elif len(exprs) == 1:
+            return exprs[0]
+        else:
+            return ast.And(exprs=exprs)
