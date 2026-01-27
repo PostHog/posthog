@@ -12,10 +12,12 @@
     background: none;
     background-color: var(--color-bg-fill-input);
     outline: none;
+    box-shadow: none;
 
     &:not(:disabled):hover,
     &:focus:not(:disabled) {
         border: 1px solid var(--border-bold);
+        box-shadow: none;
     }
 
     &:disabled {

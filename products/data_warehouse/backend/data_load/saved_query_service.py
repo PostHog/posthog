@@ -1,10 +1,8 @@
-import logging
 from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.db import transaction
 
 import temporalio
 from temporalio.client import (
@@ -18,8 +16,9 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
+    a_pause_schedule,
     create_schedule,
     delete_schedule,
     pause_schedule,
@@ -28,8 +27,6 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
-
-from products.data_warehouse.backend.models import DataWarehouseModelPath
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -92,10 +89,10 @@ def sync_saved_query_workflow(
     return saved_query
 
 
-def delete_saved_query_schedule(schedule_id: str):
+def delete_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):
     temporal = sync_connect()
     try:
-        delete_schedule(temporal, schedule_id=schedule_id)
+        delete_schedule(temporal, schedule_id=str(saved_query.id))
     except temporalio.service.RPCError as e:
         # Swallow error if schedule does not exist already
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
@@ -103,43 +100,31 @@ def delete_saved_query_schedule(schedule_id: str):
         raise
 
 
-def pause_saved_query_schedule(id: str) -> None:
+def pause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:
     temporal = sync_connect()
-    pause_schedule(temporal, schedule_id=id)
+    pause_schedule(temporal, schedule_id=str(saved_query.id))
 
 
-def unpause_saved_query_schedule(id: str) -> None:
+async def a_pause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:
+    temporal = await async_connect()
+    await a_pause_schedule(temporal, schedule_id=str(saved_query.id))
+
+
+def unpause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:
     temporal = sync_connect()
-    unpause_schedule(temporal, schedule_id=id)
+    unpause_schedule(temporal, schedule_id=str(saved_query.id))
+    # reset the automatic sync interval for rev analytics
+    viewset = saved_query.managed_viewset
+    if viewset and viewset.kind == "revenue_analytics":
+        saved_query.sync_frequency_interval = timedelta(hours=12)
+        saved_query.save()
 
 
-def saved_query_workflow_exists(id: str) -> bool:
+def saved_query_workflow_exists(saved_query: "DataWarehouseSavedQuery") -> bool:
     temporal = sync_connect()
-    return schedule_exists(temporal, schedule_id=id)
+    return schedule_exists(temporal, schedule_id=str(saved_query.id))
 
 
 def trigger_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(saved_query.id))
-
-
-def recreate_model_paths(saved_query: "DataWarehouseSavedQuery") -> None:
-    """
-    Recreate model paths for a saved query after materialization.
-    After a query has been reverted and then re-materialized, we need to ensure
-    the model paths exist for the temporal workflow to properly build the DAG.
-    """
-
-    try:
-        with transaction.atomic():
-            if not DataWarehouseModelPath.objects.filter(
-                team=saved_query.team, path__contains=[saved_query.id.hex]
-            ).exists():
-                DataWarehouseModelPath.objects.update_or_create(team=saved_query.team, path=[saved_query.id.hex])
-                for table_name in saved_query.s3_tables:
-                    DataWarehouseModelPath.objects.update_or_create(
-                        team=saved_query.team, path=[table_name, saved_query.id.hex]
-                    )
-    except Exception as e:
-        logging.exception(f"Failed to recreate model paths for {saved_query.id}: {str(e)}")
-        raise

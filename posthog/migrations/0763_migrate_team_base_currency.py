@@ -2,10 +2,6 @@
 
 from django.db import migrations
 
-import structlog
-
-logger = structlog.get_logger(__name__)
-
 
 def migrate_revenue_base_currency(apps, schema_editor):
     """
@@ -23,19 +19,12 @@ def migrate_revenue_base_currency(apps, schema_editor):
                 team.base_currency = revenue_config.base_currency
                 team.save()
                 teams_updated += 1
-                logger.debug(
-                    "Updated team base currency from revenue config",
-                    team_id=team.id,
-                    base_currency=revenue_config.base_currency,
-                )
         except TeamRevenueAnalyticsConfig.DoesNotExist:
             # No revenue config, keep default USD
             continue
-        except Exception as e:
-            logger.error("Failed to migrate base currency for team", team_id=team.id, error=str(e), exc_info=True)
+        except Exception:
+            # Just ignore, this has finished running in prod already, don't need this
             continue
-
-    logger.info("Revenue base currency migration completed", teams_updated=teams_updated)
 
 
 class Migration(migrations.Migration):

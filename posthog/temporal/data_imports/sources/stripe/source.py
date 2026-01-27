@@ -1,10 +1,11 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SuggestedTable,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -13,6 +14,13 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+)
 from posthog.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
     INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
@@ -26,6 +34,28 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
+STRIPE_BASE_URL = "https://dashboard.stripe.com"
+STRIPE_ACCOUNT_URL = f"{STRIPE_BASE_URL}/settings/account"
+
+# The API keys URL will pre-fill the form with the account ID, key name and also all the required permissions.
+PERMISSIONS = [
+    "rak_balance_transaction_source_read",
+    "rak_charge_read",
+    "rak_customer_read",
+    "rak_dispute_read",
+    "rak_payout_read",
+    "rak_product_read",
+    "rak_credit_note_read",
+    "rak_invoice_read",
+    "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
+    "rak_subscription_read",
+    "rak_application_fee_read",
+    "rak_transfer_read",
+    "rak_connected_account_read",
+    "rak_payment_method_read",
+]
+STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
+
 
 @SourceRegistry.register
 class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig]):
@@ -37,17 +67,17 @@ class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="""Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
+            caption=f"""Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse. You will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL}).
 
-You can find your account ID [in your Stripe dashboard](https://dashboard.stripe.com/settings/account), and create a secret key [here](https://dashboard.stripe.com/apikeys/create).
-
-Currently, **read permissions are required** for the following resources:
+By clicking the link above, you will be taken to a form that pre-fills everything you need to get started to match the required permissions.
+""",
+            permissionsCaption="""Currently, **read permissions are required** for the following resources:
 
 - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
 - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
-- Under the **Connect** resource type, select *read* for either the **entire resource** or **Application Fees** and **Transfers**
+- Under the **Connect** resource type, select *read* for the **entire resource**
 
-You can also simplify the setup by selecting **read** for the **entire resource** under **Core**, **Billing**, and **Connect**.
+These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
 """,
             iconPath="/static/services/stripe.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stripe",
@@ -70,7 +100,39 @@ You can also simplify the setup by selecting **read** for the **entire resource*
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table=CUSTOMER_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=CHARGE_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=INVOICE_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=SUBSCRIPTION_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=PRODUCT_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+            ],
+            featured=True,
         )
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.stripe.com": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+            "403 Client Error: Forbidden for url: https://api.stripe.com": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+            "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
+            "Invalid API Key provided": None,
+            "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+        }
 
     def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
@@ -84,9 +146,11 @@ You can also simplify the setup by selecting **read** for the **entire resource*
             for endpoint in STRIPE_ENDPOINTS
         ]
 
-    def validate_credentials(self, config: StripeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         try:
-            if validate_stripe_credentials(config.stripe_secret_key):
+            if validate_stripe_credentials(config.stripe_secret_key, schema_name):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"

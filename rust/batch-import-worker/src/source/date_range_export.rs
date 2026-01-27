@@ -900,6 +900,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_handling_401() {
+        use crate::error::get_user_message;
+
         let server = MockServer::start();
         let _mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/export");
@@ -914,16 +916,17 @@ mod tests {
 
         let result = source.prepare_key(key).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Authentication failed"));
+        let err = result.unwrap_err();
+        let user_msg = get_user_message(&err);
+        assert_eq!(user_msg, "Authentication failed, check your credentials");
 
         source.cleanup_after_job().await.unwrap();
     }
 
     #[tokio::test]
     async fn test_error_handling_500() {
+        use crate::error::get_user_message;
+
         let server = MockServer::start();
         let _mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/export");
@@ -938,10 +941,9 @@ mod tests {
 
         let result = source.prepare_key(key).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Remote server error"));
+        let err = result.unwrap_err();
+        let user_msg = get_user_message(&err);
+        assert_eq!(user_msg, "Remote server error");
 
         source.cleanup_after_job().await.unwrap();
     }

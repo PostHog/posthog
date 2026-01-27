@@ -31,7 +31,7 @@ const _commonActionFields = {
     output_variable: z // The Hogflow-level variable to store the output of this action into
         .object({
             key: z.string(),
-            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'body.user.id'
         })
         .optional()
         .nullable(),
@@ -85,10 +85,24 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
 
 export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
 
+export const CyclotronInputMappingSchema = z.object({
+    name: z.string(),
+    disabled: z.boolean().optional(),
+    inputs_schema: z.array(CyclotronJobInputSchemaTypeSchema).optional(),
+    inputs: z.record(CyclotronInputSchema).optional().nullable(),
+    filters: z.any().optional().nullable(),
+})
+
+export type CyclotronInputMappingType = z.infer<typeof CyclotronInputMappingSchema>
+
+const EventTriggerFiltersSchema = ActionFiltersSchema.extend({
+    filter_test_accounts: z.boolean().optional(),
+})
+
 export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('event'),
-        filters: ActionFiltersSchema,
+        filters: EventTriggerFiltersSchema,
     }),
     z.object({
         type: z.literal('webhook'),
@@ -116,6 +130,14 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
         // Future: recurring schedule fields can be added here
     }),
+    z.object({
+        type: z.literal('batch'),
+        filters: z.object({
+            properties: z.array(z.any()),
+        }),
+        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        // Future: recurring schedule fields can be added here
+    }),
 ])
 
 export const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -133,6 +155,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             conditions: z.array(
                 z.object({
                     filters: ActionFiltersSchema,
+                    name: z.string().optional(), // Custom name for the condition
                 })
             ),
             delay_duration: z.string().optional(),
@@ -145,6 +168,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             cohorts: z.array(
                 z.object({
                     percentage: z.number(),
+                    name: z.string().optional(), // Custom name for the cohort
                 })
             ),
         }),
@@ -164,6 +188,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             condition: z.object({
                 filters: ActionFiltersSchema.optional().nullable(),
+                name: z.string().optional(), // Custom name for the condition
             }),
             max_wait_duration: z.string(),
         }),
@@ -174,6 +199,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_time_window'),
         config: z.object({
             timezone: z.string().nullable(),
+            // When true, use the person's $geoip_time_zone property for timezone
+            use_person_timezone: z.boolean().optional(),
+            // Fallback timezone when use_person_timezone is true but person has no timezone set
+            fallback_timezone: z.string().nullable().optional(),
             // Day can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
             day: z.union([
                 z.literal('any'),
@@ -197,6 +226,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
     z.object({
@@ -260,4 +290,5 @@ export interface HogflowTestResult {
     logs?: LogEntry[]
     nextActionId: string | null
     errors?: string[]
+    variables?: Record<string, any>
 }

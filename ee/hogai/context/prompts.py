@@ -4,6 +4,7 @@ ROOT_UI_CONTEXT_PROMPT = """
 {{{ui_context_insights}}}
 {{{ui_context_events}}}
 {{{ui_context_actions}}}
+{{{ui_context_error_tracking}}}
 </attached_context>
 <system_reminder>
 The user can provide additional context in the <attached_context> tag.
@@ -21,15 +22,7 @@ The user has provided the following dashboards.
 """.strip()
 
 ROOT_DASHBOARD_CONTEXT_PROMPT = """
-## Dashboard: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-### Dashboard insights:
-
-{{{insights}}}
+## {{{content}}}
 """.strip()
 
 ROOT_INSIGHTS_CONTEXT_PROMPT = """
@@ -39,21 +32,7 @@ The user has provided the following insights, which may be relevant to the quest
 """.strip()
 
 ROOT_INSIGHT_CONTEXT_PROMPT = """
-{{{heading}}} Insight: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-Query schema:
-```json
-{{{query_schema}}}
-```
-
-Results:
-```
-{{{query}}}
-```
+{{{heading}}} {{{insight_prompt}}}
 """.strip()
 
 CONTEXTUAL_TOOLS_REMINDER_PROMPT = """
@@ -62,4 +41,10 @@ Contextual tools that are available to you on this page are:
 {tools}
 IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
 </system_reminder>
+""".strip()
+
+CONTEXT_INITIAL_MODE_PROMPT = "Your initial mode is"
+CONTEXT_MODE_SWITCH_PROMPT = "Your mode has been switched to"
+CONTEXT_MODE_PROMPT = """
+<system_reminder>{{{mode_prompt}}} {{{mode}}}.</system_reminder>
 """.strip()

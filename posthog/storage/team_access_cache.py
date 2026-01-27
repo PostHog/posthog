@@ -127,22 +127,26 @@ def _load_team_access_tokens(team_token: KeyType) -> dict[str, Any] | HyperCache
                 )
                 .filter(
                     (
-                        # Scoped keys: explicitly include this team AND have feature flag read or write access
+                        # Scoped keys: explicitly include this team AND have appropriate access
                         Q(scoped_teams__contains=[team.id])
                         & (
                             # Keys with write permission implicitly have read permission
-                            Q(scopes__contains=["feature_flag:read"]) | Q(scopes__contains=["feature_flag:write"])
+                            # Keys with "*" (all access) have all permissions
+                            Q(scopes__contains=["feature_flag:read"])
+                            | Q(scopes__contains=["feature_flag:write"])
+                            | Q(scopes__contains=["*"])
                         )
                     )
                     | (
                         # Unscoped keys: no team restriction (null or empty array)
                         (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
                         & (
-                            # AND either no scope restriction OR has feature flag read or write access
+                            # AND either no scope restriction OR has feature flag read/write or all access
                             Q(scopes__isnull=True)
                             | Q(scopes=[])
                             | Q(scopes__contains=["feature_flag:read"])
                             | Q(scopes__contains=["feature_flag:write"])
+                            | Q(scopes__contains=["*"])
                         )
                     )
                 )

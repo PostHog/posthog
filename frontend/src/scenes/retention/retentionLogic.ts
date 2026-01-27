@@ -61,6 +61,8 @@ export const retentionLogic = kea<retentionLogicType>([
             // Reset selected breakdown value when breakdown filter changes
             // This prevents the dropdown from showing invalid cohort IDs
             actions.setSelectedBreakdownValue(null)
+            // Reset selected interval when breakdown filter changes
+            actions.updateInsightFilter({ selectedInterval: null })
         },
         updateLocalCustomBracket: async (_, breakpoint) => {
             await breakpoint(1000)
@@ -347,7 +349,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 cohortsById: Partial<Record<string | number, CohortType>>
             ): Record<string, string> => {
                 return breakdownValues.reduce(
-                    (acc, breakdownValue) => {
+                    (acc, breakdownValue, breakdownIndex) => {
                         const key = String(breakdownValue ?? '')
 
                         if (breakdownValue === null || breakdownValue === '') {
@@ -364,7 +366,8 @@ export const retentionLogic = kea<retentionLogicType>([
                                 originalBreakdownValue as BreakdownKeyType,
                                 breakdownFilter,
                                 cohorts,
-                                undefined
+                                undefined,
+                                breakdownIndex
                             )
                             acc[key] = formattedLabel
                         }

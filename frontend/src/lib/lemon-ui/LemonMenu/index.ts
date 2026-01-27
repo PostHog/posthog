@@ -1,2 +1,2 @@
-export type { LemonMenuItem, LemonMenuItems, LemonMenuSection } from './LemonMenu'
-export { LemonMenu } from './LemonMenu'
+export type { LemonMenuItem, LemonMenuItems, LemonMenuOverlayProps, LemonMenuSection } from './LemonMenu'
+export { LemonMenu, LemonMenuOverlay } from './LemonMenu'

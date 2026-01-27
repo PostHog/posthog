@@ -5,11 +5,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { cn } from 'lib/utils/css-classes'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -22,8 +22,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
@@ -31,10 +33,11 @@ import { SurveysTabs, surveysLogic } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
-    settingSectionId: 'environment-surveys',
+    productKey: ProductKey.SURVEYS,
 }
 
 function NewSurveyButton(): JSX.Element {
+    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
@@ -48,9 +51,7 @@ function NewSurveyButton(): JSX.Element {
                 'Create a product-market fit survey for trial users',
                 'Create a quick satisfaction survey for support interactions',
             ]}
-            context={{
-                user_id: user?.uuid,
-            }}
+            context={{}}
             callback={(toolOutput: {
                 survey_id?: string
                 survey_name?: string
@@ -77,15 +78,28 @@ function NewSurveyButton(): JSX.Element {
             }}
             position="bottom-right"
             active={!!user?.uuid && userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)}
-            className={cn('mr-3')}
         >
             <AccessControlAction
                 resourceType={AccessControlResourceType.Survey}
                 minAccessLevel={AccessControlLevel.Editor}
             >
-                <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
-                    <span className="pr-3">New survey</span>
-                </LemonButton>
+                <AppShortcut
+                    name="NewSurvey"
+                    keybind={[keyBinds.new]}
+                    intent="New survey"
+                    interaction="click"
+                    scope={Scene.Surveys}
+                >
+                    <LemonButton
+                        size="small"
+                        to={guidedEditorEnabled ? urls.surveyWizard() : urls.surveyTemplates()}
+                        type="primary"
+                        data-attr="new-survey"
+                        tooltip="New survey"
+                    >
+                        <span className="pr-3">New survey</span>
+                    </LemonButton>
+                </AppShortcut>
             </AccessControlAction>
         </MaxTool>
     )
@@ -140,6 +154,7 @@ function Surveys(): JSX.Element {
                     <SurveysTable />
                 </>
             )}
+            <DuplicateToProjectModal />
         </SceneContent>
     )
 }

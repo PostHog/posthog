@@ -2,6 +2,8 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     CompareFilter,
@@ -9,13 +11,20 @@ import {
     NodeKind,
     QuerySchema,
     TrendsQuery,
-    WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
     WebPageURLSearchQuery,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    InsightLogicProps,
+    IntervalType,
+    PropertyFilterType,
+    PropertyMathType,
+    PropertyOperator,
+} from '~/types'
 
 import {
     DeviceTab,
@@ -30,27 +39,100 @@ import {
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebTileLayout,
+    parseWebAnalyticsURL,
 } from './common'
 import type { pageReportsLogicType } from './pageReportsLogicType'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export interface PageURLSearchResult {
     url: string
-    count: number
 }
 
 /**
- * Creates a property filter for URL matching that handles query parameters consistently
+ * Creates property filters for URL matching that handles query parameters consistently
+ * Always attempts to parse full URLs into host+pathname filters to enable backend optimizations
  * @param url The URL to match
- * @param stripQueryParams Whether to strip query parameters
- * @returns A property filter object for the URL
+ * @param stripQueryParams Whether to strip query parameters (used as fallback for regex)
+ * @returns An array of property filters for the URL
  */
-export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilter {
+export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilters {
+    // Always try to parse as full URL first - this enables pre-aggregated table optimizations on backend
+    const parsed = parseWebAnalyticsURL(url)
+
+    if (parsed.isValid && parsed.host && parsed.pathname) {
+        return [
+            {
+                key: '$host',
+                value: parsed.host,
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+            {
+                key: '$pathname',
+                value: parsed.pathname,
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ]
+    }
+
+    // Fallback to regex for partial URLs or unparseable input
+    return [
+        {
+            key: '$current_url',
+            value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
+            operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        },
+    ]
+}
+
+const createTimeOnPageTrendsQuery = (
+    pathname: string,
+    filterTestAccounts: boolean,
+    interval: IntervalType,
+    dateRange: { date_from: string | null; date_to: string | null }
+): InsightVizNode<TrendsQuery> => {
     return {
-        key: '$current_url',
-        value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
-        operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
-        type: PropertyFilterType.Event,
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    math: PropertyMathType.P90,
+                    math_property: '$prev_pageview_duration',
+                    properties: [
+                        {
+                            type: PropertyFilterType.EventMetadata,
+                            key: 'event',
+                            operator: PropertyOperator.In,
+                            value: ['$pageview', '$pageleave', '$screen'],
+                        },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$prev_pageview_pathname',
+                            operator: PropertyOperator.Exact,
+                            value: pathname,
+                        },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$prev_pageview_duration',
+                            operator: PropertyOperator.IsSet,
+                            value: PropertyOperator.IsSet,
+                        },
+                    ],
+                },
+            ],
+            interval,
+            dateRange: { date_from: dateRange.date_from, date_to: dateRange.date_to },
+            filterTestAccounts,
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+                aggregationAxisFormat: 'duration',
+            },
+        },
+        embedded: true,
     }
 }
 
@@ -68,6 +150,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 'webAnalyticsFilters',
                 'isPathCleaningEnabled',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [webAnalyticsLogic, ['setDates']],
     },
@@ -76,7 +160,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         setPageUrl: (url: string | string[] | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadPages: (searchTerm: string = '') => ({ searchTerm }),
-        toggleStripQueryParams: () => ({}),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({
             tileId,
             visualization,
@@ -106,14 +189,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         isInitialLoad: [
             true,
             {
-                loadPagesSuccess: () => false,
-            },
-        ],
-        stripQueryParams: [
-            true,
-            { persist: true },
-            {
-                toggleStripQueryParams: (state: boolean) => !state,
+                loadPagesUrlsSuccess: () => false,
             },
         ],
         tileVisualizations: [
@@ -138,7 +214,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         setLatestVersionsOnQuery({
                             kind: NodeKind.WebPageURLSearchQuery,
                             searchTerm: searchTerm,
-                            stripQueryParams: values.stripQueryParams,
+                            stripQueryParams: true,
                             dateRange: {
                                 date_from: values.dateFilter.dateFrom,
                                 date_to: values.dateFilter.dateTo,
@@ -159,6 +235,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad],
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
+        stripQueryParams: [() => [], () => true],
         queries: [
             (s) => [
                 s.webAnalyticsTiles,
@@ -186,6 +263,11 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         outboundClicksQuery: undefined,
                         channelsQuery: undefined,
                         referrersQuery: undefined,
+                        utmSourceQuery: undefined,
+                        utmMediumQuery: undefined,
+                        utmCampaignQuery: undefined,
+                        utmContentQuery: undefined,
+                        utmTermQuery: undefined,
                         deviceTypeQuery: undefined,
                         browserQuery: undefined,
                         osQuery: undefined,
@@ -195,11 +277,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         timezonesQuery: undefined,
                         languagesQuery: undefined,
                         topEventsQuery: undefined,
+                        avgTimeOnPageTrendQuery: undefined,
                     }
                 }
 
                 const pageReportsPropertyFilters: WebAnalyticsPropertyFilters = [
-                    createUrlPropertyFilter(pageUrl, stripQueryParams),
+                    ...createUrlPropertyFilter(pageUrl, stripQueryParams),
                 ]
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
 
@@ -245,7 +328,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             ],
                         },
                         properties: [
-                            ...(pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : []),
+                            ...(pageUrl ? createUrlPropertyFilter(pageUrl, stripQueryParams) : []),
                             {
                                 key: 'event',
                                 value: ['$pageview', '$pageleave'],
@@ -279,6 +362,17 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     showActions: true,
                 }
 
+                const parsedUrl = parseWebAnalyticsURL(pageUrl)
+                const avgTimeOnPageTrendQuery: InsightVizNode<TrendsQuery> | undefined =
+                    parsedUrl.isValid && parsedUrl.host && parsedUrl.pathname
+                        ? createTimeOnPageTrendsQuery(
+                              parsedUrl.pathname,
+                              shouldFilterTestAccounts,
+                              dateFilter.interval,
+                              dateRange
+                          )
+                        : undefined
+
                 return {
                     // Path queries
                     entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
@@ -289,6 +383,11 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     // Source queries
                     channelsQuery: getQuery(TileId.SOURCES, SourceTab.CHANNEL),
                     referrersQuery: getQuery(TileId.SOURCES, SourceTab.REFERRING_DOMAIN),
+                    utmSourceQuery: getQuery(TileId.SOURCES, SourceTab.UTM_SOURCE),
+                    utmMediumQuery: getQuery(TileId.SOURCES, SourceTab.UTM_MEDIUM),
+                    utmCampaignQuery: getQuery(TileId.SOURCES, SourceTab.UTM_CAMPAIGN),
+                    utmContentQuery: getQuery(TileId.SOURCES, SourceTab.UTM_CONTENT),
+                    utmTermQuery: getQuery(TileId.SOURCES, SourceTab.UTM_TERM),
 
                     // Device queries
                     deviceTypeQuery: getQuery(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
@@ -303,6 +402,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     languagesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.LANGUAGES),
 
                     topEventsQuery: getTopEventsQuery(),
+                    avgTimeOnPageTrendQuery,
                 }
             },
         ],
@@ -310,7 +410,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             () => [],
             () =>
                 (tileId: TileId, tabId?: string): InsightLogicProps => ({
-                    dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
+                    dashboardItemId: `new-AdHoc.${tileId}${tabId ? `-${tabId}` : ''}`,
                     loadPriority: 0,
                     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                 }),
@@ -352,14 +452,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             showLegend: true,
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
-                        properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
+                        properties: pageUrl ? createUrlPropertyFilter(pageUrl, stripQueryParams) : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     embedded: true,
                 }),
         ],
         tiles: [
-            (s) => [s.queries, s.pageUrl, s.createInsightProps, s.combinedMetricsQuery, s.dateFilter],
+            (s) => [s.queries, s.pageUrl, s.createInsightProps, s.combinedMetricsQuery, s.dateFilter, s.featureFlags],
             (
                 queries: Record<string, QuerySchema | undefined>,
                 pageUrl: string | null,
@@ -367,7 +467,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 combinedMetricsQuery: (
                     dateFilter: typeof webAnalyticsLogic.values.dateFilter
                 ) => InsightVizNode<TrendsQuery>,
-                dateFilter: typeof webAnalyticsLogic.values.dateFilter
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter,
+                featureFlags: Record<string, boolean | string>
             ): SectionTile[] => {
                 if (!pageUrl) {
                     return []
@@ -425,7 +526,25 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                     description: 'Key metrics for this page over time',
                                 },
                             },
-                        ],
+                            queries.avgTimeOnPageTrendQuery &&
+                            featureFlags[FEATURE_FLAGS.PAGE_REPORTS_AVERAGE_PAGE_VIEW]
+                                ? {
+                                      kind: 'query',
+                                      tileId: TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND,
+                                      title: 'Time on page',
+                                      query: queries.avgTimeOnPageTrendQuery,
+                                      insightProps: createInsightProps(TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND),
+                                      layout: {
+                                          className: 'w-full min-h-[300px]',
+                                      },
+                                      docs: {
+                                          title: 'Time on page',
+                                          description: 'The 90th percentile of time users spent on this page.',
+                                      },
+                                      canOpenModal: false,
+                                  }
+                                : null,
+                        ].filter(Boolean) as WebAnalyticsTile[],
                         layout: {
                             className: 'w-full',
                         },
@@ -456,10 +575,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 }
                             ),
                             createQueryTile(
-                                TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
-                                'Outbound Clicks',
-                                'External links users click on this page',
-                                queries.outboundClicksQuery
+                                TileId.PAGE_REPORTS_PREVIOUS_PAGE,
+                                'Previous Pages',
+                                'Pages users visited before this page. For internal navigation, we used the previous pathname. If the user arrived from an external link, we used the referrer URL.',
+                                queries.prevPathsQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
@@ -483,10 +602,40 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 queries.referrersQuery
                             ),
                             createQueryTile(
-                                TileId.PAGE_REPORTS_PREVIOUS_PAGE,
-                                'Previous Pages',
-                                'Pages users visited before this page. For internal navigation, we used the previous pathname. If the user arrived from an external link, we used the referrer URL.',
-                                queries.prevPathsQuery
+                                TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
+                                'Outbound Clicks',
+                                'External links users click on this page',
+                                queries.outboundClicksQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_SOURCE,
+                                'UTM Source',
+                                'UTM source parameter showing the source of traffic to this page',
+                                queries.utmSourceQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_MEDIUM,
+                                'UTM Medium',
+                                'UTM medium parameter showing the marketing medium that brought users to this page',
+                                queries.utmMediumQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_CAMPAIGN,
+                                'UTM Campaign',
+                                'UTM campaign parameter showing the marketing campaign that brought users to this page',
+                                queries.utmCampaignQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_CONTENT,
+                                'UTM Content',
+                                'UTM content parameter showing which specific link or content brought users to this page',
+                                queries.utmContentQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_TERM,
+                                'UTM Term',
+                                'UTM term parameter showing the keywords associated with traffic to this page',
+                                queries.utmTermQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
@@ -580,15 +729,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         ],
     },
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions }) => ({
         setPageUrlSearchTerm: ({ searchTerm }) => {
             actions.loadPages(searchTerm)
         },
         setPageUrl: ({ url }) => {
             router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
-        },
-        toggleStripQueryParams: () => {
-            actions.loadPages(values.pageUrlSearchTerm)
         },
         loadPages: ({ searchTerm }) => {
             actions.loadPagesUrls({ searchTerm })
@@ -604,11 +750,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             if (searchParams.pageURL && searchParams.pageURL !== values.pageUrl) {
                 actions.setPageUrl(searchParams.pageURL)
             }
-
-            // Only toggle stripQueryParams if it's explicitly present in the URL
-            if ('stripQueryParams' in searchParams && !!searchParams.stripQueryParams !== values.stripQueryParams) {
-                actions.toggleStripQueryParams()
-            }
         },
     }),
 
@@ -621,17 +762,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             } else {
                 delete searchParams.pageURL
             }
-
-            // Only include stripQueryParams if it's different from the URL
-            if (!!router.values.searchParams.stripQueryParams !== values.stripQueryParams) {
-                searchParams.stripQueryParams = values.stripQueryParams
-            }
-
-            return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
-        },
-        toggleStripQueryParams: () => {
-            const searchParams = { ...router.values.searchParams }
-            searchParams.stripQueryParams = values.stripQueryParams
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },

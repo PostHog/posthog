@@ -1,3 +1,4 @@
+import datetime
 from datetime import timedelta
 from typing import Optional, cast
 
@@ -5,7 +6,6 @@ from freezegun import freeze_time
 from posthog.test.base import FuzzyInt, snapshot_postgres_queries
 
 from django.test import override_settings
-from django.utils import timezone
 
 from rest_framework import status
 
@@ -290,7 +290,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard")
         insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
@@ -557,6 +557,43 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 query_counts,
                 f"received query counts\n\n{query_counts}",
             )
+
+    def test_non_admin_user_cannot_remove_an_insight_from_a_restricted_dashboard(
+        self,
+    ) -> None:
+        # create a restricted dashboard with the default user (who has edit permission)
+        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
+        )
+
+        # create an insight on that dashboard
+        insight_id, _ = self.dashboard_api.create_insight(
+            data={"name": "on restricted dashboard", "dashboards": [dashboard_restricted_id]}
+        )
+
+        # user with no edit permissions on the dashboard cannot remove insight from it
+        user_without_permissions = User.objects.create_and_join(
+            organization=self.organization,
+            email="no_remove_access_user@posthog.com",
+            password=None,
+        )
+        self.client.force_login(user_without_permissions)
+
+        # attempting to remove the insight from the dashboard should fail
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"dashboards": []},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        # original user can remove the insight from the dashboard
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"dashboards": []},
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)

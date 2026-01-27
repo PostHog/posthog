@@ -56,7 +56,7 @@ def get_postgres_row_count(
         user=user,
         password=password,
         sslmode="prefer",
-        connect_timeout=5,
+        connect_timeout=15,
         sslrootcert="/tmp/no.txt",
         sslcert="/tmp/no.txt",
         sslkey="/tmp/no.txt",
@@ -113,7 +113,7 @@ def get_schemas(
         user=user,
         password=password,
         sslmode="prefer",
-        connect_timeout=5,
+        connect_timeout=15,
         sslrootcert="/tmp/no.txt",
         sslcert="/tmp/no.txt",
         sslkey="/tmp/no.txt",
@@ -212,7 +212,7 @@ def _build_query(
     if add_sampling:
         if table_type == "view":
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value} AND random() < 0.01"
+                "SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value} AND random() < 0.01"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -221,7 +221,7 @@ def _build_query(
             )
         else:
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
+                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} > {last_value}"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -229,7 +229,7 @@ def _build_query(
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
@@ -286,6 +286,10 @@ def _get_primary_keys(
     if len(rows) > 0:
         return [row[0] for row in rows]
 
+    logger.warning(
+        f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
+    )
+
     return None
 
 
@@ -325,7 +329,9 @@ def _has_duplicate_primary_keys(
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
+            SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
+                SELECT pg_column_size(t) as row_size FROM ({}) as t
+            ) as subquery
         """).format(inner_query)
 
         _explain_query(cursor, query, logger)
@@ -639,7 +645,7 @@ def postgres_source(
             user=user,
             password=password,
             sslmode=sslmode,
-            connect_timeout=5,
+            connect_timeout=15,
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
@@ -727,7 +733,7 @@ def postgres_source(
                     user=user,
                     password=password,
                     sslmode=sslmode,
-                    connect_timeout=5,
+                    connect_timeout=15,
                     sslrootcert="/tmp/no.txt",
                     sslcert="/tmp/no.txt",
                     sslkey="/tmp/no.txt",
@@ -790,7 +796,7 @@ def postgres_source(
 
                             successive_errors = 0
                     except psycopg.errors.SerializationFailure as e:
-                        if "terminating connection due to conflict with recovery" not in "".join(e.args):
+                        if "due to conflict with recovery" not in "".join(e.args):
                             raise
 
                         # This error happens when the read replica is out of sync with the primary

@@ -5,7 +5,7 @@ import { IconGear, IconPlusSmall } from '@posthog/icons'
 import { Link } from 'lib/lemon-ui/Link'
 
 import { ButtonGroupPrimitive, ButtonPrimitive } from '../Button/ButtonPrimitives'
-import { DropdownMenuOpenIndicator } from '../DropdownMenu/DropdownMenu'
+import { MenuOpenIndicator, MenuSeparator } from '../Menus/Menus'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
@@ -42,7 +42,7 @@ function RenderCombobox(): JSX.Element {
 
                 {/* Groups with no value are "static" and don't affect Empty state */}
                 <Combobox.Group>
-                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                    <MenuSeparator />
                 </Combobox.Group>
 
                 <Combobox.Group value={['Banana']}>
@@ -51,7 +51,7 @@ function RenderCombobox(): JSX.Element {
                         <ButtonPrimitive menuItem>Searchable: Banana</ButtonPrimitive>
                     </Combobox.Item>
                 </Combobox.Group>
-                <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                <MenuSeparator />
 
                 <Combobox.Group value={['projectName']}>
                     <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
@@ -130,7 +130,7 @@ export function InPopover(): JSX.Element {
                 <PopoverPrimitiveTrigger asChild>
                     <ButtonPrimitive data-attr="environment-switcher-button" size="sm">
                         Trigger popover
-                        <DropdownMenuOpenIndicator />
+                        <MenuOpenIndicator className="ml-auto" />
                     </ButtonPrimitive>
                 </PopoverPrimitiveTrigger>
                 <PopoverPrimitiveContent align="start">

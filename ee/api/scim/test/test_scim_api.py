@@ -1,10 +1,13 @@
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import Role
 
 
 class TestSCIMAPI(APILicensedTest):
@@ -38,10 +41,40 @@ class TestSCIMAPI(APILicensedTest):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 403
+        assert "detail" in data
 
     def test_no_token(self):
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 401
+        assert "detail" in data
+
+    def test_malformed_auth_header(self):
+        self.client.credentials(HTTP_AUTHORIZATION="Basic invalid_token")
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 401
+        assert "detail" in data
+
+    def test_invalid_domain(self):
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get("/scim/v2/00000000-0000-0000-0000-000000000000/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 403
+        assert "detail" in data
 
     def test_service_provider_config(self):
         self.client.credentials(**self.scim_headers)
@@ -61,7 +94,11 @@ class TestSCIMAPI(APILicensedTest):
         self.client.credentials(**self.scim_headers)
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "license" in response.json()["detail"].lower()
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 403
+        assert "detail" in data
 
     def test_scim_users_endpoint(self):
         """Test that SCIM Users endpoint works with valid license"""
@@ -76,3 +113,102 @@ class TestSCIMAPI(APILicensedTest):
         response = self.client.get(f"/scim/v2/{self.domain.id}/Groups")
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()
+
+    def _create_user_in_other_org(self):
+        other_org = Organization.objects.create(name="OtherCorp")
+        other_user = User.objects.create(
+            email="alice@othercorp.com",
+            first_name="Alice",
+            last_name="Original",
+        )
+        OrganizationMembership.objects.create(
+            user=other_user,
+            organization=other_org,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        return other_user
+
+    @parameterized.expand(["get", "put", "patch", "delete"])
+    def test_scim_user_detail_rejects_cross_tenant_access(self, method: str):
+        other_user = self._create_user_in_other_org()
+        self.client.credentials(**self.scim_headers)
+
+        url = f"/scim/v2/{self.domain.id}/Users/{other_user.id}"
+
+        if method == "get":
+            response = self.client.get(url)
+        elif method == "put":
+            response = self.client.put(
+                url,
+                {
+                    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+                    "userName": "changed@example.com",
+                    "name": {"givenName": "Changed", "familyName": "User"},
+                    "emails": [{"value": "changed@example.com", "primary": True}],
+                    "active": True,
+                },
+                format="json",
+            )
+        elif method == "patch":
+            response = self.client.patch(
+                url,
+                {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "replace", "path": "emails", "value": [{"value": "changed@example.com"}]}],
+                },
+                format="json",
+            )
+        elif method == "delete":
+            response = self.client.delete(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        other_user.refresh_from_db()
+        assert other_user.email == "alice@othercorp.com"
+        assert other_user.first_name == "Alice"
+        assert User.objects.filter(id=other_user.id).exists()
+
+    def _create_group_in_other_org(self):
+        other_org = Organization.objects.create(name="OtherCorp")
+        other_role = Role.objects.create(
+            name="OtherRole",
+            organization=other_org,
+        )
+        return other_role
+
+    @parameterized.expand(["get", "put", "patch", "delete"])
+    def test_scim_group_detail_rejects_cross_tenant_access(self, method: str):
+        other_role = self._create_group_in_other_org()
+        self.client.credentials(**self.scim_headers)
+
+        url = f"/scim/v2/{self.domain.id}/Groups/{other_role.id}"
+
+        if method == "get":
+            response = self.client.get(url)
+        elif method == "put":
+            response = self.client.put(
+                url,
+                {
+                    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                    "displayName": "ChangedName",
+                    "members": [],
+                },
+                format="json",
+            )
+        elif method == "patch":
+            response = self.client.patch(
+                url,
+                {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "replace", "path": "displayName", "value": "ChangedName"}],
+                },
+                format="json",
+            )
+        elif method == "delete":
+            response = self.client.delete(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        other_role.refresh_from_db()
+        assert other_role.name == "OtherRole"
+        assert Role.objects.filter(id=other_role.id).exists()

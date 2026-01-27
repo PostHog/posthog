@@ -76,7 +76,7 @@ impl KafkaLogRow {
 
         let resource_attributes = extract_resource_attributes(resource);
 
-        let mut attributes: HashMap<String, String> = record
+        let attributes: HashMap<String, String> = record
             .attributes
             .into_iter()
             .map(|kv| {
@@ -88,15 +88,14 @@ impl KafkaLogRow {
                 )
             })
             .collect();
-        attributes.extend(resource_attributes.clone());
 
         let instrumentation_scope = match scope {
             Some(s) => format!("{}@{}", s.name, s.version),
             None => "".to_string(),
         };
 
-        let event_name = extract_string_from_map(&attributes, "event.name");
-        let service_name = extract_string_from_map(&attributes, "service.name");
+        let event_name = record.event_name;
+        let service_name = extract_string_from_map(&resource_attributes, "service.name");
 
         // Trace/span IDs
         let trace_id = extract_trace_id(&record.trace_id);
@@ -105,7 +104,11 @@ impl KafkaLogRow {
         // Trace flags
         let trace_flags = record.flags;
 
-        let timestamp = DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?);
+        let timestamp = match record.time_unix_nano {
+            0 => Utc::now(),
+            _ => DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?),
+        };
+
         let observed_timestamp = Utc::now();
 
         let log_row = Self {
@@ -118,7 +121,7 @@ impl KafkaLogRow {
             body,
             severity_text,
             severity_number,
-            resource_attributes: resource_attributes.into_iter().collect(),
+            resource_attributes,
             instrumentation_scope,
             event_name,
             service_name,
@@ -218,9 +221,9 @@ fn convert_severity_number_to_text(severity_number: i32) -> String {
     }
 }
 
-fn extract_resource_attributes(resource: Option<Resource>) -> Vec<(String, String)> {
+fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
-        return Vec::new();
+        return HashMap::new();
     };
 
     resource

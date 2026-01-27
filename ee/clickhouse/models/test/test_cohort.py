@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
@@ -37,13 +38,6 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
-    return action
 
 
 def get_person_ids_by_cohort_id(
@@ -552,7 +546,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["1", "123"])
-        cohort = Cohort.objects.get()
+        cohort.refresh_from_db()
         results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 2)
         self.assertEqual(cohort.is_calculating, False)
@@ -575,6 +569,33 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.insert_users_by_list(["123"])
         results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 3)
+
+    def test_insert_cohort_hogql_query_with_distinct_id(self):
+        from posthog.api.cohort import insert_cohort_query_actors_into_ch
+
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["user1"])
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["user2"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["user3"])
+
+        # Create a cohort with a HogQL query that returns distinct_id
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT distinct_id FROM raw_person_distinct_ids WHERE distinct_id IN ['user1', 'user2']",
+            },
+        )
+
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+        cohort.refresh_from_db()
+
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
+        self.assertEqual(len(results), 2)
+        result_ids = {str(r) for r in results}
+        self.assertIn(str(p1.uuid), result_ids)
+        self.assertIn(str(p2.uuid), result_ids)
+        self.assertEqual(cohort.is_calculating, False)
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_basic(self):

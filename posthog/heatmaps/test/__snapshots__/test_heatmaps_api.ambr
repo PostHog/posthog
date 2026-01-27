@@ -12,7 +12,9 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(heatmaps.current_url, 'http://example.com'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(trim(TRAILING '/'
+                                                                                                                                                                              FROM heatmaps.current_url), trim(TRAILING '/'
+                                                                                                                                                                                                               FROM 'http://example.com')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -25,7 +27,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_exact_url.1
@@ -41,7 +44,9 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(heatmaps.current_url, 'http://example.com/about'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(trim(TRAILING '/'
+                                                                                                                                                                              FROM heatmaps.current_url), trim(TRAILING '/'
+                                                                                                                                                                                                               FROM 'http://example.com/about')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
   GROUP BY pointer_target_fixed,
            pointer_relative_x,
            client_y
@@ -54,7 +59,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_test_accounts
@@ -86,7 +92,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_test_accounts.1
@@ -115,7 +122,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*
@@ -144,7 +152,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*.1
@@ -173,7 +182,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*
@@ -202,7 +212,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*.1
@@ -231,7 +242,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*
@@ -260,7 +272,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*.1
@@ -289,7 +302,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*
@@ -318,7 +332,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*.1
@@ -347,7 +362,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*
@@ -376,7 +392,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*.1
@@ -405,7 +422,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*
@@ -434,7 +452,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*.1
@@ -463,7 +482,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_where_end_is_anchored
@@ -492,7 +512,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_0_min_150
@@ -521,7 +542,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_1_min_161
@@ -550,7 +572,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_2_min_177
@@ -579,7 +602,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_3_min_201
@@ -608,7 +632,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_4_min_161_and_max_192
@@ -637,7 +662,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_all_data_response
@@ -666,7 +692,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation
@@ -695,7 +722,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation.1
@@ -724,7 +752,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_empty_response
@@ -753,7 +782,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click
@@ -782,7 +812,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click.1
@@ -811,7 +842,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_date_from
@@ -840,7 +872,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date
@@ -869,7 +902,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date.1
@@ -898,7 +932,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_scrolldepth_counts
@@ -927,7 +962,8 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_scrolldepth_counts_by_visitor
@@ -956,6 +992,7 @@
                          max_bytes_before_external_group_by=0,
                          transform_null_in=1,
                          optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+                         allow_experimental_join_condition=1,
+                         use_hive_partitioning=0
   '''
 # ---

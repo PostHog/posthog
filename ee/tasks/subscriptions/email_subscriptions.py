@@ -8,18 +8,28 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, get_unsubscribe_token
 from posthog.utils import absolute_uri
 
-from ee.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
 logger = structlog.get_logger(__name__)
 
 
 def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
-    if asset.exception:
+    if _has_asset_failed(asset):
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
+
+        # Truncate long error messages to avoid long emails
+        max_error_length = 2000
+        if asset.exception:
+            error_message = str(asset.exception)
+            if len(error_message) > max_error_length:
+                error_message = error_message[:max_error_length] + "... (truncated)"
+        else:
+            error_message = ASSET_GENERATION_FAILED_MESSAGE
+
         return {
             "error": True,
             "insight_name": insight_name,
-            "error_message": asset.exception,
+            "error_message": error_message,
         }
 
     return {
@@ -40,7 +50,7 @@ def send_email_subscription_report(
 
     inviter = subscription.created_by
     is_invite = invite_message is not None
-    self_invite = inviter.email == email
+    self_invite = inviter and inviter.email == email
 
     subject = "PostHog Report"
     invite_summary = None
@@ -55,11 +65,12 @@ def send_email_subscription_report(
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
     if is_invite:
-        invite_summary = f"This subscription is { subscription.summary }. The next subscription will be sent on { subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+        invite_summary = f"This subscription is {subscription.summary}. The next subscription will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
         if self_invite:
             subject = f"You have been subscribed to a PostHog {resource_info.kind}"
         else:
-            subject = f"{inviter.first_name or 'Someone'} subscribed you to a PostHog {resource_info.kind}"
+            inviter_name = (inviter.first_name if inviter else None) or "Someone"
+            subject = f"{inviter_name} subscribed you to a PostHog {resource_info.kind}"
         campaign_key = f"{resource_info.kind.lower()}_subscription_new_{uuid.uuid4()}"
 
     message = EmailMessage(

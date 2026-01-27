@@ -4,6 +4,7 @@ import type {
     SurveyPosition,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
+    SurveyTabPosition,
     SurveyType,
     SurveyWidgetType,
 } from '~/types'
@@ -18,6 +19,7 @@ export interface SurveyCreationSchema {
     description: string
     type: SurveyType
     linked_flag_id?: number
+    linked_insight_id?: number
     questions: SurveyQuestionSchema[]
     should_launch?: boolean
     conditions?: SurveyDisplayConditionsSchema
@@ -53,6 +55,7 @@ export interface SurveyQuestionSchema {
     scale?: number
     lowerBoundLabel?: string
     upperBoundLabel?: string
+    isNpsQuestion?: boolean
 
     // Link questions
     link?: string
@@ -87,6 +90,7 @@ export interface SurveyAppearanceSchema {
     backgroundColor?: string
     borderColor?: string
     position?: SurveyPosition
+    tabPosition?: SurveyTabPosition
     whiteLabel?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
@@ -102,6 +106,7 @@ export interface SurveyAppearanceSchema {
     zIndex?: string
     placeholder?: string
     inputBackground?: string
+    inputTextColor?: string
     buttonColor?: string
     buttonTextColor?: string
     textColor?: string

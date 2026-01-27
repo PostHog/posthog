@@ -423,6 +423,8 @@ def append_partition_key_to_table(
                 primary_key_values = [str(row[key]) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)
 
+                # this hash has no security impact
+                # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
                 hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
                 partition = hash_value % partition_count
 
@@ -439,7 +441,7 @@ def append_partition_key_to_table(
                 date = row[key]
 
                 if partition_format is None:
-                    partition_format = "month"
+                    partition_format = "week"
 
                 if partition_format == "hour":
                     date_format = "%Y-%m-%dT%H"

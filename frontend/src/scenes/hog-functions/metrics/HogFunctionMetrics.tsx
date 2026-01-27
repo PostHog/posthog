@@ -6,6 +6,8 @@ import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
+const HOGFUNCTION_METRIC_KEYS = ['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'] as const
+
 export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Success',
@@ -28,6 +30,11 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
             'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
         color: getColorVar('danger'),
     },
+    quota_limited: {
+        name: 'Quota Limited',
+        description: 'Total number of invocations blocked due to quota limits',
+        color: getColorVar('danger'),
+    },
 }
 
 export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
@@ -38,7 +45,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
         forceParams: {
             appSource: 'hog_function',
             appSourceId: id,
-            metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently'],
+            metricName: [...HOGFUNCTION_METRIC_KEYS],
             breakdownBy: 'metric_name',
         },
     })
@@ -52,7 +59,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                {['succeeded', 'failed', 'filtered', 'disabled_permanently'].map((key) => (
+                {HOGFUNCTION_METRIC_KEYS.map((key) => (
                     <AppMetricSummary
                         key={key}
                         name={HOGFUNCTION_METRICS_INFO[key].name}
@@ -62,6 +69,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
                         previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
                         color={HOGFUNCTION_METRICS_INFO[key].color}
                         colorIfZero={getColorVar('muted')}
+                        hideIfZero={!['succeeded', 'failed', 'filtered'].includes(key)}
                     />
                 ))}
             </div>

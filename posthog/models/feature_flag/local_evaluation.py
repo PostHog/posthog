@@ -2,7 +2,7 @@ from collections.abc import Generator
 from typing import Any, Union, cast
 
 from django.conf import settings
-from django.db import connections, transaction
+from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -11,9 +11,13 @@ import structlog
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.surveys.survey import Survey
+from posthog.models.tag import Tag
 from posthog.models.team import Team
+from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache
 
 logger = structlog.get_logger(__name__)
@@ -303,26 +307,21 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
-# For person-related models (GroupTypeMapping), use persons DB if configured
-# It'll use `replica` until we set the PERSONS_DB_WRITER_URL env var
-READ_ONLY_DATABASE_FOR_PERSONS = (
-    "persons_db_reader"
-    if "persons_db_reader" in connections
-    else "replica"
-    if "replica" in connections and "local_evaluation" in settings.READ_REPLICA_OPT_IN
-    else "default"
-)  # Fallback if persons DB not configured
+# Use centralized database routing constant
+READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=True),
+    enable_etag=True,
 )
 
 flags_without_cohorts_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_without_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=False),
+    enable_etag=True,
 )
 
 
@@ -332,6 +331,20 @@ def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -
         if include_cohorts
         else flags_without_cohorts_hypercache.get_from_cache(team)
     )
+
+
+def get_flags_response_if_none_match(
+    team: Team, include_cohorts: bool, client_etag: str | None
+) -> tuple[dict | None, str | None, bool]:
+    """
+    Get flags response with ETag support for HTTP 304 responses.
+
+    Returns: (data, etag, modified)
+    - If client_etag matches current: (None, current_etag, False) - 304 case
+    - Otherwise: (data, current_etag, True) - 200 case with full data
+    """
+    hypercache = flags_hypercache if include_cohorts else flags_without_cohorts_hypercache
+    return hypercache.get_if_none_match(team, client_etag)
 
 
 def update_flag_caches(team: Team):
@@ -370,10 +383,20 @@ def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) ->
         - Client only needs to evaluate simplified property-based filters
     """
 
-    feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-        ~Q(is_remote_configuration=True),
-        team__project_id=team.project_id,
-        deleted=False,
+    # Exclude survey-linked flags from local evaluation. See GitHub issue #43631.
+    survey_flag_ids = Survey.get_internal_flag_ids(
+        team_id=team.id,
+        using=DATABASE_FOR_LOCAL_EVALUATION,
+    )
+
+    feature_flags = (
+        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+        .filter(
+            ~Q(is_remote_configuration=True),
+            team_id=team.id,
+            deleted=False,
+        )
+        .exclude(id__in=survey_flag_ids)
     )
 
     cohorts = {}
@@ -483,3 +506,36 @@ def cohort_changed(sender, instance: "Cohort", **kwargs):
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
+
+
+@receiver(post_save, sender=FeatureFlagEvaluationTag)
+@receiver(post_delete, sender=FeatureFlagEvaluationTag)
+def evaluation_tag_changed(sender, instance: "FeatureFlagEvaluationTag", **kwargs):
+    from posthog.tasks.feature_flags import update_team_flags_cache
+
+    team_id = instance.feature_flag.team_id
+    transaction.on_commit(lambda: update_team_flags_cache.delay(team_id))
+
+
+@receiver(post_save, sender=Tag)
+def tag_changed(sender, instance: "Tag", created: bool, **kwargs):
+    """
+    Invalidate flags cache when a tag is renamed.
+
+    Tag names are cached in evaluation_tags, so if a tag used by any flag
+    is renamed, we need to refresh those teams' caches.
+    """
+    if created:
+        return  # New tags can't be used by any flags yet
+
+    # In practice, update_fields is rarely specified when saving Tags,
+    # but this check follows the pattern used elsewhere in the codebase.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "name" not in update_fields:
+        return
+
+    from posthog.tasks.feature_flags import update_team_flags_cache
+
+    for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
+        # Capture team_id in closure to avoid late binding issues
+        transaction.on_commit(lambda tid=team_id: update_team_flags_cache.delay(tid))  # type: ignore[misc]

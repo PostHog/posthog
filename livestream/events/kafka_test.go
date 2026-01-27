@@ -126,3 +126,121 @@ func TestParse(t *testing.T) {
 		Lng: 20,
 	}, got)
 }
+
+func TestFlexibleString_UnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "string value",
+			input:    `"user123"`,
+			expected: "user123",
+		},
+		{
+			name:     "integer value",
+			input:    `21`,
+			expected: "21",
+		},
+		{
+			name:     "large integer value",
+			input:    `1234567890`,
+			expected: "1234567890",
+		},
+		{
+			name:     "float value",
+			input:    `123.456`,
+			expected: "123.456",
+		},
+		{
+			name:     "null value",
+			input:    `null`,
+			expected: "",
+		},
+		{
+			name:     "empty string",
+			input:    `""`,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var f FlexibleString
+			err := json.Unmarshal([]byte(tt.input), &f)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, string(f))
+		})
+	}
+}
+
+func TestPostHogEventWrapper_NumericDistinctId(t *testing.T) {
+	tests := []struct {
+		name               string
+		jsonInput          string
+		expectedDistinctId string
+	}{
+		{
+			name:               "string distinct_id",
+			jsonInput:          `{"uuid":"abc","distinct_id":"user123","ip":"","data":"","token":""}`,
+			expectedDistinctId: "user123",
+		},
+		{
+			name:               "numeric distinct_id",
+			jsonInput:          `{"uuid":"abc","distinct_id":21,"ip":"","data":"","token":""}`,
+			expectedDistinctId: "21",
+		},
+		{
+			name:               "large numeric distinct_id",
+			jsonInput:          `{"uuid":"abc","distinct_id":1234567890,"ip":"","data":"","token":""}`,
+			expectedDistinctId: "1234567890",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var wrapper PostHogEventWrapper
+			err := json.Unmarshal([]byte(tt.jsonInput), &wrapper)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedDistinctId, string(wrapper.DistinctId))
+		})
+	}
+}
+
+func TestParse_NumericDistinctId(t *testing.T) {
+	mockGeoLocator := new(mocks.GeoLocator)
+
+	// Test that numeric distinct_id from posthog-ruby SDK is handled correctly
+	// This is the exact format that was causing "parse error: expected string near offset 17 of '21'"
+	// The wrapper has distinct_id at the top level, and the data field contains the inner event JSON
+	input := `{"distinct_id":21,"uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{\"$lib\":\"posthog-ruby\"}}","token":"test-token"}`
+
+	got := parse(mockGeoLocator, []byte(input))
+
+	assert.Equal(t, "21", got.DistinctId)
+	assert.Equal(t, "$pageview", got.Event)
+	assert.Equal(t, "test-token", got.Token)
+}
+
+func TestParse_WrapperTimestampFallback(t *testing.T) {
+	mockGeoLocator := new(mocks.GeoLocator)
+
+	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{}}","token":"test-token","timestamp":"2026-01-09T21:00:00.000Z"}`
+
+	got := parse(mockGeoLocator, []byte(input))
+
+	assert.Equal(t, "2026-01-09T21:00:00.000Z", got.Timestamp)
+	assert.Equal(t, "$pageview", got.Event)
+}
+
+func TestParse_InnerTimestampOverridesWrapper(t *testing.T) {
+	mockGeoLocator := new(mocks.GeoLocator)
+
+	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{},\"timestamp\":\"2026-01-09T02:00:00.000Z\"}","token":"test-token","timestamp":"2026-01-10T21:00:00.000Z"}`
+
+	got := parse(mockGeoLocator, []byte(input))
+
+	assert.Equal(t, "2026-01-09T02:00:00.000Z", got.Timestamp)
+	assert.Equal(t, "$pageview", got.Event)
+}

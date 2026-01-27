@@ -1,9 +1,7 @@
 import { LogicWrapper } from 'kea'
 
-import type { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
-
-import { SettingSectionId } from './settings/types'
 
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
@@ -13,6 +11,7 @@ export enum Scene {
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     Annotations = 'Annotations',
+    Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -27,6 +26,7 @@ export enum Scene {
     Comments = 'Comments',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
+    CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
@@ -81,6 +81,7 @@ export enum Scene {
     Login = 'Login',
     Login2FA = 'Login2FA',
     EmailMFAVerify = 'EmailMFAVerify',
+    MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
@@ -88,6 +89,7 @@ export enum Scene {
     Notebooks = 'Notebooks',
     OAuthAuthorize = 'OAuthAuthorize',
     Onboarding = 'Onboarding',
+    OnboardingCoupon = 'OnboardingCoupon',
     OrganizationCreateFirst = 'OrganizationCreate',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     PasswordReset = 'PasswordReset',
@@ -98,8 +100,8 @@ export enum Scene {
     PipelineNode = 'PipelineNode',
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
-    Products = 'Products',
-    UseCaseSelection = 'UseCaseSelection',
+    ProductTour = 'ProductTour',
+    ProductTours = 'ProductTours',
     ProjectCreateFirst = 'ProjectCreate',
     ProjectHomepage = 'ProjectHomepage',
     PropertyDefinition = 'PropertyDefinition',
@@ -110,37 +112,44 @@ export enum Scene {
     ReplayPlaylist = 'ReplayPlaylist',
     ReplaySettings = 'ReplaySettings',
     ReplaySingle = 'ReplaySingle',
+    ReplayKiosk = 'ReplayKiosk',
     RevenueAnalytics = 'RevenueAnalytics',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    SessionGroupSummariesTable = 'SessionGroupSummariesTable',
+    SessionGroupSummary = 'SessionGroupSummary',
+    SessionSummaries = 'SessionSummaries',
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
+    Coupons = 'Coupons',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
+    SurveyWizard = 'SurveyWizard',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
     UserInterviews = 'UserInterviews',
+    VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    WebAnalyticsHealth = 'WebAnalyticsHealth',
+    WebAnalyticsLive = 'WebAnalyticsLive',
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
-    EndpointNew = 'EndpointNew',
     Workflow = 'Workflow',
     Workflows = 'Workflows',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
-    EndpointsUsage = 'EndpointsUsage',
     Game368Hedgehogs = 'Game368Hedgehogs',
     LLMAnalytics = 'LLMAnalytics',
     LLMAnalyticsDataset = 'LLMAnalyticsDataset',
@@ -153,10 +162,12 @@ export enum Scene {
     Logs = 'Logs',
     ManagedMigration = 'ManagedMigration',
     ManagedMigrationNew = 'ManagedMigrationNew',
+    MarketingAnalytics = 'MarketingAnalytics',
     MessagingLibraryTemplate = 'MessagingLibraryTemplate',
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
+    OrganizationDeactivated = 'OrganizationDeactivated',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -167,8 +178,8 @@ export interface SceneExport<T = SceneProps> {
     component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
-    /** setting section id to open when clicking the settings button */
-    settingSectionId?: SettingSectionId
+    /** product key associated with this scene - used for Quick Start setup tracking */
+    productKey?: ProductKey
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
@@ -209,6 +220,18 @@ export interface Params {
     [param: string]: any
 }
 
+/** Configuration for a tab in the scene panel */
+export interface ScenePanelTabConfig {
+    /** Unique identifier for the tab */
+    id: string
+    /** Display label for the tab */
+    label: string
+    /** Icon component for the tab */
+    Icon: React.ComponentType<{ className?: string }>
+    /** Content component to render when tab is active */
+    Content: React.ComponentType
+}
+
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
@@ -243,12 +266,22 @@ export interface SceneConfig {
     activityScope?: ActivityScope | string
     /** Default docs path - what the docs side panel will open by default when this scene is active  */
     defaultDocsPath?: string | (() => string) | (() => Promise<string>)
+    /** Team slug for changelog - appended as ?team= to the changelog URL in the side panel */
+    changelogTeamSlug?: string
+    /** Category for changelog - appended as ?category= to the changelog URL in the side panel */
+    changelogCategory?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
     /** Custom icon for the tabs */
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
+    /**
+     * Tabs to show in the scene panel.
+     * - Array of ScenePanelTabConfig for custom tabs
+     * - Function receiving scene params, returning tabs for dynamic configuration
+     */
+    scenePanelTabs?: ScenePanelTabConfig[] | ((params: SceneParams) => ScenePanelTabConfig[])
 }
 
 // Map scenes to their access control resource types
@@ -286,13 +319,24 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsHealth]: AccessControlResourceType.WebAnalytics,
+
+    // Marketing Analytics
+    [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
     [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
 
+    // Product Tours
+    [Scene.ProductTour]: AccessControlResourceType.ProductTour,
+    [Scene.ProductTours]: AccessControlResourceType.ProductTour,
+
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // Data warehouse sources - not included here because self-managed sources don't have access control.
+    // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.
 }

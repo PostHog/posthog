@@ -3,6 +3,7 @@ from typing import Optional, Union, cast
 from posthog.schema import (
     ActionsNode,
     Breakdown,
+    EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
@@ -10,7 +11,10 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
     MultipleVariantHandling,
+    StartHandling,
     StepOrderValue,
 )
 
@@ -26,9 +30,15 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     funnel_evaluation_expr,
     funnel_steps_to_filter,
     get_source_value_expr,
+    is_session_property_metric,
+    validate_session_property,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    build_aggregation_call,
+    extract_aggregation_and_inner_expr,
+)
+from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
@@ -68,7 +78,9 @@ class ExperimentQueryBuilder:
         variants: list[str],
         date_range_query: QueryDateRange,
         entity_key: str,
-        metric: Optional[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric] = None,
+        metric: Optional[
+            ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+        ] = None,
         breakdowns: list[Breakdown] | None = None,
     ):
         self.team = team
@@ -92,7 +104,7 @@ class ExperimentQueryBuilder:
 
     def _get_breakdown_aliases(self) -> list[str]:
         """Returns list of breakdown aliases: ['breakdown_value_1', 'breakdown_value_2', ...]"""
-        return [f"breakdown_value_{i+1}" for i in range(len(self.breakdowns))]
+        return [f"breakdown_value_{i + 1}" for i in range(len(self.breakdowns))]
 
     def _build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:
         """
@@ -118,7 +130,7 @@ class ExperimentQueryBuilder:
                     "null_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                 },
             )
-            alias = f"breakdown_value_{i+1}"
+            alias = f"breakdown_value_{i + 1}"
             result.append((alias, expr))
 
         return result
@@ -135,9 +147,11 @@ class ExperimentQueryBuilder:
                 return self._build_mean_query()
             case ExperimentRatioMetric():
                 return self._build_ratio_query()
+            case ExperimentRetentionMetric():
+                return self._build_retention_query()
             case _:
                 raise NotImplementedError(
-                    f"Only funnel, mean, and ratio metrics are supported. Got {type(self.metric)}"
+                    f"Only funnel, mean, ratio, and retention metrics are supported. Got {type(self.metric)}"
                 )
 
     def get_exposure_timeseries_query(self) -> ast.SelectQuery:
@@ -393,18 +407,86 @@ class ExperimentQueryBuilder:
 
         return query
 
+    def _get_session_property_ctes(self) -> str:
+        """
+        Returns CTEs for session property metrics with proper deduplication.
+
+        Session properties require special handling to avoid the multiplication bug:
+        - Without deduplication: each event in a session contributes the full session value
+        - With deduplication: each session contributes exactly once
+
+        Pattern:
+        1. metric_events_by_session: GROUP BY $session_id, get any(session.$property)
+        2. metric_events: Join with exposures, filter by temporal ordering
+        3. entity_metrics: Aggregate across sessions per entity
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        assert isinstance(self.metric.source, (ActionsNode, EventsNode))
+
+        session_property = validate_session_property(self.metric.source)
+
+        return f"""
+            exposures AS (
+                {{exposure_select_query}}
+            ),
+
+            -- Layer 1: Deduplicate within sessions
+            -- Each session contributes exactly one value regardless of event count
+            metric_events_by_session AS (
+                SELECT
+                    {{entity_key}} AS entity_id,
+                    `$session_id` AS session_id,
+                    any(session.`{session_property}`) AS session_value,
+                    min(timestamp) AS first_event_timestamp
+                FROM events
+                WHERE {{metric_predicate}}
+                    AND `$session_id` IS NOT NULL
+                    AND `$session_id` != ''
+                GROUP BY {{entity_key}}, `$session_id`
+            ),
+
+            -- Layer 2: Join with exposures, filter by temporal ordering
+            metric_events AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    toFloat(coalesce(metric_events_by_session.session_value, 0)) AS value,
+                    metric_events_by_session.session_id AS session_id
+                FROM exposures
+                INNER JOIN metric_events_by_session
+                    ON exposures.entity_id = metric_events_by_session.entity_id
+                    AND metric_events_by_session.first_event_timestamp >= exposures.first_exposure_time
+                    AND {{session_conversion_window_predicate}}
+            ),
+
+            -- Layer 3: Aggregate across sessions per entity
+            entity_metrics AS (
+                SELECT
+                    entity_id,
+                    variant,
+                    {{value_agg}} AS value
+                FROM metric_events
+                GROUP BY entity_id, variant
+            )
+        """
+
     def _get_mean_query_common_ctes(self) -> str:
         """
         Returns the common CTEs used by both regular and winsorized mean queries.
         Supports both regular events and data warehouse sources.
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Check if this is a session property metric - use special CTE structure
+        if isinstance(self.metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(self.metric.source):
+            return self._get_session_property_ctes()
+
         is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
 
         if is_dw:
             assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
             table = self.metric.source.table_name
-            timestamp_field = f"{table}.{self.metric.source.timestamp_field}"
+            timestamp_field = self.metric.source.timestamp_field
             join_condition = "{join_condition}"
         else:
             table = "events"
@@ -446,6 +528,15 @@ class ExperimentQueryBuilder:
         Supports both regular events and data warehouse sources.
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Check if this is a session property metric - use different placeholders
+        is_session_property = isinstance(self.metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(
+            self.metric.source
+        )
+
+        if is_session_property:
+            return self._get_session_property_placeholders()
+
         is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
 
         # Build exposure query with exposure_identifier for data warehouse
@@ -486,6 +577,23 @@ class ExperimentQueryBuilder:
             )
 
         return placeholders
+
+    def _get_session_property_placeholders(self) -> dict:
+        """
+        Returns placeholders specific to session property metrics.
+        Session properties use a different CTE structure with deduplication per session.
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        exposure_query = self._build_exposure_select_query()
+
+        return {
+            "exposure_select_query": exposure_query,
+            "entity_key": parse_expr(self.entity_key),
+            "metric_predicate": self._build_metric_predicate(table_alias="events"),
+            "value_agg": self._build_value_aggregation_expr(),
+            "session_conversion_window_predicate": self._build_session_conversion_window_predicate(),
+        }
 
     def _inject_mean_breakdown_columns(self, query: ast.SelectQuery, final_cte_name: str = "entity_metrics") -> None:
         """
@@ -720,100 +828,74 @@ class ExperimentQueryBuilder:
         """
         Injects breakdown columns into ratio query AST.
         Modifies query in-place.
+
+        With the combined_events structure, breakdowns are simpler:
+        - Breakdowns are attributed from exposures (not from numerator/denominator events)
+        - entity_metrics gets breakdown columns directly from exposures
+        - No need for breakdown join conditions since there's only one join to combined_events
         """
         if not self._has_breakdown():
             return
 
         aliases = self._get_breakdown_aliases()
 
-        # Get table names for numerator and denominator
-        assert isinstance(self.metric, ExperimentRatioMetric)
-
-        # Check if we're dealing with data warehouse sources
-        num_is_dw = isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
-        denom_is_dw = isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
-
-        # Build numerator events CTE
-        if num_is_dw:
-            assert isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
-            num_table = self.metric.numerator.table_name
-        else:
-            num_table = "events"
-
-        # Build denominator events CTE
-        if denom_is_dw:
-            assert isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
-            denom_table = self.metric.denominator.table_name
-        else:
-            denom_table = "events"
-
-        num_breakdown_exprs = self._build_breakdown_exprs(table_alias=num_table)
-        denom_breakdown_exprs = self._build_breakdown_exprs(table_alias=denom_table)
-
-        # Inject into numerator_events CTE SELECT
-        if query.ctes and "numerator_events" in query.ctes:
-            numerator_cte = query.ctes["numerator_events"]
-            if isinstance(numerator_cte, ast.CTE) and isinstance(numerator_cte.expr, ast.SelectQuery):
-                for alias, expr in num_breakdown_exprs:
-                    numerator_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
-
-        # Inject into denominator_events CTE SELECT
-        if query.ctes and "denominator_events" in query.ctes:
-            denominator_cte = query.ctes["denominator_events"]
-            if isinstance(denominator_cte, ast.CTE) and isinstance(denominator_cte.expr, ast.SelectQuery):
-                for alias, expr in denom_breakdown_exprs:
-                    denominator_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
-
-        # Inject into numerator_aggregated CTE SELECT and GROUP BY
-        if query.ctes and "numerator_aggregated" in query.ctes:
-            num_agg_cte = query.ctes["numerator_aggregated"]
-            if isinstance(num_agg_cte, ast.CTE) and isinstance(num_agg_cte.expr, ast.SelectQuery):
-                for alias in aliases:
-                    num_agg_cte.expr.select.append(ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])))
-                if num_agg_cte.expr.group_by is None:
-                    num_agg_cte.expr.group_by = []
-                for alias in aliases:
-                    num_agg_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
-
-        # Inject into denominator_aggregated CTE SELECT and GROUP BY
-        if query.ctes and "denominator_aggregated" in query.ctes:
-            denom_agg_cte = query.ctes["denominator_aggregated"]
-            if isinstance(denom_agg_cte, ast.CTE) and isinstance(denom_agg_cte.expr, ast.SelectQuery):
-                for alias in aliases:
-                    denom_agg_cte.expr.select.append(ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])))
-                if denom_agg_cte.expr.group_by is None:
-                    denom_agg_cte.expr.group_by = []
-                for alias in aliases:
-                    denom_agg_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
-
-        # Inject into entity_metrics CTE SELECT
+        # Inject into entity_metrics CTE SELECT and GROUP BY (from exposures)
         if query.ctes and "entity_metrics" in query.ctes:
             entity_metrics_cte = query.ctes["entity_metrics"]
             if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
                 for alias in aliases:
                     entity_metrics_cte.expr.select.append(
-                        ast.Alias(alias=alias, expr=ast.Field(chain=["numerator_aggregated", alias]))
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias]))
                     )
-                # Add breakdown join conditions to JOIN ON clause
-                # Find the LEFT JOIN in entity_metrics CTE
-                if isinstance(entity_metrics_cte.expr.select_from, ast.JoinExpr):
-                    join_expr = entity_metrics_cte.expr.select_from
-                    # Navigate to find the denominator_aggregated join
-                    if join_expr.next_join and join_expr.next_join.constraint:
-                        # Build all breakdown join conditions
-                        breakdown_conditions: list[ast.Expr] = [
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["numerator_aggregated", alias]),
-                                right=ast.Field(chain=["denominator_aggregated", alias]),
-                            )
-                            for alias in aliases
-                        ]
-                        # Combine existing constraint expr with all breakdown conditions using AND
-                        if breakdown_conditions:
-                            join_expr.next_join.constraint.expr = ast.And(
-                                exprs=[join_expr.next_join.constraint.expr, *breakdown_conditions]
-                            )
+                if entity_metrics_cte.expr.group_by is None:
+                    entity_metrics_cte.expr.group_by = []
+                for alias in aliases:
+                    entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+
+        # Inject into final SELECT - breakdown columns must come right after variant
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])),
+            )
+
+        # Inject into final GROUP BY
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
+    def _inject_retention_breakdown_columns(self, query: ast.SelectQuery) -> None:
+        """
+        Injects breakdown columns into retention query AST.
+        Modifies query in-place.
+
+        Retention breakdown injection is simpler than ratio because:
+        - Only entity_metrics CTE needs modification
+        - No JOIN conditions require breakdown columns
+        - Breakdowns come from exposures only
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+
+        # Inject into entity_metrics CTE SELECT and GROUP BY (carry breakdown from exposures)
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                # Add breakdown columns to SELECT (after entity_id and variant)
+                for i, alias in enumerate(aliases):
+                    entity_metrics_cte.expr.select.insert(
+                        2 + i,  # After entity_id (0), variant (1)
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])),
+                    )
+
+                # Add breakdown columns to GROUP BY
+                if entity_metrics_cte.expr.group_by is None:
+                    entity_metrics_cte.expr.group_by = []
+                for alias in aliases:
+                    entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
 
         # Inject into final SELECT - breakdown columns must come right after variant
         for i, alias in enumerate(aliases):
@@ -832,14 +914,16 @@ class ExperimentQueryBuilder:
         """
         Builds query for ratio metrics.
 
-        Structure:
+        Optimized structure using combined_events to reduce join operations:
         - exposures: all exposures with variant assignment (with exposure_identifier for data warehouse)
         - numerator_events: events for numerator metric with value
         - denominator_events: events for denominator metric with value
-        - numerator_aggregated: numerator aggregated per entity
-        - denominator_aggregated: denominator aggregated per entity
-        - entity_metrics: joined numerator + denominator per entity
+        - combined_events: UNION ALL of numerator and denominator events with NULL for non-applicable columns
+        - entity_metrics: single join of exposures to combined_events, aggregating both metrics in one pass
         - Final SELECT: aggregated statistics per variant
+
+        This approach reduces memory pressure by joining exposures to events only once
+        instead of separately for numerator and denominator.
         """
         assert isinstance(self.metric, ExperimentRatioMetric)
 
@@ -852,7 +936,7 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
             num_table = self.metric.numerator.table_name
             num_entity_field = f"{self.metric.numerator.data_warehouse_join_key}"
-            num_timestamp_field = f"{num_table}.{self.metric.numerator.timestamp_field}"
+            num_timestamp_field = self.metric.numerator.timestamp_field
         else:
             num_table = "events"
             num_entity_field = self.entity_key
@@ -863,7 +947,7 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
             denom_table = self.metric.denominator.table_name
             denom_entity_field = f"{self.metric.denominator.data_warehouse_join_key}"
-            denom_timestamp_field = f"{denom_table}.{self.metric.denominator.timestamp_field}"
+            denom_timestamp_field = self.metric.denominator.timestamp_field
         else:
             denom_table = "events"
             denom_entity_field = self.entity_key
@@ -898,17 +982,30 @@ class ExperimentQueryBuilder:
                 if exposure_query.group_by:
                     exposure_query.group_by.append(ast.Field(chain=denom_join_key_parts))
 
-        # Build join conditions
-        num_join_cond = (
-            "toString(exposures.exposure_identifier_num) = toString(numerator_events.entity_id)"
-            if num_is_dw
-            else "exposures.entity_id = numerator_events.entity_id"
-        )
-        denom_join_cond = (
-            "toString(exposures.exposure_identifier_denom) = toString(denominator_events.entity_id)"
-            if denom_is_dw
-            else "exposures.entity_id = denominator_events.entity_id"
-        )
+        # Build join condition for combined_events based on source_type
+        # For DW sources, we need to handle different join keys for numerator and denominator
+        if num_is_dw and denom_is_dw:
+            # Both are DW with potentially different join keys
+            join_cond = """(
+                (combined_events.source_type = 'numerator' AND toString(exposures.exposure_identifier_num) = toString(combined_events.entity_id))
+                OR
+                (combined_events.source_type = 'denominator' AND toString(exposures.exposure_identifier_denom) = toString(combined_events.entity_id))
+            )"""
+        elif num_is_dw:
+            join_cond = """(
+                (combined_events.source_type = 'numerator' AND toString(exposures.exposure_identifier_num) = toString(combined_events.entity_id))
+                OR
+                (combined_events.source_type = 'denominator' AND exposures.entity_id = combined_events.entity_id)
+            )"""
+        elif denom_is_dw:
+            join_cond = """(
+                (combined_events.source_type = 'numerator' AND exposures.entity_id = combined_events.entity_id)
+                OR
+                (combined_events.source_type = 'denominator' AND toString(exposures.exposure_identifier_denom) = toString(combined_events.entity_id))
+            )"""
+        else:
+            # Simple case: both use the same entity key, no need for source_type check
+            join_cond = "exposures.entity_id = combined_events.entity_id"
 
         common_ctes = f"""
             exposures AS (
@@ -920,7 +1017,6 @@ class ExperimentQueryBuilder:
                     {{num_entity_key}} AS entity_id,
                     {num_timestamp_field} AS timestamp,
                     {{numerator_value_expr}} AS value
-                    -- breakdown columns added programmatically below
                 FROM {num_table}
                 WHERE {{numerator_predicate}}
             ),
@@ -930,49 +1026,41 @@ class ExperimentQueryBuilder:
                     {{denom_entity_key}} AS entity_id,
                     {denom_timestamp_field} AS timestamp,
                     {{denominator_value_expr}} AS value
-                    -- breakdown columns added programmatically below
                 FROM {denom_table}
                 WHERE {{denominator_predicate}}
             ),
 
-            numerator_aggregated AS (
+            combined_events AS (
                 SELECT
-                    exposures.entity_id AS entity_id,
-                    exposures.variant AS variant,
-                    {{numerator_agg}} AS numerator_value
-                    -- breakdown columns added programmatically below
-                FROM exposures
-                LEFT JOIN numerator_events ON {num_join_cond}
-                    AND {{numerator_conversion_window_predicate}}
-                GROUP BY exposures.entity_id, exposures.variant
-                -- breakdown columns added programmatically below
-            ),
-
-            denominator_aggregated AS (
+                    entity_id,
+                    timestamp,
+                    value AS numerator_value,
+                    NULL AS denominator_value,
+                    'numerator' AS source_type
+                FROM numerator_events
+                UNION ALL
                 SELECT
-                    exposures.entity_id AS entity_id,
-                    exposures.variant AS variant,
-                    {{denominator_agg}} AS denominator_value
-                    -- breakdown columns added programmatically below
-                FROM exposures
-                LEFT JOIN denominator_events ON {denom_join_cond}
-                    AND {{denominator_conversion_window_predicate}}
-                GROUP BY exposures.entity_id, exposures.variant
-                -- breakdown columns added programmatically below
+                    entity_id,
+                    timestamp,
+                    NULL AS numerator_value,
+                    value AS denominator_value,
+                    'denominator' AS source_type
+                FROM denominator_events
             ),
 
             entity_metrics AS (
                 SELECT
-                    numerator_aggregated.variant AS variant,
-                    numerator_aggregated.entity_id AS entity_id,
-                    numerator_aggregated.numerator_value AS numerator_value,
-                    COALESCE(denominator_aggregated.denominator_value, 0) AS denominator_value
+                    exposures.variant AS variant,
+                    exposures.entity_id AS entity_id,
+                    {{numerator_agg}} AS numerator_value,
+                    {{denominator_agg}} AS denominator_value
                     -- breakdown columns added programmatically below
-                FROM numerator_aggregated
-                LEFT JOIN denominator_aggregated
-                    ON numerator_aggregated.entity_id = denominator_aggregated.entity_id
-                    AND numerator_aggregated.variant = denominator_aggregated.variant
-                    -- breakdown join conditions added programmatically below
+                FROM exposures
+                LEFT JOIN combined_events
+                    ON {join_cond}
+                    AND {{conversion_window_predicate}}
+                GROUP BY exposures.variant, exposures.entity_id
+                -- breakdown columns added programmatically below
             )
         """
 
@@ -1002,21 +1090,16 @@ class ExperimentQueryBuilder:
                 ),
                 "numerator_value_expr": self._build_value_expr(source=self.metric.numerator),
                 "numerator_agg": self._build_value_aggregation_expr(
-                    source=self.metric.numerator, events_alias="numerator_events"
-                ),
-                "numerator_conversion_window_predicate": self._build_conversion_window_predicate_for_events(
-                    "numerator_events"
+                    source=self.metric.numerator, events_alias="combined_events", column_name="numerator_value"
                 ),
                 "denominator_predicate": self._build_metric_predicate(
                     source=self.metric.denominator, table_alias=denom_table
                 ),
                 "denominator_value_expr": self._build_value_expr(source=self.metric.denominator),
                 "denominator_agg": self._build_value_aggregation_expr(
-                    source=self.metric.denominator, events_alias="denominator_events"
+                    source=self.metric.denominator, events_alias="combined_events", column_name="denominator_value"
                 ),
-                "denominator_conversion_window_predicate": self._build_conversion_window_predicate_for_events(
-                    "denominator_events"
-                ),
+                "conversion_window_predicate": self._build_conversion_window_predicate_for_events("combined_events"),
             },
         )
 
@@ -1033,6 +1116,27 @@ class ExperimentQueryBuilder:
         Uses "metric_events" as the events alias.
         """
         return self._build_conversion_window_predicate_for_events("metric_events")
+
+    def _build_session_conversion_window_predicate(self) -> ast.Expr:
+        """
+        Build the predicate for limiting session metric events to the conversion window.
+        Uses first_event_timestamp from metric_events_by_session for temporal filtering.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            return parse_expr(
+                """
+                metric_events_by_session.first_event_timestamp
+                    < exposures.last_exposure_time + toIntervalSecond({conversion_window_seconds})
+                """,
+                placeholders={
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            # No conversion window limit - just return true since temporal filtering
+            # is already handled by the >= first_exposure_timestamp condition in the join
+            return ast.Constant(value=True)
 
     def _build_conversion_window_predicate_for_events(self, events_alias: str) -> ast.Expr:
         """
@@ -1067,7 +1171,11 @@ class ExperimentQueryBuilder:
         # Data warehouse sources use different table and predicate logic
         timestamp_field_chain: list[str | int]
         if isinstance(source, ExperimentDataWarehouseNode):
-            timestamp_field_chain = [table_alias, source.timestamp_field]
+            # For DW tables, don't prefix with table name since:
+            # 1. We're in a single-table CTE context where field names are unambiguous
+            # 2. DW table names may contain dots (e.g., "bigquery.table_name") which
+            #    confuse HogQL field resolution when used as a prefix
+            timestamp_field_chain = [source.timestamp_field]
             metric_event_filter = data_warehouse_node_to_filter(self.team, source)
         else:
             timestamp_field_chain = [table_alias, "timestamp"]
@@ -1090,29 +1198,75 @@ class ExperimentQueryBuilder:
             },
         )
 
-    def _build_value_expr(self, source=None) -> ast.Expr:
+    def _build_value_expr(self, source=None, apply_coalesce: bool = True) -> ast.Expr:
         """
         Extracts the value expression from the metric source configuration.
         For ratio metrics, pass the specific source (numerator or denominator).
         For mean metrics, uses self.metric.source by default.
+
+        Args:
+            source: The metric source configuration
+            apply_coalesce: If True, wrap numeric values with coalesce(..., 0) so that
+                           NULL property values are treated as 0. This should be True
+                           for event CTEs (metric_events, numerator_events, denominator_events)
+                           so that downstream aggregations don't need to distinguish between
+                           metric types.
+
+        Note: For count distinct math types (UNIQUE_SESSION, DAU, UNIQUE_GROUP), coalesce
+        is not applied since the value is an ID, not a numeric value.
         """
         if source is None:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
-        return get_source_value_expr(source)
 
-    def _build_value_aggregation_expr(self, source=None, events_alias: str = "metric_events") -> ast.Expr:
+        base_expr = get_source_value_expr(source)
+
+        if not apply_coalesce:
+            return base_expr
+
+        # Check if this is a count distinct math type - don't coalesce IDs
+        math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+        ]:
+            return base_expr
+
+        # Wrap numeric values with coalesce so NULL property values become 0
+        # We need toFloat to ensure type consistency - base_expr could be String (HOGQL),
+        # Float64 (continuous), or UInt8 (count). Coalesce requires matching types.
+        # Skip wrapping with toFloat if base_expr is already a toFloat call (e.g., continuous metrics)
+        if isinstance(base_expr, ast.Call) and base_expr.name == "toFloat":
+            float_expr = base_expr
+        else:
+            float_expr = ast.Call(name="toFloat", args=[base_expr])
+        return ast.Call(name="coalesce", args=[float_expr, ast.Constant(value=0)])
+
+    def _build_value_aggregation_expr(
+        self, source=None, events_alias: str = "metric_events", column_name: str = "value"
+    ) -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
         For ratio metrics, pass the specific source (numerator or denominator) and events_alias.
         For mean metrics, uses self.metric.source by default with "metric_events" alias.
+
+        Args:
+            source: The metric source configuration
+            events_alias: The table/CTE alias to use (e.g., "metric_events", "combined_events")
+            column_name: The column name containing the value (e.g., "value", "numerator_value")
+
+        Note: NULL handling (coalesce) is applied upstream in _build_value_expr() when building
+        the event CTEs. This method does not need to handle NULLs - aggregation functions will
+        naturally ignore NULLs from combined_events (ratio metrics), while NULL property values
+        have already been coalesced to 0 at the source.
         """
         if source is None:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        # Get metric source details
         math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
+        column_ref = f"{events_alias}.{column_name}"
 
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
@@ -1120,31 +1274,37 @@ class ExperimentQueryBuilder:
             ExperimentMetricMathType.UNIQUE_GROUP,
         ]:
             # Count distinct values, filtering out null UUIDs and empty strings
-            # This matches the old implementation's behavior
             return parse_expr(
                 f"""toFloat(count(distinct
                     multiIf(
-                        toTypeName({events_alias}.value) = 'UUID' AND reinterpretAsUInt128({events_alias}.value) = 0, NULL,
-                        toString({events_alias}.value) = '', NULL,
-                        {events_alias}.value
+                        toTypeName({column_ref}) = 'UUID' AND reinterpretAsUInt128({column_ref}) = 0, NULL,
+                        toString({column_ref}) = '', NULL,
+                        {column_ref}
                     )
                 ))"""
             )
         elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr(f"min(coalesce(toFloat({events_alias}.value), 0))")
+            # Outer coalesce ensures 0 (not NULL) when entity has no events of this type
+            return parse_expr(f"coalesce(min(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr(f"max(coalesce(toFloat({events_alias}.value), 0))")
+            return parse_expr(f"coalesce(max(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr(f"avg(coalesce(toFloat({events_alias}.value), 0))")
+            return parse_expr(f"coalesce(avg(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({events_alias}.value), 0))")
-            return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
+                    inner_value_expr = parse_expr(f"toFloat({column_ref})")
+                    agg_call = build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+                    return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
+            # Fallback to SUM
+            return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
         else:
-            return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
+            # SUM (default) - coalesce is needed here because sum(NULL) returns NULL.
+            # For ratio metrics with combined_events, when there are no events of one type,
+            # all values for that type are NULL (from UNION ALL structure), and we want 0 not NULL.
+            return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (
@@ -1258,15 +1418,15 @@ class ExperimentQueryBuilder:
         if self._has_breakdown():
             breakdown_exprs = self._build_breakdown_exprs(table_alias="")
 
-            # Add breakdown columns to SELECT
+            # Add breakdown columns to SELECT using argMin attribution
+            # This ensures each user is attributed to exactly one breakdown value
+            # (from their first exposure), preventing duplicate counting when users
+            # have multiple exposures with different breakdown property values
             for alias, expr in breakdown_exprs:
-                exposure_query.select.append(ast.Alias(alias=alias, expr=expr))
-
-            # Add breakdown columns to GROUP BY
-            if exposure_query.group_by is None:
-                exposure_query.group_by = []
-            for alias, _ in breakdown_exprs:
-                exposure_query.group_by.append(ast.Field(chain=[alias]))
+                # Use argMin to attribute breakdown value from first exposure
+                # This matches the variant attribution logic
+                breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
+                exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
         return exposure_query
 
@@ -1362,6 +1522,314 @@ class ExperimentQueryBuilder:
         """
         return parse_expr(
             "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0))))"
+        )
+
+    def _build_retention_query(self) -> ast.SelectQuery:
+        """
+        Builds query for retention metrics.
+
+        Retention measures the proportion of users who performed a "completion event"
+        within a specified time window after performing a "start event".
+
+        Statistical Treatment:
+        This metric is treated as a ratio metric using RatioStatistic. Each entity has:
+        - Numerator value: 1 if completed within retention window, 0 otherwise
+        - Denominator value: 1 (they performed the start event)
+
+        Unlike standard proportion tests (where sample size is fixed), retention metrics
+        have a random denominator (count of users who started). This makes retention a
+        ratio of two random variables, requiring delta method variance.
+
+        Returns 7 fields for RatioStatistic:
+        - Standard: num_users, total_sum, total_sum_of_squares
+        - Ratio-specific: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
+
+        The collected statistics are processed using RatioStatistic (not ProportionStatistic)
+        for both frequentist and Bayesian analysis.
+
+        Structure:
+        - exposures: all exposures with variant assignment
+        - start_events: when each entity performed the start_event (with start_handling logic)
+        - completion_events: when each entity performed the completion_event
+        - entity_metrics: join exposures + start_events + completion_events
+                          Calculate retention per entity (1 if retained, 0 if not)
+        - Final SELECT: aggregated statistics per variant
+
+        Key Design Decision:
+        Uses INNER JOIN between exposures and start_events, meaning only users who
+        performed the start event are included in the retention calculation. This
+        measures "Of users who did X, how many came back to do Y?" rather than
+        "Of all exposed users, how many did X and then Y?"
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        # Build the CTEs
+        common_ctes = """
+            exposures AS (
+                {exposure_select_query}
+            ),
+
+            start_events AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {start_timestamp_expr} AS start_timestamp
+                FROM events
+                WHERE {start_event_predicate}
+                GROUP BY entity_id
+            ),
+
+            completion_events AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    timestamp AS completion_timestamp
+                FROM events
+                WHERE {completion_event_predicate}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    MAX(if(
+                        completion_events.completion_timestamp IS NOT NULL
+                        AND {truncated_completion_timestamp} >= {truncated_start_timestamp} + {retention_window_start_interval}
+                        AND {truncated_completion_timestamp} <= {truncated_start_timestamp} + {retention_window_end_interval},
+                        1,
+                        0
+                    )) AS value
+                FROM exposures
+                INNER JOIN start_events
+                    ON exposures.entity_id = start_events.entity_id
+                    AND {start_conversion_window_predicate}
+                LEFT JOIN completion_events
+                    ON exposures.entity_id = completion_events.entity_id
+                    AND {completion_retention_window_predicate}
+                GROUP BY exposures.entity_id, exposures.variant
+            )
+        """
+
+        placeholders = {
+            "exposure_select_query": self._build_exposure_select_query(),
+            "entity_key": parse_expr(self.entity_key),
+            "start_timestamp_expr": self._build_start_event_timestamp_expr(),
+            "start_event_predicate": self._build_start_event_predicate(),
+            "completion_event_predicate": self._build_completion_event_predicate(),
+            "retention_window_start_interval": self._build_retention_window_interval(
+                self.metric.retention_window_start
+            ),
+            "retention_window_end_interval": self._build_retention_window_interval(self.metric.retention_window_end),
+            "start_conversion_window_predicate": self._build_start_conversion_window_predicate(),
+            "completion_retention_window_predicate": self._build_completion_retention_window_predicate(),
+            "truncated_start_timestamp": self._get_retention_window_truncation_expr(
+                parse_expr("start_events.start_timestamp")
+            ),
+            "truncated_completion_timestamp": self._get_retention_window_truncation_expr(
+                parse_expr("completion_events.completion_timestamp")
+            ),
+        }
+
+        query = parse_select(
+            f"""
+            WITH {common_ctes}
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                sum(entity_metrics.value) AS total_sum,
+                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+                count(entity_metrics.entity_id) AS denominator_sum,
+                count(entity_metrics.entity_id) AS denominator_sum_squares,
+                sum(entity_metrics.value) AS numerator_denominator_sum_product
+            FROM entity_metrics
+            WHERE notEmpty(variant)
+            GROUP BY entity_metrics.variant
+            """,
+            placeholders=placeholders,
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns if breakdown filter is present
+        if self._has_breakdown():
+            self._inject_retention_breakdown_columns(query)
+
+        return query
+
+    def _build_start_event_timestamp_expr(self) -> ast.Expr:
+        """
+        Returns expression to get start event timestamp based on start_handling.
+        FIRST_SEEN: Use the first occurrence of start event
+        LAST_SEEN: Use the last occurrence of start event
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        if self.metric.start_handling == StartHandling.FIRST_SEEN:
+            return parse_expr("min(timestamp)")
+        else:  # LAST_SEEN
+            return parse_expr("max(timestamp)")
+
+    def _get_retention_window_truncation_expr(self, timestamp_expr: ast.Expr) -> ast.Expr:
+        """
+        Returns truncated timestamp expression for retention window comparisons.
+
+        For DAY: returns toStartOfDay(timestamp)
+        For HOUR: returns toStartOfHour(timestamp)
+        For other units: returns timestamp unchanged
+
+        This ensures [7,7] day window means "any time on day 7" rather than
+        "exactly 7*24 hours after start event to the second".
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        # Only truncate DAY and HOUR units for intuitive behavior
+        unit_to_interval_name = {
+            FunnelConversionWindowTimeUnit.DAY: "day",
+            FunnelConversionWindowTimeUnit.HOUR: "hour",
+        }
+
+        interval_name = unit_to_interval_name.get(self.metric.retention_window_unit)
+        if interval_name is None:
+            return timestamp_expr
+
+        return get_start_of_interval_hogql(interval=interval_name, team=self.team, source=timestamp_expr)
+
+    def _build_retention_window_interval(self, window_value: int) -> ast.Expr:
+        """
+        Converts retention window value to ClickHouse interval expression.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        unit_map = {
+            FunnelConversionWindowTimeUnit.SECOND: "Second",
+            FunnelConversionWindowTimeUnit.MINUTE: "Minute",
+            FunnelConversionWindowTimeUnit.HOUR: "Hour",
+            FunnelConversionWindowTimeUnit.DAY: "Day",
+            FunnelConversionWindowTimeUnit.WEEK: "Week",
+            FunnelConversionWindowTimeUnit.MONTH: "Month",
+        }
+        unit = unit_map[self.metric.retention_window_unit]
+        return parse_expr(
+            f"toInterval{unit}({{value}})",
+            placeholders={"value": ast.Constant(value=window_value)},
+        )
+
+    def _build_start_event_predicate(self) -> ast.Expr:
+        """
+        Builds the predicate for filtering start events.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        if isinstance(self.metric.start_event, ExperimentDataWarehouseNode):
+            event_filter = data_warehouse_node_to_filter(self.team, self.metric.start_event)
+        else:
+            event_filter = event_or_action_to_filter(self.team, self.metric.start_event)
+        conversion_window_seconds = self._get_conversion_window_seconds()
+
+        return parse_expr(
+            """
+            timestamp >= {date_from}
+            AND timestamp < {date_to} + toIntervalSecond({conversion_window_seconds})
+            AND {event_filter}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "event_filter": event_filter,
+            },
+        )
+
+    def _build_completion_event_predicate(self) -> ast.Expr:
+        """
+        Builds the predicate for filtering completion events.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        if isinstance(self.metric.completion_event, ExperimentDataWarehouseNode):
+            event_filter = data_warehouse_node_to_filter(self.team, self.metric.completion_event)
+        else:
+            event_filter = event_or_action_to_filter(self.team, self.metric.completion_event)
+
+        # Completion events can occur within the retention window after the start event
+        # The retention window end could extend beyond the experiment end date
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        retention_window_end_seconds = conversion_window_to_seconds(
+            self.metric.retention_window_end,
+            self.metric.retention_window_unit,
+        )
+
+        return parse_expr(
+            """
+            timestamp >= {date_from}
+            AND timestamp < {date_to} + toIntervalSecond({total_window_seconds})
+            AND {event_filter}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "total_window_seconds": ast.Constant(value=conversion_window_seconds + retention_window_end_seconds),
+                "event_filter": event_filter,
+            },
+        )
+
+    def _build_start_conversion_window_predicate(self) -> ast.Expr:
+        """
+        Builds the predicate for the join condition limiting start events to the conversion window.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            return parse_expr(
+                """
+                start_events.start_timestamp >= exposures.first_exposure_time
+                AND start_events.start_timestamp <= exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                """,
+                placeholders={
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            return parse_expr("start_events.start_timestamp >= exposures.first_exposure_time")
+
+    def _build_completion_retention_window_predicate(self) -> ast.Expr:
+        """
+        Builds the predicate for the join condition ensuring completion events
+        are within a reasonable timeframe relative to start events.
+
+        This is a performance optimization - we'll do the exact retention window
+        calculation in the entity_metrics CTE.
+
+        For DAY/HOUR units that use timestamp truncation, we add a buffer to account
+        for the truncation window. This ensures that same-period retention (e.g., [0,0])
+        captures all events within that period, not just events at the exact same second.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        retention_window_end_seconds = conversion_window_to_seconds(
+            self.metric.retention_window_end,
+            self.metric.retention_window_unit,
+        )
+
+        # For DAY/HOUR units, add a buffer to account for truncation
+        # This ensures same-period retention windows work correctly
+        truncation_buffer = 0
+        if self.metric.retention_window_unit == FunnelConversionWindowTimeUnit.DAY:
+            # For DAY units, allow completions within the same day (24 hours)
+            truncation_buffer = 86400  # 1 day in seconds
+        elif self.metric.retention_window_unit == FunnelConversionWindowTimeUnit.HOUR:
+            # For HOUR units, allow completions within the same hour
+            truncation_buffer = 3600  # 1 hour in seconds
+
+        # Add buffer to retention window end
+        buffered_window_end_seconds = retention_window_end_seconds + truncation_buffer
+
+        return parse_expr(
+            """
+            completion_events.completion_timestamp >= start_events.start_timestamp
+            AND completion_events.completion_timestamp <= start_events.start_timestamp + toIntervalSecond({retention_window_end_seconds})
+            """,
+            placeholders={
+                "retention_window_end_seconds": ast.Constant(value=buffered_window_end_seconds),
+            },
         )
 
 

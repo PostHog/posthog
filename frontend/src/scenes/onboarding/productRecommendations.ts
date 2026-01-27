@@ -1,4 +1,4 @@
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 export type UseCaseOption =
     | 'see_user_behavior'

@@ -1,7 +1,10 @@
-"""Tests for LLM Analytics error normalization logic.
+"""Tests for LLM Analytics errors query.
 
-These tests verify that the error normalization pipeline correctly groups errors
-that differ only in dynamic values like IDs, timestamps, token counts, etc.
+These tests verify that the errors query correctly aggregates events
+by the pre-normalized $ai_error_normalized property.
+
+Note: Error normalization logic is tested in Node.js:
+See nodejs/src/ingestion/ai/errors/normalize-error.test.ts
 """
 
 import uuid
@@ -9,283 +12,161 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
-from parameterized import parameterized
-
 from posthog.hogql.query import execute_hogql_query
 
 from products.llm_analytics.backend.queries import get_errors_query
 
 
-class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
-    """Test the 10-step error normalization pipeline."""
+class TestErrorsQuery(ClickhouseTestMixin, APIBaseTest):
+    """Test the errors query aggregation."""
 
-    def _create_ai_event_with_error(self, error_message: str, distinct_id: str | None = None):
-        """Helper to create an AI event with a specific error message."""
+    def _create_ai_event_with_error(
+        self,
+        error_message: str,
+        normalized_error: str,
+        event_type: str = "$ai_generation",
+        distinct_id: str | None = None,
+        trace_id: str | None = None,
+        session_id: str | None = None,
+    ):
+        """Helper to create an AI event with error and pre-normalized error."""
         if distinct_id is None:
             distinct_id = f"user_{uuid.uuid4().hex[:8]}"
 
+        properties = {
+            "$ai_error": error_message,
+            "$ai_error_normalized": normalized_error,
+            "$ai_is_error": "true",
+            "$ai_model": "test-model",
+            "$ai_provider": "test-provider",
+        }
+
+        if trace_id:
+            properties["$ai_trace_id"] = trace_id
+        if session_id:
+            properties["$ai_session_id"] = session_id
+
         return _create_event(
             team=self.team,
-            event="$ai_generation",
+            event=event_type,
             distinct_id=distinct_id,
-            properties={
-                "$ai_error": error_message,
-                "$ai_is_error": "true",
-                "$ai_model": "test-model",
-                "$ai_provider": "test-provider",
-            },
+            properties=properties,
             timestamp=datetime.now(tz=UTC),
         )
 
-    def _execute_normalization_query(self) -> list:
-        """Execute the error normalization query and return normalized errors."""
-        # Flush events to ClickHouse
+    def _execute_errors_query(self) -> list:
+        """Execute the errors query and return results."""
         flush_persons_and_events()
 
-        # Load query from shared errors.sql file and customize for testing
-        base_query = get_errors_query(
-            filters=f"team_id = {self.team.pk}",
+        query = get_errors_query(
             order_by="generations",
             order_direction="DESC",
         )
 
-        # Modify the query to count generations (which our test events are) instead of all metrics
-        # Replace the final SELECT with a simpler version for testing
-        query = base_query.replace(
-            """SELECT
-    normalized_error as error,
-    countDistinctIf(ai_trace_id, isNotNull(ai_trace_id) AND ai_trace_id != '') as traces,
-    countIf(event = '$ai_generation') as generations,
-    countIf(event = '$ai_span') as spans,
-    countIf(event = '$ai_embedding') as embeddings,
-    countDistinctIf(ai_session_id, isNotNull(ai_session_id) AND ai_session_id != '') as sessions,
-    uniq(distinct_id) as users,
-    uniq(toDate(timestamp)) as days_seen,
-    min(timestamp) as first_seen,
-    max(timestamp) as last_seen
-FROM all_numbers_normalized
-GROUP BY normalized_error
-ORDER BY {orderBy} {orderDirection}
-LIMIT 50""",
-            """SELECT
-    normalized_error as error,
-    countIf(event = '$ai_generation') as occurrences
-FROM all_numbers_normalized
-GROUP BY normalized_error
-ORDER BY occurrences DESC""",
-        )
+        query = query.replace("{filters}", f"team_id = {self.team.pk}")
 
         result = execute_hogql_query(
             query=query,
             team=self.team,
         )
 
-        # Return error and generations count (index 2, not 1 which is traces)
-        # Query returns: (error, traces, generations, spans, embeddings, sessions, users, days_seen, first_seen, last_seen)
-        return [(row[0], row[2]) for row in result.results]
+        # Returns: (error, traces, generations, spans, embeddings, sessions, users, days_seen, first_seen, last_seen)
+        return result.results
 
-    @parameterized.expand(
-        [
-            # Test Step 2: Large numeric IDs (9+ digits)
-            (
-                "ID normalization",
-                [
-                    "Error in project 1234567890",
-                    "Error in project 9876543210",
-                ],
-                "Error in project <ID>",
-            ),
-            # Test Step 3: UUIDs and request IDs
-            (
-                "UUID normalization",
-                [
-                    "Request req_abc123def456 failed",
-                    "Request req_xyz789ghi012 failed",
-                ],
-                "Request <ID> failed",
-            ),
-            (
-                "UUID format normalization",
-                [
-                    "Error 550e8400-e29b-41d4-a716-446655440000 occurred",
-                    "Error 123e4567-e89b-12d3-a456-426614174000 occurred",
-                ],
-                "Error <ID> occurred",
-            ),
-            # Test Step 4: ISO timestamps
-            (
-                "Timestamp normalization",
-                [
-                    "Timeout at 2025-11-08T14:25:51.767Z",
-                    "Timeout at 2025-11-09T10:30:22.123Z",
-                ],
-                "Timeout at <TIMESTAMP>",
-            ),
-            # Test Step 5: Cloud resource paths
-            (
-                "GCP path normalization",
-                [
-                    "Model projects/123/locations/us-west2/publishers/google/models/gemini-pro not found",
-                    "Model projects/456/locations/europe-west1/publishers/google/models/claude-2 not found",
-                ],
-                "Model projects/<PATH> not found",
-            ),
-            # Test Step 6: Response IDs
-            (
-                "Response ID normalization",
-                [
-                    'API error: "responseId":"h2sPacmZI4OWvPEPvIS16Ac"',
-                    'API error: "responseId":"abcXYZ123def456GHI789"',
-                ],
-                'API error: "responseId":"<RESPONSE_ID>"',
-            ),
-            # Test Step 7: Tool call IDs
-            (
-                "Tool call ID normalization",
-                [
-                    "tool_call_id='toolu_01LCbNr67BxhgUH6gndPCELW' failed",
-                    "tool_call_id='toolu_99XYZabcDEF123ghiJKL456' failed",
-                ],
-                "tool_call_id='<TOOL_CALL_ID>' failed",
-            ),
-            # Test Step 8: Generic IDs (any alphanumeric pattern in id='...')
-            (
-                "Generic ID normalization",
-                [
-                    "Error with id='e8631f8c4650120cd5848570185bbcd7' occurred",
-                    "Error with id='a1b2c3d4e5f6a0b1c2d3e4f5abcdef01' occurred",
-                    "Error with id='s1' occurred",
-                    "Error with id='user_abc123' occurred",
-                ],
-                "Error with id='<ID>' occurred",
-            ),
-            # Test Step 9: Token counts
-            (
-                "Token count normalization",
-                [
-                    'Limit exceeded: "tokenCount":7125',
-                    'Limit exceeded: "tokenCount":15000',
-                ],
-                'Limit exceeded: "tokenCount":<TOKEN_COUNT>',
-            ),
-            # Test Step 10: All remaining numbers
-            (
-                "General number normalization",
-                [
-                    "Expected 2 arguments but got 5",
-                    "Expected 10 arguments but got 15",
-                ],
-                "Expected <N> arguments but got <N>",
-            ),
-            (
-                "Port number normalization",
-                [
-                    "Connection refused on port 8080",
-                    "Connection refused on port 3000",
-                ],
-                "Connection refused on port <N>",
-            ),
-            (
-                "HTTP status code normalization",
-                [
-                    "Request failed with status 429",
-                    "Request failed with status 500",
-                ],
-                "Request failed with status <N>",
-            ),
-        ]
-    )
-    def test_error_normalization_step(self, test_name, error_variants, expected_normalized):
-        """Test that error variants are normalized to the same canonical form."""
-        # Create events with different error variants
-        for error in error_variants:
-            self._create_ai_event_with_error(error)
+    def test_groups_by_normalized_error(self):
+        """Events with the same normalized error should be grouped together."""
+        # Create events with different raw errors but same normalized error
+        self._create_ai_event_with_error("Error 123", "Error <N>")
+        self._create_ai_event_with_error("Error 456", "Error <N>")
+        self._create_ai_event_with_error("Error 789", "Error <N>")
 
-        # Execute normalization query
-        results = self._execute_normalization_query()
+        results = self._execute_errors_query()
 
-        # Should have exactly one normalized error
-        assert len(results) == 1, f"{test_name}: Expected 1 normalized error, got {len(results)}: {results}"
+        assert len(results) == 1
+        assert results[0][0] == "Error <N>"
+        assert results[0][2] == 3  # generations count
 
-        normalized_error, occurrence_count = results[0]
+    def test_different_normalized_errors_not_grouped(self):
+        """Events with different normalized errors should not be grouped."""
+        self._create_ai_event_with_error("Connection timeout", "Connection timeout")
+        self._create_ai_event_with_error("Connection refused", "Connection refused")
+        self._create_ai_event_with_error("Auth failed", "Auth failed")
 
-        # Check it matches expected pattern
-        assert (
-            normalized_error == expected_normalized
-        ), f"{test_name}: Expected '{expected_normalized}', got '{normalized_error}'"
+        results = self._execute_errors_query()
 
-        # Check all variants were grouped together
-        assert occurrence_count == len(
-            error_variants
-        ), f"{test_name}: Expected {len(error_variants)} occurrences, got {occurrence_count}"
+        assert len(results) == 3
+        errors = [r[0] for r in results]
+        assert "Connection timeout" in errors
+        assert "Connection refused" in errors
+        assert "Auth failed" in errors
 
-    def test_complex_error_with_multiple_normalizations(self):
-        """Test that errors requiring multiple normalization steps are handled correctly."""
-        error_variants = [
-            # Use single quotes in test data to match normalization regex
-            'Error at 2025-11-08T14:25:51.767Z in project 1234567890: "responseId":"abc123", "tokenCount":5000, tool_call_id=\'toolu_XYZ\' (status 429)',
-            'Error at 2025-11-09T10:30:22.123Z in project 9876543210: "responseId":"def456", "tokenCount":7500, tool_call_id=\'toolu_ABC\' (status 500)',
-        ]
+    def test_counts_event_types_correctly(self):
+        """Query should count different event types separately."""
+        normalized = "Test error"
+        self._create_ai_event_with_error("err1", normalized, event_type="$ai_generation")
+        self._create_ai_event_with_error("err2", normalized, event_type="$ai_generation")
+        self._create_ai_event_with_error("err3", normalized, event_type="$ai_span")
+        self._create_ai_event_with_error("err4", normalized, event_type="$ai_embedding")
 
-        expected = 'Error at <TIMESTAMP> in project <ID>: "responseId":"<RESPONSE_ID>", "tokenCount":<TOKEN_COUNT>, tool_call_id=\'<TOOL_CALL_ID>\' (status <N>)'
+        results = self._execute_errors_query()
 
-        for error in error_variants:
-            self._create_ai_event_with_error(error)
+        assert len(results) == 1
+        # (error, traces, generations, spans, embeddings, sessions, users, days_seen, first_seen, last_seen)
+        row = results[0]
+        assert row[0] == normalized
+        assert row[2] == 2  # generations
+        assert row[3] == 1  # spans
+        assert row[4] == 1  # embeddings
 
-        results = self._execute_normalization_query()
+    def test_counts_unique_traces(self):
+        """Query should count unique trace IDs."""
+        normalized = "Test error"
+        self._create_ai_event_with_error("err1", normalized, trace_id="trace_1")
+        self._create_ai_event_with_error("err2", normalized, trace_id="trace_1")  # same trace
+        self._create_ai_event_with_error("err3", normalized, trace_id="trace_2")
 
-        assert len(results) == 1, f"Expected 1 normalized error, got {len(results)}"
-        assert results[0][0] == expected
-        assert results[0][1] == len(error_variants)
+        results = self._execute_errors_query()
 
-    def test_normalization_preserves_error_identity(self):
-        """Test that different errors don't get incorrectly grouped together."""
-        errors = [
-            "Connection timeout",  # Different base error
-            "Connection refused",  # Different base error
-            "Authentication failed",  # Different base error
-        ]
+        assert len(results) == 1
+        assert results[0][1] == 2  # unique traces
 
-        for error in errors:
-            self._create_ai_event_with_error(error)
+    def test_counts_unique_sessions(self):
+        """Query should count unique session IDs."""
+        normalized = "Test error"
+        self._create_ai_event_with_error("err1", normalized, session_id="session_1")
+        self._create_ai_event_with_error("err2", normalized, session_id="session_1")  # same session
+        self._create_ai_event_with_error("err3", normalized, session_id="session_2")
 
-        results = self._execute_normalization_query()
+        results = self._execute_errors_query()
 
-        # Should have 3 distinct normalized errors
-        assert len(results) == 3, f"Expected 3 distinct errors, got {len(results)}: {results}"
+        assert len(results) == 1
+        assert results[0][5] == 2  # unique sessions
 
-        # Each should appear once
-        for _, count in results:
-            assert count == 1
+    def test_counts_unique_users(self):
+        """Query should count unique users."""
+        normalized = "Test error"
+        self._create_ai_event_with_error("err1", normalized, distinct_id="user_1")
+        self._create_ai_event_with_error("err2", normalized, distinct_id="user_1")  # same user
+        self._create_ai_event_with_error("err3", normalized, distinct_id="user_2")
 
-    def test_empty_or_null_errors_handled(self):
-        """Test that empty or null errors are handled gracefully."""
-        # Create events with various empty/null error values
+        results = self._execute_errors_query()
+
+        assert len(results) == 1
+        assert results[0][6] == 2  # unique users
+
+    def test_empty_normalized_error_handled(self):
+        """Events without $ai_error_normalized should not crash the query."""
         _create_event(
             team=self.team,
             event="$ai_generation",
             distinct_id="user_1",
             properties={
-                "$ai_error": "",
+                "$ai_error": "Some error",
                 "$ai_is_error": "true",
-                "$ai_model": "test",
             },
-        )
-
-        _create_event(
-            team=self.team,
-            event="$ai_generation",
-            distinct_id="user_2",
-            properties={
-                "$ai_error": "null",
-                "$ai_is_error": "true",
-                "$ai_model": "test",
-            },
+            timestamp=datetime.now(tz=UTC),
         )
 
         # Query should not crash
-        results = self._execute_normalization_query()
-
-        # Should filter out empty/null errors or group them
-        # Either way, query should complete successfully
+        results = self._execute_errors_query()
         assert isinstance(results, list)

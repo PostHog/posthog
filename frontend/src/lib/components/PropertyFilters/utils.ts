@@ -87,7 +87,6 @@ export function convertPropertiesToPropertyGroup(
     }
     return { type: FilterLogicalOperator.And, values: [] }
 }
-
 /** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
 export function convertPropertyGroupToProperties(
     properties?: PropertyGroupFilter | AnyPropertyFilter[]
@@ -120,8 +119,12 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
         [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
+        [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
+        [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
         [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
         [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
+        [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
+        [PropertyFilterType.Empty]: TaxonomicFilterGroupType.Empty,
     }
 
 export function formatPropertyLabel(
@@ -237,7 +240,11 @@ export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is 
     return filter?.type === PropertyFilterType.Group
 }
 export function isLogPropertyFilter(filter?: AnyFilterLike | null): filter is LogPropertyFilter {
-    return filter?.type === PropertyFilterType.Log
+    return (
+        filter?.type === PropertyFilterType.Log ||
+        filter?.type === PropertyFilterType.LogAttribute ||
+        filter?.type === PropertyFilterType.LogResourceAttribute
+    )
 }
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue
@@ -339,9 +346,12 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
     [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
-    [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
+    [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
+    [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
+    [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
+    [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
 }
 
 export const filterToTaxonomicFilterType = (
@@ -388,8 +398,11 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.LogEntry]: PropertyDefinitionType.LogEntry,
         [PropertyFilterType.ErrorTrackingIssue]: PropertyDefinitionType.Resource,
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
+        [PropertyFilterType.LogAttribute]: PropertyDefinitionType.LogAttribute,
+        [PropertyFilterType.LogResourceAttribute]: PropertyDefinitionType.LogResourceAttribute,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
+        [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,
     }
 
     return mapping[filterType as PropertyFilterType] ?? PropertyDefinitionType.Event
@@ -433,12 +446,24 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.Flag
     }
 
-    if (filterType == TaxonomicFilterGroupType.LogAttributes) {
+    if (filterType == TaxonomicFilterGroupType.Logs) {
         return PropertyFilterType.Log
+    }
+
+    if (filterType == TaxonomicFilterGroupType.LogAttributes) {
+        return PropertyFilterType.LogAttribute
+    }
+
+    if (filterType == TaxonomicFilterGroupType.LogResourceAttributes) {
+        return PropertyFilterType.LogResourceAttribute
     }
 
     if (filterType == TaxonomicFilterGroupType.RevenueAnalyticsProperties) {
         return PropertyFilterType.RevenueAnalytics
+    }
+
+    if (filterType == TaxonomicFilterGroupType.WorkflowVariables) {
+        return PropertyFilterType.WorkflowVariable
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

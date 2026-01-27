@@ -433,9 +433,13 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                     <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
                 </div>
             </div>
-            {npsBreakdown && <NPSBreakdownViz npsBreakdown={npsBreakdown} />}
-            {question.scale === 10 && (
-                <NPSRatingOverTime questionIndex={questionIndex} questionId={question.id ?? ''} />
+            {question.isNpsQuestion !== false && (
+                <>
+                    {npsBreakdown && <NPSBreakdownViz npsBreakdown={npsBreakdown} />}
+                    {question.scale === 10 && (
+                        <NPSRatingOverTime questionIndex={questionIndex} questionId={question.id ?? ''} />
+                    )}
+                </>
             )}
             {[3, 5, 7].includes(question.scale) && question.id && (
                 <RatingScoreOverTime

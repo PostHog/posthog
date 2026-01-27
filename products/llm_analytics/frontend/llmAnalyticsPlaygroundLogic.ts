@@ -4,7 +4,8 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError, RateLimitError } from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -149,10 +150,27 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         setupPlaygroundFromEvent: (payload: { model?: string; input?: any; tools?: any }) => ({ payload }),
         setResponseError: (hasError: boolean) => ({ hasError }),
         clearResponseError: true,
+        setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
+        setSubscriptionRequired: (required: boolean) => ({ required }),
     }),
 
     reducers({
         model: ['', { setModel: (_, { model }) => model }],
+        modelOptionsErrorStatus: [
+            null as number | null,
+            {
+                loadModelOptions: () => null,
+                loadModelOptionsSuccess: () => null,
+                loadModelOptionsFailure: (_, { error }) => {
+                    const err = error as unknown
+                    if (err instanceof ApiError) {
+                        return err.status ?? null
+                    }
+
+                    return null
+                },
+            },
+        ],
         systemPrompt: ['You are a helpful AI assistant.', { setSystemPrompt: (_, { systemPrompt }) => systemPrompt }],
         maxTokens: [null as number | null, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
         thinking: [false, { setThinking: (_, { thinking }) => thinking }],
@@ -278,26 +296,37 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 addResponseToHistory: () => false,
             },
         ],
+        rateLimitedUntil: [
+            null as number | null,
+            {
+                setRateLimited: (_, { retryAfterSeconds }) => Date.now() + retryAfterSeconds * 1000,
+            },
+        ],
+        subscriptionRequired: [
+            false as boolean,
+            {
+                setSubscriptionRequired: (_, { required }) => required,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         modelOptions: {
             __default: [] as ModelOption[],
             loadModelOptions: async () => {
-                try {
-                    const response = await api.get('/api/llm_proxy/models/')
-                    if (!response) {
-                        return []
-                    }
-                    const options = response as ModelOption[]
-                    const closestMatch = matchClosestModel(values.model, options)
-                    if (values.model !== closestMatch) {
-                        llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
-                    }
-                    return options
-                } catch (error) {
-                    console.error('Error loading model options:', error)
-                    return values.modelOptions
+                const response = await api.get('/api/llm_proxy/models/')
+
+                if (!response) {
+                    return []
                 }
+
+                const options = response as ModelOption[]
+                const closestMatch = matchClosestModel(values.model, options)
+
+                if (values.model !== closestMatch) {
+                    llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
+                }
+
+                return options
             },
         },
     })),
@@ -314,6 +343,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     actions.addFinalizedContent(separator + toolCallsText)
                 }
             }
+
             actions.clearToolCalls()
         },
         submitPrompt: async (_, breakpoint) => {
@@ -339,14 +369,28 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             // Declare startTime outside try block
             let startTime: number | null = null
 
+            function handleRateLimitError(error: RateLimitError): void {
+                actions.setRateLimited(error.retryAfterSeconds)
+                actions.finalizeAssistantMessage()
+                return
+            }
+
             try {
                 // Start timer for latency? Might be inaccurate due to network etc.
                 startTime = performance.now()
+
+                const selectedModel = values.modelOptions.find((m) => m.id === requestModel)
+                if (!selectedModel?.provider) {
+                    lemonToast.error('Selected model not found in available models')
+                    actions.finalizeAssistantMessage()
+                    return
+                }
 
                 const requestData: any = {
                     system: requestSystemPrompt,
                     messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
                     model: requestModel,
+                    provider: selectedModel.provider.toLowerCase(),
                     thinking: values.thinking,
                 }
 
@@ -406,7 +450,14 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         }
                     },
                     onError: (err) => {
-                        console.error('Stream error:', err)
+                        if (err instanceof RateLimitError) {
+                            return handleRateLimitError(err)
+                        }
+                        if (err instanceof ApiError && err.status === 402) {
+                            actions.setSubscriptionRequired(true)
+                            actions.finalizeAssistantMessage()
+                            return
+                        }
                         actions.addAssistantMessageChunk(
                             `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
                         )
@@ -414,9 +465,20 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         actions.finalizeAssistantMessage()
                     },
                 })
+
+                // Once we've finished streaming - successfuly - mark the task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAIPlayground)
+
                 actions.finalizeAssistantMessage()
             } catch (error) {
-                console.error('Submit prompt error:', error)
+                if (error instanceof RateLimitError) {
+                    return handleRateLimitError(error)
+                }
+                if (error instanceof ApiError && error.status === 402) {
+                    actions.setSubscriptionRequired(true)
+                    actions.finalizeAssistantMessage()
+                    return
+                }
                 actions.addAssistantMessageChunk(`\n\n**Error:** Failed to initiate prompt submission.`)
                 actions.setResponseError(true)
                 lemonToast.error('Failed to connect to LLM service. Please try again.')
@@ -467,10 +529,15 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 try {
                     // Case 1: Input is a standard messages array
                     if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
-                        // Find and set system message
-                        const systemMessage = input.find((msg) => msg.role === 'system')
-                        if (systemMessage?.content && typeof systemMessage.content === 'string') {
-                            systemPromptContent = systemMessage.content
+                        // Find and concatenate all system messages
+                        const systemContents = input
+                            .filter((msg) => msg.role === 'system')
+                            .map((msg) => msg.content)
+                            .filter(
+                                (content): content is string => typeof content === 'string' && content.trim().length > 0
+                            )
+                        if (systemContents.length > 0) {
+                            systemPromptContent = systemContents.join('\n\n')
                         }
 
                         // Extract user and assistant messages for history (skip system messages as they're handled separately)

@@ -10,6 +10,7 @@ import dj_database_url
 
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.utils import str_to_int_set
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS: bool = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
@@ -18,6 +19,13 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 
 # Configuration for sqlcommenter
 SQLCOMMENTER_WITH_FRAMEWORK: bool = False
+
+# Person table configuration
+# Controls which PostgreSQL table the Person model uses.
+# Default: "posthog_person" (legacy non-partitioned table)
+# For partitioned table: set PERSON_TABLE_NAME=posthog_person_new
+# Note: posthog_person_new must exist (created by Rust sqlx migrations)
+PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 
 
 # Database
@@ -117,6 +125,22 @@ if read_host:
     DATABASES["replica"] = postgres_config(read_host)
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
+# Configure a direct database connection bypassing PgBouncer.
+# This allows using PGOPTIONS like lock_timeout which PgBouncer doesn't support.
+# Used for migrations: python manage.py migrate --database=default_direct
+direct_host = os.getenv("POSTHOG_POSTGRES_DIRECT_HOST")
+if direct_host:
+    # Copy from default database config (works with both DATABASE_URL and POSTHOG_DB_NAME setups)
+    DATABASES["default_direct"] = DATABASES["default"].copy()
+    # Override host and port for direct connection (bypassing PgBouncer)
+    DATABASES["default_direct"]["HOST"] = direct_host
+    DATABASES["default_direct"]["PORT"] = os.getenv("POSTHOG_POSTGRES_DIRECT_PORT", "5432")
+    # Disable server-side cursors is not needed for direct connection
+    DATABASES["default_direct"]["DISABLE_SERVER_SIDE_CURSORS"] = False
+    # Set lock_timeout for migrations to fail fast on lock contention
+    lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "20000")
+    DATABASES["default_direct"]["OPTIONS"] = {"options": f"-c lock_timeout={lock_timeout_ms}"}
+
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
 # For local development, default to the persons database in the main container if no URL is provided
 persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
@@ -126,6 +150,12 @@ if not persons_db_writer_url and DEBUG and not TEST:
     # A default is needed for generate_demo_data to properly populate the correct databases
     # with the demo data
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
+elif not persons_db_writer_url and TEST:
+    # In test mode, use a placeholder database name that will be updated by conftest
+    # pytest-django adds test_ prefix which isn't known at settings import time
+    # conftest.py django_db_setup fixture will update the NAME with the correct test database name
+    test_persons_db = PG_DATABASE + "_persons"
+    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{test_persons_db}"
 
 if persons_db_writer_url:
     DATABASES["persons_db_writer"] = dj_database_url.config(
@@ -178,6 +208,7 @@ CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
 CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
+CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
@@ -246,11 +277,6 @@ API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
-
-API_QUERIES_ON_ONLINE_CLUSTER = set[int]([])
-with suppress(Exception):
-    as_json = json.loads(os.getenv("API_QUERIES_ON_ONLINE_CLUSTER", "[]"))
-    API_QUERIES_ON_ONLINE_CLUSTER = {int(v) for v in as_json}
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -394,7 +420,6 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
-
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
@@ -405,6 +430,12 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
+# Rust feature flags service URL
+# This is used to proxy flag evaluation requests to the Rust feature flags service
+FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
+FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
 
 CACHES = {
     "default": {
@@ -440,3 +471,15 @@ if FLAGS_REDIS_URL:
 
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+
+# Cache timeout for materialized columns metadata (in seconds)
+MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
+MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", False, type_cast=str_to_bool)
+
+# Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.
+PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0, type_cast=int)
+PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
+    "PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM", default=set[int]([]), type_cast=str_to_int_set
+)
+
+CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)

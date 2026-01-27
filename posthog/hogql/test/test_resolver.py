@@ -826,3 +826,32 @@ class TestResolver(BaseTest):
         query = "SELECT arrayMap(a -> concat(a, e.event), ['str']) FROM events e"
         resolve_types(self._select(query), self.context, dialect="hogql")
         resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+    def test_virtual_property_mapping(self):
+        queries = [
+            (
+                "groups virtual prop",
+                "SELECT properties.$virt_revenue FROM groups ORDER BY key ASC",
+                ["$virt_revenue"],
+            ),
+            (
+                "persons virtual prop from events",
+                "SELECT person.properties.$virt_revenue FROM events",
+                ["person", "$virt_revenue"],
+            ),
+            (
+                "regular props are not affected",
+                "SELECT properties.regular_prop FROM events",
+                ["properties", "regular_prop"],
+            ),
+        ]
+        for msg, query, expected_chain in queries:
+            with self.subTest(msg):
+                expr = self._select(query)
+                resolved_expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+
+                revenue_field = resolved_expr.select[0]
+                assert isinstance(revenue_field, ast.Alias)
+                assert isinstance(revenue_field.expr, ast.Field)
+                chain = revenue_field.expr.chain
+                assert chain == expected_chain

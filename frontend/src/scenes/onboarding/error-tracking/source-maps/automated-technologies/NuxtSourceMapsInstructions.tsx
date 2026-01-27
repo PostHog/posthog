@@ -4,6 +4,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SourceMapsAPIKeyBanner } from '../SourceMapsAPIKeyBanner'
 import { VerifySourceMaps } from '../VerifySourceMaps'
 
 export function NuxtSourceMapsInstructions(): JSX.Element {
@@ -12,6 +13,8 @@ export function NuxtSourceMapsInstructions(): JSX.Element {
 
     return (
         <>
+            <SourceMapsAPIKeyBanner />
+
             <p>
                 For Nuxt v3.7 and above, the official <code>@posthog/nuxt</code> module provides automatic source map
                 generation and upload.

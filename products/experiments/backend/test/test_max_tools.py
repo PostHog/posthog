@@ -378,7 +378,7 @@ class TestCreateExperimentTool(APIBaseTest):
 
     async def test_create_experiment_uses_flag_variants(self):
         """Test that experiment uses the actual variants from the feature flag."""
-        # Create a flag with 3 custom variants
+        # Create a flag with 3 custom variants (first must be "control")
         await FeatureFlag.objects.acreate(
             team=self.team,
             created_by=self.user,
@@ -388,7 +388,7 @@ class TestCreateExperimentTool(APIBaseTest):
                 "groups": [{"properties": [], "rollout_percentage": 100}],
                 "multivariate": {
                     "variants": [
-                        {"key": "variant_a", "name": "Variant A", "rollout_percentage": 33},
+                        {"key": "control", "name": "Control", "rollout_percentage": 33},
                         {"key": "variant_b", "name": "Variant B", "rollout_percentage": 33},
                         {"key": "variant_c", "name": "Variant C", "rollout_percentage": 34},
                     ]
@@ -412,8 +412,43 @@ class TestCreateExperimentTool(APIBaseTest):
         experiment = await Experiment.objects.aget(name="Custom Variants Test", team=self.team)
         assert isinstance(experiment.parameters, dict)
         self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 3)
-        self.assertEqual(experiment.parameters["feature_flag_variants"][0]["key"], "variant_a")
-        self.assertEqual(experiment.parameters["feature_flag_variants"][0]["name"], "Variant A")
+        self.assertEqual(experiment.parameters["feature_flag_variants"][0]["key"], "control")
+        self.assertEqual(experiment.parameters["feature_flag_variants"][0]["name"], "Control")
         self.assertEqual(experiment.parameters["feature_flag_variants"][0]["rollout_percentage"], 33)
         self.assertEqual(experiment.parameters["feature_flag_variants"][1]["key"], "variant_b")
         self.assertEqual(experiment.parameters["feature_flag_variants"][2]["key"], "variant_c")
+
+    async def test_create_experiment_flag_without_control_variant(self):
+        """Test error when flag's first variant is not 'control'."""
+        await FeatureFlag.objects.acreate(
+            team=self.team,
+            created_by=self.user,
+            key="no-control-flag",
+            name="No Control Flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "baseline", "name": "Baseline", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        tool = await CreateExperimentTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+        )
+
+        result, artifact = await tool._arun_impl(
+            name="Test Experiment",
+            feature_flag_key="no-control-flag",
+        )
+
+        self.assertIn("Failed to create", result)
+        self.assertIn("must have 'control' as the first variant", result)
+        self.assertIn("Found 'baseline' instead", result)
+        assert isinstance(artifact, dict)
+        self.assertIsNotNone(artifact.get("error"))

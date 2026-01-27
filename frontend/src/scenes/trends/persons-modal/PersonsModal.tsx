@@ -22,7 +22,8 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -92,6 +93,7 @@ export function PersonsModal({
         insightEventsQueryUrl,
         exploreUrl,
         actorsQuery,
+        recordingFilters,
     } = useValues(logic)
     const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
         useActions(logic)
@@ -194,21 +196,34 @@ export function PersonsModal({
                                   )
                         )}
 
-                    <div className="flex items-center gap-2 text-secondary">
-                        {actorsResponseLoading ? (
-                            <>
-                                <Spinner />
-                                <span>Loading {actorLabel.plural}...</span>
-                            </>
-                        ) : (
-                            <span>
-                                {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
-                                <b>
-                                    {totalActorsCount || 'No'} unique{' '}
-                                    {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
-                                </b>
-                            </span>
-                        )}
+                    <div className="flex items-center justify-between gap-2 text-secondary">
+                        <div className="flex items-center gap-2">
+                            {actorsResponseLoading ? (
+                                <>
+                                    <Spinner />
+                                    <span>Loading {actorLabel.plural}...</span>
+                                </>
+                            ) : (
+                                <span>
+                                    {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
+                                    <b>
+                                        {totalActorsCount || 'No'} unique{' '}
+                                        {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
+                                    </b>
+                                </span>
+                            )}
+                        </div>
+                        <ViewRecordingsPlaylistButton
+                            filters={recordingFilters}
+                            size="small"
+                            type="secondary"
+                            tooltip={
+                                <>
+                                    View all recordings for <strong>{getTitle()}</strong>
+                                </>
+                            }
+                            onClick={() => {}}
+                        />
                     </div>
                 </div>
                 <div className="px-4 overflow-hidden flex flex-col">
@@ -404,20 +419,26 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {matchedRecordings.length} recordings
                         </LemonButton>
                     </div>
-                ) : matchedRecordings.length === 1 ? (
+                ) : (
                     <ViewRecordingButton
-                        sessionId={matchedRecordings[0].session_id}
-                        checkIfViewed={true}
-                        matchingEvents={[
-                            {
-                                events: matchedRecordings[0].events,
-                                session_id: matchedRecordings[0].session_id,
-                            },
-                        ]}
+                        sessionId={matchedRecordings[0]?.session_id}
+                        checkIfViewed={matchedRecordings.length > 0}
+                        matchingEvents={
+                            matchedRecordings[0]
+                                ? [
+                                      {
+                                          events: matchedRecordings[0].events,
+                                          session_id: matchedRecordings[0].session_id,
+                                      },
+                                  ]
+                                : undefined
+                        }
                         type="secondary"
-                        inModal={true}
+                        size="small"
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        hasRecording={matchedRecordings.length > 0}
                     />
-                ) : null}
+                )}
             </div>
 
             {expanded ? (
@@ -462,7 +483,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                                                   ]}
                                                                   label={`View recording ${i + 1}`}
                                                                   checkIfViewed={true}
-                                                                  inModal={true}
+                                                                  openPlayerIn={RecordingPlayerType.Modal}
                                                                   fullWidth={true}
                                                               />
                                                           </li>

@@ -5,7 +5,7 @@ use tracing::info;
 
 use crate::{
     invocation_context::context,
-    sourcemaps::{content::SourceMapFile, inject::get_release_for_maps},
+    sourcemaps::{args::ReleaseArgs, content::SourceMapFile, inject::get_release_for_maps},
 };
 
 #[derive(clap::Args)]
@@ -18,16 +18,8 @@ pub struct CloneArgs {
     #[arg(short, long)]
     pub composed_map_path: PathBuf,
 
-    /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
-    /// a specific release. We will try to auto-derive this from git information if not provided. Strongly recommended
-    /// to be set explicitly during release CD workflows. Only necessary if no project was provided during injection.
-    #[arg(long)]
-    pub project: Option<String>,
-
-    /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
-    /// to have the uploaded chunks associated with a specific release.
-    #[arg(long)]
-    pub version: Option<String>,
+    #[clap(flatten)]
+    pub release: ReleaseArgs,
 }
 
 pub fn clone(args: &CloneArgs) -> Result<()> {
@@ -36,8 +28,7 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
     let CloneArgs {
         minified_map_path,
         composed_map_path,
-        project,
-        version,
+        release,
     } = args;
 
     let mut minified_map = SourceMapFile::load(minified_map_path).map_err(|e| {
@@ -56,7 +47,7 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
         )
     })?;
 
-    let release_id = get_release_for_maps(minified_map_path, project, version, [&minified_map])?
+    let release_id = get_release_for_maps(minified_map_path, release.clone(), [&minified_map])?
         .map(|r| r.id.to_string());
 
     // The flow here differs from plain sourcemap injection a bit - here, we don't ever

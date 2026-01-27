@@ -1,9 +1,13 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
 use capture::config::KafkaConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     // management endpoint serves _readiness/_liveness/metrics
     #[envconfig(from = "MANAGEMENT_BIND_HOST", default = "::")]
     pub management_host: String,

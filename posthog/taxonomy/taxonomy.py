@@ -901,10 +901,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "used_for_debug": True,
         },
-        "$cymbal_errors": {
-            "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions.",
+        "$has_recording": {
+            "label": "Has recording",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
             "system": True,
+            "used_for_debug": True,
         },
         "$geoip_city_name": {
             "label": "City name",
@@ -1392,6 +1393,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Feature flag request ID",
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+        },
+        "$feature_flag_evaluated_at": {
+            "label": "Feature flag evaluated at",
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": ["1732051200000"],
         },
         "$feature_flag_version": {
             "label": "Feature flag version",
@@ -2094,9 +2100,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this person in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this person.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },
@@ -2208,9 +2214,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this group in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this group.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },

@@ -8,8 +8,8 @@ const meta: Meta<typeof ConversationDisplayComponent> = {
 }
 export default meta
 
-const Template: StoryFn = ({ eventProperties }) => {
-    return <ConversationDisplayComponent eventProperties={eventProperties} />
+const Template: StoryFn = ({ eventProperties, eventId }) => {
+    return <ConversationDisplayComponent eventProperties={eventProperties} eventId={eventId || 'story-event-1'} />
 }
 
 export const Basic = Template.bind({})

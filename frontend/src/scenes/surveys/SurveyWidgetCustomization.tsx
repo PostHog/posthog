@@ -5,11 +5,36 @@ import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-import { SurveyAppearance, SurveyPosition, SurveySchedule, SurveyWidgetType } from '~/types'
+import {
+    AvailableFeature,
+    SurveyAppearance,
+    SurveyPosition,
+    SurveySchedule,
+    SurveyTabPosition,
+    SurveyWidgetType,
+} from '~/types'
+
+import { SurveyTabPositionSelector } from './survey-appearance/SurveyTabPositionSelector'
+import { surveysLogic } from './surveysLogic'
+
+const tabGridPositions: SurveyTabPosition[] = [
+    SurveyTabPosition.Top,
+    SurveyTabPosition.Left,
+    SurveyTabPosition.Right,
+    SurveyTabPosition.Bottom,
+]
+
+const tabPositionDisplayNames: Record<SurveyTabPosition, string> = {
+    [SurveyTabPosition.Top]: 'Top',
+    [SurveyTabPosition.Left]: 'Left',
+    [SurveyTabPosition.Right]: 'Right',
+    [SurveyTabPosition.Bottom]: 'Bottom',
+}
 
 export function SurveyWidgetCustomization(): JSX.Element {
     const { survey, surveyErrors } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
+    const { surveysStylingAvailable } = useValues(surveysLogic)
 
     const validationErrors = surveyErrors?.appearance
 
@@ -72,6 +97,33 @@ export function SurveyWidgetCustomization(): JSX.Element {
                                         placeholder="#e0a045"
                                     />
                                 </LemonField.Pure>
+                                <LemonField.Pure
+                                    label="Button position"
+                                    className="gap-1 col-span-2"
+                                    premiumFeature={AvailableFeature.SURVEYS_STYLING}
+                                    info="Requires at least version 1.294.0 of posthog-js"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <SurveyTabPositionSelector
+                                            currentPosition={appearance.tabPosition ?? SurveyTabPosition.Right}
+                                            onAppearanceChange={(update) =>
+                                                onAppearanceChange({ ...appearance, ...update })
+                                            }
+                                            disabled={!surveysStylingAvailable}
+                                        />
+                                        <LemonSelect
+                                            value={appearance.tabPosition ?? SurveyTabPosition.Right}
+                                            onChange={(tabPosition) =>
+                                                onAppearanceChange({ ...appearance, tabPosition })
+                                            }
+                                            options={tabGridPositions.map((position) => ({
+                                                label: tabPositionDisplayNames[position],
+                                                value: position,
+                                            }))}
+                                            disabled={!surveysStylingAvailable}
+                                        />
+                                    </div>
+                                </LemonField.Pure>
                             </>
                         )}
                     </>
@@ -79,6 +131,7 @@ export function SurveyWidgetCustomization(): JSX.Element {
             </LemonField>
             <LemonCheckbox
                 label="Allow survey to be displayed every time the button is clicked"
+                className="mt-2"
                 checked={survey.schedule === SurveySchedule.Always}
                 onChange={(checked) => {
                     setSurveyValue('schedule', checked ? SurveySchedule.Always : SurveySchedule.Once)

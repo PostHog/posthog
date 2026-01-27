@@ -172,6 +172,10 @@ impl KafkaSink {
                 "message.timeout.ms",
                 config.kafka_message_timeout_ms.to_string(),
             )
+            .set(
+                "socket.timeout.ms",
+                config.kafka_socket_timeout_ms.to_string(),
+            )
             .set("compression.codec", config.kafka_compression_codec)
             .set(
                 "queue.buffering.max.kbytes",
@@ -463,6 +467,7 @@ mod tests {
             kafka_metadata_max_age_ms: 60000,
             kafka_producer_max_retries: 2,
             kafka_producer_acks: "all".to_string(),
+            kafka_socket_timeout_ms: 60000,
         };
         let sink = KafkaSink::new(config, handle, limiter, None)
             .await
@@ -480,6 +485,7 @@ mod tests {
         let event: CapturedEvent = CapturedEvent {
             uuid: uuid_v7(),
             distinct_id: distinct_id.clone(),
+            session_id: None,
             ip: "".to_string(),
             data: "".to_string(),
             now: "".to_string(),
@@ -527,6 +533,7 @@ mod tests {
         let captured = CapturedEvent {
             uuid: uuid_v7(),
             distinct_id: "id1".to_string(),
+            session_id: None,
             ip: "".to_string(),
             data: big_data,
             now: "".to_string(),
@@ -558,6 +565,7 @@ mod tests {
             event: CapturedEvent {
                 uuid: uuid_v7(),
                 distinct_id: "id1".to_string(),
+                session_id: None,
                 ip: "".to_string(),
                 data: big_data,
                 now: "".to_string(),
@@ -634,6 +642,7 @@ mod tests {
         let headers_historical = CapturedEventHeaders {
             token: Some("test_token".to_string()),
             distinct_id: Some("test_id".to_string()),
+            session_id: None,
             timestamp: Some("2023-01-01T12:00:00Z".to_string()),
             event: Some("test_event".to_string()),
             uuid: Some("test-uuid".to_string()),
@@ -650,6 +659,7 @@ mod tests {
         let headers_main = CapturedEventHeaders {
             token: Some("test_token".to_string()),
             distinct_id: Some("test_id".to_string()),
+            session_id: None,
             timestamp: Some("2023-01-01T12:00:00Z".to_string()),
             event: Some("test_event".to_string()),
             uuid: Some("test-uuid".to_string()),
@@ -674,6 +684,7 @@ mod tests {
         let headers = CapturedEventHeaders {
             token: Some("test_token".to_string()),
             distinct_id: Some("test_id".to_string()),
+            session_id: None,
             timestamp: Some("2024-01-15T10:30:00Z".to_string()),
             event: Some("test_event".to_string()),
             uuid: Some("test-uuid".to_string()),

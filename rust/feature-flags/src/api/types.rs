@@ -1,6 +1,6 @@
+use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
-use crate::{flags::flag_match_reason::FeatureFlagMatchReason, site_apps::WebJsUrl};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fmt, str::FromStr};
@@ -107,104 +107,91 @@ pub enum ServiceResponse {
     DecideV2(DecideV2Response),
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+/// Config response that passes through Python's cached config as raw JSON.
+///
+/// This is a thin wrapper around a JSON map that allows Rust to pass through
+/// config fields without knowing their structure. Only fields that Rust must
+/// modify (like `sessionRecording` for quota limiting) are accessed directly.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 pub struct ConfigResponse {
-    // Config fields - only present when config=true
-    /// Supported compression algorithms
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub supported_compression: Vec<String>,
-
-    /// If set, disables autocapture
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "autocapture_opt_out")]
-    pub autocapture_opt_out: Option<bool>,
-
-    /// Originally capturePerformance was replay only and so boolean true
-    /// is equivalent to { network_timing: true }
-    /// now capture performance can be separately enabled within replay
-    /// and as a standalone web vitals tracker
-    /// people can have them enabled separately
-    /// they work standalone but enhance each other
-    /// TODO: deprecate this so we make a new config that doesn't need this explanation
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capture_performance: Option<Value>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<Value>,
-
-    /// Whether we should use a custom endpoint for analytics
-    ///
-    /// Default: { endpoint: "/e" }
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub analytics: Option<AnalyticsConfig>,
-
-    /// Whether the `$elements_chain` property should be sent as a string or as an array
-    ///
-    /// Default: false
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub elements_chain_as_string: Option<bool>,
-
-    /// This is currently in development and may have breaking changes without a major version bump
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub autocapture_exceptions: Option<Value>,
-
-    /// Session recording configuration options
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_recording: Option<SessionRecordingField>,
-
-    /// Whether surveys are enabled
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub surveys: Option<Value>,
-
-    /// Parameters for the toolbar
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub toolbar_params: Option<Value>,
-
-    /// Whether the user is authenticated
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_authenticated: Option<bool>,
-
-    /// List of site apps with their IDs and URLs
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub site_apps: Option<Vec<WebJsUrl>>,
-
-    /// Whether heatmaps are enabled
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub heatmaps: Option<bool>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flags_persistence_default: Option<bool>,
-
-    /// Whether to only capture identified users by default
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_identified_only: Option<bool>,
-
-    /// Whether to capture dead clicks
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capture_dead_clicks: Option<bool>,
-
-    /// Error tracking configuration
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_tracking: Option<ErrorTrackingConfig>,
+    #[serde(flatten)]
+    inner: HashMap<String, Value>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ErrorTrackingConfig {
-    pub autocapture_exceptions: bool,
-    pub suppression_rules: Vec<Value>,
+impl ConfigResponse {
+    /// Create an empty config response
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
+    /// Create a minimal fallback config for cache miss/error scenarios.
+    ///
+    /// This config disables optional features (session recording, surveys, heatmaps, etc.)
+    /// to ensure safe degradation when the full config from Python's HyperCache is unavailable.
+    pub fn fallback(api_token: &str, has_feature_flags: bool) -> Self {
+        let fallback = serde_json::json!({
+            "token": api_token,
+            "hasFeatureFlags": has_feature_flags,
+            "supportedCompression": ["gzip", "gzip-js"],
+            "sessionRecording": false,
+            "surveys": false,
+            "heatmaps": false,
+            "capturePerformance": false,
+            "autocaptureExceptions": false,
+            "isAuthenticated": false,
+            "toolbarParams": {},
+            "config": {"enable_collect_everything": true}
+        });
+
+        Self::from_value(fallback)
+    }
+
+    /// Create from a raw JSON Value (must be an object)
+    pub fn from_value(value: Value) -> Self {
+        match value {
+            Value::Object(map) => Self {
+                inner: map.into_iter().collect(),
+            },
+            _ => Self::new(),
+        }
+    }
+
+    /// Set a field in the config
+    pub fn set(&mut self, key: &str, value: Value) {
+        self.inner.insert(key.to_string(), value);
+    }
+
+    /// Get a field from the config
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.inner.get(key)
+    }
+
+    /// Check if config is empty
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
+    /// Whether any errors occurred while evaluating feature flags.
+    /// If true, some flags may be missing or have fallback values.
     pub errors_while_computing_flags: bool,
+    /// Map of feature flag keys to their evaluation results and values
     pub flags: HashMap<String, FlagDetails>,
+    /// List of resource types that hit quota limits during evaluation (e.g., "database", "redis")
+    /// Only included in response if quotas were exceeded
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub quota_limited: Option<Vec<String>>,
+    /// Unique identifier for this flag evaluation request, useful for debugging and tracing
     pub request_id: Uuid,
+    /// Timestamp when flags were evaluated, in milliseconds since Unix epoch
+    pub evaluated_at: i64,
 
+    /// Additional configuration data merged into the response at the top level
     #[serde(flatten)]
     pub config: ConfigResponse,
 }
@@ -218,6 +205,7 @@ pub struct LegacyFlagsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
     pub request_id: Uuid,
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -245,6 +233,7 @@ impl LegacyFlagsResponse {
             feature_flag_payloads,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -258,6 +247,7 @@ pub struct DecideV1Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -277,6 +267,7 @@ impl DecideV1Response {
             feature_flags: active_flags,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -290,6 +281,7 @@ pub struct DecideV2Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -309,6 +301,7 @@ impl DecideV2Response {
             feature_flags: active_flags,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -326,6 +319,26 @@ impl FlagsResponse {
             flags,
             quota_limited,
             request_id,
+            evaluated_at: chrono::Utc::now().timestamp_millis(),
+            config: ConfigResponse::default(),
+        }
+    }
+
+    /// Test helper to create a FlagsResponse with a specific evaluated_at timestamp
+    #[cfg(test)]
+    pub fn with_evaluated_at(
+        errors_while_computing_flags: bool,
+        flags: HashMap<String, FlagDetails>,
+        quota_limited: Option<Vec<String>>,
+        request_id: Uuid,
+        evaluated_at: i64,
+    ) -> Self {
+        Self {
+            errors_while_computing_flags,
+            flags,
+            quota_limited,
+            request_id,
+            evaluated_at,
             config: ConfigResponse::default(),
         }
     }
@@ -442,6 +455,9 @@ impl FromFeatureAndMatch for FlagDetails {
                 Some("Holdout condition value".to_string())
             }
             FeatureFlagMatchReason::FlagDisabled => Some("Feature flag is disabled".to_string()),
+            FeatureFlagMatchReason::MissingDependency => {
+                Some("Flag cannot be evaluated due to missing dependency".to_string())
+            }
         }
     }
 }
@@ -481,6 +497,12 @@ pub struct SessionRecordingConfig {
 pub enum SessionRecordingField {
     Disabled(bool), // NB: this should only ever be false
     Config(Box<SessionRecordingConfig>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogsConfig {
+    pub capture_console_logs: Option<bool>,
 }
 
 impl Default for SessionRecordingField {
@@ -564,6 +586,7 @@ mod tests {
     use super::*;
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
     use crate::flags::flag_matching::FeatureFlagMatch;
+    use chrono::Utc;
     use rstest::rstest;
     use serde_json::json;
 
@@ -637,6 +660,26 @@ mod tests {
             payload: None,
         },
         Some("Holdout condition value".to_string())
+    )]
+    #[case::flag_disabled(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::FlagDisabled,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Feature flag is disabled".to_string())
+    )]
+    #[case::missing_dependency(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::MissingDependency,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Flag cannot be evaluated due to missing dependency".to_string())
     )]
     fn test_get_reason_description(
         #[case] flag_match: FeatureFlagMatch,
@@ -717,7 +760,9 @@ mod tests {
         );
 
         let request_id = Uuid::new_v4();
-        let response = FlagsResponse::new(false, flags, None, request_id);
+        let evaluated_at = Utc::now().timestamp_millis();
+        let response =
+            FlagsResponse::with_evaluated_at(false, flags, None, request_id, evaluated_at);
         let legacy_response = LegacyFlagsResponse::from_response(response);
 
         // Check that only flag1 with actual payload is included
@@ -770,11 +815,11 @@ mod tests {
     fn test_config_fields_are_included_when_set() {
         let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
 
-        // Set some config fields
-        response.config.analytics = Some(AnalyticsConfig {
-            endpoint: Some("/analytics".to_string()),
-        });
-        response.config.supported_compression = vec!["gzip".to_string()];
+        // Set some config fields using the new passthrough API
+        response
+            .config
+            .set("analytics", json!({"endpoint": "/analytics"}));
+        response.config.set("supportedCompression", json!(["gzip"]));
 
         let json = serde_json::to_value(&response).unwrap();
 
@@ -783,5 +828,23 @@ mod tests {
         // Config fields should be present when set
         assert!(obj.contains_key("analytics"));
         assert!(obj.contains_key("supportedCompression"));
+    }
+
+    #[test]
+    fn test_evaluated_at_field_is_present() {
+        let before = Utc::now().timestamp_millis();
+        let response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+        let after = Utc::now().timestamp_millis();
+
+        let json = serde_json::to_value(&response).unwrap();
+        let obj = json.as_object().unwrap();
+
+        // evaluated_at field should always be present
+        assert!(obj.contains_key("evaluatedAt"));
+
+        // Verify it's a number and within a reasonable range
+        let evaluated_at = obj.get("evaluatedAt").unwrap().as_i64().unwrap();
+        assert!(evaluated_at >= before);
+        assert!(evaluated_at <= after);
     }
 }

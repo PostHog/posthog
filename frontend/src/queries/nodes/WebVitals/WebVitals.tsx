@@ -6,14 +6,19 @@ import { Link } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { AnyResponseType, WebVitalsQuery, WebVitalsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    AnyResponseType,
+    ProductIntentContext,
+    ProductKey,
+    WebVitalsQuery,
+    WebVitalsQueryResponse,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ProductKey } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { WebVitalsContent } from './WebVitalsContent'

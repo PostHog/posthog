@@ -5,6 +5,49 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::TransformContext;
+use crate::parse::format::{extract_between, extract_field_name, UserFacingParseError};
+
+/// Implement schema-specific error messages for RawEvent (Captured format)
+/// That we can surface to the user to let them know what's wrong with the
+/// data set they are trying to import
+impl UserFacingParseError for RawEvent {
+    fn user_facing_schema_error(err: &serde_json::Error) -> String {
+        let err_str = err.to_string();
+
+        if err_str.contains("missing field") {
+            if let Some(field_name) = extract_field_name(&err_str, "missing field `", "`") {
+                return match field_name.as_str() {
+                    "event" => "Missing required field 'event'. Each line must have an 'event' field with the event name (e.g., \"event\": \"$pageview\").".to_string(),
+                    "properties" => "Missing required field 'properties'. Each line must have a 'properties' object (can be empty: \"properties\": {}).".to_string(),
+                    "distinct_id" => "Missing required field 'distinct_id'. Each event must identify a user with 'distinct_id'.".to_string(),
+                    "timestamp" => "Missing required field 'timestamp'. Each event must have a timestamp (e.g., \"timestamp\": \"2024-01-01T00:00:00Z\").".to_string(),
+                    _ => format!("Missing required field '{field_name}'. Please check that your data includes this field."),
+                };
+            }
+        }
+
+        if err_str.contains("invalid type:") {
+            let got = extract_between(&err_str, "invalid type: ", ", expected");
+            let expected = extract_between(&err_str, "expected ", " at line");
+
+            if let (Some(got), Some(expected)) = (got, expected) {
+                if err_str.contains("`event`") || (expected == "a string" && err.column() < 20) {
+                    return format!(
+                        "The 'event' field must be a string (e.g., \"event\": \"$pageview\"), but got {got}."
+                    );
+                }
+                if expected.contains("map") {
+                    return format!(
+                        "Expected an object/map but got {got}. The 'properties' field must be a JSON object like {{\"key\": \"value\"}}."
+                    );
+                }
+            }
+        }
+
+        // Fallback to generic message
+        "The JSON structure doesn't match the expected Captured event format. Required fields: 'event' (string), 'distinct_id', 'timestamp', 'properties' (object).".to_string()
+    }
+}
 
 pub fn captured_parse_fn(
     context: TransformContext,
@@ -45,6 +88,7 @@ pub fn captured_parse_fn(
             let inner = CapturedEvent {
                 uuid,
                 distinct_id,
+                session_id: None,
                 ip: "127.0.0.1".to_string(),
                 data: serde_json::to_string(&raw)?,
                 now: now.to_rfc3339(), // Ingestion time

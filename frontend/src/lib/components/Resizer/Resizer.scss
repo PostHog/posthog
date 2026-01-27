@@ -47,12 +47,14 @@
 
     .Resizer__handle {
         position: absolute;
+        border-radius: inherit;
 
         &::before,
         &::after {
             position: absolute;
             box-sizing: content-box;
             content: '';
+            border-radius: inherit;
         }
 
         &::before {
@@ -89,12 +91,26 @@
 
     &:hover .Resizer__handle::after,
     &--resizing .Resizer__handle::after {
-        outline: 3px solid var(--color-accent);
+        box-shadow: 0 0 0 3px var(--color-accent);
         opacity: 0.25;
     }
 
     &--resizing .Resizer__handle::before,
     &--resizing .Resizer__handle::after {
         cursor: grabbing;
+    }
+
+    &--invisible {
+        .Resizer__handle::before {
+            opacity: 0;
+            transition:
+                100ms ease transform,
+                150ms ease opacity;
+        }
+
+        &:hover .Resizer__handle::before,
+        &.Resizer--resizing .Resizer__handle::before {
+            opacity: 1;
+        }
     }
 }

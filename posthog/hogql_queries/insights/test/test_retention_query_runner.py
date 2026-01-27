@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     create_person_id_override_by_distinct_id,
@@ -17,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from posthog.schema import RetentionQuery
+from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
@@ -38,13 +39,6 @@ from posthog.models.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
-    return action
 
 
 def _create_signup_actions(team, user_and_timestamps):
@@ -3732,6 +3726,52 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             firefox_cohorts,
         )
 
+    def test_retention_cumulative_with_breakdown_event_properties(self):
+        """Test cumulative retention with breakdown by event properties - reproduces issue #41496"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        # Create events with different browser properties
+        _create_events(
+            self.team,
+            [
+                # Chrome cohort
+                ("person1", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person1", _date(1), {"browser": "Chrome"}),  # Day 1
+                ("person1", _date(3), {"browser": "Chrome"}),  # Day 3
+                # Safari cohort
+                ("person2", _date(0), {"browser": "Safari"}),  # Day 0
+                ("person2", _date(1), {"browser": "Safari"}),  # Day 1
+                ("person2", _date(2), {"browser": "Safari"}),  # Day 2
+                # Firefox cohort
+                ("person3", _date(0), {"browser": "Firefox"}),  # Day 0
+                ("person3", _date(2), {"browser": "Firefox"}),  # Day 2
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "cumulative": True,  # This triggers the 'on or after' mode
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "browser", "type": "event"}]},
+            }
+        )
+
+        # Verify the query runs without error and returns breakdown results
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"Chrome", "Safari", "Firefox"})
+
+        # Verify Chrome cohort results (cumulative mode means if they return on day 3, they count for days 1, 2, 3)
+        chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
+        # Day 0 cohort: 1 person, returns on day 1 and day 3
+        # In cumulative mode: day 1 = 1, day 2 = 1 (from day 1), day 3 = 1 (from day 1 and day 3)
+        self.assertEqual(chrome_cohorts[0][:4], [1, 1, 1, 1])
+
     def test_retention_actor_query_with_event_property_breakdown(self):
         """Test actor query with event property breakdown filter"""
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -4273,6 +4313,116 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             pluck(result_first_ever, "values", "count"),
             expected_first_ever_counts,
         )
+
+    def test_cohort_filter_optimization_with_property_filter(self):
+        """Test that cohort filters in properties trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[{"type": "cohort", "key": "id", "value": cohort.pk}],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_cohort_filter_optimization_with_cohort_breakdown(self):
+        """Test that cohort breakdowns trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            breakdownFilter={"breakdown_type": "cohort", "breakdown": cohort.pk},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_cohort_filter_optimization_with_nested_properties(self):
+        """Test that cohort filters in nested property groups trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[
+                {"type": "event", "key": "$browser", "value": "Chrome"},
+                {"type": "cohort", "key": "id", "value": cohort.pk},
+            ],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_no_cohort_filter_keeps_auto_mode(self):
+        """Test that queries without cohort filters keep AUTO mode"""
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[{"type": "event", "key": "$browser", "value": "Chrome"}],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia stayed as AUTO
+        assert runner.modifiers.inCohortVia == InCohortVia.AUTO
+
+    def test_cohort_filter_optimization_with_dashboard_filters(self):
+        """Test that cohort filters applied via dashboard filters_override trigger LEFTJOIN optimization"""
+        from posthog.schema import DashboardFilter
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dashboard Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        # Create query without cohort filter
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Apply dashboard filters (simulating what happens when insight is on dashboard)
+        dashboard_filter = DashboardFilter(properties=[{"type": "cohort", "key": "id", "value": cohort.pk}])
+        runner.apply_dashboard_filters(dashboard_filter)
+
+        # After dashboard filters are applied, should switch to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+        # Verify the cohort filter was actually merged into query properties
+        assert runner.query.properties is not None
 
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):

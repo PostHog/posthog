@@ -1,10 +1,11 @@
 import json
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.db import DatabaseError, models, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest
 from django.utils import timezone
@@ -28,6 +29,7 @@ FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
+    from posthog.models.tag import Tag
     from posthog.models.team import Team
 
 
@@ -86,6 +88,19 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         null=True,
         blank=True,
         help_text="Specifies where this feature flag should be evaluated",
+    )
+
+    BUCKETING_IDENTIFIER_CHOICES = [
+        ("distinct_id", "User ID (default)"),
+        ("device_id", "Device ID"),
+    ]
+    bucketing_identifier = models.CharField(
+        max_length=50,
+        choices=BUCKETING_IDENTIFIER_CHOICES,
+        default="distinct_id",
+        null=True,
+        blank=True,
+        help_text="Identifier used for bucketing users into rollout and variants",
     )
 
     # Cache projection: evaluation_tag_names is stored in Redis but isn't a DB field.
@@ -194,7 +209,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     @property
     def evaluation_tag_names(self) -> list[str] | None:
         """
-        Returns evaluation tag names for this flag.
+        Returns evaluation context tag names for this flag.
 
         Preferred source is the cache-populated list from Redis (set on instances
         as `_evaluation_tag_names`). If not present, falls back to the DB relation
@@ -273,7 +288,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                     return self.conditions
                             else:
                                 cohort = Cohort.objects.db_manager(using_database).get(
-                                    pk=cohort_id, team__project_id=self.team.project_id, deleted=False
+                                    pk=cohort_id,
+                                    team__project_id=self.team.project_id,
+                                    deleted=False,
                                 )
                                 seen_cohorts_cache[cohort_id] = cohort
                         except Cohort.DoesNotExist:
@@ -377,7 +394,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                 continue
                         else:
                             cohort = Cohort.objects.db_manager(using_database).get(
-                                pk=cohort_id, team__project_id=self.team.project_id, deleted=False
+                                pk=cohort_id,
+                                team__project_id=self.team.project_id,
+                                deleted=False,
                             )
                             seen_cohorts_cache[cohort_id] = cohort
 
@@ -401,7 +420,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return list(cohort_ids)
 
     def scheduled_changes_dispatcher(
-        self, payload, user: Optional[AbstractBaseUser] = None, scheduled_change_id: Optional[int] = None
+        self,
+        payload,
+        user: Optional[AbstractBaseUser] = None,
+        scheduled_change_id: Optional[int] = None,
     ):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
@@ -430,7 +452,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             current_groups = current_filters.get("groups", [])
             new_groups = payload["value"].get("groups", [])
 
-            serializer_data["filters"] = {**current_filters, "groups": current_groups + new_groups}
+            serializer_data["filters"] = {
+                **current_filters,
+                "groups": current_groups + new_groups,
+            }
         elif payload["operation"] == "update_status":
             serializer_data["active"] = payload["value"]
         elif payload["operation"] == "update_variants":
@@ -494,8 +519,11 @@ class FeatureFlagHashKeyOverride(models.Model):
     # A standard id foreign key leads to INNER JOINs every time we want to get the key
     # and we only ever want to get the key.
     feature_flag_key = models.CharField(max_length=400)
-    person = models.ForeignKey("Person", on_delete=models.CASCADE)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    # DO_NOTHING: Person/Team deletion handled manually via FeatureFlagHashKeyOverride.objects.filter(...).delete()
+    # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
+    # db_constraint=False: No database FK constraint - FeatureFlagHashKeyOverride may live in separate database
+    person = models.ForeignKey("Person", on_delete=models.DO_NOTHING, db_constraint=False)
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_constraint=False)
     hash_key = models.CharField(max_length=400)
 
     class Meta:
@@ -525,49 +553,91 @@ class FeatureFlagOverride(models.Model):
         ]
 
 
-def set_feature_flags_for_team_in_cache(
-    project_id: int,
-    feature_flags: Optional[list[FeatureFlag]] = None,
-    using_database: str = "default",
+def get_feature_flags(
+    team: Optional["Team"] = None,
+    project_id: Optional[int] = None,
 ) -> list[FeatureFlag]:
-    from django.contrib.postgres.aggregates import ArrayAgg
-    from django.db.models import Q
+    """
+    Fetch FeatureFlag objects for a team or project.
 
+    Evaluation tags are always aggregated using ArrayAgg for performance.
+    This avoids N+1 queries when serializing flags with evaluation tags.
+
+    Args:
+        team: Team to get flags for (mutually exclusive with project_id)
+        project_id: Project ID to get flags for (mutually exclusive with team)
+
+    Returns:
+        List of FeatureFlag model instances with evaluation tags pre-loaded
+    """
+    # Build query filter
+    filter_kwargs: dict[str, Any]
+    if team is not None:
+        filter_kwargs = {"team": team}
+    elif project_id is not None:
+        filter_kwargs = {"team__project_id": project_id}
+    else:
+        raise ValueError("Either team or project_id must be provided")
+
+    filter_kwargs.update({"active": True, "deleted": False})
+
+    # Build queryset with evaluation tags aggregated
+    # Single-shot query: flags plus evaluation tag names aggregated to a string array.
+    # We use ArrayAgg to fetch all evaluation tag names in one query instead of
+    # doing a separate query per flag. This is crucial for performance when we have
+    # many flags. The evaluation tags are stored as a many-to-many relationship
+    # through FeatureFlagEvaluationTag, but we aggregate them here for efficiency.
+    qs = FeatureFlag.objects.filter(**filter_kwargs)
+    qs = qs.annotate(
+        evaluation_tag_names_agg=ArrayAgg(
+            "evaluation_tags__tag__name",
+            filter=Q(evaluation_tags__isnull=False),
+            distinct=True,
+        )
+    )
+
+    all_feature_flags = list(qs)
+
+    # Transfer the aggregated tag names to the _evaluation_tag_names attribute
+    # so the serializer can access them without additional queries. This is a
+    # cache projection pattern - we're storing derived data on the model instance
+    # that will be serialized to cache.
+    for _flag in all_feature_flags:
+        try:
+            _flag._evaluation_tag_names = getattr(_flag, "evaluation_tag_names_agg", None)
+        except AttributeError:
+            # evaluation_tag_names_agg field missing from aggregation query
+            _flag._evaluation_tag_names = None
+
+    return all_feature_flags
+
+
+def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
+    """
+    Serialize FeatureFlag objects to dictionary format.
+
+    Args:
+        flags: List of FeatureFlag instances to serialize
+
+    Returns:
+        List of serialized flag dictionaries
+    """
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
-    if feature_flags is not None:
-        all_feature_flags = feature_flags
-    else:
-        # Single-shot query: flags plus evaluation tag names aggregated to a string array.
-        # We use ArrayAgg to fetch all evaluation tag names in one query instead of
-        # doing a separate query per flag. This is crucial for performance when we have
-        # many flags. The evaluation tags are stored as a many-to-many relationship
-        # through FeatureFlagEvaluationTag, but we aggregate them here for efficiency.
-        qs = (
-            FeatureFlag.objects.db_manager(using_database)
-            .filter(team__project_id=project_id, active=True, deleted=False)
-            .annotate(
-                evaluation_tag_names_agg=ArrayAgg(
-                    "evaluation_tags__tag__name",
-                    filter=Q(evaluation_tags__isnull=False),
-                    distinct=True,
-                )
-            )
-        )
-        all_feature_flags = list(qs)
-        # Transfer the aggregated tag names to the _evaluation_tag_names attribute
-        # so the serializer can access them without additional queries. This is a
-        # cache projection pattern - we're storing derived data on the model instance
-        # that will be serialized to Redis.
-        for _flag in all_feature_flags:
-            try:
-                _flag._evaluation_tag_names = getattr(_flag, "evaluation_tag_names_agg", None)
-            except AttributeError:
-                # evaluation_tag_names_agg field missing from aggregation query
-                _flag._evaluation_tag_names = None
+    serialized_data = MinimalFeatureFlagSerializer(flags, many=True).data
+    return list(serialized_data)
 
-    serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
+def set_feature_flags_for_team_in_cache(
+    project_id: int,
+) -> list[FeatureFlag]:
+    # Fetch flags once (with evaluation tags pre-loaded)
+    all_feature_flags = get_feature_flags(project_id=project_id)
+
+    # Serialize for cache storage
+    serialized_flags = serialize_feature_flags(all_feature_flags)
+
+    # Write to Redis cache
     write_flags_to_cache(f"team_feature_flags_{project_id}", json.dumps(serialized_flags), FIVE_DAYS)
 
     return all_feature_flags
@@ -623,12 +693,12 @@ class FeatureFlagDashboards(models.Model):
 
 class FeatureFlagEvaluationTag(models.Model):
     """
-    Marks an existing tag as also being an evaluation constraint for a feature flag.
-    When a tag is marked as an evaluation tag, it serves dual purpose:
+    Marks an existing tag as also being an evaluation context for a feature flag.
+    When a tag is marked as an evaluation context, it serves dual purpose:
     1. It remains an organizational tag (via the TaggedItem relationship)
     2. It acts as an evaluation constraint - the flag will only evaluate when
-       the SDK/client provides matching environment tags
-    This allows for user-specified evaluation environments like "docs-page",
+       the SDK/client provides matching environment context tags
+    This allows for user-specified evaluation contexts like "docs-page",
     "marketing-site", "app", etc.
     """
 
@@ -642,16 +712,27 @@ class FeatureFlagEvaluationTag(models.Model):
     def __str__(self) -> str:
         return f"{self.feature_flag.key} - {self.tag.name}"
 
+    @staticmethod
+    def get_team_ids_using_tag(tag: "Tag") -> list[int]:
+        """
+        Find all teams that have flags using this tag as an evaluation tag.
+
+        Used by signal handlers to invalidate caches when a tag is renamed.
+        """
+        return list(
+            FeatureFlagEvaluationTag.objects.filter(tag=tag).values_list("feature_flag__team_id", flat=True).distinct()
+        )
+
 
 class TeamDefaultEvaluationTag(UUIDModel):
     """
-    Defines default evaluation tags that will be automatically applied to new feature flags in a team.
-    These tags serve as default evaluation environments that can be configured at the team/organization level.
-    When a new feature flag is created and the team has default_evaluation_environments_enabled=True,
-    these tags will be automatically added as evaluation tags for the new flag.
+    Defines default evaluation contexts that will be automatically applied to new feature flags in a team.
+    These contexts serve as default evaluation contexts that can be configured at the team/organization level.
+    When a new feature flag is created and the team has default_evaluation_contexts_enabled=True,
+    these contexts will be automatically added as evaluation contexts for the new flag.
     """
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_tags")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_contexts")
     tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="team_defaults")
     created_at = models.DateTimeField(auto_now_add=True)
 

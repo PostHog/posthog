@@ -368,7 +368,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
             name=saved_query.name,
             fields=saved_query.fields,
             metadata=saved_query.metadata,
-            # :KLUTCH: None of these properties below are great but it's all we can do to figure this one out for now
+            # :KLUDGE: None of these properties below are great but it's all we can do to figure this one out for now
             # We'll be able to come up with a better solution we don't need to support the old managed views anymore
             prefix=".".join(saved_query.name.split(".")[:-1]),
             source_id=None,  # Not used so just ignore it

@@ -15,7 +15,7 @@ import {
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { viewsTabLogicType } from './viewsTabLogicType'
 
-const PAGE_SIZE = 10
+export const PAGE_SIZE = 10
 
 export const viewsTabLogic = kea<viewsTabLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'viewsTabLogic']),
@@ -27,6 +27,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         deleteView: (viewId: string) => ({ viewId }),
         runMaterialization: (viewId: string) => ({ viewId }),
+        loadDependenciesForMaterializedViews: (viewIds: string[]) => ({ viewIds }),
         loadDependenciesForViews: (viewIds: string[]) => ({ viewIds }),
         loadRunHistoryForViews: (viewIds: string[]) => ({ viewIds }),
         setMaterializedViewsPage: (page: number) => ({ page }),
@@ -56,15 +57,15 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
     }),
     loaders(({ values }) => ({
-        dependenciesMap: [
+        materializedViewDependenciesMap: [
             {} as Record<string, DataWarehouseSavedQueryDependencies>,
             {
-                loadDependenciesForViews: async ({ viewIds }) => {
+                loadDependenciesForMaterializedViews: async ({ viewIds }) => {
                     // Filter out views we've already loaded
-                    const viewsToLoad = viewIds.filter((id) => !values.dependenciesMap[id])
+                    const viewsToLoad = viewIds.filter((id) => !values.materializedViewDependenciesMap[id])
 
                     if (viewsToLoad.length === 0) {
-                        return values.dependenciesMap
+                        return values.materializedViewDependenciesMap
                     }
 
                     const results = await Promise.all(
@@ -79,7 +80,38 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                         })
                     )
 
-                    const newMap = { ...values.dependenciesMap }
+                    const newMap = { ...values.materializedViewDependenciesMap }
+                    results.forEach(({ viewId, data }) => {
+                        newMap[viewId] = data
+                    })
+                    return newMap
+                },
+            },
+        ],
+        viewDependenciesMap: [
+            {} as Record<string, DataWarehouseSavedQueryDependencies>,
+            {
+                loadDependenciesForViews: async ({ viewIds }) => {
+                    // Filter out views we've already loaded
+                    const viewsToLoad = viewIds.filter((id) => !values.viewDependenciesMap[id])
+
+                    if (viewsToLoad.length === 0) {
+                        return values.viewDependenciesMap
+                    }
+
+                    const results = await Promise.all(
+                        viewsToLoad.map(async (viewId) => {
+                            try {
+                                const data = await api.dataWarehouseSavedQueries.dependencies(viewId)
+                                return { viewId, data }
+                            } catch (error) {
+                                console.error(`Failed to load dependencies for view ${viewId}:`, error)
+                                return { viewId, data: { upstream_count: 0, downstream_count: 0 } }
+                            }
+                        })
+                    )
+
+                    const newMap = { ...values.viewDependenciesMap }
                     results.forEach(({ viewId, data }) => {
                         newMap[viewId] = data
                     })
@@ -121,21 +153,41 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
     })),
     selectors({
         viewsLoading: [(s) => [s.dataWarehouseSavedQueriesLoading], (loading): boolean => loading],
-        enrichedQueries: [
-            (s) => [s.dataWarehouseSavedQueries, s.dependenciesMap, s.runHistoryMap],
-            (queries, dependenciesMap, runHistoryMap): DataWarehouseSavedQuery[] => {
-                return queries.map((query) => ({
-                    ...query,
-                    upstream_dependency_count: dependenciesMap[query.id]?.upstream_count,
-                    downstream_dependency_count: dependenciesMap[query.id]?.downstream_count,
-                    run_history: runHistoryMap[query.id],
-                }))
+        enrichedMaterializedViews: [
+            (s) => [s.dataWarehouseSavedQueries, s.materializedViewDependenciesMap, s.runHistoryMap],
+            (
+                queries: DataWarehouseSavedQuery[],
+                dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>,
+                runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
+            ): DataWarehouseSavedQuery[] => {
+                return queries
+                    .filter((q) => q.is_materialized)
+                    .map((query) => ({
+                        ...query,
+                        upstream_dependency_count: dependenciesMap[query.id]?.upstream_count,
+                        downstream_dependency_count: dependenciesMap[query.id]?.downstream_count,
+                        run_history: runHistoryMap[query.id],
+                    }))
+            },
+        ],
+        enrichedViews: [
+            (s) => [s.dataWarehouseSavedQueries, s.viewDependenciesMap],
+            (
+                queries: DataWarehouseSavedQuery[],
+                dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>
+            ): DataWarehouseSavedQuery[] => {
+                return queries
+                    .filter((q) => !q.is_materialized)
+                    .map((query) => ({
+                        ...query,
+                        upstream_dependency_count: dependenciesMap[query.id]?.upstream_count,
+                        downstream_dependency_count: dependenciesMap[query.id]?.downstream_count,
+                    }))
             },
         ],
         filteredViews: [
-            (s) => [s.enrichedQueries, s.searchTerm],
-            (queries, searchTerm): DataWarehouseSavedQuery[] => {
-                const views = queries.filter((q) => !q.is_materialized)
+            (s) => [s.enrichedViews, s.searchTerm],
+            (views: DataWarehouseSavedQuery[], searchTerm: string): DataWarehouseSavedQuery[] => {
                 if (!searchTerm) {
                     return views
                 }
@@ -143,9 +195,8 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             },
         ],
         filteredMaterializedViews: [
-            (s) => [s.enrichedQueries, s.searchTerm],
-            (queries, searchTerm): DataWarehouseSavedQuery[] => {
-                const views = queries.filter((q) => q.is_materialized)
+            (s) => [s.enrichedMaterializedViews, s.searchTerm],
+            (views: DataWarehouseSavedQuery[], searchTerm: string): DataWarehouseSavedQuery[] => {
                 if (!searchTerm) {
                     return views
                 }
@@ -154,7 +205,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
         visibleMaterializedViews: [
             (s) => [s.filteredMaterializedViews, s.materializedViewsCurrentPage],
-            (views, currentPage): DataWarehouseSavedQuery[] => {
+            (views: DataWarehouseSavedQuery[], currentPage: number): DataWarehouseSavedQuery[] => {
                 const startIndex = (currentPage - 1) * PAGE_SIZE
                 const endIndex = startIndex + PAGE_SIZE
                 return views.slice(startIndex, endIndex)
@@ -162,7 +213,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
         visibleViews: [
             (s) => [s.filteredViews, s.viewsCurrentPage],
-            (views, currentPage): DataWarehouseSavedQuery[] => {
+            (views: DataWarehouseSavedQuery[], currentPage: number): DataWarehouseSavedQuery[] => {
                 const startIndex = (currentPage - 1) * PAGE_SIZE
                 const endIndex = startIndex + PAGE_SIZE
                 return views.slice(startIndex, endIndex)
@@ -210,16 +261,16 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             // Get IDs of all currently visible items
             const visibleMaterializedViewIds = values.visibleMaterializedViews.map((v) => v.id)
             const visibleViewIds = values.visibleViews.map((v) => v.id)
-            const allVisibleIds = [...visibleMaterializedViewIds, ...visibleViewIds]
 
-            // Load dependencies for all visible items (if not already loaded)
-            if (allVisibleIds.length > 0) {
-                actions.loadDependenciesForViews(allVisibleIds)
+            // Load dependencies for materialized views (if not already loaded)
+            if (visibleMaterializedViewIds.length > 0) {
+                actions.loadDependenciesForMaterializedViews(visibleMaterializedViewIds)
+                actions.loadRunHistoryForViews(visibleMaterializedViewIds)
             }
 
-            // Load run history only for visible materialized views (if not already loaded)
-            if (visibleMaterializedViewIds.length > 0) {
-                actions.loadRunHistoryForViews(visibleMaterializedViewIds)
+            // Load dependencies for regular views (if not already loaded)
+            if (visibleViewIds.length > 0) {
+                actions.loadDependenciesForViews(visibleViewIds)
             }
         },
     })),

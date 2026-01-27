@@ -53,6 +53,7 @@ function ExportPanelHeader(): JSX.Element {
                 size="small"
                 icon={<IconRefresh />}
                 loading={exportsLoading}
+                data-attr="export-refresh"
             >
                 Refresh
             </LemonButton>
@@ -106,6 +107,7 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                     <LemonButton
                         tooltip="Edit"
                         size="small"
+                        data-attr="export-editor"
                         disabledReason={disabledReason}
                         type={isNotDownloaded ? 'primary' : 'secondary'}
                         icon={<IconPencil />}
@@ -119,6 +121,7 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                     size="small"
                     type={isNotDownloaded ? 'primary' : 'secondary'}
                     key={asset.id}
+                    data-attr="export-download"
                     disabledReason={disabledReason}
                     onClick={() => {
                         removeFresh(asset)

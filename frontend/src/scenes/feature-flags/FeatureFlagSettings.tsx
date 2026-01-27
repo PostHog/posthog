@@ -8,7 +8,8 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DefaultEvaluationEnvironments } from './DefaultEvaluationEnvironments'
+import { DefaultEvaluationContexts } from './DefaultEvaluationContexts'
+import { RequireEvaluationContexts } from './RequireEvaluationContexts'
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
@@ -108,7 +109,11 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
             </div>
 
             <div className="space-y-2">
-                <DefaultEvaluationEnvironments />
+                <RequireEvaluationContexts />
+            </div>
+
+            <div className="space-y-2">
+                <DefaultEvaluationContexts />
             </div>
 
             <div className="space-y-2">
@@ -180,14 +185,15 @@ export function FlagsSecureApiKeys(): JSX.Element {
             </h3>
             <CodeSnippet
                 actions={
-                    isTeamTokenResetAvailable ? (
-                        <LemonButton
-                            icon={<IconRefresh />}
-                            noPadding
-                            onClick={openResetDialog}
-                            tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
-                        />
-                    ) : undefined
+                    <LemonButton
+                        icon={<IconRefresh />}
+                        noPadding
+                        onClick={openResetDialog}
+                        disabledReason={
+                            !isTeamTokenResetAvailable ? 'You do not have permission to rotate this key' : undefined
+                        }
+                        tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                    />
                 }
                 className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                 thing="Primary Feature Flags Secure API key"

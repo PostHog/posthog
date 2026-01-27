@@ -1,8 +1,9 @@
 import React from 'react'
 
-import { IconClock, IconFilter, IconSort } from '@posthog/icons'
+import { IconClock, IconFilter, IconList, IconSort } from '@posthog/icons'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { pluralize } from 'lib/utils'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 
 import { DurationType, RecordingUniversalFilters } from '~/types'
@@ -30,7 +31,7 @@ function DurationSummary({ filters }: { filters: RecordingUniversalFilters }): J
 }
 
 function FiltersSummary({ filters }: { filters: RecordingUniversalFilters }): JSX.Element | null {
-    const hasFilters = filters.filter_group && filters.filter_group.values.length > 0
+    const hasFilters = !!filters.filter_group?.values?.length
 
     if (!hasFilters && !filters.filter_test_accounts) {
         return null
@@ -75,13 +76,32 @@ function OrderingSummary({ filters }: { filters: RecordingUniversalFilters }): J
     )
 }
 
-export function RecordingsUniversalFiltersDisplay({ filters }: { filters: RecordingUniversalFilters }): JSX.Element {
+function LimitSummary({ filters }: { filters: RecordingUniversalFilters }): JSX.Element | null {
+    if (!filters.limit) {
+        return null
+    }
+
     return (
-        <div className="px-3 py-2 space-y-2">
+        <InsightDetailSectionDisplay icon={<IconList />} label="Limit">
+            <div className="font-medium">{pluralize(filters.limit, 'recording')}</div>
+        </InsightDetailSectionDisplay>
+    )
+}
+
+export function RecordingsUniversalFiltersDisplay({
+    filters,
+    className,
+}: {
+    filters: RecordingUniversalFilters
+    className?: string
+}): JSX.Element {
+    return (
+        <div className={className ?? 'p-2 space-y-1.5'}>
             <DateRangeSummary dateFrom={filters.date_from} dateTo={filters.date_to} />
             <DurationSummary filters={filters} />
             <FiltersSummary filters={filters} />
             <OrderingSummary filters={filters} />
+            <LimitSummary filters={filters} />
         </div>
     )
 }

@@ -1,6 +1,11 @@
+import os
+import uuid
 import logging
 import traceback
 from typing import cast
+
+from django.http import HttpResponse
+from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -14,15 +19,20 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.storage import object_storage
 
 from .models import Task, TaskRun
 from .serializers import (
     ErrorResponseSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
+    TaskRunArtifactPresignRequestSerializer,
+    TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactsUploadRequestSerializer,
+    TaskRunArtifactsUploadResponseSerializer,
     TaskRunDetailSerializer,
+    TaskRunUpdateSerializer,
     TaskSerializer,
-    TaskUpdatePositionRequestSerializer,
 )
 from .temporal.client import execute_task_processing_workflow
 
@@ -48,9 +58,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update",
             "partial_update",
             "destroy",
-            "update_position",
-            "progress",
-            "progress_stream",
             "run",
         ]
     }
@@ -61,13 +68,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team).order_by("position")
+        qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
 
         params = self.request.query_params if hasattr(self, "request") else {}
 
@@ -80,30 +87,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if stage:
             qs = qs.filter(runs__stage=stage)
 
-        # Filter by repository or organization inside repository_config JSON
+        # Filter by repository or organization using the repository field
         organization = params.get("organization")
         repository = params.get("repository")
+        created_by = params.get("created_by")
 
         if repository:
-            repo_str = repository.strip()
+            repo_str = repository.strip().lower()
             if "/" in repo_str:
-                org_part, repo_part = repo_str.split("/", 1)
-                org_part = org_part.strip()
-                repo_part = repo_part.strip()
-                if org_part and repo_part:
-                    qs = qs.filter(
-                        repository_config__organization__iexact=org_part,
-                        repository_config__repository__iexact=repo_part,
-                    )
-                elif repo_part:
-                    qs = qs.filter(repository_config__repository__iexact=repo_part)
-                elif org_part:
-                    qs = qs.filter(repository_config__organization__iexact=org_part)
+                qs = qs.filter(repository__iexact=repo_str)
             else:
-                qs = qs.filter(repository_config__repository__iexact=repo_str)
+                qs = qs.filter(repository__iendswith=f"/{repo_str}")
 
         if organization:
-            qs = qs.filter(repository_config__organization__iexact=organization.strip())
+            org_str = organization.strip().lower()
+            qs = qs.filter(repository__istartswith=f"{org_str}/")
+
+        if created_by:
+            qs = qs.filter(created_by_id=created_by)
 
         # Prefetch runs to avoid N+1 queries when fetching latest_run
         qs = qs.prefetch_related("runs")
@@ -117,17 +118,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"Creating task with data: {serializer.validated_data}")
         serializer.save(team=self.team)
 
-    def _trigger_workflow(self, task: Task) -> None:
+    def perform_destroy(self, instance):
+        task = cast(Task, instance)
+        logger.info(f"Soft deleting task {task.id}")
+        task.soft_delete()
+
+    def _trigger_workflow(self, task: Task, task_run: TaskRun) -> None:
         try:
-            logger.info(f"Attempting to trigger task processing workflow for task {task.id}")
+            logger.info(f"Attempting to trigger task processing workflow for task {task.id}, run {task_run.id}")
             execute_task_processing_workflow(
                 task_id=str(task.id),
+                run_id=str(task_run.id),
                 team_id=task.team.id,
                 user_id=getattr(self.request.user, "id", None),
             )
-            logger.info(f"Workflow trigger completed for task {task.id}")
+            logger.info(f"Workflow trigger completed for task {task.id}, run {task_run.id}")
         except Exception as e:
-            logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
+            logger.exception(f"Failed to trigger task processing workflow for task {task.id}, run {task_run.id}: {e}")
 
             logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
 
@@ -137,49 +144,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save()
         logger.info(f"Task {task.id} updated successfully")
 
-    @validated_request(
-        request_serializer=TaskUpdatePositionRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=TaskSerializer, description="Task with updated position"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid position"),
-            404: OpenApiResponse(description="Task not found"),
-        },
-        summary="Update task position",
-        description="Update the position of a task within its current stage",
-        strict_request_validation=True,
-    )
-    @action(detail=True, methods=["patch"], required_scopes=["task:write"])
-    def update_position(self, request, pk=None, **kwargs):
-        task = self.get_object()
-
-        new_position = request.validated_data.get("position")
-
-        if new_position is None:
-            return Response(
-                ErrorResponseSerializer({"error": "Position is required"}).data, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        task.position = new_position
-        task.save()
-
         return Response(TaskSerializer(task).data)
 
     @validated_request(
         request_serializer=None,
         responses={
-            200: OpenApiResponse(response=TaskSerializer, description="Workflow started for task"),
+            200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             404: OpenApiResponse(description="Task not found"),
         },
         summary="Run task",
-        description="Kick off the workflow for the task in its current stage.",
+        description="Create a new task run and kick off the workflow.",
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
 
-        logger.info(f"Triggering workflow for task {task.id}")
+        logger.info(f"Creating task run for task {task.id}")
 
-        self._trigger_workflow(task)
+        task_run = task.create_run()
+
+        logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
+
+        self._trigger_workflow(task, task_run)
+
+        task.refresh_from_db()
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
@@ -202,7 +190,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "create",
             "update",
             "partial_update",
-            "progress_run",
             "set_output",
             "append_log",
         ]
@@ -229,6 +216,49 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
+
+    @validated_request(
+        request_serializer=TaskRunUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid update data"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Update task run",
+        description="Update a task run with status, stage, branch, output, and state information.",
+        strict_request_validation=True,
+    )
+    def update(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
+    @validated_request(
+        request_serializer=TaskRunUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid update data"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Update task run",
+        strict_request_validation=True,
+    )
+    def partial_update(self, request, *args, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+
+        # Update fields from validated data
+        for key, value in request.validated_data.items():
+            setattr(task_run, key, value)
+
+        # Auto-set completed_at if status is completed or failed
+        if "status" in request.validated_data and request.validated_data["status"] in [
+            TaskRun.Status.COMPLETED,
+            TaskRun.Status.FAILED,
+        ]:
+            if not task_run.completed_at:
+                task_run.completed_at = timezone.now()
+
+        task_run.save()
+
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
@@ -297,3 +327,140 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run.append_log(entries)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactsUploadRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactsUploadResponseSerializer,
+                description="Run with updated artifact manifest",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Upload artifacts for a task run",
+        description="Persist task artifacts to S3 and attach them to the run manifest.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts", required_scopes=["task:write"])
+    def artifacts(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        artifacts = request.validated_data["artifacts"]
+
+        prefix = task_run.get_artifact_s3_prefix()
+        manifest = list(task_run.artifacts or [])
+
+        for artifact in artifacts:
+            safe_name = os.path.basename(artifact["name"]).strip() or "artifact"
+            suffix = uuid.uuid4().hex[:8]
+            storage_path = f"{prefix}/{suffix}_{safe_name}"
+
+            content_bytes = artifact["content"].encode("utf-8")
+            extras: dict[str, str] = {}
+            content_type = artifact.get("content_type")
+            if content_type:
+                extras["ContentType"] = content_type
+
+            object_storage.write(storage_path, content_bytes, extras or None)
+            try:
+                object_storage.tag(
+                    storage_path,
+                    {
+                        "ttl_days": "30",
+                        "team_id": str(task_run.team_id),
+                    },
+                )
+            except Exception as exc:
+                logger.warning(
+                    "task_run.artifact_tag_failed",
+                    extra={
+                        "task_run_id": str(task_run.id),
+                        "storage_path": storage_path,
+                        "error": str(exc),
+                    },
+                )
+
+            uploaded_at = timezone.now().isoformat()
+
+            manifest.append(
+                {
+                    "name": safe_name,
+                    "type": artifact["type"],
+                    "size": len(content_bytes),
+                    "content_type": content_type or "",
+                    "storage_path": storage_path,
+                    "uploaded_at": uploaded_at,
+                }
+            )
+
+            logger.info(
+                "task_run.artifact_uploaded",
+                extra={
+                    "task_run_id": str(task_run.id),
+                    "storage_path": storage_path,
+                    "artifact_type": artifact["type"],
+                    "size": len(content_bytes),
+                },
+            )
+
+        task_run.artifacts = manifest
+        task_run.save(update_fields=["artifacts", "updated_at"])
+
+        serializer = TaskRunArtifactsUploadResponseSerializer(
+            {"artifacts": manifest},
+            context=self.get_serializer_context(),
+        )
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactPresignRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactPresignResponseSerializer,
+                description="Presigned URL for the requested artifact",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid request"),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Generate presigned URL for an artifact",
+        description="Returns a temporary, signed URL that can be used to download a specific artifact.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/presign", required_scopes=["task:read"])
+    def artifacts_presign(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        storage_path = request.validated_data["storage_path"]
+        artifacts = task_run.artifacts or []
+
+        if not any(artifact.get("storage_path") == storage_path for artifact in artifacts):
+            return Response(
+                ErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        url = object_storage.get_presigned_url(storage_path)
+        if not url:
+            return Response(
+                ErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        expires_in = 3600
+        serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
+        return Response(serializer.data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(description="Log content in JSONL format"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get task run logs",
+        description="Fetch the logs for a task run. Returns JSONL formatted log entries.",
+    )
+    @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
+    def logs(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+        response = HttpResponse(log_content, content_type="application/jsonl")
+        response["Cache-Control"] = "no-cache"
+        return response

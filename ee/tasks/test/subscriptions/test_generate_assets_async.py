@@ -3,7 +3,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from urllib3.exceptions import ProtocolError
 
+from posthog.errors import CHQueryErrorS3Error
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
@@ -23,7 +25,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 async def mock_export_asset():
     """Mock export_asset_direct to avoid launching Chrome browser in tests."""
 
-    def set_content(asset: ExportedAsset) -> None:
+    def set_content(asset: ExportedAsset, **kwargs) -> None:
         asset.content = b"fake image data"
         asset.save()
 
@@ -279,7 +281,7 @@ async def test_async_generate_assets_timeout_continues_with_partial_results(
     assert mock_wait_for.called
 
 
-@patch("posthog.tasks.exporter.export_asset_direct")
+@patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct")
 async def test_async_generate_assets_partial_success(mock_export: MagicMock, team, user) -> None:
     call_count = 0
 
@@ -314,3 +316,128 @@ async def test_async_generate_assets_partial_success(mock_export: MagicMock, tea
     assets_without_content = [a for a in assets if not a.content and not a.content_location]
     assert len(assets_with_content) == 2
     assert len(assets_without_content) == 1
+
+
+class TestAsyncGenerateAssetsRetryBehavior:
+    """
+    Tests for retry behavior in generate_assets_async.
+    These tests do NOT use the autouse mock_export_asset fixture because they need
+    to test the actual retry logic inside export_asset_direct.
+    """
+
+    @pytest_asyncio.fixture(autouse=True)
+    async def mock_export_asset(self):
+        """Override the module-level autouse fixture to do nothing for this class."""
+        yield
+
+    @pytest_asyncio.fixture
+    async def retry_organization(self):
+        return await sync_to_async(Organization.objects.create)(name="Retry Test Organization")
+
+    @pytest_asyncio.fixture
+    async def retry_user(self, retry_organization):
+        import uuid
+
+        unique_email = f"retry-test-{uuid.uuid4()}@posthog.com"
+        user = await sync_to_async(User.objects.create_user)(
+            email=unique_email,
+            password="password123",
+            first_name="Retry",
+            last_name="Test",
+        )
+        await sync_to_async(retry_organization.members.add)(user)
+        return user
+
+    @pytest_asyncio.fixture
+    async def retry_team(self, retry_organization):
+        return await sync_to_async(Team.objects.create)(organization=retry_organization, name="Retry Test Team")
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    @patch("ee.tasks.subscriptions.subscription_utils.get_metric_meter", MagicMock())
+    async def test_retries_on_s3_error(self, mock_export_image: MagicMock, retry_team, retry_user) -> None:
+        call_count = 0
+
+        def export_with_transient_failure(asset: ExportedAsset, **kwargs) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise CHQueryErrorS3Error("S3 error occurred", code=499)
+            asset.content = b"fake image data"
+            asset.save()
+
+        mock_export_image.side_effect = export_with_transient_failure
+
+        insight = await sync_to_async(Insight.objects.create)(team=retry_team, short_id="retrytest", name="Retry Test")
+        subscription = await sync_to_async(create_subscription)(team=retry_team, insight=insight, created_by=retry_user)
+
+        subscription = await sync_to_async(
+            lambda: type(subscription)
+            .objects.select_related("team", "dashboard", "insight", "created_by")
+            .get(id=subscription.id)
+        )()
+
+        with patch("tenacity.nap.sleep"):
+            insights, assets = await generate_assets_async(subscription)
+
+        assert len(assets) == 1
+        assert assets[0].content == b"fake image data"
+        assert assets[0].exception is None
+        assert mock_export_image.call_count == 3
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    @patch("ee.tasks.subscriptions.subscription_utils.get_metric_meter", MagicMock())
+    async def test_fails_after_max_retries(self, mock_export_image: MagicMock, retry_team, retry_user) -> None:
+        mock_export_image.side_effect = CHQueryErrorS3Error("S3 error occurred", code=499)
+
+        insight = await sync_to_async(Insight.objects.create)(
+            team=retry_team, short_id="maxretry", name="Max Retry Test"
+        )
+        subscription = await sync_to_async(create_subscription)(team=retry_team, insight=insight, created_by=retry_user)
+
+        subscription = await sync_to_async(
+            lambda: type(subscription)
+            .objects.select_related("team", "dashboard", "insight", "created_by")
+            .get(id=subscription.id)
+        )()
+
+        with patch("tenacity.nap.sleep"):
+            insights, assets = await generate_assets_async(subscription)
+
+        assert len(assets) == 1
+        assert assets[0].content is None
+        assert "S3 error" in str(assets[0].exception)
+        assert mock_export_image.call_count == 4
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    @patch("ee.tasks.subscriptions.subscription_utils.get_metric_meter", MagicMock())
+    async def test_retries_on_protocol_error(self, mock_export_image: MagicMock, retry_team, retry_user) -> None:
+        call_count = 0
+
+        def export_with_protocol_error(asset: ExportedAsset, **kwargs) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise ProtocolError("Connection aborted.")
+            asset.content = b"fake image data"
+            asset.save()
+
+        mock_export_image.side_effect = export_with_protocol_error
+
+        insight = await sync_to_async(Insight.objects.create)(
+            team=retry_team, short_id="protocoltest", name="Protocol Error Test"
+        )
+        subscription = await sync_to_async(create_subscription)(team=retry_team, insight=insight, created_by=retry_user)
+
+        subscription = await sync_to_async(
+            lambda: type(subscription)
+            .objects.select_related("team", "dashboard", "insight", "created_by")
+            .get(id=subscription.id)
+        )()
+
+        with patch("tenacity.nap.sleep"):
+            insights, assets = await generate_assets_async(subscription)
+
+        assert len(assets) == 1
+        assert assets[0].content == b"fake image data"
+        assert assets[0].exception is None
+        assert mock_export_image.call_count == 3

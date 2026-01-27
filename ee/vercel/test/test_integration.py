@@ -71,14 +71,14 @@ class TestVercelIntegration(TestCase):
         assert "createdAt" in result
         assert "updatedAt" in result
         # Verify createdAt is in milliseconds (should be > 1 billion ms since epoch)
-        assert (
-            result["createdAt"] > 1_000_000_000_000
-        ), f"createdAt should be in milliseconds, got {result['createdAt']}"
+        assert result["createdAt"] > 1_000_000_000_000, (
+            f"createdAt should be in milliseconds, got {result['createdAt']}"
+        )
         assert isinstance(result["createdAt"], int), f"createdAt should be int, got {type(result['createdAt'])}"
         # Verify updatedAt is in milliseconds
-        assert (
-            result["updatedAt"] > 1_000_000_000_000
-        ), f"updatedAt should be in milliseconds, got {result['updatedAt']}"
+        assert result["updatedAt"] > 1_000_000_000_000, (
+            f"updatedAt should be in milliseconds, got {result['updatedAt']}"
+        )
         assert isinstance(result["updatedAt"], int), f"updatedAt should be int, got {type(result['updatedAt'])}"
 
     def make_vercel_item(self, **overrides):
@@ -104,7 +104,7 @@ class TestVercelIntegration(TestCase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id=self.installation_id,
-            config={"billing_plan_id": "free", "scopes": ["read"]},
+            config={"billing_plan_id": "posthog-usage-based", "scopes": ["read"]},
             created_by=self.user,
         )
 
@@ -149,44 +149,22 @@ class TestVercelIntegration(TestCase):
 
     def test_get_vercel_plans_structure(self):
         plans = VercelIntegration.get_vercel_plans()
-        assert len(plans) == 2
+        assert len(plans) > 0
+        assert plans[0]["id"]
+        assert plans[0]["paymentMethodRequired"] is True
 
-        free_plan = next(p for p in plans if p["id"] == "free")
-        assert free_plan["type"] == "subscription"
-        assert free_plan["name"] == "Free"
-        assert not free_plan["paymentMethodRequired"]
-
-        paid_plan = next(p for p in plans if p["id"] == "pay_as_you_go")
-        assert paid_plan["type"] == "subscription"
-        assert paid_plan["name"] == "Pay-as-you-go"
-        assert paid_plan["paymentMethodRequired"]
-
-    def test_get_installation_returns_free_plan(self):
+    def test_get_installation_billing_plan(self):
         result = VercelIntegration.get_installation_billing_plan(self.installation_id)
-        assert "billingplan" in result
-        assert result["billingplan"]["id"] == "free"
-
-    def test_update_installation_success(self):
-        VercelIntegration.update_installation(self.installation_id, "pro200")
-
-        updated_installation = OrganizationIntegration.objects.get(integration_id=self.installation_id)
-        assert updated_installation.config["billing_plan_id"] == "free"
+        # Returns empty dict - billing handled through PostHog, not Vercel
+        assert result == {}
 
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    @patch("django.conf.settings.DEBUG", True)
-    def test_delete_installation_dev_mode(self):
+    def test_delete_installation(self):
         result = VercelIntegration.delete_installation(self.installation_id)
 
         assert result["finalized"]
-        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
-
-    @patch("django.conf.settings.DEBUG", False)
-    def test_delete_installation_prod_mode(self):
-        result = VercelIntegration.delete_installation(self.installation_id)
-
-        assert not result["finalized"]
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     def test_delete_installation_not_found(self):
@@ -196,7 +174,8 @@ class TestVercelIntegration(TestCase):
     def test_get_product_plans_posthog(self):
         result = VercelIntegration.get_product_plans("posthog")
         assert "plans" in result
-        assert len(result["plans"]) == 2
+        assert len(result["plans"]) == 1
+        assert result["plans"][0]["id"] == "posthog-usage-based"
 
     def test_get_product_plans_invalid_product(self):
         with self.assertRaises(NotFound) as context:
@@ -277,6 +256,118 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_not_called()
 
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_sso_requires_login_for_external_existing_user(self, mock_report):
+        """Security test: External users (not created by Vercel) must prove ownership via login."""
+        from ee.vercel.integration import RequiresExistingUserLogin
+
+        # Create an external user (not through Vercel)
+        external_user = User.objects.create_user(
+            email="external@example.com", password="external", first_name="External"
+        )
+
+        # Now try to install Vercel integration with that email
+        installation_id = self.NEW_INSTALLATION_ID
+        payload = {
+            **self.payload,
+            "account": {
+                **self.payload["account"],
+                "contact": {"email": "external@example.com", "name": "External User"},
+            },
+        }
+        user_claims = self._create_user_claims("vercel_external_user")
+        user_claims.installation_id = installation_id
+        user_claims.user_email = "external@example.com"
+
+        VercelIntegration.upsert_installation(installation_id, payload, user_claims)
+
+        installation = OrganizationIntegration.objects.get(integration_id=installation_id)
+
+        # External user should NOT have mapping created (security measure)
+        assert "user_mappings" not in installation.config or "vercel_external_user" not in installation.config.get(
+            "user_mappings", {}
+        )
+
+        # External user should NOT be added to org automatically
+        assert not OrganizationMembership.objects.filter(
+            user=external_user, organization=installation.organization
+        ).exists()
+
+        # SSO should require login for external user
+        sso_claims = self._create_user_claims("vercel_external_user")
+        sso_claims.installation_id = installation_id
+        sso_claims.user_email = "external@example.com"
+
+        with self.assertRaises(RequiresExistingUserLogin):
+            VercelIntegration._find_sso_user(sso_claims)
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):
+        """E2E: Trusted Vercel user's second installation should auto-link and SSO should work."""
+        from ee.vercel.integration import RequiresExistingUserLogin
+
+        # First installation - creates user with mapping
+        first_installation_id = self.NEW_INSTALLATION_ID
+        first_user_claims = self._create_user_claims("vercel_user_abc")
+        first_user_claims.installation_id = first_installation_id
+
+        VercelIntegration.upsert_installation(first_installation_id, self.payload, first_user_claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+
+        # Second installation - same email, different installation
+        second_installation_id = "icfg_second_install_12345678"
+        second_payload = {**self.payload, "account": {**self.payload["account"], "name": "Second Org"}}
+        second_user_claims = self._create_user_claims("vercel_user_xyz")
+        second_user_claims.installation_id = second_installation_id
+
+        VercelIntegration.upsert_installation(second_installation_id, second_payload, second_user_claims)
+
+        # Verify installation created mapping and membership
+        second_installation = OrganizationIntegration.objects.get(integration_id=second_installation_id)
+        assert second_installation.config["user_mappings"].get("vercel_user_xyz") == user.pk
+        membership = OrganizationMembership.objects.get(user=user, organization=second_installation.organization)
+        assert membership.level == OrganizationMembership.Level.OWNER
+
+        # SSO should work without requiring login
+        sso_claims = self._create_user_claims("vercel_user_xyz")
+        sso_claims.installation_id = second_installation_id
+
+        try:
+            sso_user = VercelIntegration._find_sso_user(sso_claims)
+            assert sso_user.pk == user.pk
+        except RequiresExistingUserLogin:
+            self.fail("SSO should NOT require login for trusted Vercel user")
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_billing_failure_does_not_delete_existing_user(self, mock_license, mock_billing, mock_report):
+        """Billing failure should NOT delete existing users (only newly created ones)."""
+        # First installation - creates user with mapping
+        first_installation_id = self.NEW_INSTALLATION_ID
+        first_user_claims = self._create_user_claims("vercel_user_billing")
+        first_user_claims.installation_id = first_installation_id
+
+        VercelIntegration.upsert_installation(first_installation_id, self.payload, first_user_claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+        user_pk = user.pk
+
+        # Second installation - billing will fail
+        second_installation_id = "icfg_billing_fail_123456789"
+        second_payload = {**self.payload, "account": {**self.payload["account"], "name": "Second Org"}}
+        second_user_claims = self._create_user_claims("vercel_user_billing_2")
+        second_user_claims.installation_id = second_installation_id
+
+        # Make billing fail
+        mock_license.return_value = Mock()
+        mock_billing.return_value.authorize.side_effect = Exception("Billing failed")
+
+        with self.assertRaises(Exception):
+            VercelIntegration.upsert_installation(second_installation_id, second_payload, second_user_claims)
+
+        # User should NOT be deleted - they existed before this installation
+        assert User.objects.filter(pk=user_pk).exists(), "Trusted Vercel user should NOT be deleted on billing failure"
+
     @patch("ee.vercel.integration.capture_exception")
     def test_upsert_installation_integrity_error(self, mock_capture):
         error_user_claims = self._create_user_claims("error_user_999")
@@ -326,6 +417,29 @@ class TestVercelIntegration(TestCase):
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == payload_without_name["account"]["contact"]["email"].split("@")[0]
 
+    def test_upsert_installation_reactivates_inactive_user(self):
+        new_installation_id = self.NEW_INSTALLATION_ID
+        inactive_email = "inactive@example.com"
+
+        inactive_user = User.objects.create_user(
+            email=inactive_email, password="testpass", first_name="Inactive", is_active=False
+        )
+
+        payload = self.payload.copy()
+        payload["account"]["contact"]["email"] = inactive_email
+
+        user_claims = self._create_user_claims("inactive_user_123")
+        user_claims.installation_id = new_installation_id
+        user_claims.user_email = inactive_email
+
+        VercelIntegration.upsert_installation(new_installation_id, payload, user_claims)
+
+        inactive_user.refresh_from_db()
+        assert inactive_user.is_active is True
+
+        org_integration = OrganizationIntegration.objects.get(integration_id=new_installation_id)
+        assert org_integration.created_by == inactive_user
+
     def test_get_resource_not_found(self):
         with self.assertRaises(NotFound):
             VercelIntegration.get_resource("999999")
@@ -335,7 +449,7 @@ class TestVercelIntegration(TestCase):
             "productId": "posthog",
             "name": "New Resource",
             "metadata": {"key": "value"},
-            "billingPlanId": "free",
+            "billingPlanId": "posthog-usage-based",
         }
 
         result = VercelIntegration.create_resource(self.installation_id, resource_data)
@@ -374,7 +488,7 @@ class TestVercelIntegration(TestCase):
             {
                 "name": "Original Name",
                 "metadata": {"old": "value"},
-                "billingPlanId": "free",
+                "billingPlanId": "posthog-usage-based",
             }
         )
         resource.save()
@@ -403,7 +517,7 @@ class TestVercelIntegration(TestCase):
         resource_data = {
             "productId": "posthog",
             "metadata": {"key": "value"},
-            "billingPlanId": "free",
+            "billingPlanId": "posthog-usage-based",
         }
 
         with self.assertRaises(exceptions.ValidationError) as context:

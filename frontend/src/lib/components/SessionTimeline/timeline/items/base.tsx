@@ -149,7 +149,7 @@ export abstract class EventLoader<T extends TimelineItem> extends QueryLoader<T>
 export abstract class LogEntryLoader<T extends TimelineItem> extends QueryLoader<T> implements ItemLoader<T> {
     async queryFrom(from: Dayjs, limit: number): Promise<T[]> {
         const query = this.buildQueryFrom(from, limit)
-        const response = await api.queryHogQL(query)
+        const response = await api.queryHogQL(query, { scene: 'ReplaySingle', productKey: 'session_replay' })
         return response.results.map((row) =>
             this.buildItem({
                 timestamp: dayjs.utc(row[0]),
@@ -161,7 +161,7 @@ export abstract class LogEntryLoader<T extends TimelineItem> extends QueryLoader
 
     async queryTo(to: Dayjs, limit: number): Promise<T[]> {
         const query = this.buildQueryTo(to, limit)
-        const response = await api.queryHogQL(query)
+        const response = await api.queryHogQL(query, { scene: 'ReplaySingle', productKey: 'session_replay' })
         return response.results.map((row) =>
             this.buildItem({
                 timestamp: dayjs.utc(row[0]),

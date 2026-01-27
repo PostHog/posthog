@@ -45,7 +45,7 @@ describe('the activity log logic', () => {
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter deleted test flag')
         })
 
-        it('can handle soft un-deletion', async () => {
+        it('can handle soft restoration', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
                     type: ActivityScope.FEATURE_FLAG,
@@ -56,7 +56,7 @@ describe('the activity log logic', () => {
             ])
 
             const actual = logic.values.humanizedActivity
-            expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter un-deleted test flag')
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter restored test flag')
         })
 
         it('can handle soft enabling flag', async () => {
@@ -225,23 +225,6 @@ describe('the activity log logic', () => {
             )
         })
 
-        it('can handle rollout percentage change', async () => {
-            const logic = await featureFlagsTestSetup('test flag', 'updated', [
-                {
-                    type: ActivityScope.FEATURE_FLAG,
-                    action: 'changed',
-                    field: 'rollout_percentage',
-                    after: '36',
-                },
-            ])
-
-            const actual = logic.values.humanizedActivity
-
-            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed rollout percentage to 36% on test flag'
-            )
-        })
-
         it('can handle deleting the first of several groups from a flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
@@ -291,8 +274,8 @@ describe('the activity log logic', () => {
                 {
                     type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
-                    field: 'rollout_percentage',
-                    after: '36',
+                    field: 'active',
+                    after: 'true',
                 },
                 {
                     type: ActivityScope.FEATURE_FLAG,
@@ -305,7 +288,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed rollout percentage to 36%, and changed the description on test flag'
+                'peter enabled, and changed the description test flag'
             )
         })
 

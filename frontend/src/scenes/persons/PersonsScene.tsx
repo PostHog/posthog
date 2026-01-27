@@ -3,6 +3,7 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
@@ -14,13 +15,18 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { CustomerProfileScope, OnboardingStepKey } from '~/types'
+
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
 import { personsSceneLogic } from './personsSceneLogic'
 
 export const scene: SceneExport = {
     component: PersonsScene,
     logic: personsSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
@@ -36,7 +42,12 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, baseCurrency } = useValues(teamLogic)
+    const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
+
+    useOnMountEffect(() => {
+        loadConfigs()
+    })
 
     return (
         <SceneContent>
@@ -57,7 +68,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                     LemonDialog.openForm({
                                         width: '30rem',
                                         title: 'Reset deleted person',
-                                        description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used. 
+                                        description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
                                             You can use this tool to reset the "distinct_id" for a person so that new events associated with it will create a new Person profile.`,
                                         initialValues: {
                                             distinct_id: '',
@@ -80,11 +91,15 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     </LemonMenu>
                 }
             />
+            <FeedbackBanner
+                feedbackButtonId="people-list"
+                message="We're improving the persons experience. Send us your feedback!"
+            />
 
             <Query
                 uniqueKey={`persons-query-${tabId}`}
                 attachTo={personsSceneLogic({ tabId })}
-                query={query}
+                query={{ ...query, showCount: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',
@@ -97,7 +112,10 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         <>
                             Go to the{' '}
                             <Link
-                                to={urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL)}
+                                to={urls.onboarding({
+                                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                                    stepKey: OnboardingStepKey.INSTALL,
+                                })}
                                 data-attr="real_project_with_no_events-ingestion_link"
                             >
                                 onboarding wizard
@@ -105,6 +123,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             to get things moving
                         </>
                     ),
+                    baseCurrency,
                 }}
                 dataAttr="persons-table"
             />

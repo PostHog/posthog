@@ -6,6 +6,9 @@ from django.db import models
 from celery import shared_task
 from rest_framework import serializers
 
+from posthog.schema import ProductIntentContext, ProductKey
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.dashboard import Dashboard
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -18,6 +21,7 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.utils import get_instance_realm
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.product_tours.backend.models import ProductTour
 
 """
 How to use this model:
@@ -53,9 +57,9 @@ class ProductIntentSerializer(serializers.Serializer):
     This is used when registering new product intents via the API.
     """
 
-    product_type = serializers.CharField(required=True)
     metadata = serializers.DictField(required=False, default=dict)
-    intent_context = serializers.CharField(required=False, default="unknown")
+    product_type = serializers.ChoiceField(required=True, choices=list(ProductKey))
+    intent_context = serializers.ChoiceField(required=False, choices=list(ProductIntentContext))
 
 
 class ProductIntent(UUIDTModel, RootTeamMixin):
@@ -112,9 +116,12 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
 
     def has_activated_feature_flags(self) -> bool:
-        # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
+        # Get feature flags that have at least one filter group, excluding ones used by experiments, surveys, and product tours
         experiment_flags = Experiment.objects.filter(team=self.team).values_list("feature_flag_id", flat=True)
         survey_flags = Survey.objects.filter(team=self.team).values_list("targeting_flag_id", flat=True)
+        product_tour_flags = ProductTour.all_objects.filter(team=self.team).values_list(
+            "internal_targeting_flag_id", flat=True
+        )
 
         feature_flags = (
             FeatureFlag.objects.filter(
@@ -123,6 +130,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             )
             .exclude(id__in=experiment_flags)
             .exclude(id__in=survey_flags)
+            .exclude(id__in=product_tour_flags)
             .only("id", "filters")
         )
 
@@ -215,13 +223,14 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
     @staticmethod
     def register(
         team: Team,
-        product_type: str,
-        context: str,
+        product_type: ProductKey,
+        context: Optional[ProductIntentContext],
         user: User,
         metadata: Optional[dict] = None,
         is_onboarding: bool = False,
     ) -> "ProductIntent":
         from posthog.event_usage import report_user_action
+        from posthog.models.file_system.user_product_list import UserProductList
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
@@ -262,6 +271,13 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
                 },
                 team=team,
             )
+
+            try:
+                UserProductList.create_from_product_intent(product_intent, user)
+            except Exception as e:
+                capture_exception(
+                    e, additional_properties={"product_type": product_type, "context": context, "user_id": user.id}
+                )
 
         return product_intent
 

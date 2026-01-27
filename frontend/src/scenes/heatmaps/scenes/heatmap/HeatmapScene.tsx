@@ -4,8 +4,10 @@ import { useEffect, useRef } from 'react'
 import { IconBrowser, IconDownload } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
@@ -28,6 +30,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         type,
         displayUrl,
         widthOverride,
+        heightOverride,
         screenshotUrl,
         generatingScreenshot,
         screenshotLoaded,
@@ -106,6 +109,29 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
+                <LemonBanner
+                    type="info"
+                    dismissKey={`heatmap-type-info:${id}:${type ?? 'unknown'}`}
+                    className="mb-2"
+                    action={{
+                        size: 'small',
+                        type: 'secondary',
+                        children: 'Open in toolbar',
+                        to: displayUrl
+                            ? appEditorUrl(displayUrl, {
+                                  userIntent: 'heatmaps',
+                              })
+                            : undefined,
+                        targetBlank: true,
+                        'data-attr': 'heatmaps-open-in-toolbar',
+                        disabledReason: !displayUrl ? 'Select a URL first' : undefined,
+                    }}
+                >
+                    You're viewing {type === 'screenshot' ? 'a' : 'an'}{' '}
+                    <LemonTag type="highlight">{type === 'screenshot' ? 'Screenshot' : 'Iframe'}</LemonTag> heatmap. We
+                    recommend trying both methods to see which works best for your site. You can also open your website
+                    using the toolbar and verify results there (useful for auth-protected pages).
+                </LemonBanner>
                 <HeatmapHeader />
                 <FilterPanel />
                 <SceneDivider />
@@ -170,7 +196,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 ) : null}
                             </div>
                         ) : (
-                            <div className="relative min-h-screen">
+                            <div
+                                className="relative"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ height: heightOverride }}
+                            >
                                 <HeatmapCanvas
                                     positioning="absolute"
                                     widthOverride={desiredNumericWidth ?? undefined}
@@ -178,9 +208,9 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 />
                                 <iframe
                                     id="heatmap-iframe"
-                                    className="min-h-screen bg-white rounded-b-lg"
+                                    className="bg-white rounded-b-lg"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: '100%' }}
+                                    style={{ width: '100%', height: heightOverride }}
                                     src={displayUrl || ''}
                                     onLoad={onIframeLoad}
                                     // these two sandbox values are necessary so that the site and toolbar can run

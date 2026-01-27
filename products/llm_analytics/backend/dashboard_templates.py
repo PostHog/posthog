@@ -2,13 +2,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 
 
 def get_llm_analytics_default_template() -> DashboardTemplate:
-    """
-    Default dashboard template for LLM Analytics.
-    Used when feature flag LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD is enabled.
-
-    IMPORTANT: Keep this template in sync with frontend hardcoded tiles in
-    products/llm_analytics/frontend/llmAnalyticsLogic.tsx:562-955 until full migration to customizable dashboard.
-    """
+    """Default dashboard template for LLM Analytics."""
     return DashboardTemplate(
         template_name="LLM Analytics Default",
         dashboard_description="Overview of your LLM usage, costs, and performance",
@@ -91,7 +85,7 @@ def get_llm_analytics_default_template() -> DashboardTemplate:
                         ],
                         "trendsFilter": {
                             "aggregationAxisPrefix": "$",
-                            "decimalPlaces": 4,
+                            "decimalPlaces": 0,
                             "display": "BoldNumber",
                         },
                         "dateRange": {
@@ -236,7 +230,7 @@ def get_llm_analytics_default_template() -> DashboardTemplate:
                                 "type": "event",
                                 "key": "$ai_is_error",
                                 "operator": "exact",
-                                "value": True,
+                                "value": "true",
                             }
                         ],
                         "filterTestAccounts": False,

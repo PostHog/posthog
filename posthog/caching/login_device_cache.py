@@ -10,6 +10,9 @@ def check_and_cache_login_device(user_id: int, location: str, short_user_agent: 
 
     # Create a unique device identifier based on location + user agent
     device_fingerprint = f"{location}:{short_user_agent}"
+    # TODO switch to sha256 hash
+    # device_fingerprint is user controllable. a hash collision might be possible with md5
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     device_hash = hashlib.md5(device_fingerprint.encode()).hexdigest()
     cache_key = f"login_device:{user_id}:{device_hash}"
 

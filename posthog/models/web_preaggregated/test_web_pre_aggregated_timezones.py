@@ -8,7 +8,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatAwareTestCase
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.models import Team
+from posthog.models import Person, Team
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_DAILY_SQL,
@@ -287,6 +287,7 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             assert not comparison["raw_used"]
 
         finally:
+            Person.objects.filter(team=team).delete()
             team.delete()
 
     def test_timezone_boundary_behavior_explicit(self):
@@ -370,11 +371,12 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             for team_name, comparison in [("UTC", utc_comparison), ("PT", pt_comparison), ("JST", jst_comparison)]:
                 preagg_results = self._sort_results(comparison["preagg_response"].results)
                 raw_results = self._sort_results(comparison["raw_response"].results)
-                assert (
-                    preagg_results == raw_results
-                ), f"Boundary behavior mismatch in {team_name}: preagg={preagg_results} vs raw={raw_results}"
+                assert preagg_results == raw_results, (
+                    f"Boundary behavior mismatch in {team_name}: preagg={preagg_results} vs raw={raw_results}"
+                )
 
         finally:
+            Person.objects.filter(team__in=[utc_team, pt_team, jst_team]).delete()
             utc_team.delete()
             pt_team.delete()
             jst_team.delete()
@@ -479,4 +481,5 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             assert chrome_raw[1][0] == 2.0
 
         finally:
+            Person.objects.filter(team=india_team).delete()
             india_team.delete()

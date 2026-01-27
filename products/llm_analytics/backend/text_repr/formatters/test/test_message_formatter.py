@@ -114,9 +114,9 @@ class TestSafeExtractText:
         assert result.startswith("{")  # JSON representation
 
     def test_unable_to_parse_marker(self):
-        """Should return UNABLE_TO_PARSE for complex objects."""
+        """Should return string representation for complex objects."""
         result = safe_extract_text(object())
-        assert "[UNABLE_TO_PARSE:" in result
+        assert "<object object at" in result
 
     def test_extract_from_tool_result_block(self):
         """Should extract content from tool_result blocks."""
@@ -452,13 +452,11 @@ class TestEdgeCases:
     """Test edge cases and error handling."""
 
     def test_handle_circular_references(self):
-        """Should handle non-serializable objects gracefully with data preservation."""
+        """Should handle non-serializable objects gracefully with string representation."""
         # Test with non-JSON-serializable object
         result = safe_extract_text(123)  # Simple non-dict/non-list type
         assert isinstance(result, str)
-        assert result.startswith("[UNABLE_TO_PARSE: int]")
-        # Should include the actual data for debugging
-        assert "123" in result
+        assert result == "123"
 
     def test_handle_non_dict_message(self):
         """Should skip non-dict messages in array."""

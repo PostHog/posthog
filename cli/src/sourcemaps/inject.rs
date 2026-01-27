@@ -1,22 +1,22 @@
-use anyhow::{anyhow, bail, Result};
-use std::path::{Path, PathBuf};
+use anyhow::{bail, Result};
+use std::path::Path;
 use tracing::info;
 use walkdir::DirEntry;
 
 use crate::{
     api::releases::{Release, ReleaseBuilder},
     sourcemaps::{
+        args::{FileSelectionArgs, ReleaseArgs},
         content::SourceMapFile,
         source_pairs::{read_pairs, SourcePair},
     },
-    utils::git::get_git_info,
+    utils::{files::FileSelection, git::get_git_info},
 };
 
 #[derive(clap::Args)]
 pub struct InjectArgs {
-    /// The directory containing the bundled chunks
-    #[arg(short, long)]
-    pub directory: PathBuf,
+    #[clap(flatten)]
+    pub file_selection: FileSelectionArgs,
 
     /// If your bundler adds a public path prefix to sourcemap URLs,
     /// we need to ignore it while searching for them
@@ -24,54 +24,41 @@ pub struct InjectArgs {
     #[arg(short, long)]
     pub public_path_prefix: Option<String>,
 
-    /// One or more directory glob patterns to ignore
-    #[arg(short, long)]
-    pub ignore: Vec<String>,
-
-    /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
-    /// a specific release. We will try to auto-derive this from git information if not provided. Strongly recommended
-    /// to be set explicitly during release CD workflows
-    #[arg(long)]
-    pub project: Option<String>,
-
-    /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
-    /// to have the uploaded chunks associated with a specific release. We will try to auto-derive this from git information
-    /// if not provided.
-    #[arg(long)]
-    pub version: Option<String>,
+    #[clap(flatten)]
+    pub release: ReleaseArgs,
 }
 
-pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Result<()> {
+impl InjectArgs {
+    pub fn validate(&self) -> Result<()> {
+        self.file_selection.validate()
+    }
+}
+
+pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool + 'static) -> Result<()> {
     let InjectArgs {
-        directory,
+        file_selection,
         public_path_prefix,
-        ignore,
-        project,
-        version,
+        release,
     } = args;
 
-    let directory = directory.canonicalize().map_err(|e| {
-        anyhow!(
-            "Directory '{}' not found or inaccessible: {}",
-            directory.display(),
-            e
-        )
-    })?;
+    info!("injecting selection: {}", file_selection);
 
-    info!("injecting directory: {}", directory.display());
-    let mut pairs = read_pairs(&directory, ignore, matcher, public_path_prefix)?;
+    let iterator = FileSelection::try_from(file_selection.clone())?;
+
+    let mut pairs = read_pairs(
+        iterator.into_iter().filter(|entry| matcher(entry)),
+        public_path_prefix,
+    );
     if pairs.is_empty() {
         bail!("no source files found");
     }
 
-    let created_release_id = get_release_for_maps(
-        &directory,
-        project,
-        version,
-        pairs.iter().map(|p| &p.sourcemap),
-    )?
-    .as_ref()
-    .map(|r| r.id.to_string());
+    let cwd = std::env::current_dir()?;
+
+    let created_release_id =
+        get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
+            .as_ref()
+            .map(|r| r.id.to_string());
 
     pairs = inject_pairs(pairs, created_release_id)?;
 
@@ -107,27 +94,20 @@ pub fn inject_pairs(
 
 pub fn get_release_for_maps<'a>(
     directory: &Path,
-    project: &Option<String>,
-    version: &Option<String>,
+    release: ReleaseArgs,
     maps: impl IntoIterator<Item = &'a SourceMapFile>,
 ) -> Result<Option<Release>> {
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
-    let needs_release =
-        project.is_some() || version.is_some() || maps.into_iter().any(|p| !p.has_release_id());
+    let needs_release = release.project.is_some()
+        || release.version.is_some()
+        || maps.into_iter().any(|p| !p.has_release_id());
 
     let mut created_release = None;
     if needs_release {
-        let mut builder = get_git_info(Some(directory.to_path_buf()))?
-            .map(ReleaseBuilder::init_from_git)
-            .unwrap_or_default();
+        let mut builder: ReleaseBuilder = release.into();
 
-        if let Some(project) = project {
-            builder.with_project(project);
-        }
-        if let Some(version) = version {
-            builder.with_version(version);
-        }
+        get_git_info(Some(directory.to_path_buf()))?.map(|info| builder.with_git(info));
 
         if builder.can_create() {
             created_release = Some(builder.fetch_or_create()?);

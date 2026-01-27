@@ -1,4 +1,5 @@
 import {
+    ContextMenuGroup,
     ContextMenuItem,
     ContextMenuSeparator,
     ContextMenuSub,
@@ -6,6 +7,7 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
@@ -26,6 +28,7 @@ export type FolderState = 'loading' | 'loaded' | 'has-more' | 'error'
 
 export interface CustomMenuProps {
     MenuItem?: typeof ContextMenuItem | typeof DropdownMenuItem
+    MenuGroup?: typeof ContextMenuGroup | typeof DropdownMenuGroup
     MenuSeparator?: typeof ContextMenuSeparator | typeof DropdownMenuSeparator
     MenuSub?: typeof ContextMenuSub | typeof DropdownMenuSub
     MenuSubTrigger?: typeof ContextMenuSubTrigger | typeof DropdownMenuSubTrigger

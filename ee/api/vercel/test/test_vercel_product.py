@@ -35,7 +35,7 @@ class TestVercelProductAPI(VercelTestBase):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert "plans" in data
-        assert len(data["plans"]) == 2
+        assert len(data["plans"]) == 1
 
     def test_get_posthog_plans_with_system_auth(self):
         headers = self._get_auth_headers("system")
@@ -44,7 +44,7 @@ class TestVercelProductAPI(VercelTestBase):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert "plans" in data
-        assert len(data["plans"]) == 2
+        assert len(data["plans"]) == 1
 
     def test_get_invalid_product_plans(self):
         headers = self._get_auth_headers("user")

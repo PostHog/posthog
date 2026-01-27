@@ -9,6 +9,8 @@ from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+import structlog
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -41,6 +43,8 @@ from posthog.session_recordings.session_recording_api import SessionRecordingSer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
+
+logger = structlog.get_logger(__name__)
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -256,6 +260,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         return SharePasswordSerializer(obj.share_passwords.filter(is_active=True), many=True).data
 
 
+@extend_schema(tags=["core"])
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "sharing_configuration"
     scope_object_write_actions = [
@@ -599,6 +604,20 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             return custom_404_response(self.request)
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path
+
+        # Parse cache_keys parameter if present (used by image exporter to guarantee cache hits)
+        export_cache_keys: Optional[dict[int, str]] = None
+        if cache_keys_param := request.GET.get("cache_keys"):
+            try:
+                raw_cache_keys = json.loads(cache_keys_param)
+                export_cache_keys = {int(k): v for k, v in raw_cache_keys.items()}
+            except (json.JSONDecodeError, ValueError, TypeError):
+                logger.warning(
+                    "export_cache_keys_parse_error",
+                    cache_keys_param=cache_keys_param,
+                    message="Failed to parse cache_keys parameter - continuing without it",
+                )
+
         context = {
             "view": self,
             "request": request,
@@ -606,6 +625,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "is_shared": True,
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
+            "export_cache_keys": export_cache_keys,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -619,6 +639,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             if request.method == "GET" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
+
+                settings_data = getattr(resource, "settings", {}) or {}
+                if settings_data.get("whitelabel") and resource.team.organization.is_feature_available(
+                    AvailableFeature.WHITE_LABELLING
+                ):
+                    exported_data["whitelabel"] = True
+
                 # Don't include app_context in the initial unlock page for security
                 # It will be provided after authentication
                 return render_template(

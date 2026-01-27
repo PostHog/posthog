@@ -134,7 +134,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["id1", "id2"],
         )
         flush_persons_and_events()
-        person = Person.objects.first()
+        person = Person.objects.filter(team_id=self.team.pk).first()
         query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk))  # type: ignore
 
         # matching team

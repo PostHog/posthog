@@ -1,6 +1,7 @@
 # Make tasks ready for celery autoimport
 
 from . import (
+    activity_log,
     async_migrations,
     calculate_cohort,
     demo_create_data,
@@ -27,6 +28,7 @@ from . import (
 )
 
 __all__ = [
+    "activity_log",
     "async_migrations",
     "calculate_cohort",
     "demo_create_data",

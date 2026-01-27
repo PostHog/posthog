@@ -13,6 +13,8 @@ export interface ErrorTrackingException {
     }
 }
 
+export type ErrorTrackingExceptionList = ErrorTrackingException[]
+
 export type ErrorTrackingRuntime =
     | 'web'
     | 'python'
@@ -32,11 +34,12 @@ export type ErrorTrackingRuntime =
     | 'dotnet'
     | 'unknown'
 
-interface ErrorTrackingRawStackTrace {
+export interface ErrorTrackingRawStackTrace {
     type: 'raw'
     frames: any[] // TODO: type more concretely if we end up needing this (right now we show the $cymbal_errors instead)
 }
-interface ErrorTrackingResolvedStackTrace {
+
+export interface ErrorTrackingResolvedStackTrace {
     type: 'resolved'
     frames: ErrorTrackingStackFrame[]
 }
@@ -84,9 +87,11 @@ export interface ErrorTrackingSymbolSet {
     id: string
     ref: string
     team_id: number
+    last_used: string
     created_at: string
     storage_ptr: string | null
     failure_reason: string | null
+    release: ErrorTrackingRelease | null
 }
 
 interface FingerprintFrame {
@@ -141,7 +146,7 @@ export interface ErrorTrackingRelease {
     }
     project?: string // Only present in recent releases (10-11-2025)
     version: string
-    timestamp: string
+    created_at: string
 }
 
 export type SymbolSetStatus = 'valid' | 'invalid'

@@ -6,9 +6,10 @@ import { beforeUnload, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaBatchExportTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaBatchExportTable, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     BatchExportConfiguration,
     BatchExportConfigurationTest,
@@ -19,22 +20,70 @@ import {
 import type { batchExportConfigurationLogicType } from './batchExportConfigurationLogicType'
 import { humanizeBatchExportName } from './utils'
 
+// Bucket naming rules (supports both S3 and GCS):
+// S3: https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
+// GCS: https://cloud.google.com/storage/docs/buckets#naming
+const BUCKET_NAME_REGEX = /^[a-z0-9][a-z0-9._-]*[a-z0-9]$|^[a-z0-9]$/
+const IP_ADDRESS_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/
+
+function validateBucketName(bucketName: string): string | undefined {
+    if (!bucketName) {
+        return undefined // Let required field validation handle empty values
+    }
+
+    if (/\s/.test(bucketName)) {
+        return 'Bucket name cannot contain whitespace'
+    }
+
+    if (bucketName !== bucketName.toLowerCase()) {
+        return 'Bucket name must be lowercase'
+    }
+
+    if (bucketName.includes('..')) {
+        return 'Bucket name cannot contain consecutive periods'
+    }
+
+    if (IP_ADDRESS_REGEX.test(bucketName)) {
+        return 'Bucket name cannot be formatted as an IP address'
+    }
+
+    if (!BUCKET_NAME_REGEX.test(bucketName)) {
+        return 'Bucket name can only contain lowercase letters, numbers, hyphens, and periods, and must start and end with a letter or number'
+    }
+
+    return undefined
+}
+
+function validateAzureContainerName(name: string): string | undefined {
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(name) && name.length > 1) {
+        return 'Must be lowercase letters, numbers, and hyphens; start and end with letter or number'
+    }
+    if (/--/.test(name)) {
+        return 'Cannot contain consecutive hyphens'
+    }
+    return undefined
+}
+
 export interface BatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
     id: string | null
 }
 
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
-    const config = {
+    const destinationType = batchExportConfig.destination.type
+
+    const config: Record<string, any> = {
         name: batchExportConfig.name,
-        destination: batchExportConfig.destination.type,
+        destination: destinationType,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
-        integration_id:
-            batchExportConfig.destination.type === 'Databricks' ? batchExportConfig.destination.integration : undefined,
         ...batchExportConfig.destination.config,
+    }
+
+    if (destinationType === 'Databricks' || destinationType === 'AzureBlob') {
+        config.integration_id = batchExportConfig.destination.integration
     }
 
     let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
@@ -93,6 +142,10 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
             use_variant_type: true,
             // prefill prefix for http path
             http_path: '/sql/1.0/warehouses/',
+        }),
+        ...(service === 'AzureBlob' && {
+            file_format: 'Parquet',
+            compression: 'zstd',
         }),
     }
 }
@@ -671,6 +724,11 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                     const res = await api.batchExports.create(data)
                     actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
 
+                    void addProductIntent({
+                        product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                        intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
+                    })
+
                     router.actions.replace(urls.batchExport(res.id))
                     lemonToast.success('Batch export created successfully')
                     return res
@@ -951,6 +1009,13 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         'table_name',
                         'use_variant_type',
                     ]
+                } else if (service === 'AzureBlob') {
+                    return [
+                        ...generalRequiredFields,
+                        'integration_id',
+                        'container_name',
+                        ...(isNew ? ['file_format'] : []),
+                    ]
                 }
                 return generalRequiredFields
             },
@@ -1056,12 +1121,34 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
     forms(({ asyncActions, values }) => ({
         configuration: {
             errors: (formdata) => {
-                return Object.fromEntries(
+                const requiredFieldErrors = Object.fromEntries(
                     values.requiredFields.map((field) => [
                         field,
                         formdata[field] ? undefined : 'This field is required',
                     ])
                 )
+
+                // Bucket name validation (S3/GCS compatible)
+                const bucketNameError =
+                    values.service === 'S3'
+                        ? validateBucketName(formdata.bucket_name)
+                        : values.service === 'Redshift' && formdata.mode === 'COPY'
+                          ? validateBucketName(formdata.redshift_s3_bucket)
+                          : undefined
+
+                const containerNameError =
+                    values.service === 'AzureBlob' && formdata.container_name
+                        ? validateAzureContainerName(formdata.container_name as string)
+                        : undefined
+
+                return {
+                    ...requiredFieldErrors,
+                    ...(values.service === 'S3' && bucketNameError ? { bucket_name: bucketNameError } : {}),
+                    ...(values.service === 'Redshift' && formdata.mode === 'COPY' && bucketNameError
+                        ? { redshift_s3_bucket: bucketNameError }
+                        : {}),
+                    ...(containerNameError && { container_name: containerNameError }),
+                }
             },
             submit: async (formdata) => {
                 await asyncActions.updateBatchExportConfig(formdata)

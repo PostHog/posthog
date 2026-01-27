@@ -66,177 +66,28 @@ class ExperimentOutputScorer(ScorerWithPartial):
 
 
 @pytest.mark.django_db
-async def eval_create_experiment_basic(pytestconfig, demo_org_team_user):
-    """Test basic experiment creation."""
+async def eval_create_experiment(pytestconfig, demo_org_team_user):
+    """Test experiment creation tool with various scenarios."""
     _, team, user = demo_org_team_user
 
     conversation = await Conversation.objects.acreate(team=team, user=user)
 
-    async def task_create_experiment(args: dict):
-        # Create feature flag first (required by the tool)
-        await FeatureFlag.objects.acreate(
-            team=team,
-            created_by=user,
-            key=args["feature_flag_key"],
-            name=f"Flag for {args['name']}",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-
-        tool = await CreateExperimentTool.create_tool_class(
-            team=team,
-            user=user,
-            state=AssistantState(messages=[]),
-            config={
-                "configurable": {
-                    "thread_id": conversation.id,
-                    "team": team,
-                    "user": user,
-                }
-            },
-        )
-
-        result_message, artifact = await tool._arun_impl(
-            name=args["name"],
-            feature_flag_key=args["feature_flag_key"],
-            description=args.get("description"),
-            type=args.get("type", "product"),
-        )
-
-        exp_created = await Experiment.objects.filter(team=team, name=args["name"], deleted=False).aexists()
-
-        return {
-            "message": result_message,
-            "experiment_created": exp_created,
-            "experiment_name": artifact.get("experiment_name") if artifact else None,
-        }
-
-    await MaxPublicEval(
-        experiment_name="create_experiment_basic",
-        task=task_create_experiment,  # type: ignore
-        scores=[ExperimentOutputScorer(semantic_fields={"message", "experiment_name"})],
-        data=[
-            EvalCase(
-                input={"name": "Pricing Test", "feature_flag_key": "pricing-test-flag"},
-                expected={
-                    "message": "Successfully created experiment",
-                    "experiment_created": True,
-                    "experiment_name": "Pricing Test",
-                },
-            ),
-            EvalCase(
-                input={
-                    "name": "Homepage Redesign",
-                    "feature_flag_key": "homepage-redesign",
-                    "description": "Testing new homepage layout for better conversion",
-                },
-                expected={
-                    "message": "Successfully created experiment",
-                    "experiment_created": True,
-                    "experiment_name": "Homepage Redesign",
-                },
-            ),
-        ],
-        pytestconfig=pytestconfig,
+    # Pre-create flags and experiments for error testing
+    duplicate_exp_flag_key = f"test-flag-{uuid.uuid4().hex[:8]}"
+    duplicate_exp_flag = await FeatureFlag.objects.acreate(team=team, key=duplicate_exp_flag_key, created_by=user)
+    await Experiment.objects.acreate(
+        team=team, name="Existing Experiment", feature_flag=duplicate_exp_flag, created_by=user
     )
 
+    used_flag_key = f"used-flag-{uuid.uuid4().hex[:8]}"
+    used_flag = await FeatureFlag.objects.acreate(team=team, key=used_flag_key, created_by=user)
+    await Experiment.objects.acreate(team=team, name="First Experiment", feature_flag=used_flag, created_by=user)
 
-@pytest.mark.django_db
-async def eval_create_experiment_types(pytestconfig, demo_org_team_user):
-    """Test experiment creation with different types (product vs web)."""
-    _, team, user = demo_org_team_user
-
-    conversation = await Conversation.objects.acreate(team=team, user=user)
-
-    async def task_create_typed_experiment(args: dict):
-        # Create feature flag first
-        await FeatureFlag.objects.acreate(
-            team=team,
-            created_by=user,
-            key=args["feature_flag_key"],
-            name=f"Flag for {args['name']}",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-
-        tool = await CreateExperimentTool.create_tool_class(
-            team=team,
-            user=user,
-            state=AssistantState(messages=[]),
-            config={
-                "configurable": {
-                    "thread_id": conversation.id,
-                    "team": team,
-                    "user": user,
-                }
-            },
-        )
-
-        result_message, artifact = await tool._arun_impl(
-            name=args["name"],
-            feature_flag_key=args["feature_flag_key"],
-            type=args["type"],
-        )
-
-        # Verify experiment type
-        experiment = await Experiment.objects.aget(team=team, name=args["name"])
-
-        return {
-            "message": result_message,
-            "experiment_type": experiment.type,
-            "artifact_type": artifact.get("type") if artifact else None,
-        }
-
-    await MaxPublicEval(
-        experiment_name="create_experiment_types",
-        task=task_create_typed_experiment,  # type: ignore
-        scores=[ExperimentOutputScorer(semantic_fields={"message"})],
-        data=[
-            EvalCase(
-                input={"name": "Product Feature Test", "feature_flag_key": "product-test", "type": "product"},
-                expected={
-                    "message": "Successfully created experiment",
-                    "experiment_type": "product",
-                    "artifact_type": "product",
-                },
-            ),
-            EvalCase(
-                input={"name": "Web UI Test", "feature_flag_key": "web-test", "type": "web"},
-                expected={
-                    "message": "Successfully created experiment",
-                    "experiment_type": "web",
-                    "artifact_type": "web",
-                },
-            ),
-        ],
-        pytestconfig=pytestconfig,
-    )
-
-
-@pytest.mark.django_db
-async def eval_create_experiment_with_existing_flag(pytestconfig, demo_org_team_user):
-    """Test experiment creation with an existing feature flag."""
-    _, team, user = demo_org_team_user
-
-    # Create an existing flag with unique key and multivariate variants
-    unique_key = f"reusable-flag-{uuid.uuid4().hex[:8]}"
+    # Pre-create a reusable flag with multivariate variants
+    reusable_flag_key = f"reusable-flag-{uuid.uuid4().hex[:8]}"
     await FeatureFlag.objects.acreate(
         team=team,
-        key=unique_key,
+        key=reusable_flag_key,
         name="Reusable Flag",
         created_by=user,
         filters={
@@ -250,9 +101,25 @@ async def eval_create_experiment_with_existing_flag(pytestconfig, demo_org_team_
         },
     )
 
-    conversation = await Conversation.objects.acreate(team=team, user=user)
+    async def task_create_experiment(test_case: dict):
+        # Create feature flag if needed (not for error cases)
+        if test_case.get("create_flag"):
+            await FeatureFlag.objects.acreate(
+                team=team,
+                created_by=user,
+                key=test_case["feature_flag_key"],
+                name=f"Flag for {test_case['name']}",
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 50},
+                            {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            )
 
-    async def task_create_experiment_reuse_flag(args: dict):
         tool = await CreateExperimentTool.create_tool_class(
             team=team,
             user=user,
@@ -267,136 +134,131 @@ async def eval_create_experiment_with_existing_flag(pytestconfig, demo_org_team_
         )
 
         result_message, artifact = await tool._arun_impl(
-            name=args["name"],
-            feature_flag_key=args["feature_flag_key"],
+            name=test_case["name"],
+            feature_flag_key=test_case["feature_flag_key"],
+            description=test_case.get("description"),
+            type=test_case.get("type", "product"),
         )
 
-        return {
+        # Initialize result
+        result: dict = {
             "message": result_message,
-            "experiment_created": artifact is not None and "experiment_id" in artifact,
         }
 
+        # Check if experiment was created
+        exp_exists = await Experiment.objects.filter(team=team, name=test_case["name"], deleted=False).aexists()
+        result["experiment_created"] = exp_exists
+
+        # Get experiment name from artifact
+        if artifact:
+            result["experiment_name"] = artifact.get("experiment_name")
+            result["experiment_id"] = artifact.get("experiment_id")
+
+            # Check for errors
+            if "error" in artifact:
+                result["has_error"] = True
+
+        # Get experiment type if it was created
+        if exp_exists:
+            try:
+                experiment = await Experiment.objects.aget(team=team, name=test_case["name"])
+                result["experiment_type"] = experiment.type
+                if artifact:
+                    result["artifact_type"] = artifact.get("type")
+            except Experiment.DoesNotExist:
+                pass
+
+        return result
+
     await MaxPublicEval(
-        experiment_name="create_experiment_with_existing_flag",
-        task=task_create_experiment_reuse_flag,  # type: ignore
-        scores=[ExperimentOutputScorer(semantic_fields={"message"})],
+        experiment_name="create_experiment",
+        task=task_create_experiment,
+        scores=[ExperimentOutputScorer(semantic_fields={"message", "experiment_name"})],
         data=[
+            # Basic experiment creation
             EvalCase(
-                input={"name": "Reuse Flag Test", "feature_flag_key": unique_key},
+                input={
+                    "name": "Pricing Test",
+                    "feature_flag_key": "pricing-test-flag",
+                    "create_flag": True,
+                },
+                expected={
+                    "message": "Successfully created experiment",
+                    "experiment_created": True,
+                    "experiment_name": "Pricing Test",
+                },
+            ),
+            EvalCase(
+                input={
+                    "name": "Homepage Redesign",
+                    "feature_flag_key": "homepage-redesign",
+                    "description": "Testing new homepage layout for better conversion",
+                    "create_flag": True,
+                },
+                expected={
+                    "message": "Successfully created experiment",
+                    "experiment_created": True,
+                    "experiment_name": "Homepage Redesign",
+                },
+            ),
+            # Experiment creation with different types
+            EvalCase(
+                input={
+                    "name": "Product Feature Test",
+                    "feature_flag_key": "product-test",
+                    "type": "product",
+                    "create_flag": True,
+                },
+                expected={
+                    "message": "Successfully created experiment",
+                    "experiment_type": "product",
+                    "artifact_type": "product",
+                },
+            ),
+            EvalCase(
+                input={
+                    "name": "Web UI Test",
+                    "feature_flag_key": "web-test",
+                    "type": "web",
+                    "create_flag": True,
+                },
+                expected={
+                    "message": "Successfully created experiment",
+                    "experiment_type": "web",
+                    "artifact_type": "web",
+                },
+            ),
+            # Experiment with existing flag
+            EvalCase(
+                input={
+                    "name": "Reuse Flag Test",
+                    "feature_flag_key": reusable_flag_key,
+                    "create_flag": False,
+                },
                 expected={
                     "message": "Successfully created experiment",
                     "experiment_created": True,
                 },
             ),
-        ],
-        pytestconfig=pytestconfig,
-    )
-
-
-@pytest.mark.django_db
-async def eval_create_experiment_duplicate_name_error(pytestconfig, demo_org_team_user):
-    """Test that creating a duplicate experiment returns an error."""
-    _, team, user = demo_org_team_user
-
-    # Create an existing experiment with unique flag key
-    unique_flag_key = f"test-flag-{uuid.uuid4().hex[:8]}"
-    flag = await FeatureFlag.objects.acreate(team=team, key=unique_flag_key, created_by=user)
-    await Experiment.objects.acreate(team=team, name="Existing Experiment", feature_flag=flag, created_by=user)
-
-    conversation = await Conversation.objects.acreate(team=team, user=user)
-
-    async def task_create_duplicate_experiment(args: dict):
-        # Create a different flag for the duplicate attempt
-        await FeatureFlag.objects.acreate(
-            team=team,
-            created_by=user,
-            key=args["feature_flag_key"],
-            name=f"Flag for {args['name']}",
-        )
-
-        tool = await CreateExperimentTool.create_tool_class(
-            team=team,
-            user=user,
-            state=AssistantState(messages=[]),
-            config={
-                "configurable": {
-                    "thread_id": conversation.id,
-                    "team": team,
-                    "user": user,
-                }
-            },
-        )
-
-        result_message, artifact = await tool._arun_impl(
-            name=args["name"],
-            feature_flag_key=args["feature_flag_key"],
-        )
-
-        return {
-            "message": result_message,
-            "has_error": artifact.get("error") is not None if artifact else False,
-        }
-
-    await MaxPublicEval(
-        experiment_name="create_experiment_duplicate_name_error",
-        task=task_create_duplicate_experiment,  # type: ignore
-        scores=[ExperimentOutputScorer(semantic_fields={"message"})],
-        data=[
+            # Error: Duplicate experiment name
             EvalCase(
-                input={"name": "Existing Experiment", "feature_flag_key": "another-flag"},
+                input={
+                    "name": "Existing Experiment",
+                    "feature_flag_key": "another-flag",
+                    "create_flag": True,
+                },
                 expected={
                     "message": "Failed to create experiment: An experiment with name 'Existing Experiment' already exists",
                     "has_error": True,
                 },
             ),
-        ],
-        pytestconfig=pytestconfig,
-    )
-
-
-@pytest.mark.django_db
-async def eval_create_experiment_flag_already_used_error(pytestconfig, demo_org_team_user):
-    """Test that using a flag already tied to another experiment returns an error."""
-    _, team, user = demo_org_team_user
-
-    # Create an experiment with a flag (unique key)
-    unique_flag_key = f"used-flag-{uuid.uuid4().hex[:8]}"
-    flag = await FeatureFlag.objects.acreate(team=team, key=unique_flag_key, created_by=user)
-    await Experiment.objects.acreate(team=team, name="First Experiment", feature_flag=flag, created_by=user)
-
-    conversation = await Conversation.objects.acreate(team=team, user=user)
-
-    async def task_create_experiment_with_used_flag(args: dict):
-        tool = await CreateExperimentTool.create_tool_class(
-            team=team,
-            user=user,
-            state=AssistantState(messages=[]),
-            config={
-                "configurable": {
-                    "thread_id": conversation.id,
-                    "team": team,
-                    "user": user,
-                }
-            },
-        )
-
-        result_message, artifact = await tool._arun_impl(
-            name=args["name"],
-            feature_flag_key=args["feature_flag_key"],
-        )
-
-        return {
-            "message": result_message,
-            "has_error": artifact.get("error") is not None if artifact else False,
-        }
-
-    await MaxPublicEval(
-        experiment_name="create_experiment_flag_already_used_error",
-        task=task_create_experiment_with_used_flag,  # type: ignore
-        scores=[ExperimentOutputScorer(semantic_fields={"message"})],
-        data=[
+            # Error: Flag already used by another experiment
             EvalCase(
-                input={"name": "Second Experiment", "feature_flag_key": unique_flag_key},
+                input={
+                    "name": "Second Experiment",
+                    "feature_flag_key": used_flag_key,
+                    "create_flag": False,
+                },
                 expected={
                     "message": "Failed to create experiment: Feature flag is already used by experiment",
                     "has_error": True,

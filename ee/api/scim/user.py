@@ -10,6 +10,11 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.rbac.role import RoleMembership
+from ee.models.scim_provisioned_user import SCIMProvisionedUser
+
+
+class SCIMUserConflict(Exception):
+    """User is already SCIM-provisioned for this organization domain."""
 
 
 class PostHogSCIMUser(SCIMUser):
@@ -54,7 +59,17 @@ class PostHogSCIMUser(SCIMUser):
 
     @property
     def user_name(self) -> str:
-        return self.obj.email
+        scim_user = SCIMProvisionedUser.objects.filter(
+            user=self.obj, organization_domain=self._organization_domain
+        ).first()
+        return scim_user.username if scim_user else self.obj.email
+
+    @property
+    def identity_provider(self) -> str:
+        scim_user = SCIMProvisionedUser.objects.filter(
+            user=self.obj, organization_domain=self._organization_domain
+        ).first()
+        return scim_user.identity_provider if scim_user else SCIMProvisionedUser.IdentityProvider.OTHER
 
     @property
     def active(self) -> bool:
@@ -94,6 +109,7 @@ class PostHogSCIMUser(SCIMUser):
         Convert User to SCIM format.
         """
         base_dict = {
+            "schemas": [constants.SchemaURI.USER],
             "id": self.id,
             "userName": self.user_name,
             "name": self.name,
@@ -123,7 +139,12 @@ class PostHogSCIMUser(SCIMUser):
         return base_dict
 
     @classmethod
-    def from_dict(cls, data: dict, organization_domain: OrganizationDomain) -> "PostHogSCIMUser":
+    def from_dict(
+        cls,
+        data: dict,
+        organization_domain: OrganizationDomain,
+        identity_provider: SCIMProvisionedUser.IdentityProvider = SCIMProvisionedUser.IdentityProvider.OTHER,
+    ) -> "PostHogSCIMUser":
         """
         Create or update a User from SCIM data.
         """
@@ -134,9 +155,15 @@ class PostHogSCIMUser(SCIMUser):
         name_data = data.get("name", {})
         first_name = name_data.get("givenName", "")
         last_name = name_data.get("familyName", "")
+        user_name = data.get("userName", email)
+        active = data.get("active", True)
 
         with transaction.atomic():
             user = User.objects.filter(email__iexact=email).first()
+
+            # Check if already SCIM-provisioned for this org domain
+            if user and SCIMProvisionedUser.objects.filter(user=user, organization_domain=organization_domain).exists():
+                raise SCIMUserConflict()
 
             if user:
                 if first_name:
@@ -163,6 +190,16 @@ class PostHogSCIMUser(SCIMUser):
                 user.current_team = organization_domain.organization.teams.first()
                 user.save()
 
+            SCIMProvisionedUser.objects.update_or_create(
+                user=user,
+                organization_domain=organization_domain,
+                defaults={
+                    "identity_provider": identity_provider,
+                    "username": user_name,
+                    "active": active,
+                },
+            )
+
         return cls(user, organization_domain)
 
     def put(self, data: dict) -> None:
@@ -173,6 +210,8 @@ class PostHogSCIMUser(SCIMUser):
         """
         name_data = data.get("name", {})
         email = self._extract_email_from_value(data.get("emails", []))
+        user_name = data.get("userName", email)
+        is_active = data.get("active", True)
 
         if not email:
             raise ValueError("Email is required")
@@ -188,17 +227,50 @@ class PostHogSCIMUser(SCIMUser):
             self.obj.email = email
             self.obj.save()
 
-            # Deactivate user if active is false
-            is_active = data.get("active", True)
-            if not is_active:
-                self.delete()
+            SCIMProvisionedUser.objects.update_or_create(
+                user=self.obj,
+                organization_domain=self._organization_domain,
+                defaults={
+                    "username": user_name,
+                    "active": is_active,
+                    "identity_provider": self.identity_provider,
+                },
+            )
 
-    def delete(self) -> None:
+            if is_active:
+                # Adding org membership to reactivate the user
+                OrganizationMembership.objects.get_or_create(
+                    user=self.obj,
+                    organization=self._organization_domain.organization,
+                    defaults={"level": OrganizationMembership.Level.MEMBER},
+                )
+            else:
+                self.deactivate()
+
+    def deactivate(self) -> None:
         """
-        Deactivate user by removing their membership from this organization.
+        Deactivate user by removing their membership and marking SCIM record as inactive.
         """
         OrganizationMembership.objects.filter(
             user=self.obj, organization=self._organization_domain.organization
+        ).delete()
+
+        SCIMProvisionedUser.objects.filter(
+            user=self.obj,
+            organization_domain=self._organization_domain,
+        ).update(active=False)
+
+    def delete(self) -> None:
+        """
+        Delete user by removing their membership and SCIM provisioned user record.
+        """
+        OrganizationMembership.objects.filter(
+            user=self.obj, organization=self._organization_domain.organization
+        ).delete()
+
+        SCIMProvisionedUser.objects.filter(
+            user=self.obj,
+            organization_domain=self._organization_domain,
         ).delete()
 
     def handle_replace(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
@@ -215,7 +287,24 @@ class PostHogSCIMUser(SCIMUser):
         with transaction.atomic():
             if attr_name == "active":
                 if not value:
-                    self.delete()
+                    self.deactivate()
+                    return
+                else:
+                    OrganizationMembership.objects.get_or_create(
+                        user=self.obj,
+                        organization=self._organization_domain.organization,
+                        defaults={"level": OrganizationMembership.Level.MEMBER},
+                    )
+
+                    SCIMProvisionedUser.objects.update_or_create(
+                        user=self.obj,
+                        organization_domain=self._organization_domain,
+                        defaults={
+                            "active": True,
+                            "username": self.user_name,
+                            "identity_provider": self.identity_provider,
+                        },
+                    )
 
             elif attr_name == "name":
                 if sub_attr == "givenName" and isinstance(value, str):
@@ -238,6 +327,17 @@ class PostHogSCIMUser(SCIMUser):
                 if email:
                     self.obj.email = email
 
+            elif attr_name == "userName" and isinstance(value, str):
+                SCIMProvisionedUser.objects.update_or_create(
+                    user=self.obj,
+                    organization_domain=self._organization_domain,
+                    defaults={
+                        "username": value,
+                        "active": True,
+                        "identity_provider": self.identity_provider,
+                    },
+                )
+
             self.obj.save()
 
     def handle_add(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
@@ -254,6 +354,16 @@ class PostHogSCIMUser(SCIMUser):
                     user=self.obj,
                     organization=self._organization_domain.organization,
                     defaults={"level": OrganizationMembership.Level.MEMBER},
+                )
+
+                SCIMProvisionedUser.objects.update_or_create(
+                    user=self.obj,
+                    organization_domain=self._organization_domain,
+                    defaults={
+                        "active": True,
+                        "username": self.user_name,
+                        "identity_provider": self.identity_provider,
+                    },
                 )
 
             elif attr_name == "name":
@@ -279,6 +389,17 @@ class PostHogSCIMUser(SCIMUser):
                     self.obj.email = email
                     self.obj.save()
 
+            elif attr_name == "userName" and isinstance(value, str):
+                SCIMProvisionedUser.objects.update_or_create(
+                    user=self.obj,
+                    organization_domain=self._organization_domain,
+                    defaults={
+                        "username": value,
+                        "active": True,
+                        "identity_provider": self.identity_provider,
+                    },
+                )
+
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
         Handle SCIM PATCH remove operations (called by django-scim2 handle_operations).
@@ -289,7 +410,8 @@ class PostHogSCIMUser(SCIMUser):
 
         with transaction.atomic():
             if attr_name == "active":
-                self.delete()
+                self.deactivate()
+                return
 
             elif attr_name == "name":
                 if sub_attr == "givenName":

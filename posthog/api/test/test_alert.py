@@ -5,13 +5,16 @@ from typing import Any
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import AlertState, InsightThresholdType
 
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
@@ -214,3 +217,83 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # should also create a new alert check with resolution
         check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
         assert check.state == AlertState.SNOOZED
+
+
+class TestAlertAPIKeyAccess(APIBaseTest):
+    """Test that the alert scope is properly enforced for API key access."""
+
+    def setUp(self):
+        super().setUp()
+        self.insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "BoldNumber"},
+                },
+            },
+        ).json()
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name="Test Alert",
+            created_by=self.user,
+        )
+
+    def _create_api_key(self, scopes: list[str]) -> str:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+        )
+        return key_value
+
+    @parameterized.expand(
+        [
+            (["feature_flag:read"], "get", "", status.HTTP_403_FORBIDDEN, "alert:read"),
+            (["alert:read"], "get", "", status.HTTP_200_OK, None),
+            (["alert:write"], "get", "", status.HTTP_200_OK, None),  # write grants read
+            (["alert:read"], "get", "/{alert_id}/", status.HTTP_200_OK, None),
+            (["alert:read"], "delete", "/{alert_id}/", status.HTTP_403_FORBIDDEN, "alert:write"),
+            (["alert:write"], "delete", "/{alert_id}/", status.HTTP_204_NO_CONTENT, None),
+        ]
+    )
+    def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        endpoint = f"/api/projects/{self.team.id}/alerts{endpoint_suffix}".format(alert_id=self.alert.id)
+        response = getattr(self.client, http_method)(endpoint, HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        assert response.status_code == expected_status
+        if error_scope:
+            assert error_scope in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            (["insight:write"], status.HTTP_403_FORBIDDEN, "alert:write"),
+            (["alert:read"], status.HTTP_403_FORBIDDEN, "alert:write"),
+            (["alert:write"], status.HTTP_201_CREATED, None),
+        ]
+    )
+    def test_alert_create_api_key_access(self, scopes, expected_status, error_scope):
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/",
+            data={
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "name": "New Alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            },
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == expected_status
+        if error_scope:
+            assert error_scope in response.json()["detail"]

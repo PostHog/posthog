@@ -13,6 +13,7 @@ health = { path = "../common/health" }
 axum = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }
@@ -29,11 +30,11 @@ base64 = { workspace = true }
 rdkafka = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-apache-avro = { version = "0.18.0", features = ["zstandard"] }
-prost = "0.13.5"
+apache-avro = { version = "0.21.0", features = ["zstandard"] }
+prost = { workspace = true }
 bytes = { workspace = true }
-
-[dev-dependencies]
+tower-http = { workspace = true }
+hex = "0.4"
 
 [lints]
 workspace = true

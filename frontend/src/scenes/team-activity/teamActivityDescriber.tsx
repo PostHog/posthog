@@ -27,6 +27,8 @@ import {
 } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
+import { coreEventsConfigurationDescriber } from './core_events_config/coreEventsConfigurationDescriber'
+import { customerAnalyticsConfigurationDescriber } from './customer_analytics_config/customerAnalyticsConfigurationDescriber'
 import { marketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/marketingAnalyticsConfigurationDescriber'
 import { revenueAnalyticsConfigurationDescriber } from './revenue_analytics_config/revenueAnalyticsConfigurationDescriber'
 
@@ -402,10 +404,15 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         return { description: descriptions }
     },
 
+    // Logs
+    logs_settings: () => {
+        return { description: [<>updated logs settings</>] }
+    },
+
     // Feature flag confirmation config
     feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),
     feature_flag_confirmation_message: createSimpleValueHandler('feature flag confirmation message'),
-    default_evaluation_environments_enabled: createBooleanToggleHandler('default evaluation environments'),
+    default_evaluation_contexts_enabled: createBooleanToggleHandler('default evaluation contexts'),
 
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),
@@ -427,6 +434,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     anonymize_ips: createBooleanToggleHandler('anonymizing IP addresses'),
     slack_incoming_webhook: createSimpleValueHandler('Slack incoming webhook'),
     timezone: createSimpleValueHandler('timezone', { useEmphasis: true }),
+    business_model: createSimpleValueHandler('business model'),
     data_attributes: createArrayChangeHandler('data attributes'),
     live_events_columns: createArrayChangeHandler('live events columns'),
     app_urls: createArrayChangeHandler('app URLs'),
@@ -435,6 +443,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     person_on_events_querying_enabled: createBooleanToggleHandler('querying person on events'),
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
+    require_evaluation_contexts: createBooleanToggleHandler('require evaluation context tags'),
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters
@@ -711,8 +720,16 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     },
 
     // Complex configs that require a custom describer
+    customer_analytics_config: customerAnalyticsConfigurationDescriber,
     marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
+    core_events_config: coreEventsConfigurationDescriber,
+
+    // Conversations
+    conversations_enabled: createBooleanToggleHandler('conversations'),
+    conversations_settings: () => {
+        return { description: [<>updated conversations settings</>] }
+    },
 
     // should never come from the backend
     created_at: () => null,
@@ -735,6 +752,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
     experiment_recalculation_time: () => null,
+    default_experiment_confidence_level: () => null,
     managed_viewsets: () => null,
 }
 

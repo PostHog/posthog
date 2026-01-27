@@ -1,17 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
+
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { SDK_DEFAULTS_DATE } from './constants'
 import { JSInstallSnippet } from './js-web'
 import { type NextJSRouter, nextJsInstructionsLogic } from './nextJsInstructionsLogic'
 
@@ -147,19 +147,10 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
 export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = !hideWizard && isCloudOrDev
 
     return (
         <>
-            {showSetupWizard && (
-                <>
-                    <h2>Automated Installation</h2>
-                    <SetupWizardBanner integrationName="Next.js" />
-                    <LemonDivider label="OR" />
-                    <h2>Manual Installation</h2>
-                </>
-            )}
+            <SetupWizardBanner integrationName="Next.js" hide={hideWizard} />
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />
             <h3>Add environment variables</h3>

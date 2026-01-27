@@ -20,6 +20,11 @@ const config = workflowType === 'storybook' ? {
     type: 'UI snapshots',
     filesFilter: 'frontend/__snapshots__/',
     localCmd: '`pnpm storybook`',
+} : workflowType === 'backend' ? {
+    label: 'Backend',
+    type: 'query snapshots',
+    filesFilter: '**/*.ambr',
+    localCmd: '`pytest <test_file> --snapshot-update`',
 } : {
     label: 'Playwright E2E',
     type: 'E2E screenshots',
@@ -38,21 +43,31 @@ if (total === 0) {
     process.exit(0);
 }
 
-const comment = `### Visual regression: ${config.label} ${config.type} updated
+const headerPrefix = workflowType === 'backend' ? 'Query snapshots' : 'Visual regression';
 
-**Mode:** \`UPDATE\` (triggered by human commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
+const whatThisMeans = workflowType === 'backend'
+    ? `- Query snapshots have been automatically updated to match current output
+- These changes reflect modifications to database queries or schema`
+    : `- Snapshots have been automatically updated to match current rendering
+- Next CI run will switch to CHECK mode to verify stability
+- If snapshots change again, CHECK mode will fail (indicates flapping)`;
+
+const nextSteps = workflowType === 'backend'
+    ? `- Review the query changes to ensure they're intentional
+- If unexpected, investigate what caused the query to change`
+    : `- Review the changes to ensure they're intentional
+- Approve if changes match your expectations
+- If unexpected, investigate component rendering`;
+
+const comment = `### ${headerPrefix}: ${config.label} ${config.type} updated
 
 **Changes:** ${total} snapshots (${modified} modified, ${added} added, ${deleted} deleted)
 
 **What this means:**
-- Snapshots have been automatically updated to match current rendering
-- Next CI run will switch to CHECK mode to verify stability
-- If snapshots change again, CHECK mode will fail (indicates flapping)
+${whatThisMeans}
 
 **Next steps:**
-- Review the changes to ensure they're intentional
-- Approve if changes match your expectations
-- If unexpected, investigate component rendering
+${nextSteps}
 
 [Review snapshot changes →](https://github.com/${repo}/commit/${snapshotSha || commitSha})`;
 

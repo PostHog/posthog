@@ -8606,10 +8606,10 @@
                       $virt_initial_referring_domain_type: {
                         hidden: False
                       },
-                      $virt_revenue: {
+                      $virt_mrr: {
                         hidden: False
                       },
-                      $virt_revenue_last_30_days: {
+                      $virt_revenue: {
                         hidden: False
                       },
                       created_at: {
@@ -11599,10 +11599,10 @@
                   $virt_initial_referring_domain_type: {
                     hidden: False
                   },
-                  $virt_revenue: {
+                  $virt_mrr: {
                     hidden: False
                   },
-                  $virt_revenue_last_30_days: {
+                  $virt_revenue: {
                     hidden: False
                   },
                   created_at: {

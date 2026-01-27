@@ -207,15 +207,13 @@ class TestSharePasswordAPI(APIBaseTest):
         # Verify both JWT tokens work initially
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token2}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token2}", "accept": "application/json"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -228,8 +226,7 @@ class TestSharePasswordAPI(APIBaseTest):
         # jwt_token1 should still be valid since it was created with password1
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Should contain dashboard data, not unlock page
@@ -238,8 +235,7 @@ class TestSharePasswordAPI(APIBaseTest):
         # jwt_token2 should now be invalid since password2 was deleted
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token2}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token2}", "accept": "application/json"},
         )
         # Should not be authenticated anymore, so should show unlock page
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -256,8 +252,7 @@ class TestSharePasswordAPI(APIBaseTest):
         # jwt_token1 should now also be invalid
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
         # Should not be authenticated anymore, so should show unlock page
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -293,3 +288,35 @@ class TestSharePasswordAPI(APIBaseTest):
         # Should get unlock page (HTML response, not 500 error)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("text/html", response.get("Content-Type", ""))
+
+    @mock_exporter_template
+    def test_unlock_page_respects_whitelabel_setting(self):
+        """
+        Test that the unlock (password login) page respects the whitelabel setting
+        stored in the sharing configuration settings.
+        """
+        # Enable white labelling feature for the organization
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.WHITE_LABELLING, "name": AvailableFeature.WHITE_LABELLING},
+        ]
+        self.organization.save()
+
+        # Set whitelabel in the sharing configuration settings
+        self.sharing_config.settings = {"whitelabel": True}
+        self.sharing_config.save()
+
+        # Create a password so the unlock page is required
+        SharePassword.create_password(
+            sharing_configuration=self.sharing_config, created_by=self.user, raw_password="testpass123"
+        )
+
+        # Access the shared resource without authentication - should show unlock page
+        response = self.client.get(f"/shared/{self.sharing_config.access_token}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # The unlock page should include whitelabel: true in the exported data
+        response_content = response.content.decode("utf-8")
+        self.assertIn('"type": "unlock"', response_content)
+        self.assertIn('"whitelabel": true', response_content)

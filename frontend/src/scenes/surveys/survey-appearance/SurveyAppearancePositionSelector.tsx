@@ -1,9 +1,8 @@
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { cn } from 'lib/utils/css-classes'
+import { ScreenPosition, SurveyPosition } from '~/types'
 
-import { SurveyPosition } from '~/types'
+import { PositionButton } from './PositionButton'
 
-const positionAlignments: Record<Exclude<SurveyPosition, SurveyPosition.NextToTrigger>, [string, string]> = {
+const positionAlignments: Record<ScreenPosition, [string, string]> = {
     [SurveyPosition.TopLeft]: ['items-start', 'justify-start'],
     [SurveyPosition.TopCenter]: ['items-start', 'justify-center'],
     [SurveyPosition.TopRight]: ['items-start', 'justify-end'],
@@ -15,8 +14,48 @@ const positionAlignments: Record<Exclude<SurveyPosition, SurveyPosition.NextToTr
     [SurveyPosition.Right]: ['items-end', 'justify-end'],
 }
 
-const gridPositions = Object.keys(positionAlignments) as [keyof typeof positionAlignments]
+const gridPositions = Object.keys(positionAlignments) as ScreenPosition[]
 
+export function PositionSelector({
+    value,
+    onChange,
+    disabled,
+    toolbar,
+}: {
+    value?: ScreenPosition
+    onChange: (position: ScreenPosition) => void
+    disabled?: boolean
+    toolbar?: boolean
+}): JSX.Element {
+    return (
+        <div
+            // toolbar styles are whack - some custom classes and inline styles are required
+            // for this to work in toolbar context
+            className={
+                toolbar
+                    ? 'grid grid-cols-3 gap-1 w-36 p-1 rounded-lg'
+                    : 'grid grid-cols-3 gap-1 border border-input bg-surface-primary w-36 p-1 rounded-lg focus-within:border-secondary'
+            }
+            // eslint-disable-next-line react/forbid-dom-props
+            style={toolbar ? { border: '1px solid #e5e7eb', backgroundColor: '#f5f5f5' } : undefined}
+        >
+            {gridPositions.map((position) => (
+                <PositionButton
+                    key={position}
+                    position={position}
+                    isActive={value === position}
+                    onClick={() => onChange(position)}
+                    disabled={disabled}
+                    alignmentClasses={positionAlignments[position]}
+                    ariaLabel={`Position: ${position}`}
+                    toolbar={toolbar}
+                />
+            ))}
+        </div>
+    )
+}
+
+/** @deprecated Use PositionSelector instead */
 export const SurveyPositionSelector = ({
     currentPosition,
     onAppearanceChange,
@@ -27,36 +66,10 @@ export const SurveyPositionSelector = ({
     disabled?: boolean
 }): JSX.Element => {
     return (
-        <div className="grid grid-cols-3 gap-1 border border-input bg-surface-primary w-50 p-1 rounded-lg focus-within:border-secondary">
-            {gridPositions.map((position) => {
-                const [itemsClass, justifyClass] = positionAlignments[position]
-
-                return (
-                    <ButtonPrimitive
-                        key={position}
-                        size="lg"
-                        onClick={() => onAppearanceChange({ position })}
-                        active={currentPosition === position}
-                        type="button"
-                        disabled={disabled}
-                        inert={disabled}
-                        className={cn('justify-center text-xs w-full p-1', disabled ? 'cursor-not-allowed' : 'group')}
-                        aria-label={`Survey position: ${position} of screen`}
-                        title={position}
-                    >
-                        <div className={`flex w-full h-full ${itemsClass} ${justifyClass}`}>
-                            <div
-                                className={cn(
-                                    'size-4 border border-transparent rounded-xs',
-                                    currentPosition === position
-                                        ? 'bg-accent'
-                                        : 'group-hover:bg-accent/40 border-primary'
-                                )}
-                            />
-                        </div>
-                    </ButtonPrimitive>
-                )
-            })}
-        </div>
+        <PositionSelector
+            value={currentPosition as ScreenPosition}
+            onChange={(position) => onAppearanceChange({ position })}
+            disabled={disabled}
+        />
     )
 }

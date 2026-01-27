@@ -76,7 +76,7 @@ export const SyncProgressStep = (): JSX.Element => {
                             className="my-1"
                             type="primary"
                             onClick={cancelWizard}
-                            to={urls.sqlEditor(query.source.query)}
+                            to={urls.sqlEditor({ query: query.source.query })}
                         >
                             Query
                         </LemonButton>
@@ -89,16 +89,14 @@ export const SyncProgressStep = (): JSX.Element => {
     }
 
     return (
-        <SceneSection title="Sit tight as we import your data! After it's done, you will be able to query it in PostHog.">
-            <div>
-                <LemonTable
-                    emptyState="No schemas selected"
-                    dataSource={schemas}
-                    loading={dataWarehouseSourcesLoading}
-                    disableTableWhileLoading={false}
-                    columns={columns}
-                />
-            </div>
+        <SceneSection title="You're all set! We'll import the data in the background, and after it's done, you will be able to query it in PostHog.">
+            <LemonTable
+                emptyState="No schemas selected"
+                dataSource={schemas}
+                loading={dataWarehouseSourcesLoading}
+                disableTableWhileLoading={false}
+                columns={columns}
+            />
         </SceneSection>
     )
 }

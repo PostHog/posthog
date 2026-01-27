@@ -150,7 +150,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
             props.onChange?.(values.value)
         },
         setDateOption: () => {
-            actions.select()
+            props.onChange?.(values.value)
         },
         setCounter: () => {
             actions.select()

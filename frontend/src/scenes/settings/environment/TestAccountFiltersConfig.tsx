@@ -140,7 +140,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                 onChange={updateFilterTestAccounts}
                 checked={filterTestAccounts}
                 disabled={currentTeamLoading}
-                label="Filter test accounts out of revenue analytics"
+                label="Filter out internal and test users from revenue analytics"
                 bordered
             />
         </div>

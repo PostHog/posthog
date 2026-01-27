@@ -122,7 +122,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
                     placeholder="Mark as"
                     options={options.map((key) => ({
                         value: key,
-                        label: <StatusIndicator status={key} size="small" className="w-full" withTooltip={true} />,
+                        label: <StatusIndicator status={key} size="small" className="w-full" withTooltip="right" />,
                     }))}
                     size="small"
                 />

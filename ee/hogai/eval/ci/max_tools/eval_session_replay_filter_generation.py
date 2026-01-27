@@ -580,6 +580,38 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
                     order_direction=RecordingOrderDirection.ASC,
                 ),
             ),
+            # Test limit field with numeric requests
+            EvalCase(
+                input="Show me 100 recordings of users who signed up on mobile",
+                expected=MaxRecordingUniversalFilters(
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$device_type",
+                                        type="event",
+                                        value=["Mobile"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
+                    limit=100,
+                ),
+            ),
         ],
         pytestconfig=pytestconfig,
     )

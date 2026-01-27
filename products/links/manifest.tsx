@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -57,6 +57,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Links',
+            intents: [ProductKey.LINKS],
             category: 'Unreleased',
             type: 'link',
             href: urls.links(),
