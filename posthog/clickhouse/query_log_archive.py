@@ -352,7 +352,7 @@ SELECT
     multiIf(not is_initial_query, '',
         JSONHas(log_comment, 'query', 'source'), JSONExtractString(log_comment, 'query', 'source', 'query'),
         JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
-    JSONExtractRaw(log_comment, 'query') as lc_query,
+    if(is_initial_query, JSONExtractRaw(log_comment, 'query'), '') as lc_query,,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
     JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
@@ -455,6 +455,7 @@ def SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL():
         include_table_clauses=False,
     )
 
+
 # V8 - adding initial_query_id, is_initial_query to track subqueries, and ProfileEvents map
 def QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
     return f"""
@@ -463,6 +464,7 @@ def QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
         ADD COLUMN IF NOT EXISTS is_initial_query UInt8 AFTER initial_query_id,
         ADD COLUMN IF NOT EXISTS ProfileEvents Map(String, UInt64) AFTER ProfileEvents_WriteBufferFromS3Bytes
     """
+
 
 # V9 - adding lc_query for storing full query JSON from log_comment
 def QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
