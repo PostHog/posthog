@@ -2142,9 +2142,6 @@ importers:
       '@types/react':
         specifier: '*'
         version: 17.0.52
-      '@types/react-virtualized':
-        specifier: '*'
-        version: 9.21.26
       ansi-colors:
         specifier: '*'
         version: 4.1.3
@@ -2187,9 +2184,9 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
-      react-virtualized:
+      react-window:
         specifier: '*'
-        version: 9.22.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 2.2.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       stylelint:
         specifier: '*'
         version: 15.11.0(typescript@5.4.5)
