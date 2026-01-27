@@ -11,5 +11,11 @@ fi
 
 cp -r /idl/* /var/lib/clickhouse/format_schemas/
 
-# flush all log tables to ensure they are created
-clickhouse client --query "system flush logs"
+# Wait for ClickHouse to be ready to accept queries, then flush log tables to ensure
+# system log tables (e.g., system.crash_log) are created. Use timeout to avoid hanging.
+for i in {1..30}; do
+    if clickhouse client --query "select 1" > /dev/null 2>&1; then
+        clickhouse client --query "system flush logs" && break
+    fi
+    sleep 1
+done
