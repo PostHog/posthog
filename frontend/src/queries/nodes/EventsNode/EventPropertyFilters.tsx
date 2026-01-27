@@ -182,7 +182,7 @@ export function AddPropertyFilterButton<
         requestAnimationFrame(closeAndReset)
     }
 
-    const propertyDefinitions = propertyDefinitionsByType(selectedProperty?.type)
+    const propertyDefinitions = selectedProperty ? propertyDefinitionsByType(selectedProperty.type) : []
 
     return (
         <LemonDropdown
