@@ -168,6 +168,80 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
         })
     })
+
+    describe('shadow write', () => {
+        const buildQueue = (shadowEnabled: boolean) => {
+            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
+            config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED = shadowEnabled
+            config.CYCLOTRON_SHADOW_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            queue['jobQueuePostgres'].startAsProducer = jest.fn()
+            queue['jobQueueKafka'].startAsProducer = jest.fn()
+            queue['jobQueuePostgres'].queueInvocations = jest.fn()
+            queue['jobQueueKafka'].queueInvocations = jest.fn()
+            if (queue['shadowPostgres']) {
+                queue['shadowPostgres'].startAsProducer = jest.fn().mockResolvedValue(undefined)
+                queue['shadowPostgres'].queueInvocations = jest.fn().mockResolvedValue(undefined)
+                queue['shadowPostgres'].stopProducer = jest.fn().mockResolvedValue(undefined)
+            }
+            return queue
+        }
+
+        it('should start shadow producer when enabled', async () => {
+            const queue = buildQueue(true)
+            await queue.startAsProducer()
+            expect(queue['shadowPostgres']).not.toBeNull()
+            expect(queue['shadowPostgres']!.startAsProducer).toHaveBeenCalled()
+        })
+
+        it('should not create shadow producer when disabled', () => {
+            const queue = buildQueue(false)
+            expect(queue['shadowPostgres']).toBeNull()
+        })
+
+        it('should fire-and-forget shadow write on queueInvocations', async () => {
+            const queue = buildQueue(true)
+            await queue.startAsProducer()
+
+            const invocations = [
+                createInvocation(
+                    {
+                        ...createHogExecutionGlobals(),
+                        inputs: {},
+                    },
+                    exampleHogFunction
+                ),
+            ]
+            await queue.queueInvocations(invocations)
+
+            expect(queue['shadowPostgres']!.queueInvocations).toHaveBeenCalledWith(invocations)
+        })
+
+        it('should not block on shadow write failure', async () => {
+            const queue = buildQueue(true)
+            await queue.startAsProducer()
+            ;(queue['shadowPostgres']!.queueInvocations as jest.Mock).mockRejectedValue(
+                new Error('shadow write failed')
+            )
+
+            const invocations = [
+                createInvocation(
+                    {
+                        ...createHogExecutionGlobals(),
+                        inputs: {},
+                    },
+                    exampleHogFunction
+                ),
+            ]
+
+            // Should not throw despite shadow failure
+            await expect(queue.queueInvocations(invocations)).resolves.toBeUndefined()
+
+            // Main path should still have been called
+            expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
+        })
+    })
 })
 
 describe('getProducerMapping', () => {

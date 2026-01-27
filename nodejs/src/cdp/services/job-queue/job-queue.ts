@@ -53,6 +53,7 @@ export class CyclotronJobQueue {
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
     private jobQueueDelay: CyclotronJobQueueDelay
+    private shadowPostgres: CyclotronJobQueuePostgres | null = null
 
     constructor(
         private config: PluginsServerConfig,
@@ -75,10 +76,21 @@ export class CyclotronJobQueue {
             this.consumeBatch(invocations, 'postgres')
         )
 
+        if (this.config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED && this.config.CYCLOTRON_SHADOW_DATABASE_URL) {
+            const shadowConfig = {
+                ...this.config,
+                CYCLOTRON_DATABASE_URL: this.config.CYCLOTRON_SHADOW_DATABASE_URL,
+            }
+            this.shadowPostgres = new CyclotronJobQueuePostgres(shadowConfig, this.queue, () =>
+                Promise.resolve({ backgroundTask: Promise.resolve() })
+            )
+        }
+
         logger.info('🔄', 'CyclotronJobQueue initialized', {
             consumerMode: this.consumerMode,
             producerMapping: this.producerMapping,
             producerTeamMapping: this.producerTeamMapping,
+            shadowWriteEnabled: !!this.shadowPostgres,
         })
     }
 
@@ -133,6 +145,10 @@ export class CyclotronJobQueue {
         if (this.consumerMode === 'delay') {
             await this.jobQueueDelay.startAsProducer()
         }
+
+        if (this.shadowPostgres) {
+            await this.shadowPostgres.startAsProducer()
+        }
     }
 
     public async start() {
@@ -165,6 +181,7 @@ export class CyclotronJobQueue {
             this.jobQueuePostgres.stopProducer(),
             this.jobQueueKafka.stopProducer(),
             this.jobQueueDelay.stopProducer(),
+            this.shadowPostgres?.stopProducer(),
         ])
     }
 
@@ -223,6 +240,12 @@ export class CyclotronJobQueue {
             this.jobQueuePostgres.queueInvocations(postgresInvocations),
             this.jobQueueKafka.queueInvocations(kafkaInvocations),
         ])
+
+        if (this.shadowPostgres) {
+            void this.shadowPostgres.queueInvocations(invocations).catch((err) => {
+                logger.warn('Shadow cyclotron write failed', { error: err.message })
+            })
+        }
     }
 
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {
