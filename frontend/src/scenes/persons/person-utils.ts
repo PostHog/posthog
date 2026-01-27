@@ -94,7 +94,7 @@ export function asDisplay(
 
     // Sync the logic below with the plugin server `getPersonDetails`
     const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-    const customPropertyKey = personDisplayNameProperties.find((x) => person.properties?.[x])
+    const customPropertyKey = personDisplayNameProperties.find((x: string) => person.properties?.[x])
     const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
 
     const customIdentifier: string =

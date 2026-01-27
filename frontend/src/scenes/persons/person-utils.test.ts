@@ -191,6 +191,7 @@ describe('the person header', () => {
 
         it('prefers distinct_id over distinct_ids', () => {
             const index = getPersonColorIndex({
+                id: 'person-uuid',
                 distinct_id: 'primary-id',
                 distinct_ids: ['secondary-id'],
             })
