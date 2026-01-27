@@ -61,11 +61,19 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         return f"({coalesce_expr}, toString(__person_lookup.id), sessions.distinct_id)"
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
+        needs_person_join = self._needs_person_join()
         select_input: list[str] = []
         for col in self.select_input_raw():
             # Selecting a "*" expands the list of columns
             if col == "*":
-                select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_SESSIONS_FIELDS)})")
+                # Qualify with sessions. prefix when person join is present to avoid ambiguity
+                # (e.g. distinct_id exists on both sessions and person_distinct_ids)
+                fields = (
+                    [f"sessions.{f}" for f in SELECT_STAR_FROM_SESSIONS_FIELDS]
+                    if needs_person_join
+                    else SELECT_STAR_FROM_SESSIONS_FIELDS
+                )
+                select_input.append(f"tuple({', '.join(fields)})")
             elif col.split("--")[0].strip() == "person_display_name":
                 select_input.append(self._build_person_display_name_expr())
             else:
