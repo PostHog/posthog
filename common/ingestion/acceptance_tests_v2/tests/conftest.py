@@ -13,7 +13,7 @@ def config() -> Config:
     This fixture is session-scoped, so configuration is loaded once
     and shared across all tests.
     """
-    return Config.from_env()
+    return Config()
 
 
 @pytest.fixture(scope="session")

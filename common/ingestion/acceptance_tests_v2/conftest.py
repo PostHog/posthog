@@ -33,8 +33,8 @@ def pytest_configure(config: pytest.Config) -> None:
     _test_results = []
 
     try:
-        _config = Config.from_env()
-    except ValueError:
+        _config = Config()
+    except Exception:
         _config = None
 
 
