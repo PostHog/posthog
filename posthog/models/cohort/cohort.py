@@ -557,13 +557,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return []
 
         try:
-            # Use direct ClickHouse SQL for fast person lookup
+            # Use optimized ClickHouse query with GROUP BY (same pattern as person API)
             query = """
             SELECT DISTINCT person.id
-            FROM person FINAL
+            FROM person
             WHERE person.team_id = %(team_id)s
-              AND person.pmat_email IN %(emails)s
-              AND person.is_deleted = 0
+              AND has(%(emails)s, person.pmat_email)
+            GROUP BY person.id
+            HAVING argMax(person.is_deleted, person.version) = 0
+            SETTINGS optimize_aggregation_in_order = 1
             """
 
             result = sync_execute(query, {"team_id": team_id, "emails": emails})
