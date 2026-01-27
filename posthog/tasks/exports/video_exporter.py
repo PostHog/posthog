@@ -116,12 +116,9 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
         # TODO: Remove after testing
         with open("node_script_options.json", "w") as f:
             json.dump(options, f)
-        # Calculate how long we wait for the recording to complete: buffer + recording time (adjusted by playback speed)
-        max_wait_s = self.RECORDING_BUFFER_SECONDS + (self.opts.recording_duration // max(self.opts.playback_speed, 1))
         logger.info(
             "video_exporter.puppeteer_recorder_starting",
             script_path=script_path,
-            timeout=max_wait_s,
             options=options,
         )
         # Record the video
@@ -130,7 +127,6 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
                 ["node", script_path, options_json],
                 capture_output=True,
                 text=True,
-                timeout=max_wait_s,
                 check=False,  # Don't raise on non-zero exit, we'll check the JSON output
             )
             # Log stderr (Node.js logs go there)
@@ -140,7 +136,8 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
             # Parse JSON output from stdout
             if not result.stdout.strip():
                 raise RuntimeError(
-                    f"Puppeteer recorder produced no output when recording the session. Exit code: {result.returncode}"
+                    f"Puppeteer recorder produced no output when recording the session. "
+                    f"Exit code: {result.returncode}\nOutput: {result.stdout}\nStderr: {result.stderr}"
                 )
             try:
                 output = json.loads(result.stdout.strip())
@@ -176,9 +173,9 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
                 inactivity_periods=inactivity_periods,
                 segment_start_timestamps=segment_start_timestamps,
             )
-        except subprocess.TimeoutExpired as e:
-            logger.exception("video_exporter.puppeteer_recorder_timeout", timeout=max_wait_s)
-            raise RuntimeError(f"Puppeteer recorder timed out after {max_wait_s}s when recording the session") from e
+        except Exception as e:
+            logger.exception("video_exporter.puppeteer_recorder_error", error=str(e))
+            raise RuntimeError(f"Puppeteer recorder failed, when recording the session: {e}") from e
 
 
 class PlaywrightRecorder(_ReplayVideoRecorder):
@@ -745,7 +742,7 @@ def record_replay_to_file(
             recording_duration=opts.recording_duration,
             playback_speed=result.playback_speed,
             measured_width=result.measured_width,
-            fps=result.fps,
+            custom_fps=result.custom_fps,
         )
         if ext == ".mp4":
             video_renderer._convert_to_mp4()
