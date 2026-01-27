@@ -12,6 +12,7 @@ import { experimentLogic } from '../../experimentLogic'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
+import { MAX_AXIS_RANGE } from './constants'
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
@@ -46,7 +47,7 @@ export function MetricsTable({
     )
 
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const axisRange = maxAbsValue + axisMargin
+    const axisRange = Math.min(maxAbsValue + axisMargin, MAX_AXIS_RANGE)
 
     if (metrics.length === 0) {
         return (
