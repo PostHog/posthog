@@ -743,6 +743,7 @@ async def failing_s3_batch_export(ateam, temporal_client):
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "file_format": "invalid",
         },
     }
 
@@ -790,7 +791,7 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
         batch_export_id=str(failing_s3_batch_export.id),
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        start_delay=2.0,
+        start_delay=0.1,
     )
 
     # Need to recreate the specific ID the app would use when triggering a backfill
