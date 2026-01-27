@@ -12,7 +12,9 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
@@ -23,7 +25,7 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.person_db_router import PERSONS_DB_FOR_READ, PERSONS_DB_FOR_WRITE
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
@@ -496,15 +498,77 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if not emails:
             return []
 
+        # Check feature flag for ClickHouse-based email lookup
+        if posthoganalytics.feature_enabled(
+            "cohort-email-lookup-clickhouse",
+            str(team_id),
+            groups={"project": str(team_id)},
+            group_properties={
+                "project": {
+                    "id": str(team_id),
+                }
+            },
+            send_feature_flag_events=False,
+        ):
+            return self._get_uuids_for_emails_batch_ch(emails, team_id)
+
+        # Default to PostgreSQL method
+        return self._get_uuids_for_emails_batch_pg(emails, team_id)
+
+    def _get_uuids_for_emails_batch_pg(self, emails: list[str], team_id: int) -> list[str]:
+        """
+        Get UUIDs for email addresses using PostgreSQL (fallback path).
+
+        Args:
+            emails: List of email addresses to convert to UUIDs
+            team_id: Team ID to filter by
+
+        Returns:
+            List of UUIDs for persons with the given email addresses
+        """
+        if not emails:
+            return []
+
         uuids = [
             str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            for uuid in Person.objects.db_manager(PERSONS_DB_FOR_READ)
             .filter(team_id=team_id)
             .filter(properties__email__in=emails)
             .values_list("uuid", flat=True)
         ]
-
         return uuids
+
+    def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
+        """
+        Get UUIDs for email addresses using ClickHouse (fast path).
+        Uses direct ClickHouse SQL for optimal performance.
+
+        Args:
+            emails: List of email addresses to convert to UUIDs
+            team_id: Team ID to filter by
+
+        Returns:
+            List of UUIDs for persons with the given email addresses
+        """
+        if not emails:
+            return []
+
+        try:
+            # Use direct ClickHouse SQL for fast person lookup
+            query = """
+            SELECT DISTINCT person.id
+            FROM person
+            WHERE person.team_id = %(team_id)s
+              AND JSONExtractString(person.properties, 'email') IN %(emails)s
+              AND person.is_deleted = 0
+            """
+
+            result = sync_execute(query, {"team_id": team_id, "emails": emails})
+            return [str(row[0]) for row in result]
+
+        except Exception:
+            # Fallback to PostgreSQL method
+            return self._get_uuids_for_emails_batch_pg(emails, team_id)
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
