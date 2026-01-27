@@ -237,8 +237,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         for i, metric in enumerate(metrics):
             try:
                 ExperimentMetric.model_validate(metric)
-            except Exception as e:
-                raise ValidationError(f"Invalid metric at index {i}: {e}")
+            except Exception:
+                raise ValidationError(f"Invalid metric at index {i}")
 
         return metrics
 
