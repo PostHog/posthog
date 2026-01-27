@@ -22,8 +22,15 @@ export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 # services start simultaneously via mprocs (they share a build lock anyway)
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
-# Use sccache for Rust compilation caching (requires sccache in PATH via flox)
-export RUSTC_WRAPPER="${RUSTC_WRAPPER:-sccache}"
+# Use sccache for Rust compilation caching (if available via flox or homebrew)
+if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache &>/dev/null; then
+    export RUSTC_WRAPPER="sccache"
+fi
+
+# Use lld linker on macOS for faster Rust linking (if available via flox or homebrew)
+if [[ "$(uname -s)" == "Darwin" ]] && [[ -z "${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:-}" ]] && command -v lld &>/dev/null; then
+    export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="-C link-arg=-fuse-ld=lld"
+fi
 
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
 export API_QUERIES_PER_TEAM='{"1": 100}'
