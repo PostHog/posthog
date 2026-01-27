@@ -190,9 +190,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const [openConditions, setOpenConditions] = useState<string[]>(filterGroups.length === 1 ? ['condition-0'] : [])
 
     const handleAddConditionSet = (): void => {
-        addConditionSet()
-        // Open the new condition set while keeping existing ones open
+        // Capture the index before adding so it stays correct even if addConditionSet is batched
         const newIndex = filterGroups.length
+        addConditionSet()
         setOpenConditions((prev) => [...prev, `condition-${newIndex}`])
     }
 

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconPeople, IconRocket, IconShield } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -21,7 +22,7 @@ interface FlagTemplate {
     name: string
     description: string
     icon: React.ReactNode
-    getValues: () => TemplateValues
+    getValues: (currentFlag: FeatureFlagType) => TemplateValues
 }
 
 interface FeatureFlagTemplatesProps {
@@ -34,29 +35,31 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
     const { user } = useValues(userLogic)
 
     const applyTemplate = (template: FlagTemplate): void => {
-        const templateValues = template.getValues()
+        // Read featureFlag fresh from the logic to avoid stale closures
+        const currentFlag = featureFlag
+        if (!currentFlag) {
+            return
+        }
+        const templateValues = template.getValues(currentFlag)
         const preservedFields: string[] = []
-        const updates: Partial<FeatureFlagType> = { ...featureFlag }
+        const updates: Partial<FeatureFlagType> = { ...currentFlag }
 
-        // Only apply key if user hasn't edited it
         if (templateValues.key !== undefined) {
             if (userEditedFields.has('key')) {
                 preservedFields.push('flag key')
             } else {
-                updates.key = featureFlag.key || templateValues.key
+                updates.key = currentFlag.key || templateValues.key
             }
         }
 
-        // Only apply name/description if user hasn't edited it
         if (templateValues.name !== undefined) {
             if (userEditedFields.has('name')) {
                 preservedFields.push('description')
             } else {
-                updates.name = featureFlag.name || templateValues.name
+                updates.name = currentFlag.name || templateValues.name
             }
         }
 
-        // Only apply active state if user hasn't edited it
         if (templateValues.active !== undefined) {
             if (userEditedFields.has('active')) {
                 preservedFields.push('enabled state')
@@ -65,13 +68,12 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             }
         }
 
-        // Only apply filters if user hasn't edited release conditions
         if (templateValues.filters !== undefined) {
             if (userEditedFields.has('filters')) {
                 preservedFields.push('release conditions')
             } else {
                 updates.filters = {
-                    ...featureFlag.filters,
+                    ...currentFlag.filters,
                     ...templateValues.filters,
                 }
             }
@@ -89,9 +91,8 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
         onTemplateApplied?.(['basics', 'targeting'])
     }
 
-    // Safety check - if featureFlag is not loaded yet, show nothing
     if (!featureFlag) {
-        return <div>Loading...</div>
+        return <></>
     }
 
     // Don't allow template application while the flag is still loading
@@ -106,17 +107,11 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             name: '% Rollout',
             description: 'Gradually roll out to a percentage of users',
             icon: <IconRocket className="text-2xl" />,
-            getValues: () => ({
+            getValues: (flag) => ({
                 key: 'gradual-rollout',
                 filters: {
-                    ...featureFlag.filters,
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 20,
-                            variant: null,
-                        },
-                    ],
+                    ...flag.filters,
+                    groups: [{ properties: [], rollout_percentage: 20, variant: null }],
                 },
             }),
         },
@@ -125,10 +120,10 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             name: 'Internal Only',
             description: 'Only your team can see this',
             icon: <IconShield className="text-2xl" />,
-            getValues: () => ({
+            getValues: (flag) => ({
                 key: 'internal-only',
                 filters: {
-                    ...featureFlag.filters,
+                    ...flag.filters,
                     groups: [
                         {
                             properties: [
@@ -151,10 +146,10 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             name: 'Beta Users',
             description: 'Target users with a beta property',
             icon: <IconPeople className="text-2xl" />,
-            getValues: () => ({
+            getValues: (flag) => ({
                 key: 'beta-feature',
                 filters: {
-                    ...featureFlag.filters,
+                    ...flag.filters,
                     groups: [
                         {
                             properties: [
@@ -177,19 +172,13 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             name: 'Kill Switch',
             description: 'Quick on/off for incidents',
             icon: <IconCheckCircle className="text-2xl" />,
-            getValues: () => ({
+            getValues: (flag) => ({
                 key: 'kill-switch',
                 name: 'Emergency kill switch for…',
                 active: true,
                 filters: {
-                    ...featureFlag.filters,
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 100,
-                            variant: null,
-                        },
-                    ],
+                    ...flag.filters,
+                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
                 },
             }),
         },
@@ -202,21 +191,19 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             </div>
             <div className="flex gap-3 overflow-x-auto">
                 {templates.map((template) => (
-                    <button
-                        type="button"
+                    <LemonButton
                         key={template.id}
+                        type="secondary"
                         onClick={() => applyTemplate(template)}
-                        disabled={isLoading}
-                        className={`flex-shrink-0 border rounded-lg p-4 w-36 transition-all text-left ${
-                            isLoading
-                                ? 'opacity-50 cursor-not-allowed'
-                                : 'hover:border-primary-light hover:bg-primary-highlight cursor-pointer'
-                        }`}
+                        disabledReason={isLoading ? 'Loading flag data…' : undefined}
+                        className="flex-shrink-0 w-36 !h-auto !items-start"
                     >
-                        <div className="text-muted mb-2">{template.icon}</div>
-                        <div className="font-semibold text-sm mb-1">{template.name}</div>
-                        <div className="text-xs text-muted">{template.description}</div>
-                    </button>
+                        <div className="flex flex-col text-left py-1">
+                            <div className="text-muted mb-2">{template.icon}</div>
+                            <div className="font-semibold text-sm mb-1">{template.name}</div>
+                            <div className="text-xs text-muted whitespace-normal">{template.description}</div>
+                        </div>
+                    </LemonButton>
                 ))}
             </div>
         </div>

@@ -27,6 +27,7 @@ import {
     Lettermark,
     LettermarkColor,
     Link,
+    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -85,8 +86,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         field: 'key' | 'name' | 'rollout_percentage',
         value: string | number
     ): void => {
+        const coercedValue = field === 'rollout_percentage' ? Number(value) || 0 : String(value)
         const currentVariants = [...variants]
-        currentVariants[index] = { ...currentVariants[index], [field]: value }
+        currentVariants[index] = { ...currentVariants[index], [field]: coercedValue }
         setFeatureFlag({
             ...featureFlag,
             filters: {
@@ -120,7 +122,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     if (!featureFlag) {
-        return <div>Loading...</div>
+        return (
+            <div className="flex items-center justify-center p-8">
+                <Spinner className="text-2xl" />
+            </div>
+        )
     }
 
     // Read-only view when not editing an existing flag
@@ -240,8 +246,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
-                        {/* Left column - narrow, sticky */}
-                        <div className="flex-1 min-w-[20rem] flex flex-col gap-4 sticky top-4 self-start">
+                        {/* Left column - narrow, sticky on large screens */}
+                        <div className="flex-1 min-w-[20rem] flex flex-col gap-4 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
                             {/* Main settings card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                 <LemonField
@@ -457,11 +463,17 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     ...featureFlag,
                                                     is_remote_configuration: true,
                                                 })
+                                                // setMultivariateEnabled(false) cleans up variant payloads via setMultivariateOptions(null)
                                                 setMultivariateEnabled(false)
                                             } else if (value === 'multivariate') {
                                                 setFeatureFlag({
                                                     ...featureFlag,
                                                     is_remote_configuration: false,
+                                                    filters: {
+                                                        ...featureFlag.filters,
+                                                        // Clear boolean payload when switching to multivariate
+                                                        payloads: {},
+                                                    },
                                                 })
                                                 setMultivariateEnabled(true)
                                             } else {
@@ -469,6 +481,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     ...featureFlag,
                                                     is_remote_configuration: false,
                                                 })
+                                                // setMultivariateEnabled(false) cleans up variant payloads via setMultivariateOptions(null)
                                                 setMultivariateEnabled(false)
                                             }
                                         }}
@@ -536,7 +549,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 header: (
                                                     <div className="flex gap-2 items-center">
                                                         <Lettermark
-                                                            name={alphabet[index]}
+                                                            name={alphabet[index] ?? String(index + 1)}
                                                             color={LettermarkColor.Gray}
                                                             size="small"
                                                         />
@@ -580,39 +593,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             suffix={<span>%</span>}
                                                             data-attr={`feature-flag-variant-rollout-${index}`}
                                                         />
-
-                                                        {/* Show effective percentage if there are release conditions with rollout */}
-                                                        {(() => {
-                                                            const groups = featureFlag?.filters?.groups || []
-                                                            const releaseConditionsWithRollout = groups.filter(
-                                                                (group) =>
-                                                                    !group.variant &&
-                                                                    (group.rollout_percentage ?? 100) < 100
-                                                            )
-
-                                                            if (releaseConditionsWithRollout.length > 0) {
-                                                                const minRollout = Math.min(
-                                                                    ...releaseConditionsWithRollout.map(
-                                                                        (g) => g.rollout_percentage ?? 100
-                                                                    )
-                                                                )
-                                                                const variantRollout = variant.rollout_percentage || 0
-                                                                const effectiveRollout =
-                                                                    (minRollout * variantRollout) / 100
-
-                                                                return (
-                                                                    <div className="text-xs mt-1 text-secondary">
-                                                                        Effective: ~{effectiveRollout.toFixed(1)}% of
-                                                                        all users
-                                                                        <div className="text-muted">
-                                                                            ({variantRollout}% of {minRollout}% eligible
-                                                                            users)
-                                                                        </div>
-                                                                    </div>
-                                                                )
-                                                            }
-                                                            return null
-                                                        })()}
 
                                                         <LemonLabel>Description</LemonLabel>
                                                         <LemonTextArea

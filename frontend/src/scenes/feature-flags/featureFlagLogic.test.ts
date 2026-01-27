@@ -407,4 +407,48 @@ describe('featureFlagLogic', () => {
             testLogic.unmount()
         })
     })
+
+    describe('userEditedFields tracking', () => {
+        it('tracks fields marked as edited', async () => {
+            await expectLogic(logic).toMatchValues({
+                userEditedFields: new Set(),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.markFieldAsEdited('key')
+            }).toMatchValues({
+                userEditedFields: new Set(['key']),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.markFieldAsEdited('filters')
+            }).toMatchValues({
+                userEditedFields: new Set(['key', 'filters']),
+            })
+        })
+
+        it('does not duplicate fields when marked multiple times', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.markFieldAsEdited('key')
+                logic.actions.markFieldAsEdited('key')
+            }).toMatchValues({
+                userEditedFields: new Set(['key']),
+            })
+        })
+
+        it('resets edited fields', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.markFieldAsEdited('key')
+                logic.actions.markFieldAsEdited('name')
+            }).toMatchValues({
+                userEditedFields: new Set(['key', 'name']),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.resetEditedFields()
+            }).toMatchValues({
+                userEditedFields: new Set(),
+            })
+        })
+    })
 })
