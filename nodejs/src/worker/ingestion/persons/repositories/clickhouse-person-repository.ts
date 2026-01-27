@@ -37,14 +37,16 @@ export class ClickHousePersonRepository implements PersonRepository {
         _distinctId: string,
         _options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined> {
-        throw new Error('fetchPerson operation not yet supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('fetchPerson operation not yet supported in ClickHousePersonRepository'))
     }
 
     fetchPersonsByDistinctIds(
         _teamPersons: { teamId: TeamId; distinctId: string }[],
         _useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]> {
-        throw new Error('fetchPersonsByDistinctIds operation not yet supported in ClickHousePersonRepository')
+        return Promise.reject(
+            new Error('fetchPersonsByDistinctIds operation not yet supported in ClickHousePersonRepository')
+        )
     }
 
     async countPersonsByProperties(teamPersons: {
@@ -169,7 +171,7 @@ export class ClickHousePersonRepository implements PersonRepository {
         _primaryDistinctId: { distinctId: string; version?: number },
         _extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     updatePerson(
@@ -177,41 +179,41 @@ export class ClickHousePersonRepository implements PersonRepository {
         _update: PersonUpdateFields,
         _tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     updatePersonAssertVersion(_personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     updatePersonsBatch(
         _personUpdates: PersonUpdate[]
     ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     deletePerson(_person: InternalPerson): Promise<TopicMessage[]> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     addDistinctId(_person: InternalPerson, _distinctId: string, _version: number): Promise<TopicMessage[]> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     addPersonlessDistinctId(_teamId: Team['id'], _distinctId: string): Promise<boolean> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     addPersonlessDistinctIdForMerge(_teamId: Team['id'], _distinctId: string): Promise<boolean> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     addPersonlessDistinctIdsBatch(_entries: { teamId: number; distinctId: string }[]): Promise<Map<string, boolean>> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     personPropertiesSize(_personId: string, _teamId: number): Promise<number> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     updateCohortsAndFeatureFlagsForMerge(
@@ -219,11 +221,11 @@ export class ClickHousePersonRepository implements PersonRepository {
         _sourcePersonID: InternalPerson['id'],
         _targetPersonID: InternalPerson['id']
     ): Promise<void> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     inTransaction<T>(_description: string, _transaction: (tx: PersonRepositoryTransaction) => Promise<T>): Promise<T> {
-        throw new Error('Write operations not supported in ClickHousePersonRepository')
+        return Promise.reject(new Error('Write operations not supported in ClickHousePersonRepository'))
     }
 
     /**
@@ -398,14 +400,14 @@ export class ClickHousePersonRepository implements PersonRepository {
         return {
             id: row.id,
             uuid: row.id,
-            team_id: row.team_id,
+            team_id: typeof row.team_id === 'string' ? parseInt(row.team_id) : row.team_id,
             properties: parseJSON(row.properties),
             properties_last_updated_at: {},
             properties_last_operation: {},
             is_user_id: null,
             is_identified: Boolean(row.is_identified),
             created_at: DateTime.fromSQL(row.created_at, { zone: 'UTC' }),
-            version: row.version || 0,
+            version: typeof row.version === 'string' ? parseInt(row.version) : row.version || 0,
         }
     }
 
@@ -419,14 +421,15 @@ export class ClickHousePersonRepository implements PersonRepository {
 
 /**
  * ClickHouse person row with aggregated fields
+ * Note: ClickHouse JSON format returns numeric columns as strings
  */
 interface ClickHousePersonRow {
     id: string
-    team_id: number
+    team_id: number | string
     is_identified: number
     properties: string
     created_at: string
-    version: number
+    version: number | string
 }
 
 /**
