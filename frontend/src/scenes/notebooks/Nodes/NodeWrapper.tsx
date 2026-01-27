@@ -18,7 +18,7 @@ import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
-import { hashCodeForString } from 'lib/utils'
+import { hashCodeForString, objectsEqual } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
@@ -406,7 +406,47 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     )
 }
 
-export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
+// Custom comparison function for MemoizedNodeWrapper to prevent unnecessary rerenders
+// The default shallow comparison fails because TipTap creates new prop objects on every editor update
+// We only compare props that actually affect rendering, using deep comparison for attributes
+function areNodeWrapperPropsEqual<T extends CustomNotebookNodeAttributes>(
+    prevProps: NodeWrapperProps<T>,
+    nextProps: NodeWrapperProps<T>
+): boolean {
+    // Fast path: if references are the same, props are equal
+    if (prevProps === nextProps) {
+        return true
+    }
+
+    // Compare primitive props that affect rendering
+    if (
+        prevProps.nodeType !== nextProps.nodeType ||
+        prevProps.selected !== nextProps.selected ||
+        prevProps.expandable !== nextProps.expandable ||
+        prevProps.expandOnClick !== nextProps.expandOnClick ||
+        prevProps.autoHideMetadata !== nextProps.autoHideMetadata ||
+        prevProps.heightEstimate !== nextProps.heightEstimate ||
+        prevProps.minHeight !== nextProps.minHeight ||
+        prevProps.href !== nextProps.href ||
+        prevProps.startExpanded !== nextProps.startExpanded
+    ) {
+        return false
+    }
+
+    // Deep compare attributes - this is the most important check
+    // Attributes contain the actual node data (query, filters, etc.)
+    if (!objectsEqual(prevProps.attributes, nextProps.attributes)) {
+        return false
+    }
+
+    // Component reference should be stable (same node type = same component)
+    // Settings reference should also be stable
+    // getPos, updateAttributes are functions that may change reference but shouldn't trigger rerenders
+
+    return true
+}
+
+export const MemoizedNodeWrapper = memo(NodeWrapper, areNodeWrapperPropsEqual) as typeof NodeWrapper
 
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     options: CreatePostHogWidgetNodeOptions<T>

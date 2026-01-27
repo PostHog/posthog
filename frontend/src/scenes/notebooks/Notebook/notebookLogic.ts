@@ -129,6 +129,8 @@ export const notebookLogic = kea<notebookLogicType>([
         clearPreviewContent: true,
         loadNotebook: true,
         scheduleNotebookRefresh: true,
+        // Silent refresh that doesn't trigger loading state changes - used for periodic checks
+        silentRefreshNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
@@ -808,13 +810,67 @@ export const notebookLogic = kea<notebookLogicType>([
             // Remove any existing refresh timeout
             cache.disposables.dispose('refreshTimeout')
 
-            // Add new refresh timeout
+            // Add new refresh timeout - use silentRefreshNotebook to avoid loading state flickering
             cache.disposables.add(() => {
                 const refreshTimeout = setTimeout(() => {
-                    actions.loadNotebook()
+                    actions.silentRefreshNotebook()
                 }, NOTEBOOK_REFRESH_MS)
                 return () => clearTimeout(refreshTimeout)
             }, 'refreshTimeout')
+        },
+
+        // Silent refresh that checks for updates without triggering loading state changes
+        // This prevents the UI from flickering every time we poll for changes (every 5s on localhost, 30s in prod)
+        // The key insight: for 304 (not modified) responses, we do nothing - no state changes, no rerenders
+        // For actual updates (200 OK), we update the notebook state directly via loadNotebookSuccess
+        silentRefreshNotebook: async () => {
+            if (values.mode !== 'notebook') {
+                return
+            }
+
+            // Skip refresh for scratchpad and templates - they don't need server sync
+            if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id || props.shortId.startsWith('template-')) {
+                actions.scheduleNotebookRefresh()
+                return
+            }
+
+            try {
+                // Make a conditional request using If-None-Match
+                // Server returns 304 if version hasn't changed, 200 with new data otherwise
+                const response = await api.notebooks.get(props.shortId, undefined, {
+                    'If-None-Match': values.notebook?.version,
+                })
+
+                // We got a new version (200 OK) - update the notebook state directly
+                // Using loadNotebookSuccess bypasses the loading state change that loadNotebook would cause
+                // This only triggers rerenders for the actual notebook content change, not loading spinners
+                const notebook = await migrate(response)
+
+                if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
+                    values.editor?.setContent(notebook.content)
+                }
+
+                // Update the notebook state - this will trigger necessary rerenders for the content change
+                // but doesn't cause the flickering from loading state toggling
+                actions.loadNotebookSuccess(notebook)
+            } catch (e: any) {
+                if (e.status === 304) {
+                    // Nothing changed - no state updates needed, just schedule next refresh
+                    // This is the common case (>99% of refreshes) and causes zero rerenders
+                } else if (e.status === 403 && e.code === 'permission_denied') {
+                    actions.setAccessDeniedToNotebook()
+                } else if (e.status === 404) {
+                    // Notebook was deleted - trigger a proper load to handle the missing state
+                    actions.loadNotebook()
+                    return
+                } else {
+                    // For other errors, log and continue - don't crash the refresh loop
+                    console.error('Silent notebook refresh failed:', e)
+                }
+            }
+
+            // Schedule the next refresh
+            actions.scheduleNotebookRefresh()
         },
 
         // Comments
