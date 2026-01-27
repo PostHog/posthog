@@ -30,7 +30,7 @@ export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JS
                 <strong>Example:</strong> {pattern.example_reasoning}
             </div>
             {pattern.example_generation_ids.length > 0 && (
-                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
                     <span className="text-xs text-muted">Generations:</span>
                     {pattern.example_generation_ids.map((genId) => {
                         const run = runsLookup[genId]
