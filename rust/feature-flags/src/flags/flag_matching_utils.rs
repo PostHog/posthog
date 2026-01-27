@@ -226,7 +226,10 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         }
     };
 
-    let query_labels = [("pool".to_string(), "persons_reader".to_string())];
+    let query_labels = [
+        ("pool".to_string(), "persons_reader".to_string()),
+        ("team_id".to_string(), team_id.to_string()),
+    ];
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
     // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
@@ -880,6 +883,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
             ("pool".to_string(), "persons_writer".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let person_query_start = Instant::now();
         let person_query_timer =
@@ -954,6 +958,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
             ("pool".to_string(), "non_persons_reader".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let flags_query_start = Instant::now();
         let flags_query_timer =
@@ -1018,6 +1023,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
             ("pool".to_string(), "persons_writer".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let insert_start = Instant::now();
         let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
@@ -1216,6 +1222,7 @@ async fn try_should_write_hash_key_override(
             ),
             ("operation".to_string(), "should_write_check".to_string()),
             ("pool".to_string(), "persons_reader".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
@@ -1298,6 +1305,7 @@ async fn try_should_write_hash_key_override(
             ),
             ("operation".to_string(), "should_write_check".to_string()),
             ("pool".to_string(), "non_persons_reader".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
