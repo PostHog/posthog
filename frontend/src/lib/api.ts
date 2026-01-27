@@ -82,7 +82,9 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingEdge,
     DataModelingJob,
+    DataModelingNode,
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
@@ -1259,6 +1261,20 @@ export class ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('data_modeling_jobs')
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
+    }
+
+    // # Data Modeling Nodes
+    public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
+    }
+
+    public dataModelingNode(id: DataModelingNode['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingNodes(teamId).addPathComponent(id)
+    }
+
+    // # Data Modeling Edges
+    public dataModelingEdges(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_edges')
     }
 
     // # Warehouse view link
@@ -4242,6 +4258,33 @@ const api = {
             ): Promise<PaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
+        },
+    },
+
+    dataModelingNodes: {
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
+        },
+        async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
+            return await new ApiRequest().dataModelingNode(nodeId).get()
+        },
+        async run(
+            nodeId: DataModelingNode['id'],
+            direction: 'upstream' | 'downstream'
+        ): Promise<{ node_ids: string[] }> {
+            return await new ApiRequest().dataModelingNode(nodeId).withAction('run').create({ data: { direction } })
+        },
+        async materialize(nodeId: DataModelingNode['id']): Promise<void> {
+            await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
+        },
+        async dagIds(): Promise<{ dag_ids: string[] }> {
+            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
+        },
+    },
+
+    dataModelingEdges: {
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
         },
     },
 
