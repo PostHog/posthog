@@ -17,7 +17,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { Scene } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -31,6 +31,12 @@ import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { AnnotationModal } from './AnnotationModal'
 import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
+
+export const scene: SceneExport = {
+    component: Annotations,
+    logic: annotationsLogic,
+    productKey: ProductKey.ANNOTATIONS,
+}
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

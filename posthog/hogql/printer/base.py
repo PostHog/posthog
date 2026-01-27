@@ -1369,3 +1369,20 @@ class HogQLPrinter(Visitor[str]):
             frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
             frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
         )
+
+    def visit_type_cast(self, node: ast.TypeCast):
+        match node.type_name.lower():
+            case "int" | "integer":
+                return f"toInt64({self.visit(node.expr)})"
+            case "float" | "double" | "double precision" | "real":
+                return f"toFloat64({self.visit(node.expr)})"
+            case "text" | "varchar" | "char" | "string":
+                return f"toString({self.visit(node.expr)})"
+            case "boolean" | "bool":
+                return f"toBoolean({self.visit(node.expr)})"
+            case "date":
+                return f"toDate({self.visit(node.expr)})"
+            case "datetime" | "timestamp" | "timestamptz":
+                return f"toDateTime({self.visit(node.expr)}, '{self._get_timezone()}')"
+            case _:
+                raise QueryError(f"Unsupported type cast to '{node.type_name}'")

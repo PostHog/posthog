@@ -23,6 +23,7 @@ import { userInterviewsLogic } from './userInterviewsLogic'
 export const scene: SceneExport = {
     component: UserInterviews,
     logic: userInterviewsLogic,
+    productKey: ProductKey.USER_INTERVIEWS,
 }
 
 export function UserInterviews(): JSX.Element {

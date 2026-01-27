@@ -34,6 +34,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.api.documentation import extend_schema
@@ -193,6 +194,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     }
                 )
 
+    def _validate_hogql_query(self, query_string: str) -> None:
+        """Validate that a HogQL query string is syntactically valid."""
+        try:
+            parse_select(query_string)
+        except ExposedHogQLError as e:
+            raise ValidationError({"query": f"Invalid HogQL query: {e}"})
+        except ResolutionError as e:
+            capture_exception(e)
+            raise ValidationError({"query": "Invalid HogQL query: unable to resolve table or field references."})
+
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
         if not query and strict:
@@ -208,6 +219,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "Endpoint name must start with a letter, contain only alphanumeric characters, hyphens, or underscores, "
                 "and be between 1 and 128 characters long."
             )
+
+        if query and isinstance(query, HogQLQuery) and query.query:
+            self._validate_hogql_query(query.query)
 
         self._validate_cache_age_seconds(data.cache_age_seconds)
 
@@ -315,6 +329,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         if data.is_materialized is False and data.sync_frequency is not None:
             raise ValidationError({"sync_frequency": "Cannot set sync_frequency when disabling materialization."})
+
+        if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
+            self._validate_hogql_query(data.query.query)
 
     @extend_schema(
         request=EndpointRequest,

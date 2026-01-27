@@ -16,9 +16,10 @@ use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
-    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_RESUME_PARTITIONS_FILTERED,
-    REBALANCE_RESUME_SKIPPED_ALL_REVOKED,
+    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_RESUME_AFTER_CANCELLATION,
+    REBALANCE_RESUME_PARTITIONS_FILTERED, REBALANCE_RESUME_SKIPPED_ALL_REVOKED,
 };
+use crate::rebalance_coordinator::RebalanceCoordinator;
 use crate::store_manager::StoreManager;
 
 /// Rebalance handler that coordinates store cleanup and partition workers
@@ -28,6 +29,7 @@ where
     P: BatchConsumerProcessor<T> + 'static,
 {
     store_manager: Arc<StoreManager>,
+    rebalance_coordinator: Arc<RebalanceCoordinator>,
     router: Option<Arc<PartitionRouter<T, P>>>,
     offset_tracker: Arc<OffsetTracker>,
     /// Partitions pending cleanup - added on revoke, removed on assign
@@ -47,11 +49,13 @@ where
 {
     pub fn new(
         store_manager: Arc<StoreManager>,
+        rebalance_coordinator: Arc<RebalanceCoordinator>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
+            rebalance_coordinator,
             router: None,
             offset_tracker,
             pending_cleanup: DashSet::new(),
@@ -62,12 +66,14 @@ where
 
     pub fn with_router(
         store_manager: Arc<StoreManager>,
+        rebalance_coordinator: Arc<RebalanceCoordinator>,
         router: Arc<PartitionRouter<T, P>>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
+            rebalance_coordinator,
             router: Some(router),
             offset_tracker,
             pending_cleanup: DashSet::new(),
@@ -150,9 +156,10 @@ where
             }
 
             match importer
-                .import_checkpoint_for_topic_partition(
+                .import_checkpoint_for_topic_partition_cancellable(
                     partition.topic(),
                     partition.partition_number(),
+                    Some(cancel_token),
                 )
                 .await
             {
@@ -170,8 +177,10 @@ where
                         )
                         .increment(1);
                         // Clean up the downloaded files since we won't use them
-                        if path.exists() {
-                            if let Err(e) = std::fs::remove_dir_all(&path) {
+                        match tokio::fs::remove_dir_all(&path).await {
+                            Ok(_) => {}
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(e) => {
                                 warn!(
                                     "Failed to clean up cancelled checkpoint download at {}: {}",
                                     path.display(),
@@ -255,27 +264,18 @@ where
         }
 
         // Create the store (will use imported checkpoint files if present)
-        match self
+        if let Err(e) = self
             .store_manager
             .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
             .await
         {
-            Ok(_) => {
-                info!(
-                    "Pre-created store for partition {}:{}",
-                    partition.topic(),
-                    partition.partition_number()
-                );
-            }
-            Err(e) => {
-                error!(
-                    "Failed to pre-create store for partition {}:{}: {}",
-                    partition.topic(),
-                    partition.partition_number(),
-                    e
-                );
-                // Don't fail - the processor will retry on first message
-            }
+            error!(
+                "Failed to pre-create store for partition {}:{}: {}",
+                partition.topic(),
+                partition.partition_number(),
+                e
+            );
+            // Don't fail - the processor will retry on first message
         }
     }
 }
@@ -308,7 +308,7 @@ where
         {
             let mut token = self.current_rebalance_token.lock().unwrap();
             token.cancel();
-            info!("Cancelled previous rebalance's async work (if any)");
+            info!("Cancelling any in-flight async rebalance work");
             // Create a new token for this rebalance
             *token = CancellationToken::new();
         }
@@ -338,7 +338,7 @@ where
 
         // Increment rebalancing counter SYNCHRONOUSLY before async work is queued
         // This ensures no gap where orphan cleanup could run
-        self.store_manager.start_rebalancing();
+        self.rebalance_coordinator.start_rebalancing();
     }
 
     fn setup_revoked_partitions(&self, partitions: &TopicPartitionList) {
@@ -387,7 +387,7 @@ where
     ) -> Result<()> {
         // Create guard that will decrement rebalancing counter on drop (even on panic)
         // This ensures cleanup happens even if this function panics or is cancelled
-        let _rebalancing_guard = self.store_manager.rebalancing_guard();
+        let _rebalancing_guard = self.rebalance_coordinator.rebalancing_guard();
 
         // Get a clone of the cancellation token for this rebalance.
         // If a new rebalance starts, this token will be cancelled.
@@ -407,28 +407,38 @@ where
             partition_infos.len()
         );
 
-        // Check if already cancelled before starting work
-        if cancel_token.is_cancelled() {
-            info!("Async partition setup cancelled before starting - new rebalance occurred");
-            // Don't send resume - the new rebalance will handle it
-            return Ok(());
+        // Track if we were cancelled - used for logging
+        let was_cancelled_before_start = cancel_token.is_cancelled();
+
+        // If not already cancelled, do the async store setup work
+        if !was_cancelled_before_start {
+            // Pre-create stores for assigned partitions in parallel (scatter)
+            // Partitions are paused, so no messages will be delivered until we resume
+            let setup_futures = partition_infos
+                .iter()
+                .map(|p| self.async_setup_single_partition(p, &cancel_token));
+            join_all(setup_futures).await;
+        } else {
+            info!("Async partition setup cancelled before starting - skipping store creation");
         }
 
-        // Pre-create stores for assigned partitions in parallel (scatter)
-        // Partitions are paused, so no messages will be delivered until we resume
-        let setup_futures = partition_infos
-            .iter()
-            .map(|p| self.async_setup_single_partition(p, &cancel_token));
-        join_all(setup_futures).await;
-
-        // Check if cancelled after all setup completed
-        // If cancelled, a new rebalance started and will handle resuming
-        if cancel_token.is_cancelled() {
-            info!(
-                "Async partition setup cancelled after completion - not sending resume (new rebalance will handle it)"
-            );
-            return Ok(());
+        // Check if cancelled at this point (either before or during setup)
+        let was_cancelled = cancel_token.is_cancelled();
+        if was_cancelled && !was_cancelled_before_start {
+            info!("Async partition setup cancelled during execution");
         }
+
+        // IMPORTANT: Even if cancelled, we MUST still resume partitions that:
+        // 1. Are NOT in pending_cleanup (weren't revoked)
+        // 2. Still belong to this consumer
+        //
+        // Previously we returned early here assuming "new rebalance will handle it".
+        // But if the new rebalance assigns EMPTY partitions (TPL {}), nothing handles
+        // our paused partitions, leaving them stuck.
+        //
+        // The stores will be created on demand by partition workers if checkpoint
+        // import was interrupted. This is a correctness vs availability tradeoff -
+        // we accept possible loss of checkpoint state to avoid stuck partitions.
 
         // Filter out partitions that were revoked during async setup
         // (they're in pending_cleanup, meaning they were revoked and shouldn't be resumed)
@@ -461,10 +471,23 @@ where
             resume_tpl.add_partition(p.topic(), p.partition_number());
         }
 
-        info!(
-            "All {} stores ready - sending resume command to consumer",
-            owned_partitions.len()
-        );
+        // Log and track if we're resuming after cancellation
+        // This is the fix for the bug where partitions would get stuck paused
+        // when a new rebalance assigns empty partitions
+        if was_cancelled {
+            warn!(
+                partition_count = owned_partitions.len(),
+                "Resuming {} partitions after rebalance cancellation - stores may be created on demand",
+                owned_partitions.len()
+            );
+            metrics::counter!(REBALANCE_RESUME_AFTER_CANCELLATION)
+                .increment(owned_partitions.len() as u64);
+        } else {
+            info!(
+                "All {} stores ready - sending resume command to consumer",
+                owned_partitions.len()
+            );
+        }
 
         if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_tpl)) {
             error!("Failed to send resume command after store setup: {}", e);
@@ -556,25 +579,17 @@ where
     }
 
     async fn on_pre_rebalance(&self) -> Result<()> {
-        info!("Pre-rebalance: Preparing for partition changes");
-
-        // Set rebalancing flag to prevent offset commits during rebalance
-        self.offset_tracker.set_rebalancing(true);
-
-        // Note: store_manager.start_rebalancing() is called in setup_assigned_partitions()
-        // (sync callback) to ensure no gap before async work is queued
-
+        // Note: rebalance_coordinator.start_rebalancing() is called in setup_assigned_partitions()
+        // (sync callback) to ensure no gap before async work is queued.
+        // The rebalance_coordinator's counter is the single source of truth.
         Ok(())
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
-        info!("Post-rebalance: Partition changes complete");
-
-        // Clear rebalancing flag to allow offset commits again
-        self.offset_tracker.set_rebalancing(false);
-
-        // Note: store_manager rebalancing counter is decremented via RebalancingGuard
-        // at the end of async_setup_assigned_partitions (ensures panic safety)
+        info!("Post-rebalance: Sync callbacks complete, async cleanup may continue");
+        // Note: rebalance_coordinator counter is decremented via RebalancingGuard
+        // at the end of async_setup_assigned_partitions (ensures panic safety).
+        // The rebalance_coordinator's rebalancing counter is the single source of truth.
 
         // Log current stats
         let store_count = self.store_manager.stores().len();
@@ -595,6 +610,7 @@ mod tests {
     use crate::kafka::offset_tracker::OffsetTracker;
     use crate::kafka::partition_router::PartitionRouterConfig;
     use crate::store::DeduplicationStoreConfig;
+    use crate::test_utils::create_test_coordinator;
     use rdkafka::Offset;
     use tempfile::TempDir;
 
@@ -614,12 +630,18 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         // Test handler without router
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator.clone(),
+                offset_tracker.clone(),
+                None,
+            );
         assert!(handler.router.is_none());
 
         // Test handler with router
@@ -631,6 +653,7 @@ mod tests {
         ));
         let handler_with_router = ProcessorRebalanceHandler::with_router(
             store_manager,
+            coordinator,
             router.clone(),
             offset_tracker,
             None,
@@ -645,9 +668,10 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -656,6 +680,7 @@ mod tests {
 
         let handler = ProcessorRebalanceHandler::with_router(
             store_manager,
+            coordinator,
             router.clone(),
             offset_tracker,
             None,
@@ -707,9 +732,10 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -718,6 +744,7 @@ mod tests {
 
         let handler = ProcessorRebalanceHandler::with_router(
             store_manager.clone(),
+            coordinator,
             router.clone(),
             offset_tracker,
             None,
@@ -772,7 +799,8 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
 
         // Create a store
         store_manager.get_or_create("test-topic", 0).await.unwrap();
@@ -807,9 +835,10 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
         let router = Arc::new(PartitionRouter::new(
             processor,
             offset_tracker.clone(),
@@ -818,6 +847,7 @@ mod tests {
 
         let handler = ProcessorRebalanceHandler::with_router(
             store_manager.clone(),
+            coordinator,
             router.clone(),
             offset_tracker,
             None,
@@ -869,7 +899,8 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
 
         // Create a store (this creates the directory)
         store_manager.get_or_create("test-topic", 0).await.unwrap();
@@ -905,11 +936,12 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
 
         // Get initial token
         let initial_token = {
@@ -961,11 +993,17 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator,
+                offset_tracker,
+                None,
+            );
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1008,18 +1046,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_async_setup_skips_resume_when_cancelled() {
-        // Test that async_setup_assigned_partitions does NOT send Resume when cancelled
+    async fn test_async_setup_still_resumes_owned_partitions_when_cancelled() {
+        // Test that async_setup_assigned_partitions DOES send Resume for owned partitions
+        // even when cancelled, because a new rebalance with empty partitions won't handle them.
+        // This is the fix for the bug where partitions would get stuck paused.
         let temp_dir = TempDir::new().unwrap();
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1032,40 +1073,83 @@ mod tests {
 
         handler.setup_assigned_partitions(&partitions);
 
-        // Cancel the token before async setup completes (simulating a new rebalance)
-        {
-            let token = handler.current_rebalance_token.lock().unwrap();
-            token.cancel();
-        }
-
-        // Create a new token (as would happen in a real rebalance)
-        {
-            let mut token = handler.current_rebalance_token.lock().unwrap();
-            *token = CancellationToken::new();
-        }
-
-        // Async setup should detect cancellation and NOT send Resume
-        // (But note: the token was already cloned at the start, so this tests
-        // the case where cancellation happens BEFORE async_setup_assigned_partitions runs)
-        // We need to test the case where the token is already cancelled when the function starts
-
-        // Get the current token and cancel it
+        // Get the current token and cancel it (simulating a new rebalance starting)
         let current_token = {
             let token = handler.current_rebalance_token.lock().unwrap();
             token.clone()
         };
         current_token.cancel();
 
-        // Now async setup should detect cancellation
+        // Now async setup should detect cancellation BUT still send Resume
+        // for owned partitions (partition 0 is not in pending_cleanup)
         handler
             .async_setup_assigned_partitions(&partitions, &tx)
             .await
             .unwrap();
 
-        // Should NOT have received a command (cancelled before sending)
+        // SHOULD have received a Resume command because partition is still owned
+        // (not revoked, not in pending_cleanup)
+        let command = rx.try_recv().expect(
+            "Should have received a Resume command for owned partitions even when cancelled",
+        );
+        match command {
+            ConsumerCommand::Resume(resume_partitions) => {
+                assert_eq!(
+                    resume_partitions.count(),
+                    1,
+                    "Resume command should contain the owned partition"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_async_setup_skips_resume_for_revoked_partitions_when_cancelled() {
+        // Test that async_setup_assigned_partitions does NOT send Resume when cancelled
+        // AND the partition was revoked (is in pending_cleanup)
+        let temp_dir = TempDir::new().unwrap();
+        let store_config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
+
+        let handler: ProcessorRebalanceHandler<String, TestProcessor> =
+            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
+
+        // Create command channel
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // First do sync setup for partition 0
+        let mut partitions = rdkafka::TopicPartitionList::new();
+        partitions
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+
+        handler.setup_assigned_partitions(&partitions);
+
+        // Revoke the partition (add to pending_cleanup)
+        handler.setup_revoked_partitions(&partitions);
+
+        // Cancel the token
+        let current_token = {
+            let token = handler.current_rebalance_token.lock().unwrap();
+            token.clone()
+        };
+        current_token.cancel();
+
+        // Now async setup should detect that partition was revoked and skip Resume
+        handler
+            .async_setup_assigned_partitions(&partitions, &tx)
+            .await
+            .unwrap();
+
+        // Should NOT have received a command (partition was revoked)
         assert!(
             rx.try_recv().is_err(),
-            "Should NOT have received a Resume command when cancelled"
+            "Should NOT have received a Resume command when partition was revoked"
         );
     }
 
@@ -1078,11 +1162,17 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator,
+                offset_tracker,
+                None,
+            );
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1167,11 +1257,12 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager, offset_tracker, None);
+            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1211,11 +1302,17 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let store_manager = Arc::new(StoreManager::new(store_config));
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker, None);
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator,
+                offset_tracker,
+                None,
+            );
 
         // Create command channel
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
