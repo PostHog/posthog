@@ -213,7 +213,7 @@ export class IngestionConsumer {
         }
 
         // Create TTL refresh service when consuming from overflow topic (overflow lane)
-        if (this.hub.INGESTION_LANE_TYPE === 'overflow' && this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        if (this.hub.INGESTION_LANE === 'overflow' && this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
             })

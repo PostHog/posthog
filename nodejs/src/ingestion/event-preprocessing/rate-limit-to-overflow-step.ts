@@ -21,7 +21,7 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
         // NOTE: headers.token and headers.now are safe to use as they don't change during processing.
         // However, headers.distinct_id is NOT safe because cookieless processing may change the
         // distinct_id from the sentinel value - use eventWithTeam.event.distinct_id instead.
-        const keyStats = new Map<string, { count: number; firstTimestamp: number }>()
+        const keyStats = new Map<string, { token: string; distinctId: string; count: number; firstTimestamp: number }>()
 
         for (const { headers, eventWithTeam } of inputs) {
             const token = headers.token ?? ''
@@ -33,21 +33,18 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
             if (existing) {
                 existing.count++
             } else {
-                keyStats.set(eventKey, { count: 1, firstTimestamp: timestamp })
+                keyStats.set(eventKey, { token, distinctId, count: 1, firstTimestamp: timestamp })
             }
         }
 
         // Service handles all overflow logic (rate limiting + optional Redis coordination)
-        const batches: OverflowEventBatch[] = []
-        for (const [eventKey, stats] of keyStats) {
-            const [token, ...distinctIdParts] = eventKey.split(':')
-            const distinctId = distinctIdParts.join(':')
-            batches.push({
+        const batches: OverflowEventBatch[] = Array.from(keyStats.values()).map(
+            ({ token, distinctId, count, firstTimestamp }) => ({
                 key: { token, distinctId },
-                eventCount: stats.count,
-                firstTimestamp: stats.firstTimestamp,
+                eventCount: count,
+                firstTimestamp,
             })
-        }
+        )
         const keysToRedirect = await overflowRedirectService.handleEventBatch('events', batches)
 
         // Build results in original order

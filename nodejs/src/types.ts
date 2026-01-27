@@ -205,12 +205,12 @@ export type CdpConfig = {
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-/** The lane type for ingestion consumers */
-export type IngestionLaneType = 'main' | 'overflow' | 'historical' | 'async'
+/** The lane for ingestion consumers */
+export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
 
 export type IngestionConsumerConfig = {
-    /** The lane type this consumer is processing (e.g. main, overflow, historical, async) */
-    INGESTION_LANE_TYPE?: IngestionLaneType
+    /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
+    INGESTION_LANE?: IngestionLane
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string

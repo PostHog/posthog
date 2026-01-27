@@ -362,7 +362,7 @@ describe.each([
                     // Enable stateful overflow
                     hub.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
-                    hub.INGESTION_LANE_TYPE = 'overflow'
+                    hub.INGESTION_LANE = 'overflow'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(hub, {
@@ -406,7 +406,7 @@ describe.each([
                     // Enable stateful overflow
                     hub.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
-                    hub.INGESTION_LANE_TYPE = 'overflow'
+                    hub.INGESTION_LANE = 'overflow'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(hub, {

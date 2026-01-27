@@ -17,9 +17,9 @@ export interface OverflowLaneTTLRefreshStepInput {
 export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefreshStepInput>(
     overflowRedirectService?: OverflowRedirectService
 ) {
-    return async function overflowLaneTTLRefreshStep(inputs: T[]): Promise<PipelineResult<T>[]> {
+    return function overflowLaneTTLRefreshStep(inputs: T[]): Promise<PipelineResult<T>[]> {
         if (inputs.length === 0 || !overflowRedirectService) {
-            return inputs.map((input) => ok(input))
+            return Promise.resolve(inputs.map((input) => ok(input)))
         }
 
         // Group events by token:distinct_id for batch TTL refresh
@@ -39,7 +39,6 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
             }
         }
 
-        // Build batches and refresh TTLs
         const batches: OverflowEventBatch[] = Array.from(keyStats.values()).map(
             ({ token, distinctId, count, firstTimestamp }) => ({
                 key: { token, distinctId },
@@ -48,9 +47,10 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
             })
         )
 
-        await overflowRedirectService.handleEventBatch('events', batches)
+        // TTL refresh doesn't affect routing, so attach it as a pipeline side effect
+        // instead of blocking the pipeline on a Redis write.
+        const refreshPromise = overflowRedirectService.handleEventBatch('events', batches)
 
-        // All events continue processing in overflow lane
-        return inputs.map((input) => ok(input))
+        return Promise.resolve(inputs.map((input) => ok(input, [refreshPromise])))
     }
 }
