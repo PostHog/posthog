@@ -128,6 +128,7 @@ def get_resource(
             "endpoint": {
                 "data_selector": "data",
                 "path": "/metrics",
+                "params": {},  # Override default page[size] - Metrics endpoint doesn't support it
             },
             "table_format": "delta",
         },
