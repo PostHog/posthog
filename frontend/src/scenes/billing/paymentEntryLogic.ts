@@ -229,10 +229,4 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             actions.clearErrors()
         },
     }),
-    afterMount: ({ actions }) => {
-        if (router.values.searchParams['require_new_payment'] === 'true') {
-            actions.showPaymentEntryModal()
-            router.actions.replace(router.values.location.pathname)
-        }
-    },
 })
