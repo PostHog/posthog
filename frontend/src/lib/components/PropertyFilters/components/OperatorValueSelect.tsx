@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
 import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
@@ -18,6 +19,7 @@ import {
     isOperatorRegex,
     isOperatorSemver,
 } from 'lib/utils'
+import { formatRE2Error } from 'lib/utils/regexp'
 
 import {
     GroupTypeIndex,
@@ -68,9 +70,9 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
 function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
     if (isOperatorRegex(operator)) {
         try {
-            new RegExp(value)
-        } catch (e: any) {
-            return e.message
+            RE2JS.compile(value)
+        } catch (error) {
+            return formatRE2Error(error as Error, value)
         }
     }
     return null
