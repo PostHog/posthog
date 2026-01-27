@@ -73,8 +73,8 @@ export const getFormattedNodes = async (nodes: ModelNode[], edges: Edge[]): Prom
     }
 
     const laidOutGraph = await elk.layout(graph)
-    return laidOutGraph.children?.map((node) => ({
+    return (laidOutGraph.children?.map((node) => ({
         ...node,
         position: { x: node.x, y: node.y },
-    })) as ModelNode[]
+    })) ?? []) as ModelNode[]
 }
