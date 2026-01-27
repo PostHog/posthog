@@ -28,7 +28,8 @@
         }
     },
     "scripts": {
-        "build": "tsup",
+        "build:ui-apps": "vite build --config vite.ui-apps.config.ts",
+        "build": "pnpm run build:ui-apps && tsup",
         "dev": "wrangler dev",
         "dev:local-resources": "wrangler dev --var POSTHOG_MCP_LOCAL_SKILLS_URL:http://localhost:8765/skills-mcp-resources.zip",
         "deploy": "wrangler deploy",
@@ -57,7 +58,8 @@
         "langchain": "^0.3.31"
     },
     "dependencies": {
-        "@toon-format/toon": "^2.1.0",
+         "@toon-format/toon": "^2.1.0",
+        "@modelcontextprotocol/ext-apps": "^0.4.1",
         "@modelcontextprotocol/sdk": "^1.24.2",
         "agents": "^0.0.113",
         "ai": "^5.0.18",
@@ -71,6 +73,9 @@
         "@langchain/openai": "^0.6.9",
         "@types/dotenv": "^6.1.1",
         "@types/node": "^22.17.2",
+        "@types/react": "^18.2.0",
+        "@types/react-dom": "^18.2.0",
+        "@vitejs/plugin-react": "^4.3.4",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "dotenv": "^16.4.7",
@@ -79,7 +84,10 @@
         "tsx": "^4.20.5",
         "typed-openapi": "^2.2.2",
         "typescript": "^5.2.2",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
         "vite": "^5.4.21",
+        "vite-plugin-singlefile": "^2.3.0",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
         "wrangler": "^4.59.0",
