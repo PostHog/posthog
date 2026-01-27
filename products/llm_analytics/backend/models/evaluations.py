@@ -18,6 +18,7 @@ class Evaluation(UUIDTModel):
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["team", "enabled"]),
+            models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
         ]
 
     # Core fields
@@ -40,6 +41,7 @@ class Evaluation(UUIDTModel):
         null=True,
         blank=True,
         related_name="evaluations",
+        db_index=False,
     )
 
     # Timestamps

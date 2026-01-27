@@ -35,7 +35,7 @@ def reverse_migrate(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("llm_analytics", "0010_llmmodelconfiguration"),
+        ("llm_analytics", "0011_add_evaluation_model_configuration_index"),
     ]
 
     operations = [

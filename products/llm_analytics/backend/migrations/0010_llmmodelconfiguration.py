@@ -60,6 +60,7 @@ class Migration(migrations.Migration):
             },
         ),
         # Add model_configuration FK to Evaluation
+        # db_index=False because index is added concurrently in 0011
         migrations.AddField(
             model_name="evaluation",
             name="model_configuration",
@@ -69,6 +70,7 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="evaluations",
                 to="llm_analytics.llmmodelconfiguration",
+                db_index=False,
             ),
         ),
     ]
