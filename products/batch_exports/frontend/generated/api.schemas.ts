@@ -256,6 +256,80 @@ export interface PaginatedBatchExportListApi {
     results: BatchExportApi[]
 }
 
+/**
+ * * `Cancelled` - Cancelled
+ * `Completed` - Completed
+ * `ContinuedAsNew` - Continued As New
+ * `Failed` - Failed
+ * `FailedRetryable` - Failed Retryable
+ * `Terminated` - Terminated
+ * `TimedOut` - Timedout
+ * `Running` - Running
+ * `Starting` - Starting
+ */
+export type BatchExportBackfillStatusEnumApi =
+    (typeof BatchExportBackfillStatusEnumApi)[keyof typeof BatchExportBackfillStatusEnumApi]
+
+export const BatchExportBackfillStatusEnumApi = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
+
+export interface BatchExportBackfillApi {
+    readonly id: string
+    readonly progress: string
+    /**
+     * The start of the data interval.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * The end of the data interval.
+     * @nullable
+     */
+    end_at?: string | null
+    /** The status of this backfill.
+
+* `Cancelled` - Cancelled
+* `Completed` - Completed
+* `ContinuedAsNew` - Continued As New
+* `Failed` - Failed
+* `FailedRetryable` - Failed Retryable
+* `Terminated` - Terminated
+* `TimedOut` - Timedout
+* `Running` - Running
+* `Starting` - Starting */
+    status: BatchExportBackfillStatusEnumApi
+    /** The timestamp at which this BatchExportBackfill was created. */
+    readonly created_at: string
+    /**
+     * The timestamp at which this BatchExportBackfill finished, successfully or not.
+     * @nullable
+     */
+    finished_at?: string | null
+    /** The timestamp at which this BatchExportBackfill was last updated. */
+    readonly last_updated_at: string
+    /** The team this belongs to. */
+    team: number
+    /** The BatchExport this backfill belongs to. */
+    batch_export: string
+}
+
+export interface PaginatedBatchExportBackfillListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportBackfillApi[]
+}
+
 export interface PaginatedBatchExportRunListApi {
     /** @nullable */
     next?: string | null
@@ -320,6 +394,17 @@ export type EnvironmentsBatchExportsListParams = {
     offset?: number
 }
 
+export type EnvironmentsBatchExportsBackfillsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+}
+
 export type EnvironmentsBatchExportsRunsListParams = {
     /**
      * The pagination cursor value.
@@ -351,6 +436,17 @@ export type BatchExportsList2Params = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type BatchExportsBackfillsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
 }
 
 export type BatchExportsRunsListParams = {

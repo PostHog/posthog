@@ -170,6 +170,395 @@ export interface PatchedDatasetApi {
     readonly team?: number
 }
 
+export type ClusteringRunRequestApiTraceFiltersItem = { [key: string]: unknown }
+
+/**
+ * * `none` - none
+ * `l2` - l2
+ */
+export type EmbeddingNormalizationEnumApi =
+    (typeof EmbeddingNormalizationEnumApi)[keyof typeof EmbeddingNormalizationEnumApi]
+
+export const EmbeddingNormalizationEnumApi = {
+    none: 'none',
+    l2: 'l2',
+} as const
+
+/**
+ * * `none` - none
+ * `umap` - umap
+ * `pca` - pca
+ */
+export type DimensionalityReductionMethodEnumApi =
+    (typeof DimensionalityReductionMethodEnumApi)[keyof typeof DimensionalityReductionMethodEnumApi]
+
+export const DimensionalityReductionMethodEnumApi = {
+    none: 'none',
+    umap: 'umap',
+    pca: 'pca',
+} as const
+
+/**
+ * * `hdbscan` - hdbscan
+ * `kmeans` - kmeans
+ */
+export type ClusteringMethodEnumApi = (typeof ClusteringMethodEnumApi)[keyof typeof ClusteringMethodEnumApi]
+
+export const ClusteringMethodEnumApi = {
+    hdbscan: 'hdbscan',
+    kmeans: 'kmeans',
+} as const
+
+/**
+ * * `umap` - umap
+ * `pca` - pca
+ * `tsne` - tsne
+ */
+export type VisualizationMethodEnumApi = (typeof VisualizationMethodEnumApi)[keyof typeof VisualizationMethodEnumApi]
+
+export const VisualizationMethodEnumApi = {
+    umap: 'umap',
+    pca: 'pca',
+    tsne: 'tsne',
+} as const
+
+/**
+ * Serializer for clustering workflow request parameters.
+ */
+export interface ClusteringRunRequestApi {
+    /**
+     * Number of days to look back for traces
+     * @minimum 1
+     * @maximum 90
+     */
+    lookback_days?: number
+    /**
+     * Maximum number of traces to sample for clustering
+     * @minimum 20
+     * @maximum 10000
+     */
+    max_samples?: number
+    /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
+
+* `none` - none
+* `l2` - l2 */
+    embedding_normalization?: EmbeddingNormalizationEnumApi
+    /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
+
+* `none` - none
+* `umap` - umap
+* `pca` - pca */
+    dimensionality_reduction_method?: DimensionalityReductionMethodEnumApi
+    /**
+     * Target dimensions for dimensionality reduction (ignored if method is 'none')
+     * @minimum 2
+     * @maximum 500
+     */
+    dimensionality_reduction_ndims?: number
+    /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
+
+* `hdbscan` - hdbscan
+* `kmeans` - kmeans */
+    clustering_method?: ClusteringMethodEnumApi
+    /**
+     * Minimum cluster size as fraction of total samples (e.g., 0.05 = 5%)
+     * @minimum 0.01
+     * @maximum 0.5
+     */
+    min_cluster_size_fraction?: number
+    /**
+     * HDBSCAN min_samples parameter (higher = more conservative clustering)
+     * @minimum 1
+     * @maximum 100
+     */
+    hdbscan_min_samples?: number
+    /**
+     * Minimum number of clusters to try for k-means
+     * @minimum 2
+     * @maximum 50
+     */
+    kmeans_min_k?: number
+    /**
+     * Maximum number of clusters to try for k-means
+     * @minimum 2
+     * @maximum 100
+     */
+    kmeans_max_k?: number
+    /**
+     * Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+     * @maxLength 50
+     */
+    run_label?: string
+    /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
+
+* `umap` - umap
+* `pca` - pca
+* `tsne` - tsne */
+    visualization_method?: VisualizationMethodEnumApi
+    /** Property filters to scope which traces are included in clustering (PostHog standard format) */
+    trace_filters?: ClusteringRunRequestApiTraceFiltersItem[]
+}
+
+/**
+ * * `openai` - Openai
+ */
+export type LLMProviderKeyProviderEnumApi =
+    (typeof LLMProviderKeyProviderEnumApi)[keyof typeof LLMProviderKeyProviderEnumApi]
+
+export const LLMProviderKeyProviderEnumApi = {
+    openai: 'openai',
+} as const
+
+/**
+ * * `unknown` - Unknown
+ * `ok` - Ok
+ * `invalid` - Invalid
+ * `error` - Error
+ */
+export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
+
+export const LLMProviderKeyStateEnumApi = {
+    unknown: 'unknown',
+    ok: 'ok',
+    invalid: 'invalid',
+    error: 'error',
+} as const
+
+export interface LLMProviderKeyApi {
+    readonly id: string
+    provider: LLMProviderKeyProviderEnumApi
+    /** @maxLength 255 */
+    name: string
+    readonly state: LLMProviderKeyStateEnumApi
+    /** @nullable */
+    readonly error_message: string | null
+    api_key?: string
+    readonly api_key_masked: string
+    set_as_active?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly last_used_at: string | null
+}
+
+export interface PaginatedLLMProviderKeyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMProviderKeyApi[]
+}
+
+export interface PatchedLLMProviderKeyApi {
+    readonly id?: string
+    provider?: LLMProviderKeyProviderEnumApi
+    /** @maxLength 255 */
+    name?: string
+    readonly state?: LLMProviderKeyStateEnumApi
+    /** @nullable */
+    readonly error_message?: string | null
+    api_key?: string
+    readonly api_key_masked?: string
+    set_as_active?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    readonly last_used_at?: string | null
+}
+
+/**
+ * * `trace` - trace
+ * `event` - event
+ */
+export type SummarizeTypeEnumApi = (typeof SummarizeTypeEnumApi)[keyof typeof SummarizeTypeEnumApi]
+
+export const SummarizeTypeEnumApi = {
+    trace: 'trace',
+    event: 'event',
+} as const
+
+/**
+ * * `minimal` - minimal
+ * `detailed` - detailed
+ */
+export type ModeEnumApi = (typeof ModeEnumApi)[keyof typeof ModeEnumApi]
+
+export const ModeEnumApi = {
+    minimal: 'minimal',
+    detailed: 'detailed',
+} as const
+
+/**
+ * * `openai` - openai
+ * `gemini` - gemini
+ */
+export type Provider1b4EnumApi = (typeof Provider1b4EnumApi)[keyof typeof Provider1b4EnumApi]
+
+export const Provider1b4EnumApi = {
+    openai: 'openai',
+    gemini: 'gemini',
+} as const
+
+export interface SummarizeRequestApi {
+    /** Type of entity to summarize
+
+* `trace` - trace
+* `event` - event */
+    summarize_type: SummarizeTypeEnumApi
+    /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
+
+* `minimal` - minimal
+* `detailed` - detailed */
+    mode?: ModeEnumApi
+    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
+    data: unknown
+    /** Force regenerate summary, bypassing cache */
+    force_refresh?: boolean
+    /** LLM provider to use (defaults to 'openai')
+
+* `openai` - openai
+* `gemini` - gemini */
+    provider?: Provider1b4EnumApi | NullEnumApi | null
+    /**
+     * LLM model to use (defaults based on provider)
+     * @nullable
+     */
+    model?: string | null
+}
+
+export interface SummaryBulletApi {
+    text: string
+    line_refs: string
+}
+
+export interface InterestingNoteApi {
+    text: string
+    line_refs: string
+}
+
+export interface StructuredSummaryApi {
+    /** Concise title (no longer than 10 words) summarizing the trace/event */
+    title: string
+    /** Mermaid flowchart code showing the main flow */
+    flow_diagram: string
+    /** Main summary bullets */
+    summary_bullets: SummaryBulletApi[]
+    /** Interesting notes (0-2 for minimal, more for detailed) */
+    interesting_notes: InterestingNoteApi[]
+}
+
+export interface SummarizeResponseApi {
+    /** Structured AI-generated summary with flow, bullets, and optional notes */
+    summary: StructuredSummaryApi
+    /** Line-numbered text representation that the summary references */
+    text_repr: string
+    /** Metadata about the summarization */
+    metadata?: unknown
+}
+
+export interface BatchCheckRequestApi {
+    /**
+     * List of trace IDs to check for cached summaries
+     * @maxItems 100
+     */
+    trace_ids: string[]
+    /** Summary detail level to check for
+
+* `minimal` - minimal
+* `detailed` - detailed */
+    mode?: ModeEnumApi
+    /** LLM provider to check for (defaults to 'openai')
+
+* `openai` - openai
+* `gemini` - gemini */
+    provider?: Provider1b4EnumApi | NullEnumApi | null
+    /**
+     * LLM model to check for (defaults based on provider)
+     * @nullable
+     */
+    model?: string | null
+}
+
+export interface CachedSummaryApi {
+    trace_id: string
+    title: string
+    cached?: boolean
+}
+
+export interface BatchCheckResponseApi {
+    summaries: CachedSummaryApi[]
+}
+
+/**
+ * * `$ai_generation` - $ai_generation
+ * `$ai_span` - $ai_span
+ * `$ai_embedding` - $ai_embedding
+ * `$ai_trace` - $ai_trace
+ */
+export type EventTypeEnumApi = (typeof EventTypeEnumApi)[keyof typeof EventTypeEnumApi]
+
+export const EventTypeEnumApi = {
+    $ai_generation: '$ai_generation',
+    $ai_span: '$ai_span',
+    $ai_embedding: '$ai_embedding',
+    $ai_trace: '$ai_trace',
+} as const
+
+export interface TextReprOptionsApi {
+    /** Maximum length of generated text (default: 2000000) */
+    max_length?: number
+    /** Use truncation for long content within events (default: true) */
+    truncated?: boolean
+    /** Characters to show at start/end when truncating (default: 1000) */
+    truncate_buffer?: number
+    /** Use interactive markers for frontend vs plain text for backend/LLM (default: true) */
+    include_markers?: boolean
+    /** Show summary vs full tree hierarchy for traces (default: false) */
+    collapsed?: boolean
+    /** Include metadata in response */
+    include_metadata?: boolean
+    /** Include hierarchy information (for traces) */
+    include_hierarchy?: boolean
+    /** Maximum depth for hierarchical rendering */
+    max_depth?: number
+    /** Number of tools before collapsing the list (default: 5) */
+    tools_collapse_threshold?: number
+    /** Prefix each line with line number (default: false) */
+    include_line_numbers?: boolean
+}
+
+export interface TextReprRequestApi {
+    /** Type of LLM event to stringify
+
+* `$ai_generation` - $ai_generation
+* `$ai_span` - $ai_span
+* `$ai_embedding` - $ai_embedding
+* `$ai_trace` - $ai_trace */
+    event_type: EventTypeEnumApi
+    /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
+    data: unknown
+    /** Optional configuration for text generation */
+    options?: TextReprOptionsApi
+}
+
+export interface TextReprMetadataApi {
+    event_type?: string
+    event_id?: string
+    trace_id?: string
+    rendering: string
+    char_count: number
+    truncated: boolean
+    error?: string
+}
+
+export interface TextReprResponseApi {
+    /** Generated text representation of the event */
+    text: string
+    /** Metadata about the text representation */
+    metadata: TextReprMetadataApi
+}
+
 export type EnvironmentsDatasetItemsListParams = {
     /**
      * Filter by dataset ID
@@ -222,6 +611,33 @@ export const EnvironmentsDatasetsListOrderByItem = {
     created_at: 'created_at',
     updated_at: 'updated_at',
 } as const
+
+export type EnvironmentsLlmAnalyticsProviderKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsLlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
+
+export type EnvironmentsLlmAnalyticsSummarizationCreate403 = { [key: string]: unknown }
+
+export type EnvironmentsLlmAnalyticsSummarizationCreate500 = { [key: string]: unknown }
+
+export type EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown }
+
+export type EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown }
+
+export type EnvironmentsLlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
+
+export type EnvironmentsLlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
+
+export type EnvironmentsLlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
 
 export type DatasetItemsListParams = {
     /**

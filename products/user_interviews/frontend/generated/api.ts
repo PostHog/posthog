@@ -32,16 +32,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type environmentsUserInterviewsListResponse200 = {
-    data: PaginatedUserInterviewListApi
-    status: 200
-}
-
-export type environmentsUserInterviewsListResponseSuccess = environmentsUserInterviewsListResponse200 & {
-    headers: Headers
-}
-export type environmentsUserInterviewsListResponse = environmentsUserInterviewsListResponseSuccess
-
 export const getEnvironmentsUserInterviewsListUrl = (
     projectId: string,
     params?: EnvironmentsUserInterviewsListParams
@@ -65,22 +55,12 @@ export const environmentsUserInterviewsList = async (
     projectId: string,
     params?: EnvironmentsUserInterviewsListParams,
     options?: RequestInit
-): Promise<environmentsUserInterviewsListResponse> => {
-    return apiMutator<environmentsUserInterviewsListResponse>(getEnvironmentsUserInterviewsListUrl(projectId, params), {
+): Promise<PaginatedUserInterviewListApi> => {
+    return apiMutator<PaginatedUserInterviewListApi>(getEnvironmentsUserInterviewsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type environmentsUserInterviewsCreateResponse201 = {
-    data: UserInterviewApi
-    status: 201
-}
-
-export type environmentsUserInterviewsCreateResponseSuccess = environmentsUserInterviewsCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsUserInterviewsCreateResponse = environmentsUserInterviewsCreateResponseSuccess
 
 export const getEnvironmentsUserInterviewsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/user_interviews/`
@@ -90,7 +70,7 @@ export const environmentsUserInterviewsCreate = async (
     projectId: string,
     userInterviewApi: NonReadonly<UserInterviewApi>,
     options?: RequestInit
-): Promise<environmentsUserInterviewsCreateResponse> => {
+): Promise<UserInterviewApi> => {
     const formData = new FormData()
     if (userInterviewApi.interviewee_emails !== undefined) {
         userInterviewApi.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
@@ -100,22 +80,12 @@ export const environmentsUserInterviewsCreate = async (
     }
     formData.append(`audio`, userInterviewApi.audio)
 
-    return apiMutator<environmentsUserInterviewsCreateResponse>(getEnvironmentsUserInterviewsCreateUrl(projectId), {
+    return apiMutator<UserInterviewApi>(getEnvironmentsUserInterviewsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,
     })
 }
-
-export type environmentsUserInterviewsRetrieveResponse200 = {
-    data: UserInterviewApi
-    status: 200
-}
-
-export type environmentsUserInterviewsRetrieveResponseSuccess = environmentsUserInterviewsRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsUserInterviewsRetrieveResponse = environmentsUserInterviewsRetrieveResponseSuccess
 
 export const getEnvironmentsUserInterviewsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interviews/${id}/`
@@ -125,25 +95,12 @@ export const environmentsUserInterviewsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<environmentsUserInterviewsRetrieveResponse> => {
-    return apiMutator<environmentsUserInterviewsRetrieveResponse>(
-        getEnvironmentsUserInterviewsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<UserInterviewApi> => {
+    return apiMutator<UserInterviewApi>(getEnvironmentsUserInterviewsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
-
-export type environmentsUserInterviewsUpdateResponse200 = {
-    data: UserInterviewApi
-    status: 200
-}
-
-export type environmentsUserInterviewsUpdateResponseSuccess = environmentsUserInterviewsUpdateResponse200 & {
-    headers: Headers
-}
-export type environmentsUserInterviewsUpdateResponse = environmentsUserInterviewsUpdateResponseSuccess
 
 export const getEnvironmentsUserInterviewsUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interviews/${id}/`
@@ -154,7 +111,7 @@ export const environmentsUserInterviewsUpdate = async (
     id: string,
     userInterviewApi: NonReadonly<UserInterviewApi>,
     options?: RequestInit
-): Promise<environmentsUserInterviewsUpdateResponse> => {
+): Promise<UserInterviewApi> => {
     const formData = new FormData()
     if (userInterviewApi.interviewee_emails !== undefined) {
         userInterviewApi.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
@@ -164,23 +121,12 @@ export const environmentsUserInterviewsUpdate = async (
     }
     formData.append(`audio`, userInterviewApi.audio)
 
-    return apiMutator<environmentsUserInterviewsUpdateResponse>(getEnvironmentsUserInterviewsUpdateUrl(projectId, id), {
+    return apiMutator<UserInterviewApi>(getEnvironmentsUserInterviewsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         body: formData,
     })
 }
-
-export type environmentsUserInterviewsPartialUpdateResponse200 = {
-    data: UserInterviewApi
-    status: 200
-}
-
-export type environmentsUserInterviewsPartialUpdateResponseSuccess =
-    environmentsUserInterviewsPartialUpdateResponse200 & {
-        headers: Headers
-    }
-export type environmentsUserInterviewsPartialUpdateResponse = environmentsUserInterviewsPartialUpdateResponseSuccess
 
 export const getEnvironmentsUserInterviewsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interviews/${id}/`
@@ -191,7 +137,7 @@ export const environmentsUserInterviewsPartialUpdate = async (
     id: string,
     patchedUserInterviewApi: NonReadonly<PatchedUserInterviewApi>,
     options?: RequestInit
-): Promise<environmentsUserInterviewsPartialUpdateResponse> => {
+): Promise<UserInterviewApi> => {
     const formData = new FormData()
     if (patchedUserInterviewApi.interviewee_emails !== undefined) {
         patchedUserInterviewApi.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
@@ -203,25 +149,12 @@ export const environmentsUserInterviewsPartialUpdate = async (
         formData.append(`audio`, patchedUserInterviewApi.audio)
     }
 
-    return apiMutator<environmentsUserInterviewsPartialUpdateResponse>(
-        getEnvironmentsUserInterviewsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            body: formData,
-        }
-    )
+    return apiMutator<UserInterviewApi>(getEnvironmentsUserInterviewsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        body: formData,
+    })
 }
-
-export type environmentsUserInterviewsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type environmentsUserInterviewsDestroyResponseSuccess = environmentsUserInterviewsDestroyResponse204 & {
-    headers: Headers
-}
-export type environmentsUserInterviewsDestroyResponse = environmentsUserInterviewsDestroyResponseSuccess
 
 export const getEnvironmentsUserInterviewsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interviews/${id}/`
@@ -231,12 +164,9 @@ export const environmentsUserInterviewsDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<environmentsUserInterviewsDestroyResponse> => {
-    return apiMutator<environmentsUserInterviewsDestroyResponse>(
-        getEnvironmentsUserInterviewsDestroyUrl(projectId, id),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getEnvironmentsUserInterviewsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
