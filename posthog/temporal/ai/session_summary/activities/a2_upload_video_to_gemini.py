@@ -62,11 +62,6 @@ async def upload_video_to_gemini_activity(
             msg = f"No video content found for asset {asset_id} for session {inputs.session_id}"
             logger.error(msg, session_id=inputs.session_id, asset_id=asset_id, signals_type="session-summaries")
             raise ValueError(msg)
-
-        # TODO: Remove after testing
-        with open(f"video_{inputs.session_id}.webm", "wb") as f:
-            f.write(video_bytes)
-
         duration = get_video_duration_s(video_bytes)
 
         # Write video to temporary file for upload

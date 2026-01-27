@@ -6,7 +6,7 @@ import uuid
 import shutil
 import tempfile
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -113,9 +113,6 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
         if self.opts.screenshot_height is not None:
             options["screenshot_height"] = self.opts.screenshot_height
         options_json = json.dumps(options)
-        # TODO: Remove after testing
-        with open("node_script_options.json", "w") as f:
-            json.dump(options, f)
         logger.info(
             "video_exporter.puppeteer_recorder_starting",
             script_path=script_path,
@@ -527,11 +524,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 logger.exception("video_exporter.segment_tracking_error", error=str(e))
                 # Continue waiting despite errors
                 continue
-
         logger.debug("video_exporter.segment_tracking_complete", segments_tracked=len(segment_start_timestamps))
-        # TODO: Remove after testing
-        with open("segment_start_timestamps.json", "w") as f:
-            json.dump(segment_start_timestamps, f)
         return segment_start_timestamps
 
     def _ensure_playback_speed(self, url_to_render: str, playback_speed: int) -> str:
@@ -694,9 +687,6 @@ def record_replay_to_file(
     ext = os.path.splitext(opts.image_path)[1].lower()
     if ext in [".mp4", ".gif"] and not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg is required for MP4 and GIF exports but was not found in PATH")
-    # TODO: Remove after testing
-    with open("options.json", "w") as f:
-        json.dump(asdict(opts), f)
     temp_dir_ctx: Optional[tempfile.TemporaryDirectory] = None
     try:
         # Create temporary paths
@@ -723,11 +713,6 @@ def record_replay_to_file(
                 opts=opts,
             ).record()
         # ============ Common post-processing (ffmpeg) ============
-        # TODO: Remove after testing
-        with open(result.video_path, "rb") as f:
-            content = f.read()
-            with open(f"video_rendered_{uuid.uuid4()}_{'nodejs' if use_nodejs else 'playwright'}.webm", "wb") as f:
-                f.write(content)
         logger.info(
             "video_exporter.recording_complete",
             pre_roll=result.pre_roll,
