@@ -2899,6 +2899,9 @@ class ProductIntentContext(StrEnum):
     TASK_CREATED = "task_created"
     TOOLBAR_LAUNCHED = "toolbar_launched"
     VERCEL_INTEGRATION = "vercel_integration"
+    ENDPOINT_CREATED = "endpoint_created"
+    ENDPOINT_CREATED_FROM_INSIGHT = "endpoint_created_from_insight"
+    ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
 
 
 class ProductKey(StrEnum):

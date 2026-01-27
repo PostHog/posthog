@@ -22437,7 +22437,10 @@
                 "product_tour_created",
                 "task_created",
                 "toolbar_launched",
-                "vercel_integration"
+                "vercel_integration",
+                "endpoint_created",
+                "endpoint_created_from_insight",
+                "endpoint_created_from_sql_editor"
             ],
             "type": "string"
         },
