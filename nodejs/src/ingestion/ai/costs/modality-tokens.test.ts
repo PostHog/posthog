@@ -1,4 +1,4 @@
-import { EventWithProperties, extractModalityTokens } from './index'
+import { EventWithProperties, extractModalityTokens } from './modality-tokens'
 
 function createAIEvent(properties?: Record<string, any>): EventWithProperties {
     return {
