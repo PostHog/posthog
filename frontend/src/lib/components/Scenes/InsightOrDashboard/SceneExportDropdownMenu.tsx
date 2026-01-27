@@ -14,8 +14,9 @@ import { ExportContext, ExporterFormat, OnlineExportContext } from '~/types'
 
 import { TriggerExportProps } from '../../ExportButton/exporter'
 import { exportsLogic } from '../../ExportButton/exportsLogic'
+import { SubscriptionBaseProps } from '../../Subscriptions/utils'
 
-interface SceneExportDropdownMenuProps {
+interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
     dropdownMenuItems: {
         label?: string
         dataAttr: string
