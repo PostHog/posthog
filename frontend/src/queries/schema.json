@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -749,6 +749,50 @@
                 }
             ]
         },
+        "ApprovalCardUIStatus": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ApprovalDecisionStatus"
+                },
+                {
+                    "const": "approving",
+                    "type": "string"
+                },
+                {
+                    "const": "rejecting",
+                    "type": "string"
+                },
+                {
+                    "const": "custom",
+                    "type": "string"
+                }
+            ]
+        },
+        "ApprovalDecisionStatus": {
+            "enum": ["pending", "approved", "rejected", "auto_rejected"],
+            "type": "string"
+        },
+        "ApprovalResumePayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "enum": ["approve", "reject"],
+                    "type": "string"
+                },
+                "feedback": {
+                    "type": "string"
+                },
+                "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "proposal_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["action", "proposal_id"],
+            "type": "object"
+        },
         "ArtifactContent": {
             "anyOf": [
                 {
@@ -917,7 +961,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1905,9 +1949,9 @@
                 "filter_error_tracking_issues",
                 "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
-                "error_tracking_explain_issue",
                 "experiment_results_summary",
                 "create_survey",
+                "edit_survey",
                 "analyze_survey_responses",
                 "create_dashboard",
                 "edit_current_dashboard",
@@ -1934,7 +1978,11 @@
                 "create_insight",
                 "create_form",
                 "task",
-                "upsert_dashboard"
+                "upsert_dashboard",
+                "manage_memories",
+                "create_notebook",
+                "list_data",
+                "finalize_plan"
             ],
             "type": "string"
         },
@@ -2106,6 +2154,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "TwoDimensionalHeatmap",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -2195,7 +2247,8 @@
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
-                        "CalendarHeatmap"
+                        "CalendarHeatmap",
+                        "TwoDimensionalHeatmap"
                     ],
                     "type": "string"
                 },
@@ -7923,7 +7976,8 @@
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
-                "CalendarHeatmap"
+                "CalendarHeatmap",
+                "TwoDimensionalHeatmap"
             ],
             "type": "string"
         },
@@ -7935,6 +7989,9 @@
                         "$ref": "#/definitions/GoalLine"
                     },
                     "type": "array"
+                },
+                "heatmap": {
+                    "$ref": "#/definitions/HeatmapSettings"
                 },
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
@@ -8768,6 +8825,30 @@
                 "subscription_event",
                 "payment_event"
             ],
+            "type": "object"
+        },
+        "DangerousOperationResponse": {
+            "additionalProperties": false,
+            "description": "Response returned when a tool operation requires user approval",
+            "properties": {
+                "payload": {
+                    "type": "object"
+                },
+                "preview": {
+                    "type": "string"
+                },
+                "proposalId": {
+                    "type": "string"
+                },
+                "status": {
+                    "const": "pending_approval",
+                    "type": "string"
+                },
+                "toolName": {
+                    "type": "string"
+                }
+            },
+            "required": ["status", "proposalId", "toolName", "preview", "payload"],
             "type": "object"
         },
         "DashboardFilter": {
@@ -10390,6 +10471,10 @@
                 },
                 "showColumnConfigurator": {
                     "description": "Show a button to configure the table's columns if possible",
+                    "type": "boolean"
+                },
+                "showCount": {
+                    "description": "Show count of total and filtered results",
                     "type": "boolean"
                 },
                 "showDateRange": {
@@ -12199,7 +12284,7 @@
             "type": "object"
         },
         "EntityType": {
-            "enum": ["actions", "events", "data_warehouse", "new_entity"],
+            "enum": ["actions", "events", "data_warehouse", "new_entity", "groups"],
             "type": "string"
         },
         "ErrorBlock": {
@@ -12401,19 +12486,6 @@
                 "population",
                 "status"
             ],
-            "type": "object"
-        },
-        "ErrorTrackingExplainIssueToolContext": {
-            "additionalProperties": false,
-            "properties": {
-                "issue_name": {
-                    "type": "string"
-                },
-                "stacktrace": {
-                    "type": "string"
-                }
-            },
-            "required": ["stacktrace", "issue_name"],
             "type": "object"
         },
         "ErrorTrackingExternalReference": {
@@ -15252,7 +15324,8 @@
                 "RedditAds",
                 "TikTokAds",
                 "BingAds",
-                "Shopify"
+                "Shopify",
+                "SnapchatAds"
             ],
             "type": "string"
         },
@@ -15498,14 +15571,16 @@
                 "insight/stickiness",
                 "insight/hog",
                 "team_activity",
-                "feed",
                 "home",
                 "apps",
                 "live",
                 "chat",
                 "search",
                 "folder",
-                "folder_open"
+                "folder_open",
+                "conversations",
+                "toolbar",
+                "settings"
             ],
             "type": "string"
         },
@@ -15657,6 +15732,20 @@
                 }
             },
             "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
+        "FormResumePayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "const": "form",
+                    "type": "string"
+                },
+                "form_answers": {
+                    "$ref": "#/definitions/MultiQuestionFormAnswers"
+                }
+            },
+            "required": ["action", "form_answers"],
             "type": "object"
         },
         "FunnelConversionWindowTimeUnit": {
@@ -16533,6 +16622,90 @@
             "const": "unique_group",
             "type": "string"
         },
+        "GroupNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Entities to combine in this group",
+                    "items": {
+                        "$ref": "#/definitions/AnyEntityNode"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Group of entities combined with AND/OR operator"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "nodes", "operator"],
+            "type": "object"
+        },
         "GroupPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -16700,6 +16873,53 @@
         },
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
+        },
+        "HeatmapGradientStop": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
+        },
+        "HeatmapSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "gradient": {
+                    "items": {
+                        "$ref": "#/definitions/HeatmapGradientStop"
+                    },
+                    "type": "array"
+                },
+                "gradientPreset": {
+                    "type": "string"
+                },
+                "gradientScaleMode": {
+                    "enum": ["absolute", "relative"],
+                    "type": "string"
+                },
+                "valueColumn": {
+                    "type": "string"
+                },
+                "xAxisColumn": {
+                    "type": "string"
+                },
+                "xAxisLabel": {
+                    "type": "string"
+                },
+                "yAxisColumn": {
+                    "type": "string"
+                },
+                "yAxisLabel": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "HedgehogColorOptions": {
             "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
@@ -17096,6 +17316,13 @@
                 },
                 "debug": {
                     "type": "boolean"
+                },
+                "forceClickhouseDataSkippingIndexes": {
+                    "description": "If these are provided, the query will fail if these skip indexes are not used",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
@@ -18213,7 +18440,11 @@
                 "reddit-ads",
                 "databricks",
                 "tiktok-ads",
-                "bing-ads"
+                "bing-ads",
+                "vercel",
+                "azure-blob",
+                "firebase",
+                "jira"
             ],
             "type": "string"
         },
@@ -18974,6 +19205,10 @@
                     },
                     "type": "array"
                 },
+                "sparklineBreakdownBy": {
+                    "$ref": "#/definitions/LogsSparklineBreakdownBy",
+                    "description": "Field to break down sparkline data by (used only by sparkline endpoint)"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -19038,6 +19273,11 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "LogsSparklineBreakdownBy": {
+            "description": "Field to break down sparkline data by",
+            "enum": ["severity", "service"],
+            "type": "string"
         },
         "MarkdownBlock": {
             "additionalProperties": false,
@@ -19107,7 +19347,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsAggregatedQuery",
@@ -19410,7 +19650,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsTableQuery",
@@ -20462,6 +20702,139 @@
             "required": ["type", "id", "insights", "filters"],
             "type": "object"
         },
+        "MaxErrorTrackingIssueContext": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "error_tracking_issue",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
+        "MaxErrorTrackingIssuePreview": {
+            "additionalProperties": false,
+            "description": "Preview of an error tracking issue for display in Max AI chat",
+            "properties": {
+                "description": {
+                    "description": "Issue description or exception message",
+                    "type": ["string", "null"]
+                },
+                "first_seen": {
+                    "description": "When the issue was first seen",
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "description": "Issue ID",
+                    "type": "string"
+                },
+                "last_seen": {
+                    "description": "When the issue was last seen",
+                    "type": ["string", "null"]
+                },
+                "library": {
+                    "description": "Library/runtime that generated the error",
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "description": "Issue name/title",
+                    "type": ["string", "null"]
+                },
+                "occurrences": {
+                    "description": "Total number of occurrences",
+                    "type": "number"
+                },
+                "sessions": {
+                    "description": "Number of affected sessions",
+                    "type": "number"
+                },
+                "status": {
+                    "description": "Issue status (active, resolved, etc.)",
+                    "type": "string"
+                },
+                "users": {
+                    "description": "Number of affected users",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "description",
+                "status",
+                "library",
+                "first_seen",
+                "last_seen",
+                "occurrences",
+                "users",
+                "sessions"
+            ],
+            "type": "object"
+        },
+        "MaxErrorTrackingSearchResponse": {
+            "additionalProperties": false,
+            "description": "Response from error tracking search tool containing filters, pagination, and results",
+            "properties": {
+                "date_from": {
+                    "description": "Start of date range",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "description": "End of date range",
+                    "type": ["string", "null"]
+                },
+                "has_more": {
+                    "description": "Whether there are more results available",
+                    "type": ["boolean", "null"]
+                },
+                "issues": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MaxErrorTrackingIssuePreview"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Preview of issues found matching the filters"
+                },
+                "limit": {
+                    "description": "Number of results to return",
+                    "type": ["number", "null"]
+                },
+                "next_cursor": {
+                    "description": "Cursor for pagination",
+                    "type": ["string", "null"]
+                },
+                "order_by": {
+                    "description": "Field to order by",
+                    "type": ["string", "null"]
+                },
+                "order_direction": {
+                    "description": "Order direction (ASC or DESC)",
+                    "type": ["string", "null"]
+                },
+                "search_query": {
+                    "description": "Free text search query",
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "description": "Issue status filter (active, resolved, etc.)",
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
@@ -20485,6 +20858,10 @@
         "MaxExperimentMetricResult": {
             "additionalProperties": false,
             "properties": {
+                "goal": {
+                    "enum": ["increase", "decrease", null],
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "type": "string"
                 },
@@ -20502,7 +20879,7 @@
                     "type": "array"
                 }
             },
-            "required": ["name", "variant_results"],
+            "required": ["name", "goal", "variant_results"],
             "type": "object"
         },
         "MaxExperimentSummaryContext": {
@@ -20583,6 +20960,9 @@
                         }
                     ]
                 },
+                "delta": {
+                    "type": ["number", "null"]
+                },
                 "key": {
                     "type": "string"
                 },
@@ -20590,7 +20970,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "required": ["key", "chance_to_win", "credible_interval", "delta", "significant"],
             "type": "object"
         },
         "MaxExperimentVariantResultFrequentist": {
@@ -20609,6 +20989,9 @@
                         }
                     ]
                 },
+                "delta": {
+                    "type": ["number", "null"]
+                },
                 "key": {
                     "type": "string"
                 },
@@ -20619,7 +21002,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["key", "p_value", "confidence_interval", "significant"],
+            "required": ["key", "p_value", "confidence_interval", "delta", "significant"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -20818,6 +21201,12 @@
                     },
                     "type": "array"
                 },
+                "error_tracking_issues": {
+                    "items": {
+                        "$ref": "#/definitions/MaxErrorTrackingIssueContext"
+                    },
+                    "type": "array"
+                },
                 "events": {
                     "items": {
                         "$ref": "#/definitions/MaxEventContext"
@@ -20937,6 +21326,12 @@
             "required": ["questions"],
             "type": "object"
         },
+        "MultiQuestionFormAnswers": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "MultiQuestionFormQuestion": {
             "additionalProperties": false,
             "properties": {
@@ -20958,16 +21353,24 @@
                 "question": {
                     "description": "The question text to display",
                     "type": "string"
+                },
+                "title": {
+                    "description": "One word title for the question e.g. \"Use case\", \"Team size\", \"Experience\"",
+                    "type": "string"
                 }
             },
-            "required": ["id", "question", "options"],
+            "required": ["id", "title", "question", "options"],
             "type": "object"
         },
         "MultiQuestionFormQuestionOption": {
             "additionalProperties": false,
             "properties": {
+                "description": {
+                    "description": "A longer description of the option, in one short sentence",
+                    "type": "string"
+                },
                 "value": {
-                    "description": "The value to use when this option is selected",
+                    "description": "A short value to use when this option is selected, in a few words",
                     "type": "string"
                 }
             },
@@ -21063,6 +21466,7 @@
             "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm --filter=@posthog/frontend run schema:build:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm -w run schema:build:python\"",
             "enum": [
                 "EventsNode",
+                "GroupNode",
                 "ActionsNode",
                 "DataWarehouseNode",
                 "EventsQuery",
@@ -21209,7 +21613,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "NonIntegratedConversionsTableQuery",
@@ -21981,6 +22385,7 @@
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
                 "logs_docs_viewed",
+                "logs_set_filters",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -22026,6 +22431,12 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "data_pipeline_created",
+                "batch_export_created",
+                "notebook_created",
+                "product_tour_created",
+                "task_created",
+                "toolbar_launched",
                 "vercel_integration"
             ],
             "type": "string"
@@ -22063,6 +22474,7 @@
                 "annotations",
                 "cohorts",
                 "comments",
+                "conversations",
                 "customer_analytics",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
@@ -22083,17 +22495,22 @@
                 "marketing_analytics",
                 "max",
                 "mobile_replay",
+                "notebooks",
                 "persons",
-                "pipeline_transformations",
+                "pipeline_batch_exports",
                 "pipeline_destinations",
+                "pipeline_transformations",
                 "platform_and_support",
                 "product_analytics",
+                "product_tours",
                 "revenue_analytics",
                 "session_replay",
                 "site_apps",
                 "surveys",
-                "user_interviews",
+                "tasks",
                 "teams",
+                "toolbar",
+                "user_interviews",
                 "web_analytics",
                 "workflows"
             ],
@@ -22240,7 +22657,16 @@
                 "in",
                 "not_in",
                 "is_cleaned_path_exact",
-                "flag_evaluates_to"
+                "flag_evaluates_to",
+                "semver_eq",
+                "semver_neq",
+                "semver_gt",
+                "semver_gte",
+                "semver_lt",
+                "semver_lte",
+                "semver_tilde",
+                "semver_caret",
+                "semver_wildcard"
             ],
             "type": "string"
         },
@@ -27387,6 +27813,16 @@
             "required": ["assignmentBy"],
             "type": "object"
         },
+        "ResumePayload": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ApprovalResumePayload"
+                },
+                {
+                    "$ref": "#/definitions/FormResumePayload"
+                }
+            ]
+        },
         "RetentionDashboardDisplayType": {
             "enum": ["table_only", "graph_only", "all"],
             "type": "string"
@@ -28756,6 +29192,10 @@
                 "showCorrelationTable": {
                     "type": "boolean"
                 },
+                "showCount": {
+                    "description": "Show count of total and filtered results",
+                    "type": "boolean"
+                },
                 "showDateRange": {
                     "description": "Show date range selector",
                     "type": "boolean"
@@ -29248,6 +29688,47 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "SessionRecordingExternalReference": {
+            "additionalProperties": false,
+            "properties": {
+                "external_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "integration": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "display_name": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "number"
+                        },
+                        "kind": {
+                            "$ref": "#/definitions/IntegrationKind"
+                        }
+                    },
+                    "required": ["id", "kind", "display_name"],
+                    "type": "object"
+                },
+                "issue_id": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "title": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "integration", "external_url", "title", "issue_id"],
+            "type": "object"
+        },
         "SessionRecordingType": {
             "additionalProperties": false,
             "properties": {
@@ -29283,6 +29764,13 @@
                 "expiry_time": {
                     "description": "When the recording expires, in ISO format.",
                     "type": "string"
+                },
+                "external_references": {
+                    "description": "External references to third party issues.",
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingExternalReference"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": "string"
@@ -29322,6 +29810,9 @@
                 "retention_period_days": {
                     "description": "retention period for this recording",
                     "type": "number"
+                },
+                "snapshot_library": {
+                    "type": "string"
                 },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],
@@ -31681,7 +32172,14 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AnyEntityNode"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -32515,7 +33013,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebExternalClicksTableQuery",
@@ -32667,7 +33165,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebGoalsQuery",
@@ -32844,7 +33342,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebOverviewQuery",
@@ -32984,7 +33482,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebPageURLSearchQuery",
@@ -33168,7 +33666,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebStatsTableQuery",
@@ -33361,7 +33859,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebTrendsQuery",
@@ -33588,7 +34086,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebVitalsPathBreakdownQuery",
@@ -33774,7 +34272,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebVitalsQuery",
@@ -33858,6 +34356,24 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "WebsiteBrowsingHistoryProdInterest": {
+            "enum": [
+                "product-analytics",
+                "web-analytics",
+                "session-replay",
+                "feature-flags",
+                "experiments",
+                "error-tracking",
+                "surveys",
+                "data-warehouse",
+                "llm-analytics",
+                "revenue-analytics",
+                "workflows",
+                "logs",
+                "endpoints"
+            ],
+            "type": "string"
         },
         "YAxisSettings": {
             "additionalProperties": false,

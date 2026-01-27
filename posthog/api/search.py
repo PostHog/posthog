@@ -11,8 +11,20 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Action, Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, Survey
+from posthog.models import (
+    Action,
+    Cohort,
+    Dashboard,
+    EventDefinition,
+    Experiment,
+    FeatureFlag,
+    Insight,
+    PropertyDefinition,
+    Survey,
+)
+from posthog.models.hog_flow.hog_flow import HogFlow
 
+from products.early_access_features.backend.models import EarlyAccessFeature
 from products.notebooks.backend.models import Notebook
 
 LIMIT = 25
@@ -62,8 +74,23 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A"},
         "extra_fields": ["name"],
     },
+    "property_definition": {
+        "klass": PropertyDefinition,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name"],
+    },
     "survey": {
         "klass": Survey,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "early_access_feature": {
+        "klass": EarlyAccessFeature,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "hog_flow": {
+        "klass": HogFlow,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
@@ -101,7 +128,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         entities = set(params["entities"]) if params["entities"] else set(ENTITY_MAP.keys())
         query = params["q"]
 
-        results, counts = search_entities(entities, query, self.project_id, self, ENTITY_MAP)
+        results, counts, _ = search_entities(entities, query, self.project_id, self, ENTITY_MAP)
 
         return Response({"results": results, "counts": counts})
 
@@ -112,9 +139,11 @@ def search_entities(
     project_id: int,
     view: TeamAndOrgViewSetMixin,
     entity_map: dict[str, EntityConfig],
-) -> tuple[list[dict[str, Any]], dict[str, int | None]]:
+    limit: int = LIMIT,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], dict[str, int | None], int]:
     # empty queryset to union things onto it
-    counts: dict[str, int | None] = {key: None for key in entity_map}
+    counts: dict[str, int | None] = dict.fromkeys(entity_map)
     qs = (
         Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
         .filter(team__project_id=project_id)
@@ -135,16 +164,21 @@ def search_entities(
         )
         qs = qs.union(klass_qs)
         counts[entity_name] = klass_qs.count()
+
     # order by rank
     if query:
         qs = qs.order_by("-rank")
     else:
         qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
-    results = cast(list[dict[str, Any]], list(qs[:LIMIT]))
+    # Get total count before pagination
+    total_count = qs.count()
+
+    # Apply pagination
+    results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
     for result in results:
         result.pop("_sort_name", None)
-    return results, counts
+    return results, counts, total_count
 
 
 def class_queryset(
@@ -168,6 +202,7 @@ def class_queryset(
         qs = qs.filter(**filters)
 
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (entity_type from code-controlled model class names)
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 
     # entity id

@@ -53,12 +53,12 @@ describe('dashboardHclExporter test', () => {
                 name: 'Saved Dashboard',
             })
 
-            const result = generateDashboardHCL(dashboard)
+            const result = generateDashboardHCL(dashboard, { projectId: 1 })
             const hcl = result.hcl
 
             expect(hcl).toContain('import {')
             expect(hcl).toContain('to = posthog_dashboard.saved_dashboard')
-            expect(hcl).toContain('id = "456"')
+            expect(hcl).toContain('id = "1/456"')
 
             expect(result.warnings).toHaveLength(0)
         })

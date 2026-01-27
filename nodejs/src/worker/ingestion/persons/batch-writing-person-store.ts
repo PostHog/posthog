@@ -85,6 +85,8 @@ class MaxRetriesError extends Error {
 export interface BatchWritingPersonsStoreOptions {
     maxConcurrentUpdates: number
     dbWriteMode: PersonBatchWritingDbWriteMode
+    /** When true, use batch SQL queries for person updates. When false, use individual queries. */
+    useBatchUpdates: boolean
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
     /** When true, all property changes trigger person updates (disables batch-level filtering) */
@@ -93,6 +95,7 @@ export interface BatchWritingPersonsStoreOptions {
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     dbWriteMode: 'NO_ASSERT',
+    useBatchUpdates: true,
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
@@ -270,8 +273,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
             switch (this.options.dbWriteMode) {
                 case 'NO_ASSERT': {
-                    // Use batch update for NO_ASSERT mode - single query for all updates
-                    allKafkaMessages = await this.flushBatchNoAssert(updateEntries)
+                    if (this.options.useBatchUpdates) {
+                        // Use batch update for NO_ASSERT mode - single query for all updates
+                        allKafkaMessages = await this.flushBatchNoAssert(updateEntries)
+                    } else {
+                        // Use individual updates for NO_ASSERT mode
+                        allKafkaMessages = await this.flushIndividualNoAssert(updateEntries)
+                    }
                     break
                 }
                 case 'ASSERT_VERSION': {
@@ -409,6 +417,68 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         return allKafkaMessages
+    }
+
+    /**
+     * Flush all person updates using individual queries without version assertion (NO_ASSERT mode).
+     * Each person is updated individually with retry logic for merge scenarios.
+     */
+    private async flushIndividualNoAssert(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
+        const limit = pLimit(this.options.maxConcurrentUpdates)
+
+        const results = await Promise.all(
+            updateEntries.map(([cacheKey, update]) =>
+                limit(async (): Promise<FlushResult[]> => {
+                    try {
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'attempt',
+                        })
+
+                        const result = await this.withMergeRetry(
+                            update,
+                            this.updatePersonNoAssert.bind(this),
+                            'updatePersonNoAssert',
+                            this.options.maxOptimisticUpdateRetries,
+                            this.options.optimisticUpdateRetryInterval
+                        )
+
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'success',
+                        })
+
+                        return result.messages.map((message) => ({
+                            topicMessage: message,
+                            teamId: update.team_id,
+                            uuid: update.uuid,
+                            distinctId: update.distinct_id,
+                        }))
+                    } catch (error) {
+                        logger.error('Failed to update person after max retries', {
+                            error,
+                            cacheKey,
+                            teamId: update.team_id,
+                            personId: update.id,
+                            distinctId: update.distinct_id,
+                            errorMessage: error instanceof Error ? error.message : String(error),
+                            errorStack: error instanceof Error ? error.stack : undefined,
+                        })
+
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'error',
+                        })
+                        return this.handleIndividualUpdateError(error, update)
+                    }
+                })
+            )
+        )
+
+        return results.flat()
     }
 
     /**

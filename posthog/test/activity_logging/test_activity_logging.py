@@ -115,16 +115,18 @@ class TestActivityLogModel(BaseTest):
 class TestActivityLogVisibilityManager(BaseTest):
     @parameterized.expand(
         [
-            # Restricted: impersonated login/logout should be hidden from external destinations
+            # User login/logout - only impersonated sessions are restricted
             ("impersonated_login", "User", "logged_in", True, True),
             ("impersonated_logout", "User", "logged_out", True, True),
-            # Not restricted: normal (non-impersonated) login/logout are fine to show
             ("normal_login", "User", "logged_in", False, False),
             ("normal_logout", "User", "logged_out", False, False),
-            # Not restricted: other User activities don't match the restriction
-            ("user_updated", "User", "updated", True, False),
+            # User create/update - always restricted (regardless of impersonation)
+            ("user_updated", "User", "updated", True, True),
+            ("user_updated_not_impersonated", "User", "updated", False, True),
+            ("user_created", "User", "created", False, True),
+            # User activities not in the restricted list are not restricted
             ("user_changed_password", "User", "changed_password", False, False),
-            # Not restricted: other scopes are unaffected
+            # Non-User scopes are unaffected
             ("feature_flag_created", "FeatureFlag", "created", False, False),
             ("feature_flag_updated", "FeatureFlag", "updated", True, False),
             ("insight_created", "Insight", "created", False, False),
@@ -145,11 +147,13 @@ class TestActivityLogVisibilityManager(BaseTest):
 
     @parameterized.expand(
         [
-            # Staff bypass: impersonated login/logout visible to staff via allow_staff=True
+            # Staff can see all User activities (via allow_staff=True)
             ("impersonated_login_staff_bypass", "User", "logged_in", True, False),
             ("impersonated_logout_staff_bypass", "User", "logged_out", True, False),
-            # Normal activities still not restricted
-            ("normal_login", "User", "logged_in", False, False),
+            ("normal_login_staff_bypass", "User", "logged_in", False, False),
+            ("user_updated_staff_bypass", "User", "updated", False, False),
+            ("user_created_staff_bypass", "User", "created", False, False),
+            # Non-User activities still not restricted for anyone
             ("feature_flag_created", "FeatureFlag", "created", False, False),
         ]
     )
@@ -169,6 +173,7 @@ class TestActivityLogVisibilityManager(BaseTest):
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_out", was_impersonated=True)
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=False)
+        ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="updated", was_impersonated=False)
         ActivityLog.objects.create(
             team_id=self.team.id, scope="FeatureFlag", activity="created", was_impersonated=False
         )
@@ -176,16 +181,18 @@ class TestActivityLogVisibilityManager(BaseTest):
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
 
-        self.assertEqual(queryset.count(), 4)
-        self.assertEqual(filtered.count(), 2)
-        self.assertFalse(filtered.filter(scope="User", activity="logged_in", was_impersonated=True).exists())
-        self.assertFalse(filtered.filter(scope="User", activity="logged_out", was_impersonated=True).exists())
+        # Impersonated logins and user updates should be filtered, but normal logins should remain
+        self.assertEqual(queryset.count(), 5)
+        self.assertEqual(filtered.count(), 2)  # normal login + feature flag
         self.assertTrue(filtered.filter(scope="User", activity="logged_in", was_impersonated=False).exists())
+        self.assertFalse(filtered.filter(scope="User", activity="logged_in", was_impersonated=True).exists())
+        self.assertFalse(filtered.filter(scope="User", activity="updated").exists())
         self.assertTrue(filtered.filter(scope="FeatureFlag", activity="created").exists())
 
     def test_queryset_includes_all_logs_for_staff(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_out", was_impersonated=True)
+        ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="updated", was_impersonated=False)
         ActivityLog.objects.create(
             team_id=self.team.id, scope="FeatureFlag", activity="created", was_impersonated=False
         )
@@ -193,4 +200,4 @@ class TestActivityLogVisibilityManager(BaseTest):
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
 
-        self.assertEqual(filtered.count(), 3)
+        self.assertEqual(filtered.count(), 4)

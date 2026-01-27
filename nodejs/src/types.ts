@@ -59,6 +59,7 @@ export enum PluginServerMode {
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
+    cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -223,6 +224,8 @@ export type IngestionConsumerConfig = {
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
+    /** When true, use batch SQL queries for person updates. When false, use individual queries. */
+    PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
@@ -337,6 +340,16 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: number
+    /** When true, rate limiting will drop messages that exceed the limit. When false, dry run mode (metrics only) */
+    SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: boolean
+    /** When false, skips all Redis calls for session filtering. Use to bypass Redis during outages */
+    SESSION_RECORDING_SESSION_FILTER_ENABLED: boolean
+    /** TTL in milliseconds for the in-memory session tracker cache */
+    SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
+    /** TTL in milliseconds for the in-memory session filter cache */
+    SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
 }
 
 export interface PluginsServerConfig
@@ -456,6 +469,16 @@ export interface PluginsServerConfig
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+    CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
+
+    // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
+    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+
+    // SES (Workflows email sending)
+    SES_ENDPOINT: string
+    SES_ACCESS_KEY_ID: string
+    SES_SECRET_ACCESS_KEY: string
+    SES_REGION: string
 
     // Pod termination
     POD_TERMINATION_ENABLED: boolean
@@ -500,6 +523,7 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
+    cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean

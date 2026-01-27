@@ -28,6 +28,9 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
         KEEPALIVE_FLAG="--no-http1-keep-alive"
     fi
 
+    # Configurable log-level for Granian
+    export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
+
     # Start metrics HTTP server in background on port 8001
     python ./bin/granian_metrics.py &
     METRICS_PID=$!
@@ -44,7 +47,7 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
         --loop uvloop \
         --host 0.0.0.0 \
         --port 8000 \
-        --log-level warning \
+        --log-level $GRANIAN_LOG_LEVEL \
         --access-log \
         --respawn-failed-workers
 else
@@ -55,6 +58,7 @@ else
 
     export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
+    export NGINX_UNIT_REQUEST_LIMIT=${NGINX_UNIT_REQUEST_LIMIT:-7500}
     envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
 
     # We need to run as root so that nginx unit can proxy the control socket for stats

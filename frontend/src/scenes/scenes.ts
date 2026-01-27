@@ -1,4 +1,7 @@
 import { combineUrl } from 'kea-router'
+import { lazy } from 'react'
+
+import { IconInfo } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -10,12 +13,18 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
+import { DEFAULT_SCENE_PANEL_TABS, GLOBAL_SCENE_PANEL_TABS } from '~/layout/scenes/scenePanelTabs'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
 import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+
+// Lazy load scene panel components
+const SurveyPanelDetails = lazy(() =>
+    import('scenes/surveys/SurveyPanelDetails').then((m) => ({ default: m.SurveyPanelDetails }))
+)
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -247,12 +256,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
-    [Scene.Feed]: {
-        projectBased: true,
-        name: 'Feed',
-        description: 'Stay updated with recent activities and changes in your project.',
-        iconType: 'feed',
-    },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {
         projectBased: true,
@@ -310,10 +313,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'live',
     },
     [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger', defaultDocsPath: '/docs/data/events' },
-    [Scene.Login2FA]: { onlyUnauthenticated: true },
+    [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA' },
     [Scene.EmailMFAVerify]: { onlyUnauthenticated: true },
     [Scene.Login]: { onlyUnauthenticated: true },
-    [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
+    [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
     [Scene.NewTab]: {
         projectBased: true,
@@ -356,6 +359,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.PasswordResetComplete]: { onlyUnauthenticated: true },
     [Scene.PasswordReset]: { onlyUnauthenticated: true },
+    [Scene.VercelLinkError]: { name: 'Vercel account mismatch' },
     [Scene.Person]: {
         projectBased: true,
         name: 'People',
@@ -372,8 +376,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'persons',
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
-    [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
-    [Scene.UseCaseSelection]: { projectBased: true, name: 'Use case selection', layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
         organizationBased: true,
@@ -436,6 +438,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Replay recordings of user sessions to understand how users interact with your product or website.',
     },
+    [Scene.ReplayKiosk]: {
+        projectBased: true,
+        name: 'Kiosk mode',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+        layout: 'plain',
+        hideProjectNotice: true,
+    },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
@@ -470,11 +480,25 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
+    [Scene.SurveyWizard]: {
+        projectBased: true,
+        name: 'Create survey',
+        defaultDocsPath: '/docs/surveys/creating-surveys',
+    },
     [Scene.Survey]: {
         projectBased: true,
         name: 'Survey',
         defaultDocsPath: '/docs/surveys',
         activityScope: ActivityScope.SURVEY,
+        scenePanelTabs: [
+            {
+                id: 'details',
+                label: 'Details',
+                Icon: IconInfo,
+                Content: SurveyPanelDetails,
+            },
+            GLOBAL_SCENE_PANEL_TABS.accessControl,
+        ],
     },
     [Scene.Surveys]: {
         projectBased: true,
@@ -483,6 +507,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.SURVEY,
         description: 'Create surveys to collect feedback from your users',
         iconType: 'survey',
+        scenePanelTabs: DEFAULT_SCENE_PANEL_TABS,
     },
     [Scene.ProductTours]: {
         projectBased: true,
@@ -706,6 +731,7 @@ export const routes: Record<string, [Scene | string, string]> = {
         {} as Record<string, [Scene, string]>
     ),
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
+    [urls.replayKiosk()]: [Scene.ReplayKiosk, 'replayKiosk'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
     [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
@@ -728,8 +754,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
-    [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
+    [urls.surveyWizard(':id')]: [Scene.SurveyWizard, 'surveyWizard'],
+    [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
@@ -740,7 +767,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.feed()]: [Scene.Feed, 'feed'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -773,13 +799,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inviteSignup(':id')]: [Scene.InviteSignup, 'inviteSignup'],
     [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],
     [urls.passwordResetComplete(':uuid', ':token')]: [Scene.PasswordResetComplete, 'passwordResetComplete'],
-    [urls.products()]: [Scene.Products, 'products'],
-    [urls.useCaseSelection()]: [Scene.UseCaseSelection, 'useCaseSelection'],
-    [urls.onboardingCoupon(':campaign')]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
-    [urls.onboarding(':productKey')]: [Scene.Onboarding, 'onboarding'],
+    [urls.onboarding({ productKey: ':productKey' })]: [Scene.Onboarding, 'onboarding'],
+    [urls.onboarding({ campaign: ':campaign' })]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
+    [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
     [urls.verifyEmail(':uuid', ':token')]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
+    [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
@@ -803,6 +829,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
+    [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],

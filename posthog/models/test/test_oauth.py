@@ -10,9 +10,16 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Organization, User
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthGrant,
+    OAuthIDToken,
+    OAuthRefreshToken,
+    revoke_oauth_session,
+)
 
 
 @override_settings(
@@ -243,20 +250,15 @@ class TestOAuthModels(TestCase):
             )
 
     valid_custom_scheme_uris = [
-        ("simple custom scheme", "array://callback"),
+        ("simple custom scheme", "twig://callback"),
         ("custom scheme with path", "myapp://oauth/callback"),
-        ("reverse domain style", "com.posthog.array://oauth"),
+        ("reverse domain style", "com.posthog.twig://oauth"),
+        ("cursor scheme", "cursor://oauth"),
+        ("vscode scheme", "vscode://oauth"),
     ]
 
     @parameterized.expand(valid_custom_scheme_uris)
-    @override_settings(
-        DEBUG=False,
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-            "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "array", "myapp", "com.posthog.array"],
-        },
-    )
+    @override_settings(DEBUG=False)
     def test_can_create_application_with_custom_scheme_for_native_apps(self, _name, redirect_uri):
         app = OAuthApplication.objects.create(
             name=f"Native App {_name}",
@@ -270,13 +272,6 @@ class TestOAuthModels(TestCase):
         )
         self.assertEqual(app.redirect_uris, redirect_uri)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-            "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "myapp"],
-        },
-    )
     def test_custom_scheme_with_fragment_still_rejected(self):
         with self.assertRaises(ValidationError):
             OAuthApplication.objects.create(
@@ -290,34 +285,29 @@ class TestOAuthModels(TestCase):
                 algorithm="RS256",
             )
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-            "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "array"],
-        },
-    )
-    def test_unauthorized_custom_scheme_rejected(self):
+    blocked_scheme_uris = [
+        ("javascript", "javascript:alert(1)"),
+        ("data", "data:text/html,<script>alert(1)</script>"),
+        ("file", "file:///etc/passwd"),
+        ("blob", "blob:http://example.com/1234"),
+        ("vbscript", "vbscript:msgbox(1)"),
+    ]
+
+    @parameterized.expand(blocked_scheme_uris)
+    def test_blocked_schemes_rejected(self, _name, malicious_uri):
         with self.assertRaises(ValidationError):
             OAuthApplication.objects.create(
-                name="Unauthorized Scheme App",
-                client_id="unauthorized_scheme_client_id",
-                client_secret="unauthorized_scheme_client_secret",
+                name="Blocked Scheme App",
+                client_id=f"blocked_scheme_client_id_{_name}",
+                client_secret="blocked_scheme_client_secret",
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="unauthorized://callback",
+                redirect_uris=malicious_uri,
                 organization=self.organization,
                 algorithm="RS256",
             )
 
-    @override_settings(
-        DEBUG=False,
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-            "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "array"],
-        },
-    )
+    @override_settings(DEBUG=False)
     def test_mixed_custom_scheme_and_https_redirect_uris(self):
         app = OAuthApplication.objects.create(
             name="Mixed Scheme App",
@@ -325,11 +315,11 @@ class TestOAuthModels(TestCase):
             client_secret="mixed_scheme_client_secret",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback array://oauth http://localhost:3000/callback",
+            redirect_uris="https://example.com/callback twig://oauth http://localhost:3000/callback",
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertIn("array://", app.redirect_uris)
+        self.assertIn("twig://", app.redirect_uris)
         self.assertIn("https://example.com", app.redirect_uris)
         self.assertIn("localhost", app.redirect_uris)
 
@@ -480,13 +470,6 @@ class TestOAuthModels(TestCase):
         self.assertIn(access_token, self.user.oauth_access_tokens.all())
         self.assertIn(refresh_token, self.user.oauth_refresh_tokens.all())
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-            "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "array", "myapp"],
-        },
-    )
     def test_get_allowed_schemes_extracts_schemes_from_redirect_uris(self):
         app = OAuthApplication.objects.create(
             name="Multi Scheme App",
@@ -494,24 +477,17 @@ class TestOAuthModels(TestCase):
             client_secret="multi_scheme_client_secret",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback array://oauth http://localhost:3000/callback",
+            redirect_uris="https://example.com/callback twig://oauth http://localhost:3000/callback",
             organization=self.organization,
             algorithm="RS256",
         )
         schemes = app.get_allowed_schemes()
         self.assertIn("https", schemes)
-        self.assertIn("array", schemes)
+        self.assertIn("twig", schemes)
         self.assertIn("http", schemes)
         self.assertEqual(len(schemes), 3)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-            "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
-        },
-    )
-    def test_get_allowed_schemes_filters_against_globally_allowed(self):
+    def test_get_allowed_schemes_filters_out_blocked_schemes(self):
         app = OAuthApplication.objects.create(
             name="Filtered Scheme App",
             client_id="filtered_scheme_client_id",
@@ -522,12 +498,12 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
-        # Manually set redirect_uris to include schemes not in ALLOWED_REDIRECT_URI_SCHEMES
+        # Manually set redirect_uris to include blocked schemes
         # to test filtering (bypassing validation for test purposes)
-        app.redirect_uris = "https://example.com/callback array://oauth"
+        app.redirect_uris = "https://example.com/callback javascript:alert(1)"
         schemes = app.get_allowed_schemes()
         self.assertEqual(schemes, ["https"])
-        self.assertNotIn("array", schemes)
+        self.assertNotIn("javascript", schemes)
 
     def test_get_allowed_schemes_returns_https_fallback_when_no_valid_schemes(self):
         app = OAuthApplication.objects.create(
@@ -544,3 +520,70 @@ class TestOAuthModels(TestCase):
         app.redirect_uris = ""
         schemes = app.get_allowed_schemes()
         self.assertEqual(schemes, ["https"])
+
+    def test_revoke_oauth_session_revokes_all_tokens_for_user_and_application(self):
+        app = OAuthApplication.objects.create(
+            name="Revoke Test App",
+            client_id="revoke_test_client_id",
+            client_secret="revoke_test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="access_token_1",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="access_token_2",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app,
+            user=self.user,
+            token="refresh_token_1",
+        )
+        OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="grant_code",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        revoke_oauth_session(access_token=access_token)
+
+        self.assertEqual(OAuthAccessToken.objects.filter(user=self.user, application=app).count(), 0)
+        self.assertEqual(OAuthGrant.objects.filter(user=self.user, application=app).count(), 0)
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+    def test_revoke_oauth_session_with_null_user_still_revokes_specific_token(self):
+        app = OAuthApplication.objects.create(
+            name="Null User Test App",
+            client_id="null_user_client_id",
+            client_secret="null_user_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=None,
+            token="null_user_access_token",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        token_id = access_token.id
+
+        revoke_oauth_session(access_token=access_token)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())

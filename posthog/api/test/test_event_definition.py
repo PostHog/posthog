@@ -65,6 +65,16 @@ class TestEventDefinitionAPI(APIBaseTest):
             )
             assert abs((dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds()) < 1
 
+    def test_list_event_definitions_with_excluded_properties(self):
+        response = self.client.get(
+            '/api/projects/@current/event_definitions/?excluded_properties=["installed_app", "purchase"]'
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS) - 2
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert "installed_app" not in result_names
+        assert "purchase" not in result_names
+
     @parameterized.expand(
         [
             (
@@ -236,29 +246,6 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "$pageview"
-
-    @patch("posthog.models.Organization.is_feature_available", return_value=False)
-    def test_update_event_definition_without_taxonomy_entitlement(self, mock_is_feature_available):
-        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
-
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{event_definition.id}",
-            {"name": "updated_event"},
-        )
-
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-
-    @patch("posthog.models.Organization.is_feature_available", return_value=False)
-    def test_update_event_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
-        """Test that enterprise-only fields require license"""
-        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
-
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{event_definition.id}",
-            {"verified": True},  # This should be blocked since it's enterprise-only
-        )
-
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)

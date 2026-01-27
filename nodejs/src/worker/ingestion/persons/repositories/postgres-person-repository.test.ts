@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '../../../../types'
+import { Hub, InternalPerson, PropertyOperator, PropertyUpdateOperation, Team } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { parseJSON } from '../../../../utils/json-parse'
@@ -1444,6 +1444,119 @@ describe('PostgresPersonRepository', () => {
             expect(actualVersion).toBeUndefined()
             expect(messages).toHaveLength(0)
         })
+
+        it('should merge properties_to_set into properties when updating', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-merge-set', { existing: 'value', to_update: 'old' })
+
+            const personUpdate = {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: 'test-merge-set',
+                properties: { existing: 'value', to_update: 'old' }, // Original properties from DB
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version: person.version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                needs_write: true,
+                properties_to_set: { new_prop: 'new_value', to_update: 'new' }, // New properties to merge
+                properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+            }
+
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+
+            const updatedPerson = await repository.fetchPerson(team.id, 'test-merge-set')
+            expect(updatedPerson?.properties).toEqual({
+                existing: 'value',
+                to_update: 'new', // Updated from properties_to_set
+                new_prop: 'new_value', // Added from properties_to_set
+            })
+        })
+
+        it('should apply properties_to_unset when updating', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-unset', {
+                keep: 'value',
+                remove_me: 'will be removed',
+            })
+
+            const personUpdate = {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: 'test-unset',
+                properties: { keep: 'value', remove_me: 'will be removed' },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version: person.version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                needs_write: true,
+                properties_to_set: {},
+                properties_to_unset: ['remove_me'],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+            }
+
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+
+            const updatedPerson = await repository.fetchPerson(team.id, 'test-unset')
+            expect(updatedPerson?.properties).toEqual({ keep: 'value' })
+            expect(updatedPerson?.properties).not.toHaveProperty('remove_me')
+        })
+
+        it('should handle combined properties_to_set and properties_to_unset', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-combined', {
+                keep: 'value',
+                remove: 'will go',
+                update: 'old',
+            })
+
+            const personUpdate = {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: 'test-combined',
+                properties: { keep: 'value', remove: 'will go', update: 'old' },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version: person.version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                needs_write: true,
+                properties_to_set: { update: 'new', added: 'fresh' },
+                properties_to_unset: ['remove'],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+            }
+
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+
+            const updatedPerson = await repository.fetchPerson(team.id, 'test-combined')
+            expect(updatedPerson?.properties).toEqual({
+                keep: 'value',
+                update: 'new',
+                added: 'fresh',
+            })
+            expect(updatedPerson?.properties).not.toHaveProperty('remove')
+        })
     })
 
     describe('updateCohortsAndFeatureFlagsForMerge()', () => {
@@ -2559,6 +2672,438 @@ describe('PostgresPersonRepository', () => {
             // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
             // even though the values haven't changed from the person object
             expect(observeCalls).toHaveLength(3)
+        })
+    })
+
+    describe('countPersonsByProperties()', () => {
+        it('should return 0 when no persons match the filters', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 30, operator: PropertyOperator.Exact, type: 'person' }],
+            })
+
+            expect(count).toBe(0)
+        })
+
+        it('should return correct count when persons match exact property value', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+            await createTestPerson(team.id, 'person-2', { age: 25, city: 'LA' })
+            await createTestPerson(team.id, 'person-3', { age: 30, city: 'NYC' })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' }],
+            })
+
+            expect(count).toBe(2)
+        })
+
+        it('should return correct count with IsNot operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+            await createTestPerson(team.id, 'person-2', { age: 30, city: 'LA' })
+            await createTestPerson(team.id, 'person-3', { age: 35, city: 'SF' })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 25, operator: PropertyOperator.IsNot, type: 'person' }],
+            })
+
+            expect(count).toBe(2)
+        })
+
+        it('should return correct count with IsSet operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+            await createTestPerson(team.id, 'person-2', { age: 30 })
+            await createTestPerson(team.id, 'person-3', { name: 'John' })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'city', operator: PropertyOperator.IsSet, type: 'person' }],
+            })
+
+            expect(count).toBe(1)
+        })
+
+        it('should return correct count with IsNotSet operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+            await createTestPerson(team.id, 'person-2', { age: 30 })
+            await createTestPerson(team.id, 'person-3', { age: 35 })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'city', operator: PropertyOperator.IsNotSet, type: 'person' }],
+            })
+
+            expect(count).toBe(2)
+        })
+
+        it('should return correct count with multiple property filters (AND condition)', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC', active: true })
+            await createTestPerson(team.id, 'person-2', { age: 25, city: 'LA', active: true })
+            await createTestPerson(team.id, 'person-3', { age: 30, city: 'NYC', active: true })
+            await createTestPerson(team.id, 'person-4', { age: 25, city: 'NYC', active: false })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [
+                    { key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' },
+                    { key: 'city', value: 'NYC', operator: PropertyOperator.Exact, type: 'person' },
+                    { key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' },
+                ],
+            })
+
+            expect(count).toBe(1)
+        })
+
+        it('should return 0 when properties array is empty', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25 })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [],
+            })
+
+            expect(count).toBe(0)
+        })
+
+        it('should support IContains operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { email: 'john@example.com' })
+            await createTestPerson(team.id, 'person-2', { email: 'jane@example.com' })
+            await createTestPerson(team.id, 'person-3', { email: 'bob@test.com' })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'email', value: 'example', operator: PropertyOperator.IContains, type: 'person' }],
+            })
+
+            expect(count).toBe(2)
+        })
+
+        it('should support GreaterThan operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25 })
+            await createTestPerson(team.id, 'person-2', { age: 30 })
+            await createTestPerson(team.id, 'person-3', { age: 35 })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 28, operator: PropertyOperator.GreaterThan, type: 'person' }],
+            })
+
+            expect(count).toBe(2)
+        })
+
+        it('should support LessThan operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25 })
+            await createTestPerson(team.id, 'person-2', { age: 30 })
+            await createTestPerson(team.id, 'person-3', { age: 35 })
+
+            const count = await repository.countPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 32, operator: PropertyOperator.LessThan, type: 'person' }],
+            })
+
+            expect(count).toBe(2)
+        })
+    })
+
+    describe('fetchPersonsByProperties()', () => {
+        it('should return empty array when no persons match the filters', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 30, operator: PropertyOperator.Exact, type: 'person' }],
+            })
+
+            expect(persons).toEqual([])
+        })
+
+        it('should return persons matching exact property value', async () => {
+            const team = await getFirstTeam(hub)
+            const person1 = await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+            const person2 = await createTestPerson(team.id, 'person-2', { age: 25, city: 'LA' })
+            await createTestPerson(team.id, 'person-3', { age: 30, city: 'NYC' })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([person1.id, person2.id].sort())
+            expect(persons[0]).toHaveProperty('distinct_id')
+        })
+
+        it('should return persons with IsNot operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+            const person2 = await createTestPerson(team.id, 'person-2', { age: 30, city: 'LA' })
+            const person3 = await createTestPerson(team.id, 'person-3', { age: 35, city: 'SF' })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 25, operator: PropertyOperator.IsNot, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([person2.id, person3.id].sort())
+        })
+
+        it('should return persons with IsSet operator', async () => {
+            const team = await getFirstTeam(hub)
+            const person1 = await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+            await createTestPerson(team.id, 'person-2', { age: 30 })
+            await createTestPerson(team.id, 'person-3', { name: 'John' })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'city', operator: PropertyOperator.IsSet, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(1)
+            expect(persons[0].id).toBe(person1.id)
+            expect(persons[0].properties).toEqual({ age: 25, city: 'NYC' })
+        })
+
+        it('should return persons with IsNotSet operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC' })
+            const person2 = await createTestPerson(team.id, 'person-2', { age: 30 })
+            const person3 = await createTestPerson(team.id, 'person-3', { age: 35 })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'city', operator: PropertyOperator.IsNotSet, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([person2.id, person3.id].sort())
+        })
+
+        it('should return persons with multiple property filters (AND condition)', async () => {
+            const team = await getFirstTeam(hub)
+            const person1 = await createTestPerson(team.id, 'person-1', { age: 25, city: 'NYC', active: true })
+            await createTestPerson(team.id, 'person-2', { age: 25, city: 'LA', active: true })
+            await createTestPerson(team.id, 'person-3', { age: 30, city: 'NYC', active: true })
+            await createTestPerson(team.id, 'person-4', { age: 25, city: 'NYC', active: false })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [
+                    { key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' },
+                    { key: 'city', value: 'NYC', operator: PropertyOperator.Exact, type: 'person' },
+                    { key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' },
+                ],
+            })
+
+            expect(persons).toHaveLength(1)
+            expect(persons[0].id).toBe(person1.id)
+        })
+
+        it('should respect limit parameter', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { active: true })
+            await createTestPerson(team.id, 'person-2', { active: true })
+            await createTestPerson(team.id, 'person-3', { active: true })
+            await createTestPerson(team.id, 'person-4', { active: true })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
+                options: { limit: 2 },
+            })
+
+            expect(persons).toHaveLength(2)
+        })
+
+        it('should respect cursor parameter for pagination', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { active: true })
+            await createTestPerson(team.id, 'person-2', { active: true })
+            await createTestPerson(team.id, 'person-3', { active: true })
+
+            const firstBatch = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
+                options: { limit: 2 },
+            })
+
+            expect(firstBatch).toHaveLength(2)
+
+            // Use the last person's ID as cursor for next batch
+            const cursor = firstBatch[firstBatch.length - 1].id
+            const secondBatch = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
+                options: { cursor },
+            })
+
+            expect(secondBatch).toHaveLength(1)
+            // Verify that persons in second batch are not in first batch
+            const firstBatchIds = firstBatch.map((p) => p.id)
+            const secondBatchIds = secondBatch.map((p) => p.id)
+            for (const id of secondBatchIds) {
+                expect(firstBatchIds).not.toContain(id)
+            }
+        })
+
+        it('should respect both limit and cursor parameters', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { active: true })
+            await createTestPerson(team.id, 'person-2', { active: true })
+            await createTestPerson(team.id, 'person-3', { active: true })
+            await createTestPerson(team.id, 'person-4', { active: true })
+
+            const firstBatch = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
+                options: { limit: 1 },
+            })
+
+            expect(firstBatch).toHaveLength(1)
+
+            const cursor = firstBatch[0].id
+            const secondBatch = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'active', value: true as any, operator: PropertyOperator.Exact, type: 'person' }],
+                options: { limit: 2, cursor },
+            })
+
+            expect(secondBatch).toHaveLength(2)
+            // Verify cursor filtered out the first person
+            expect(secondBatch.map((p) => p.id)).not.toContain(firstBatch[0].id)
+        })
+
+        it('should return empty array when properties array is empty', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25 })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [],
+            })
+
+            expect(persons).toEqual([])
+        })
+
+        it('should return distinct persons even with multiple distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            const uuid = new UUIDT().toString()
+            const result = await repository.createPerson(
+                TIMESTAMP,
+                { age: 25, active: true },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                { distinctId: 'distinct-1' },
+                [{ distinctId: 'distinct-2' }, { distinctId: 'distinct-3' }]
+            )
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            await hub.kafkaProducer.queueMessages(result.messages)
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 25, operator: PropertyOperator.Exact, type: 'person' }],
+            })
+
+            // Should return only one person despite having multiple distinct IDs
+            expect(persons).toHaveLength(1)
+            expect(persons[0].uuid).toBe(uuid)
+            // The distinct_id field should contain one of the distinct IDs
+            expect(['distinct-1', 'distinct-2', 'distinct-3']).toContain(persons[0].distinct_id)
+        })
+
+        it('should include all required fields in InternalPersonWithDistinctId', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'person-1', { name: 'John', age: 30 })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'name', value: 'John', operator: PropertyOperator.Exact, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(1)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: person.id,
+                    uuid: person.uuid,
+                    team_id: team.id,
+                    properties: { name: 'John', age: 30 },
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                    version: 0,
+                    distinct_id: 'person-1',
+                })
+            )
+        })
+
+        it('should support IContains operator', async () => {
+            const team = await getFirstTeam(hub)
+            const person1 = await createTestPerson(team.id, 'person-1', { email: 'john@example.com' })
+            const person2 = await createTestPerson(team.id, 'person-2', { email: 'jane@example.com' })
+            await createTestPerson(team.id, 'person-3', { email: 'bob@test.com' })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'email', value: 'example', operator: PropertyOperator.IContains, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([person1.id, person2.id].sort())
+        })
+
+        it('should support GreaterThan operator', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'person-1', { age: 25 })
+            const person2 = await createTestPerson(team.id, 'person-2', { age: 30 })
+            const person3 = await createTestPerson(team.id, 'person-3', { age: 35 })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 28, operator: PropertyOperator.GreaterThan, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([person2.id, person3.id].sort())
+        })
+
+        it('should support LessThan operator', async () => {
+            const team = await getFirstTeam(hub)
+            const person1 = await createTestPerson(team.id, 'person-1', { age: 25 })
+            const person2 = await createTestPerson(team.id, 'person-2', { age: 30 })
+            await createTestPerson(team.id, 'person-3', { age: 35 })
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'age', value: 32, operator: PropertyOperator.LessThan, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([person1.id, person2.id].sort())
         })
     })
 })

@@ -5,12 +5,15 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { ProductSetupButton } from 'lib/components/ProductSetup'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor } from '~/types'
@@ -21,39 +24,36 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
-function SceneTitlePanelButton(): JSX.Element | null {
-    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
-        useValues(sceneLayoutLogic)
-    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
+export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
+    const {
+        scenePanelOpenManual,
+        sceneLayoutConfig,
+        scenePanelIsPresent: legacyScenePanelIsPresent,
+    } = useValues(sceneLayoutLogic)
+    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
-    if (!scenePanelIsPresent) {
+    // When flag is on: Check if scene has panel tabs configured
+    // When flag is off: Use the legacy scenePanelIsPresent from logic (set via portal)
+    const scenePanelIsPresent = isRemovingSidePanelFlag
+        ? Boolean(sceneLayoutConfig?.scenePanelTabs?.length)
+        : legacyScenePanelIsPresent
+
+    // Show "Open" button when panel is closed, show "Close" button when panel is open
+    // Both should never render simultaneously to avoid Playwright strict mode violations
+    if (!scenePanelIsPresent || inPanel !== scenePanelOpenManual) {
         return null
     }
 
     return (
         <LemonButton
-            onClick={() =>
-                scenePanelIsRelative
-                    ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
-                    : setScenePanelOpen(!scenePanelOpen)
-            }
-            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
-            tooltip={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
+            className={cn(!inPanel && '-mr-2')}
+            onClick={() => setScenePanelOpen(!scenePanelOpenManual)}
+            icon={inPanel ? <IconX className="text-primary p-0.5" /> : <IconEllipsis className="text-primary" />}
+            tooltip={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
             data-attr="info-actions-panel"
-            aria-label={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
-            active={scenePanelOpen}
+            aria-label={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
+            active={inPanel ? true : scenePanelOpenManual}
             size="small"
         />
     )
@@ -147,10 +147,20 @@ export function SceneTitleSection({
     className,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
 
     const effectiveDescription = description
+
+    // Always include ProductSetupButton alongside other actions
+    // Product auto-selection is handled by SceneContent via globalSetupLogic
+    const effectiveActions = (
+        <>
+            <ProductSetupButton />
+            {actions}
+        </>
+    )
 
     useEffect(() => {
         const stickyElement = document.querySelector('[data-sticky-sentinel]')
@@ -176,17 +186,22 @@ export function SceneTitleSection({
     ) : (
         iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
+
+    if (zenMode) {
+        return null
+    }
+
     return (
         <>
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute top-[-55px]" aria-hidden />
+                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
             )}
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     className
@@ -228,9 +243,9 @@ export function SceneTitleSection({
                             </>
                         )}
                     </div>
-                    {actions && (
+                    {effectiveActions && (
                         <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first">
-                            {actions}
+                            {effectiveActions}
                             <SceneTitlePanelButton />
                         </div>
                     )}
@@ -330,7 +345,7 @@ function SceneName({
                                 className: `${textClasses} w-full hover:bg-fill-input py-0`,
                                 autoHeight: true,
                             }),
-                            '[&_.LemonIcon]:size-4'
+                            '[&_.LemonIcon]:size-4 input-like'
                         )}
                         placeholder="Enter name"
                         onBlur={() => {
@@ -463,7 +478,7 @@ function SceneDescription({
                                 className: `${textClasses} w-full hover:bg-fill-input px-[var(--button-padding-x-sm)]`,
                                 autoHeight: true,
                             }),
-                            '[&_.LemonIcon]:size-4'
+                            '[&_.LemonIcon]:size-4 input-like'
                         )}
                         wrapperClassName="w-full"
                         markdown={markdown}

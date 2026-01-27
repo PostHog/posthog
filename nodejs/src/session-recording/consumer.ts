@@ -16,7 +16,7 @@ import {
 } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -38,7 +38,9 @@ import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
+import { SessionFilter } from './sessions/session-filter'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
+import { SessionTracker } from './sessions/session-tracker'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
@@ -56,6 +58,12 @@ export type SessionRecordingIngesterHub = SessionRecordingConfig &
         | 'REDIS_URL'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
+        // For restriction manager redis pool (must match the ingestion redis that Django writes to)
+        | 'INGESTION_REDIS_HOST'
+        | 'INGESTION_REDIS_PORT'
+        | 'POSTHOG_REDIS_HOST'
+        | 'POSTHOG_REDIS_PORT'
+        | 'POSTHOG_REDIS_PASSWORD'
     >
 
 export class SessionRecordingIngester {
@@ -70,6 +78,7 @@ export class SessionRecordingIngester {
     private readonly sessionBatchManager: SessionBatchManager
     private readonly kafkaParser: KafkaMessageParser
     private readonly redisPool: RedisPool
+    private readonly restrictionRedisPool: RedisPool
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
@@ -143,9 +152,29 @@ export class SessionRecordingIngester {
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
 
+        // Restriction manager needs to read from the same Redis as Django writes to
+        // This must match the ingestion redis fallback chain from hub.ts
+        this.restrictionRedisPool = createRedisPoolFromConfig({
+            connection: hub.INGESTION_REDIS_HOST
+                ? {
+                      url: hub.INGESTION_REDIS_HOST,
+                      options: { port: hub.INGESTION_REDIS_PORT },
+                      name: 'ingestion-redis',
+                  }
+                : hub.POSTHOG_REDIS_HOST
+                  ? {
+                        url: hub.POSTHOG_REDIS_HOST,
+                        options: { port: hub.POSTHOG_REDIS_PORT, password: hub.POSTHOG_REDIS_PASSWORD },
+                        name: 'ingestion-redis',
+                    }
+                  : { url: hub.REDIS_URL, name: 'ingestion-redis' },
+            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+        })
+
         const teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.redisPool, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
             pipeline: 'session_recordings',
         })
 
@@ -179,6 +208,19 @@ export class SessionRecordingIngester {
               )
             : new BlackholeSessionBatchFileStorage()
 
+        const sessionTracker = new SessionTracker(
+            this.redisPool,
+            this.hub.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
+        )
+        const sessionFilter = new SessionFilter({
+            redisPool: this.redisPool,
+            bucketCapacity: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
+            bucketReplenishRate: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
+            blockingEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
+            filterEnabled: this.hub.SESSION_RECORDING_SESSION_FILTER_ENABLED,
+            localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+        })
+
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.hub.SESSION_RECORDING_MAX_BATCH_AGE_MS,
@@ -187,6 +229,8 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
+            sessionTracker,
+            sessionFilter,
         })
     }
 

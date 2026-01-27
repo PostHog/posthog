@@ -193,6 +193,7 @@ export function serializeInvocation(invocation: CyclotronJobInvocation): Cyclotr
         id: invocation.id,
         teamId: invocation.teamId,
         functionId: invocation.functionId,
+        parentRunId: invocation.parentRunId,
         state: invocation.state,
         queue: invocation.queue,
         queueParameters: invocation.queueParameters,

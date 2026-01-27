@@ -27,7 +27,13 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { GeographyTab, ProductTab, TileId, webStatsBreakdownToPropertyName } from 'scenes/web-analytics/common'
+import {
+    GeographyTab,
+    ProductTab,
+    TileId,
+    faviconUrl,
+    webStatsBreakdownToPropertyName,
+} from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -323,10 +329,10 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                     return (
                         <div className="flex items-center gap-2">
                             <img
-                                src={`/static/favicons/${value}.png`}
-                                width={24}
-                                height={24}
-                                alt={`Favicon for ${value}`}
+                                src={faviconUrl(value)}
+                                width={14}
+                                height={14}
+                                alt={`${value} favicon`}
                                 onError={(e) => (e.currentTarget.style.display = 'none')}
                             />
                             {value}
@@ -343,7 +349,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     return null
 }
 
-const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): QueryContextColumnTitleComponent =>
+const SortableCell = (
+    name: string,
+    orderByField: WebAnalyticsOrderByFields,
+    tooltip?: string
+): QueryContextColumnTitleComponent =>
     function SortableCell() {
         const { tablesOrderBy } = useValues(webAnalyticsLogic)
         const { setTablesOrderBy } = useActions(webAnalyticsLogic)
@@ -360,7 +370,7 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
             }
         }, [isAscending, isSortedByMyField, setTablesOrderBy])
 
-        return (
+        const content = (
             <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
                 {name}
                 <IconChevronDown
@@ -372,6 +382,8 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
                 />
             </span>
         )
+
+        return tooltip ? <Tooltip title={tooltip}>{content}</Tooltip> : content
     }
 
 export const webAnalyticsDataTableQueryContext: QueryContext = {
@@ -386,7 +398,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             align: 'right',
         },
         avg_time_on_page: {
-            renderTitle: SortableCell('Avg Time on Page', WebAnalyticsOrderByFields.AvgTimeOnPage),
+            renderTitle: SortableCell(
+                'Time on Page',
+                WebAnalyticsOrderByFields.AvgTimeOnPage,
+                'The 90th percentile of time users spent on this page'
+            ),
             render: VariationCell({ isDuration: true }),
             align: 'right',
         },

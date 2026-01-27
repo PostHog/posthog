@@ -4,11 +4,10 @@ from typing import cast
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_action, _create_event, _create_person
 
-from hogql_parser import parse_expr
-
 from posthog.schema import BreakdownAttributionType, BreakdownFilter, EventsNode, FunnelsFilter, FunnelsQuery
 
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
@@ -629,7 +628,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         runner = FunnelsQueryRunner(query=query, team=self.team)
         inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
         inner_aggregation_query.select.append(
-            parse_expr(f"{runner.funnel_class.udf_event_array_filter()} AS filtered_array")
+            parse_expr(f"{runner.funnel_class.event_array_filter()} AS filtered_array")
         )
         inner_aggregation_query.having = None
         response = execute_hogql_query(

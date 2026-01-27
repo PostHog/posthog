@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    FuzzyInt,
     QueryMatchingTest,
     _create_event,
     _create_person,
@@ -79,6 +78,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+    @parameterized.expand(
+        [
+            ("trend", "/api/projects/{team_id}/insights/trend/"),
+            ("funnel", "/api/projects/{team_id}/insights/funnel/"),
+        ]
+    )
+    def test_legacy_insight_endpoints_blocked_with_feature_flag(self, _name: str, path: str) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.get(path.format(team_id=self.team.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
+        mock_feature_enabled.assert_called_once()
+        self.assertEqual(mock_feature_enabled.call_args[0][0], "legacy-insight-endpoints-disabled")
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
@@ -565,13 +579,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-            ],
+            [15, 15, 15, 15, 15],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -1083,8 +1091,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response_data = response.json()
             self.assertEqual(response_data["name"], "insight new name")
-            # tags are a paid feature and safely ignored when not licensed
-            self.assertEqual(sorted(response_data["tags"]), [])
+            self.assertEqual(sorted(response_data["tags"]), ["add", "tags", "these"])
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
             self.assertEqual(
                 response_data["effective_restriction_level"],
@@ -1109,6 +1116,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "item_id": str(insight_id),
                         "detail": {
                             "changes": [
+                                {
+                                    "type": "Insight",
+                                    "action": "changed",
+                                    "field": "tags",
+                                    "before": [],
+                                    "after": ["add", "tags", "these"],
+                                },
                                 {
                                     "type": "Insight",
                                     "action": "changed",

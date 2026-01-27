@@ -7,6 +7,7 @@ import {
     IconCopy,
     IconDatabase,
     IconDay,
+    IconExpand45,
     IconFeatures,
     IconGear,
     IconLaptop,
@@ -51,6 +52,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
@@ -149,6 +151,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { mobileLayout } = useValues(navigationLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { toggleZenMode } = useActions(navigation3000Logic)
 
     return (
         <DropdownMenu>
@@ -311,6 +314,19 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                     )}
 
                     <ThemeMenu />
+
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            tooltip="Hide navigation and focus on content"
+                            tooltipPlacement="right"
+                            onClick={toggleZenMode}
+                            menuItem
+                        >
+                            <IconExpand45 />
+                            Zen mode
+                            <KeyboardShortcut command option z className="ml-auto" />
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
 
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive

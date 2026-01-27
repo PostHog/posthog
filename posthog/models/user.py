@@ -13,6 +13,7 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
@@ -28,6 +29,10 @@ class Notifications(TypedDict, total=False):
     discussions_mentioned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
+    data_pipeline_error_threshold: (
+        float  # Failure rate threshold (0.0 to 1.0) - only notify if failure rate exceeds this
+    )
+    project_api_key_exposed: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -36,6 +41,8 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
+    "data_pipeline_error_threshold": 0.0,  # Default: notify on any failure (0% threshold)
+    "project_api_key_exposed": True,  # Project API key exposure alerts enabled by default
 }
 
 # We don't ned the following attributes in most cases, so we defer them by default
@@ -71,6 +78,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
             user.set_password(password)
         user.save()
         return user
@@ -153,7 +161,7 @@ class ShortcutPosition(models.TextChoices):
     HIDDEN = "hidden", "Hidden"
 
 
-class User(AbstractUser, UUIDTClassicModel):
+class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
 
@@ -194,6 +202,12 @@ class User(AbstractUser, UUIDTClassicModel):
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
     shortcut_position = models.CharField(
         max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+    )
+    passkeys_enabled_for_2fa = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
     )
 
     # DEPRECATED

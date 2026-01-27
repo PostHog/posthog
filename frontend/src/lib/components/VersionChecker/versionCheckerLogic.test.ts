@@ -1,125 +1,100 @@
 import { expectLogic } from 'kea-test-utils'
+import { rest } from 'msw'
 
-import { useMocks } from '~/mocks/jest'
+import { compareVersion } from 'lib/utils/semver'
+
+import { mswServer } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { PosthogJSDeprecation, versionCheckerLogic } from './versionCheckerLogic'
+import { versionCheckerLogic } from './versionCheckerLogic'
 
-const useMockedVersions = (
-    githubVersions: { version: string }[],
-    usedVersions: { version: string; timestamp: string }[],
-    deprecateBeforeVersion: string
-): void => {
-    useMocks({
-        get: {
-            'https://api.github.com/repos/posthog/posthog-js/tags': () => [
-                200,
-                githubVersions.map((x) => ({ name: x.version })),
-            ],
-            'https://raw.githubusercontent.com/PostHog/posthog-js/main/deprecation.json': () => [
-                200,
-                {
-                    deprecateBeforeVersion,
-                } as PosthogJSDeprecation,
-            ],
+// Helper to generate dates relative to now
+const daysAgo = (days: number): string => {
+    const date = new Date()
+    date.setDate(date.getDate() - days)
+    return date.toISOString()
+}
+
+// Helper to build the mock response data for SDK doctor API
+const buildSdkDoctorResponse = (
+    latestVersion: string,
+    usedVersions: { version: string; count: number; releaseDate?: string }[]
+): { web: { latest_version: string; usage: object[] } } => {
+    // Sort by semver descending to match backend behavior (see products/growth/dags/team_sdk_versions.py:43)
+    const sortedVersions = [...usedVersions].sort((a, b) => compareVersion(b.version, a.version))
+
+    return {
+        web: {
+            latest_version: latestVersion,
+            usage: sortedVersions.map((v) => ({
+                lib_version: v.version,
+                count: v.count,
+                is_latest: v.version === latestVersion,
+                max_timestamp: '2023-01-01T12:00:00Z',
+                // Default to 60 days ago to pass the 30-day single version grace period
+                release_date: v.releaseDate ?? daysAgo(60),
+            })),
         },
-        post: {
-            '/api/environments/:team_id/query': () => [
-                200,
-                {
-                    results: usedVersions.map((x) => [x.version, x.timestamp]),
-                },
-            ],
-        },
-    })
+    }
 }
 
 describe('versionCheckerLogic', () => {
-    // jest.setTimeout(1000)
     let logic: ReturnType<typeof versionCheckerLogic.build>
 
-    beforeEach(() => {
-        useMockedVersions([{ version: '1.0.0' }], [{ version: '1.0.0', timestamp: '2023-01-01T12:00:00Z' }], '1.0.0')
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    const setupTest = (
+        latestVersion: string,
+        usedVersions: { version: string; count: number; releaseDate?: string }[]
+    ): void => {
+        const mockResponse = buildSdkDoctorResponse(latestVersion, usedVersions)
+        mswServer.use(rest.get('/api/sdk_doctor', (_req, res, ctx) => res(ctx.json(mockResponse))))
         initKeaTests()
         localStorage.clear()
-        logic = versionCheckerLogic()
-    })
+        logic = versionCheckerLogic({ teamId: 1 })
+    }
 
-    afterEach(() => {
-        logic.unmount()
-    })
-
-    it('should load and check versions', async () => {
+    it('should not show warning when on latest version', async () => {
+        setupTest('1.0.0', [{ version: '1.0.0', count: 100 }])
         logic.mount()
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({
-                availableVersions: {
-                    sdkVersions: [{ major: 1, minor: 0, patch: 0 }],
-                    deprecation: { deprecateBeforeVersion: '1.0.0' },
-                },
-                usedVersions: [
-                    {
-                        version: { major: 1, minor: 0, patch: 0 },
-                        timestamp: '2023-01-01T12:00:00Z',
-                    },
-                ],
-                lastCheckTimestamp: expect.any(Number),
-                versionWarning: null,
-            })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            versionWarning: null,
+        })
     })
 
     it.each([
-        { versionCount: 1, expectation: null },
+        { latestVersion: '1.0.50', usedVersion: '1.0.0', expectation: null }, // Only 50 patches behind, no warning
         {
-            versionCount: 11,
-            expectation: null,
-        },
-        {
-            versionCount: 51,
-            expectation: {
-                latestUsedVersion: '1.0.0',
-                latestAvailableVersion: '1.0.50',
-                numVersionsBehind: 50,
-                level: 'error',
-            },
-        },
-        {
-            minorUsedVersion: 40,
-            versionCount: 1,
+            latestVersion: '1.40.0',
+            usedVersion: '1.0.0',
             expectation: {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '1.40.0',
-                numVersionsBehind: 40,
-                level: 'warning',
+                level: 'error',
             },
         },
         {
-            majorUsedVersion: 2,
-            versionCount: 1,
+            latestVersion: '1.50.0',
+            usedVersion: '1.0.0',
+            expectation: {
+                latestUsedVersion: '1.0.0',
+                latestAvailableVersion: '1.50.0',
+                level: 'error',
+            },
+        },
+        {
+            latestVersion: '2.0.0',
+            usedVersion: '1.0.0',
             expectation: {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '2.0.0',
-                numVersionsBehind: 1,
-                level: 'info',
+                level: 'error',
             },
         },
     ])('return a version warning if diff is great enough', async (options) => {
-        // TODO: How do we clear the persisted value?
-        const versionsList = Array.from({ length: options.versionCount }, (_, i) => ({
-            version: `${options.majorUsedVersion || 1}.${options.minorUsedVersion || 0}.${i}`,
-        })).reverse()
-
-        useMockedVersions(
-            versionsList,
-            [
-                {
-                    version: '1.0.0',
-                    timestamp: '2023-01-01T12:00:00Z',
-                },
-            ],
-            '1.0.0'
-        )
+        setupTest(options.latestVersion, [{ version: options.usedVersion, count: 100 }])
 
         logic.mount()
 
@@ -130,39 +105,31 @@ describe('versionCheckerLogic', () => {
     it.each([
         {
             usedVersions: [
-                { version: '1.9.0', timestamp: '2023-01-01T12:00:00Z' },
-                { version: '1.83.1', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '1.9.0', count: 50 },
+                { version: '1.83.1', count: 50 },
             ],
-            expectation: null,
-        },
-        {
-            usedVersions: [
-                { version: '1.80.0', timestamp: '2023-01-01T12:00:00Z' },
-                { version: '1.83.1', timestamp: '2023-01-01T10:00:00Z' },
-                { version: '1.20.1', timestamp: '2023-01-01T10:00:00Z' },
-                { version: '1.0.890', timestamp: '2023-01-01T10:00:00Z' },
-                { version: '0.89.5', timestamp: '2023-01-01T10:00:00Z' },
-                { version: '0.0.5', timestamp: '2023-01-01T10:00:00Z' },
-                { version: '1.84.0', timestamp: '2023-01-01T08:00:00Z' },
-            ],
-            expectation: null,
-        },
-        {
-            usedVersions: [
-                { version: '1.40.0', timestamp: '2023-01-01T12:00:00Z' },
-                { version: '1.41.1-beta', timestamp: '2023-01-01T10:00:00Z' },
-                { version: '1.42.0', timestamp: '2023-01-01T08:00:00Z' },
-                { version: '1.42.0-delta', timestamp: '2023-01-01T08:00:00Z' },
-            ],
+            latestVersion: '1.84.0',
+            // 1.9.0 is outdated and has 50% of traffic (≥10% threshold), so warning is expected
             expectation: {
-                latestUsedVersion: '1.42.0',
-                numVersionsBehind: 42,
+                latestUsedVersion: '1.83.1',
                 latestAvailableVersion: '1.84.0',
-                level: 'warning',
+                level: 'error',
             },
         },
-    ])('when having multiple versions used, should match with the latest one', async (options) => {
-        useMockedVersions([{ version: '1.84.0' }], options.usedVersions, '1.0.0')
+        {
+            usedVersions: [
+                { version: '1.40.0', count: 50 },
+                { version: '1.42.0', count: 50 },
+            ],
+            latestVersion: '1.84.0',
+            expectation: {
+                latestUsedVersion: '1.42.0',
+                latestAvailableVersion: '1.84.0',
+                level: 'error',
+            },
+        },
+    ])('when having multiple versions used, should match with the highest one', async (options) => {
+        setupTest(options.latestVersion, options.usedVersions)
 
         logic.mount()
 
@@ -170,22 +137,13 @@ describe('versionCheckerLogic', () => {
         expectLogic(logic).toMatchValues({ versionWarning: options.expectation })
     })
 
-    it('should show an error if the current version is below the deprecation version', async () => {
-        useMockedVersions(
-            [{ version: '1.0.1' }, { version: '1.0.0' }],
-            [{ version: '1.0.0', timestamp: '2023-01-01T12:00:00Z' }],
-            '1.0.1'
-        )
-
+    it('should show Current badge when used version is newer than latest cached from GitHub', async () => {
+        // Simulate stale cache: GitHub says latest is 1.300.0 but user has 1.333.0
+        setupTest('1.300.0', [{ version: '1.333.0', count: 100 }])
         logic.mount()
-
         await expectLogic(logic).toFinishAllListeners()
-        expectLogic(logic).toMatchValues({
-            versionWarning: {
-                latestUsedVersion: '1.0.0',
-                latestAvailableVersion: '1.0.1',
-                level: 'error',
-            },
-        })
+
+        const augmented = logic.values.augmentedData
+        expect(augmented?.web?.allReleases[0]?.isCurrentOrNewer).toBe(true)
     })
 })

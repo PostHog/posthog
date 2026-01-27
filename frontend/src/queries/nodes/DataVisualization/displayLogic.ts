@@ -1,5 +1,5 @@
 import * as d3 from 'd3'
-import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { GoalLine } from '~/queries/schema/schema-general'
@@ -17,7 +17,7 @@ export const displayLogic = kea<displayLogicType>([
     props({ key: '' } as DisplayLogicProps),
     connect(() => ({
         values: [dataVisualizationLogic, ['yData', 'query', 'chartSettings']],
-        actions: [dataVisualizationLogic, ['setQuery', 'updateChartSettings']],
+        actions: [dataVisualizationLogic, ['setQuery', 'updateChartSettings', '_setQuery']],
     })),
     actions(({ values }) => ({
         addGoalLine: () => ({ yData: values.yData }),
@@ -47,17 +47,10 @@ export const displayLogic = kea<displayLogicType>([
                     ]
                 },
                 removeGoalLine: (state, { goalLineIndex }) => {
-                    const goalLines = [...state]
-
-                    goalLines.splice(goalLineIndex, 1)
-                    return goalLines
+                    return state.filter((_, i) => i !== goalLineIndex)
                 },
                 updateGoalLine: (state, { goalLineIndex, key, value }) => {
-                    const goalLines = [...state]
-
-                    goalLines[goalLineIndex] = { ...goalLines[goalLineIndex], [key]: value }
-
-                    return goalLines
+                    return state.map((line, i) => (i === goalLineIndex ? { ...line, [key]: value } : line))
                 },
                 setGoalLines: (_state, { goalLines }) => {
                     return goalLines
@@ -65,6 +58,11 @@ export const displayLogic = kea<displayLogicType>([
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        _setQuery: ({ node }) => {
+            actions.setGoalLines(node.chartSettings?.goalLines ?? [])
+        },
+    })),
     afterMount(({ values, actions }) => {
         const chartSettings = values.query.chartSettings
 
@@ -72,17 +70,16 @@ export const displayLogic = kea<displayLogicType>([
             actions.setGoalLines(chartSettings.goalLines)
         }
     }),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         goalLines: (value: GoalLine[]) => {
-            const goalLines = value.length > 0 ? value : undefined
+            const currentGoalLines = values.chartSettings?.goalLines ?? []
+            const newGoalLines = value.length > 0 ? value : []
 
-            actions.setQuery((query) => ({
-                ...query,
-                chartSettings: {
-                    ...query.chartSettings,
-                    goalLines,
-                },
-            }))
+            if (JSON.stringify(currentGoalLines) === JSON.stringify(newGoalLines)) {
+                return
+            }
+
+            actions.updateChartSettings({ goalLines: value.length > 0 ? value : undefined })
         },
     })),
 ])

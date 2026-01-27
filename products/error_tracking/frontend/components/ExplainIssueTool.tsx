@@ -1,45 +1,19 @@
-import { IconList } from '@posthog/icons'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 
-import { addProductIntent } from 'lib/utils/product-intents'
-import { useMaxTool } from 'scenes/max/useMaxTool'
+export interface UseErrorTrackingExplainIssueReturn {
+    isMaxOpen: boolean
+    openMax: () => void
+}
 
-import {
-    ErrorTrackingExplainIssueToolContext,
-    ErrorTrackingRelationalIssue,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
+/**
+ * Hook to open Max AI side panel with a prompt to explain an error tracking issue.
+ * The issue context is automatically provided via the maxContext selector in errorTrackingIssueSceneLogic.
+ */
+export function useErrorTrackingExplainIssue(): UseErrorTrackingExplainIssueReturn {
+    const { isMaxOpen, openAi } = useOpenAi()
 
-import { useStacktraceDisplay } from '../hooks/use-stacktrace-display'
-
-export function useErrorTrackingExplainIssueMaxTool(
-    issueId: ErrorTrackingRelationalIssue['id'],
-    issueName: ErrorTrackingRelationalIssue['name']
-): ReturnType<typeof useMaxTool> {
-    const { ready, stacktraceText } = useStacktraceDisplay()
-
-    const context: ErrorTrackingExplainIssueToolContext = {
-        stacktrace: stacktraceText,
-        issue_name: issueName ?? issueId,
+    return {
+        isMaxOpen,
+        openMax: () => openAi('Explain this issue to me'),
     }
-
-    const maxToolResult = useMaxTool({
-        identifier: 'error_tracking_explain_issue',
-        context,
-        contextDescription: {
-            text: 'Issue stacktrace',
-            icon: <IconList />,
-        },
-        active: ready,
-        initialMaxPrompt: `Explain this issue to me`,
-        callback() {
-            addProductIntent({
-                product_type: ProductKey.ERROR_TRACKING,
-                intent_context: ProductIntentContext.ERROR_TRACKING_ISSUE_EXPLAINED,
-                metadata: { issue_id: issueId },
-            })
-        },
-    })
-
-    return maxToolResult
 }

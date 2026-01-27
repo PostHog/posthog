@@ -58,6 +58,7 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
+export const ONE_SECOND_MS = 1000
 
 export interface ResourceErrorDetails {
     resourceType: string
@@ -106,6 +107,7 @@ export enum SessionRecordingPlayerMode {
     Preview = 'preview',
     Screenshot = 'screenshot',
     Video = 'video',
+    Kiosk = 'kiosk',
 }
 
 export const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
@@ -405,6 +407,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         seekToTime: (timeInMilliseconds: number) => ({ timeInMilliseconds }),
         seekForward: (amount?: number) => ({ amount }),
         seekBackward: (amount?: number) => ({ amount }),
+        seekToStart: true,
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
@@ -457,6 +460,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMuted: (muted: boolean) => ({ muted }),
         setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => ({ skipToFirstMatchingEvent }),
         forcePause: true,
+        createExternalReference: (integrationId: number, config: Record<string, any>) => ({
+            integrationId,
+            config,
+        }),
     }),
     reducers(() => ({
         // used in visual regression testing to make sure the player is paused
@@ -979,6 +986,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
             },
         ],
+        isKioskMode: [
+            (s) => [s.logicProps],
+            (logicProps): boolean => logicProps.mode === SessionRecordingPlayerMode.Kiosk,
+        ],
         hoverModeIsEnabled: [
             (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
             (logicProps, isCommenting, showingClipParams): boolean => {
@@ -991,8 +1002,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         showPlayerChrome: [
-            (s) => [s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
-            (hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+            (s) => [s.isKioskMode, s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
+            (isKioskMode, hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+                // Kiosk mode never shows player controls
+                if (isKioskMode) {
+                    return false
+                }
+
                 if (!hoverModeIsEnabled) {
                     // we always show the UI in non-hover mode
                     return true
@@ -1139,49 +1155,99 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
                 logger: logging.logger,
             }
-            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
-            // Listen for resource errors from rrweb
-            replayer.on('fullsnapshot-rebuilded', () => {
-                const iframeContentWindow = replayer.iframe.contentWindow
-                const iframeFetch = replayer.iframe.contentWindow?.fetch
+            cache.disposables.add(() => {
+                const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                const iframeCleanups: (() => void)[] = []
 
-                if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
-                    // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
-                    // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
-                    const originalFetch = iframeFetch
-                    const windowRef = new WeakRef(iframeContentWindow)
+                replayer.on('fullsnapshot-rebuilded', () => {
+                    const iframeContentWindow = replayer.iframe.contentWindow
+                    const iframeDocument = iframeContentWindow?.document
+                    const iframeFetch = iframeContentWindow?.fetch
 
-                    iframeContentWindow.fetch = wrapFetchAndReport({
-                        fetch: iframeFetch,
-                        onError: (errorDetails: ResourceErrorDetails) => {
-                            actions.caughtAssetErrorFromIframe(errorDetails)
-                        },
-                    })
-                    ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+                    const setupErrorHandlers = (): void => {
+                        if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
+                            const originalFetch = iframeFetch
+                            const windowRef = new WeakRef(iframeContentWindow)
 
-                    cache.disposables.add(() => {
-                        return () => {
-                            const window = windowRef.deref()
-                            if (window && window.fetch) {
-                                window.fetch = originalFetch
-                                delete (window.fetch as any).__isWrappedForErrorReporting
-                            }
+                            iframeContentWindow.fetch = wrapFetchAndReport({
+                                fetch: iframeFetch,
+                                onError: (errorDetails: ResourceErrorDetails) => {
+                                    actions.caughtAssetErrorFromIframe(errorDetails)
+                                },
+                            })
+                            ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                            iframeCleanups.push(() => {
+                                const window = windowRef.deref()
+                                if (window && window.fetch) {
+                                    window.fetch = originalFetch
+                                    delete (window.fetch as any).__isWrappedForErrorReporting
+                                }
+                            })
                         }
-                    }, 'iframeFetchWrapper')
-                }
 
-                if (iframeContentWindow) {
-                    cache.disposables.add(() => {
-                        return registerErrorListeners({
-                            iframeWindow: iframeContentWindow,
-                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                        if (iframeContentWindow) {
+                            iframeCleanups.push(
+                                registerErrorListeners({
+                                    iframeWindow: iframeContentWindow,
+                                    onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                })
+                            )
+                        }
+                    }
+
+                    if (
+                        values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
+                        iframeDocument &&
+                        iframeDocument.readyState === 'loading'
+                    ) {
+                        const onReady = (): void => {
+                            setupErrorHandlers()
+
+                            if (replayer && values.currentTimestamp !== undefined && values.sessionPlayerData.start) {
+                                const currentTime = values.currentTimestamp - values.sessionPlayerData.start.valueOf()
+                                replayer.pause(currentTime)
+                                setTimeout(() => {
+                                    if (replayer) {
+                                        replayer.pause(currentTime)
+                                    }
+                                }, 0)
+                            }
+
+                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                        }
+                        iframeDocument.addEventListener('DOMContentLoaded', onReady)
+
+                        iframeCleanups.push(() => {
+                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
                         })
-                    }, 'iframeErrorListeners')
-                }
-            })
+                    } else {
+                        setupErrorHandlers()
+                    }
+                })
 
-            actions.setPlayer({ replayer, windowId })
+                actions.setPlayer({ replayer, windowId })
+
+                return () => {
+                    if (replayer) {
+                        for (const cleanup of iframeCleanups) {
+                            cleanup()
+                        }
+                        iframeCleanups.length = 0
+
+                        const iframe = replayer.iframe
+                        replayer.destroy()
+
+                        if (iframe?.contentDocument?.body) {
+                            iframe.contentDocument.body.innerHTML = ''
+                        }
+                        if (iframe?.contentDocument?.head) {
+                            iframe.contentDocument.head.innerHTML = ''
+                        }
+                    }
+                }
+            }, `replayer-${props.mode}`)
         },
         setPlayer: ({ player }) => {
             if (player) {
@@ -1189,6 +1255,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTimestamp(values.currentTimestamp)
                 }
                 actions.syncPlayerSpeed()
+                // Ensure we respect the persisted playing state when the player is reinitialized
+                if (values.playingState === SessionPlayerState.PAUSE && values.currentTimestamp !== undefined) {
+                    values.player?.replayer?.pause(values.toRRWebPlayerTime(values.currentTimestamp))
+                }
             }
         },
         setCurrentSegment: ({ segment }) => {
@@ -1270,21 +1340,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
                 const newSnapshots = allSnapshots.slice(currentEvents.length)
-
-                // Check if we have a full snapshot before adding incremental mutations
-                // This prevents the white screen bug where incremental mutations arrive before the full snapshot
-                // flag to test this in prod on select teams/recordings without affecting everyone
-                if (
-                    values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK] &&
-                    newSnapshots.length > 0
-                ) {
-                    const hasFullSnapshot = allSnapshots.some((e) => e.type === EventType.FullSnapshot)
-
-                    if (!hasFullSnapshot) {
-                        // We have new snapshots but no full snapshot anywhere yet - wait for it
-                        return
-                    }
-                }
 
                 eventsToAdd.push(...newSnapshots)
             }
@@ -1473,6 +1528,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
 
             actions.seekToTimestamp(newTimestamp)
+        },
+        seekToStart: () => {
+            actions.seekToTime(0)
         },
 
         togglePlayPause: () => {
@@ -1777,6 +1835,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.tryInitReplayer()
             }
         },
+        createExternalReference: async ({
+            integrationId,
+            config,
+        }: {
+            integrationId: number
+            config: Record<string, any>
+        }) => {
+            if (!values.sessionRecordingId) {
+                return
+            }
+
+            try {
+                await api.recordings.createExternalReference(values.sessionRecordingId, integrationId, config)
+
+                // Reload the recording metadata to get the updated external_references
+                actions.loadRecordingData()
+            } catch (error) {
+                lemonToast.error('Failed to create issue. Please try again.')
+                throw error
+            }
+        },
     })),
 
     subscriptions(({ actions, values }) => ({
@@ -1827,15 +1906,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
     beforeUnmount(({ values, actions, cache, props }) => {
         if (props.mode === SessionRecordingPlayerMode.Preview) {
-            values.player?.replayer?.destroy()
             return
         }
 
         actions.stopAnimation()
 
+        // Note: Disposables (timers, event listeners) are automatically cleaned up
+        // by the kea disposables plugin's beforeUnmount hook
+
         cache.hasInitialized = false
         cache.pausedMediaElements = []
-        values.player?.replayer?.destroy()
+
         actions.setPlayer(null)
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0

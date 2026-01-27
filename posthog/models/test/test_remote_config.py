@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.action.action import Action
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -125,6 +126,54 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
+
+    def test_conversations_disabled_by_default(self):
+        self.sync_remote_config()
+        assert (
+            self.remote_config.config.get("conversations") is None
+            or self.remote_config.config.get("conversations") is False
+        )
+
+    def test_conversations_enabled_with_defaults(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_public_token_123",
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"]["enabled"] is True
+        assert self.remote_config.config["conversations"]["greetingText"] == "Hey, how can I help you today?"
+        assert self.remote_config.config["conversations"]["color"] == "#1d4aff"
+        assert self.remote_config.config["conversations"]["token"] == "test_public_token_123"
+        assert self.remote_config.config["conversations"]["domains"] == []
+
+    def test_conversations_enabled_with_custom_config(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Welcome! Need assistance?",
+            "widget_color": "#ff5733",
+            "widget_public_token": "custom_token",
+            "widget_domains": ["example.com", "test.com"],
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"]["enabled"] is True
+        assert self.remote_config.config["conversations"]["greetingText"] == "Welcome! Need assistance?"
+        assert self.remote_config.config["conversations"]["color"] == "#ff5733"
+        assert self.remote_config.config["conversations"]["token"] == "custom_token"
+        assert self.remote_config.config["conversations"]["domains"] == ["example.com", "test.com"]
+
+    def test_conversations_disabled_returns_false(self):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "should_not_appear",
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"] is False
 
     @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.50"], ["0.00", "0.00"], [None, None]])
     def test_session_recording_sample_rate(self, value: str | None, expected: str | None) -> None:
@@ -358,34 +407,10 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         assert data == self.snapshot
 
     def _assert_matches_config_js(self, data):
-        assert (
-            data
-            == """\
-(function() {
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
-  window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
-    siteApps: []
-  }
-})();\
-"""
-        )
+        assert data == self.snapshot
 
     def _assert_matches_config_array_js(self, data):
-        assert (
-            data
-            == """\
-[MOCKED_ARRAY_JS_CONTENT]
-
-(function() {
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
-  window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
-    siteApps: []
-  }
-})();\
-"""
-        )
+        assert data == self.snapshot
 
     def test_syncs_if_changes(self):
         synced_at = self.remote_config.synced_at
@@ -482,6 +507,10 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 "suppressionRules": [],
             },
             "heatmaps": False,
+            "logs": {
+                "captureConsoleLogs": False,
+            },
+            "conversations": False,
             "surveys": False,
             "productTours": False,
             "defaultIdentifiedOnly": True,
@@ -534,9 +563,12 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         # It doesn't check the actual contents of the JS, as that changes often but checks some general things
         # We can easily see if it changed because the snapshot will be regenerated
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
+
+        # TODO: Come up with a good way of solidly testing this...
         assert js == self.snapshot
 
-    def test_renders_js_including_site_apps(self):
+    @patch("posthog.models.plugin.transpile", side_effect=mock_transpile)
+    def test_renders_js_including_site_apps(self, mock_transpile_fn):
         files = [
             "(function () { return { inject: (data) => console.log('injected!', data)}; })",
             "(function () { return { inject: (data) => console.log('injected 2!', data)}; })",
@@ -568,9 +600,12 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         plugin_configs[2].enabled = False
 
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
+
+        # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
         assert js == self.snapshot
 
-    def test_renders_js_including_site_functions(self):
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_renders_js_including_site_functions(self, mock_transpile_fn):
         non_site_app = HogFunction.objects.create(
             name="Non site app",
             type=HogFunctionType.DESTINATION,
@@ -613,9 +648,11 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         js = js.replace(str(site_destination.id), "SITE_DESTINATION_ID")
         js = js.replace(str(site_app.id), "SITE_APP_ID")
 
+        # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
         assert js == self.snapshot
 
-    def test_removes_deleted_site_functions(self):
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_removes_deleted_site_functions(self, mock_transpile_fn):
         site_destination = HogFunction.objects.create(
             name="Site destination",
             type=HogFunctionType.SITE_DESTINATION,

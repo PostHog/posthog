@@ -38,6 +38,8 @@ from posthog.schema import (
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
+    FilterLogicalOperator,
+    GroupNode,
     HogQLQueryModifiers,
     InCohortVia,
     IntervalType,
@@ -1017,6 +1019,73 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
 
+    def test_trends_avg_session_duration_with_cohort_breakdown(self):
+        # Regression test: queries with avg session_duration and multiple cohort
+        # breakdowns should not crash with AttributeError on SelectQueryAliasType
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p2", "type": "person"}]}],
+            name="cohort p2",
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, cohort2.pk]),
+        )
+
+        assert len(response.results) == 2
+
+        assert response.results[0]["label"] == "cohort p1"
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 0
+        assert len(response.results[0]["data"]) == 12
+        assert len(response.results[0]["days"]) == 12
+
+        assert response.results[1]["label"] == "cohort p2"
+        assert response.results[1]["breakdown_value"] == cohort2.pk
+        assert response.results[1]["count"] == 0
+        assert len(response.results[1]["data"]) == 12
+        assert len(response.results[1]["days"]) == 12
+
+    def test_trends_avg_session_duration_with_event_breakdown(self):
+        # Regression test: queries with avg session_duration and event property
+        # breakdown should not crash with AttributeError on SelectQueryAliasType
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+        )
+
+        assert len(response.results) == 4
+
+        breakdown_values = [result["breakdown_value"] for result in response.results]
+        assert "Chrome" in breakdown_values
+        assert "Firefox" in breakdown_values
+        assert "Edge" in breakdown_values
+        assert "Safari" in breakdown_values
+
+        for result in response.results:
+            assert result["count"] == 0
+            assert len(result["data"]) == 3
+            assert len(result["days"]) == 3
+
     def test_formula_with_multi_cohort_all_breakdown(self):
         self._create_test_events()
         cohort1 = Cohort.objects.create(
@@ -1212,6 +1281,65 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown_type=BreakdownType.PERSON, breakdown="$browser"),
         )
         self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.results[0]["data"])
+
+    def test_formula_with_breakdown_empty_series_result(self):
+        """
+        Test that formulas with breakdown handle the edge case where the first series
+        returns completely empty results (empty list), preventing IndexError.
+
+        Regression test for: IndexError when accessing results[0][0] when results[0] is empty.
+        This happens when series A has no events at all, but series B has breakdown values.
+        """
+        # Create events where series A ($pageview) has NO events,
+        # but series B ($pageleave) has breakdown values for Chrome and Firefox
+        _create_person(distinct_ids=["p1"], team=self.team, properties={"$browser": "Chrome"})
+        _create_person(distinct_ids=["p2"], team=self.team, properties={"$browser": "Firefox"})
+
+        # Only create $pageleave events (series B), no $pageview events (series A)
+        _create_event(
+            event="$pageleave",
+            distinct_id="p1",
+            team=self.team,
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="$pageleave",
+            distinct_id="p2",
+            team=self.team,
+            timestamp="2020-01-12T12:00:00Z",
+            properties={"$browser": "Firefox"},
+        )
+
+        flush_persons_and_events()
+
+        # This should not raise IndexError even though series A has completely empty results
+        # When creating fillers for series A, it tries to access results[0][0] for data length
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+2*B"),
+            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+        )
+
+        # Should have results for both Chrome and Firefox breakdown values
+        assert len(response.results) == 2
+
+        # Verify Chrome result (A=0 filler, B=1)
+        chrome_result = next((r for r in response.results if r["breakdown_value"] == "Chrome"), None)
+        assert chrome_result is not None
+        assert chrome_result["label"] == "Formula (A+2*B)"
+        # A=0 (filler), B=1, so A+2*B = 0+2*1 = 2
+        assert chrome_result["count"] == 2
+
+        # Verify Firefox result (A=0 filler, B=1)
+        firefox_result = next((r for r in response.results if r["breakdown_value"] == "Firefox"), None)
+        assert firefox_result is not None
+        assert firefox_result["label"] == "Formula (A+2*B)"
+        # A=0 (filler), B=1, so A+2*B = 0+2*1 = 2
+        assert firefox_result["count"] == 2
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_breakdown_is_context_aware(self, mock_sync_execute: MagicMock):
@@ -6715,3 +6843,239 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             6500.0,
             "Other should sum all ram_mb values from bins that didn't make the top 2 (4500 + 2000 = 6500), not take the max",
         )
+
+    def test_group_node_or_operator_combines_events(self):
+        """Test that GroupNode with OR operator correctly combines multiple events"""
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # Create a GroupNode that combines $pageview OR $pageleave with OR operator
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+            ),
+            team=self.team,
+        ).calculate()
+
+        self.assertEqual(1, len(response.results))
+        # Should combine all $pageview (10) + $pageleave (6) events = 16 total
+        self.assertEqual(16, response.results[0]["count"])
+        # Label should show combined events
+        self.assertEqual("$pageview, $pageleave", response.results[0]["label"])
+
+    def test_group_node_with_actions(self):
+        """Test that GroupNode works with ActionsNode"""
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # Create an action for pageview
+        page_action = Action.objects.create(
+            team=self.team,
+            name="Pageview Action",
+            steps_json=[
+                {"event": "$pageview"},
+                {"event": "$pageleave"},
+            ],
+        )
+
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                ActionsNode(id=page_action.id),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+            ),
+            team=self.team,
+        ).calculate()
+
+        self.assertEqual(1, len(response.results))
+        # Should have the action name in the label
+        self.assertIn("Pageview Action", response.results[0]["label"])
+        self.assertIn("$pageleave", response.results[0]["label"])
+        # Action matches pageview (10) + pageleave (6), combined with pageleave event (6) via OR = 16 total
+        self.assertEqual(16, response.results[0]["count"])
+
+    def test_group_node_with_breakdown(self):
+        """Test that GroupNode works correctly with breakdowns"""
+        self._create_test_events()
+        flush_persons_and_events()
+
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$browser",
+                    breakdown_type=BreakdownType.EVENT,
+                ),
+            ),
+            team=self.team,
+        ).calculate()
+
+        # Should have breakdown by browser
+        self.assertGreater(len(response.results), 1)
+        # Check that breakdown values are present
+        breakdown_values = [r["breakdown_value"] for r in response.results]
+        self.assertIn("Chrome", breakdown_values)
+        self.assertIn("Firefox", breakdown_values)
+
+    def test_group_node_with_properties_filter(self):
+        """Test that GroupNode respects properties filters"""
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # Create a GroupNode with property filters on the values
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$browser",
+                            value="Chrome",
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ],
+                ),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+            ),
+            team=self.team,
+        ).calculate()
+
+        self.assertEqual(1, len(response.results))
+        # Should only count Chrome $pageview events + all $pageleave events
+        # Chrome has 6 pageviews, all users have 6 pageleave total
+        self.assertEqual(12, response.results[0]["count"])
+
+    def test_mixed_series_group_event_and_action(self):
+        """
+        Test a query with 3 different series types:
+        1. GroupNode with 1 event ($pageleave) + 1 action (Page Action that combines pageview + pageleave)
+        2. Single EventsNode ($pageview)
+        3. Single ActionsNode (Pageview Action)
+        """
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # Page Action combines both pageview and pageleave events
+        page_action = Action.objects.create(
+            team=self.team,
+            name="Page Action",
+            steps_json=[
+                {"event": "$pageview"},
+                {"event": "$pageleave"},
+            ],
+        )
+
+        pageview_action = Action.objects.create(
+            team=self.team,
+            name="Pageview Action",
+            steps_json=[
+                {"event": "$pageview"},
+            ],
+        )
+
+        # Series 1: GroupNode with 1 event + 1 action
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(event="$pageleave"),
+                ActionsNode(id=page_action.id),
+            ],
+        )
+
+        # Series 2: Single EventsNode
+        single_event = EventsNode(event="$pageview")
+
+        # Series 3: Single ActionsNode
+        single_action = ActionsNode(id=pageview_action.id)
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[
+                    group_node,
+                    single_event,
+                    single_action,
+                ],
+            ),
+            team=self.team,
+        ).calculate()
+
+        # Should have results for all 3 series
+        self.assertEqual(3, len(response.results))
+
+        # First result: GroupNode ($pageleave event OR Page Action)
+        # Page Action matches both $pageview (10) and $pageleave (6) = 16 total
+        # With OR operator: $pageleave OR Page Action = all 16 events (since Page Action already includes pageleave)
+        self.assertEqual(16, response.results[0]["count"])
+        self.assertIn("$pageleave", response.results[0]["label"])
+        self.assertIn("Page Action", response.results[0]["label"])
+        self.assertEqual(0, response.results[0]["action"]["order"])
+
+        # Second result: EventsNode (pageview only)
+        self.assertEqual(10, response.results[1]["count"])
+        self.assertEqual("$pageview", response.results[1]["label"])
+        self.assertEqual(1, response.results[1]["action"]["order"])
+
+        # Third result: ActionsNode (Pageview Action - matches only $pageview)
+        self.assertEqual(10, response.results[2]["count"])
+        self.assertEqual("Pageview Action", response.results[2]["label"])
+        self.assertEqual(2, response.results[2]["action"]["order"])
+
+        # Verify all series have proper data arrays
+        for result in response.results:
+            self.assertEqual(11, len(result["data"]), "Should have 11 days of data")
+            self.assertEqual(result["count"], sum(result["data"]), "Count should equal sum of data points")

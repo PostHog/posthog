@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -51,8 +51,10 @@ PERMISSIONS = [
     "rak_subscription_read",
     "rak_application_fee_read",
     "rak_transfer_read",
+    "rak_connected_account_read",
+    "rak_payment_method_read",
 ]
-STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{"&".join( [f"permissions[{i}]={permission}" for i, permission in enumerate(PERMISSIONS)] )}"
+STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
 
 @SourceRegistry.register
@@ -73,7 +75,7 @@ By clicking the link above, you will be taken to a form that pre-fills everythin
 
 - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
 - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
-- Under the **Connect** resource type, select *read* for either the **entire resource** or **Application Fees** and **Transfers**
+- Under the **Connect** resource type, select *read* for the **entire resource**
 
 These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
 """,
@@ -144,9 +146,11 @@ These permissions are automatically pre-filled in the API key creation form if y
             for endpoint in STRIPE_ENDPOINTS
         ]
 
-    def validate_credentials(self, config: StripeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         try:
-            if validate_stripe_credentials(config.stripe_secret_key):
+            if validate_stripe_credentials(config.stripe_secret_key, schema_name):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"

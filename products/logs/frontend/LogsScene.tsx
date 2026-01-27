@@ -7,17 +7,18 @@ import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
-import { LogsFilters } from 'products/logs/frontend/components/LogsFilters'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
+import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
-import { logsLogic } from './logsLogic'
+import { logsSceneLogic } from './logsSceneLogic'
 
 export const scene: SceneExport = {
     component: LogsScene,
-    logic: logsLogic,
-    settingSectionId: 'product-logs',
+    logic: logsSceneLogic,
+    productKey: ProductKey.LOGS,
 }
 
 export function LogsScene(): JSX.Element {
@@ -40,8 +41,11 @@ const LogsSceneContent = (): JSX.Element => {
         hasMoreLogsToLoad,
         orderBy,
         sparklineData,
-    } = useValues(logsLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange } = useActions(logsLogic)
+        sparklineBreakdownBy,
+    } = useValues(logsSceneLogic)
+    const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy, zoomDateRange } =
+        useActions(logsSceneLogic)
 
     return (
         <>
@@ -52,6 +56,19 @@ const LogsSceneContent = (): JSX.Element => {
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
             />
+            {teamHasLogsCheckFailed && (
+                <LemonBanner
+                    type="info"
+                    dismissKey="logs-setup-hint-banner"
+                    action={{
+                        to: 'https://posthog.com/docs/logs/',
+                        targetBlank: true,
+                        children: 'Setup guide',
+                    }}
+                >
+                    Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
+                </LemonBanner>
+            )}
             <LemonBanner
                 type="warning"
                 dismissKey="logs-beta-banner"
@@ -63,7 +80,6 @@ const LogsSceneContent = (): JSX.Element => {
                     limits, we want to hear from you.
                 </p>
             </LemonBanner>
-            <LogsFilters />
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                 <LogsViewer
                     tabId={tabId}
@@ -79,6 +95,9 @@ const LogsSceneContent = (): JSX.Element => {
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading}
                     onDateRangeChange={setDateRange}
+                    sparklineBreakdownBy={sparklineBreakdownBy}
+                    onSparklineBreakdownByChange={setSparklineBreakdownBy}
+                    onExpandTimeRange={() => zoomDateRange(2)}
                 />
             </div>
         </>

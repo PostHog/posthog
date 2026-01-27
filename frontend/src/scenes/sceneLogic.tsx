@@ -7,8 +7,6 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -39,7 +37,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, OnboardingStepKey } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
@@ -256,22 +254,8 @@ const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseT
     return ensureActiveTab([...filteredPinned, ...unpinned.map((tab) => ({ ...tab, pinned: false }))])
 }
 
-export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
-    [ProductKey.SESSION_REPLAY]: [urls.replay()],
-    [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
-    [ProductKey.SURVEYS]: [urls.surveys()],
-    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.dataPipelines('sources'), urls.dataWarehouseSourceNew()],
-    [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
-    [ProductKey.ERROR_TRACKING]: [urls.errorTracking()],
-}
-
-const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WAREHOUSE]
-
 const pathPrefixesOnboardingNotRequiredFor = [
-    urls.onboarding(''),
-    urls.useCaseSelection(),
-    urls.products(),
+    urls.onboarding(),
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
@@ -318,14 +302,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [
-            router,
-            ['locationChanged', 'push'],
-            commandBarLogic,
-            ['setCommandBar'],
-            inviteLogic,
-            ['hideInviteModal'],
-        ],
+        actions: [router, ['locationChanged', 'push'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
@@ -780,18 +757,6 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
-        productFromUrl: [
-            () => [router.selectors.location],
-            (location: Location): ProductKey | null => {
-                const pathname = location.pathname
-                for (const [productKey, urls] of Object.entries(productUrlMapping)) {
-                    if (urls.some((url) => pathname.includes(url))) {
-                        return productKey as ProductKey
-                    }
-                }
-                return null
-            },
-        ],
 
         tabIds: [
             (s) => [s.tabs],
@@ -847,6 +812,12 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeTabId, s.tabs],
             (activeTabId, tabs): boolean => {
                 return activeTabId === tabs[0]?.id
+            },
+        ],
+        activeSceneProductKey: [
+            (s) => [s.activeExportedScene],
+            (activeExportedScene: SceneExport | null): ProductKey | null => {
+                return activeExportedScene?.productKey ?? null
             },
         ],
     }),
@@ -1003,21 +974,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             persistTabs(values.tabs, values.homepage)
 
-            // Open search or command bar
-            const params = new URLSearchParams(search)
-            const searchBar = params.get('searchBar')
-            const commandBar = params.get('commandBar')
-
-            if (searchBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
-                params.delete('searchBar')
-                router.actions.replace(pathname, params, hash)
-            } else if (commandBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
-                params.delete('commandBar')
-                router.actions.replace(pathname, params, hash)
-            }
-
             // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
@@ -1039,7 +995,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 !equal(lastParams.params, params.params) ||
                 JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
             ) {
-                posthog.capture('$pageview')
+                const productKey = values.activeSceneProductKey
+                posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
 
             if (tabId !== lastTabId) {
@@ -1140,62 +1097,24 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
+                        !teamLogic.values.hasOnboardedAnyProduct &&
                         !pathPrefixesOnboardingNotRequiredFor.some((path) =>
                             removeProjectIdIfPresent(location.pathname).startsWith(path)
                         )
                     ) {
-                        const allProductUrls = Object.values(productUrlMapping).flat()
-                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key) =>
-                            productUrlMapping[key as ProductKey]?.some(
-                                (path: string) =>
-                                    removeProjectIdIfPresent(location.pathname).startsWith(path) &&
-                                    !path.startsWith('/projects')
-                            )
-                        )
-                        if (!productsNotDependingOnEventIngestion.includes(productKeyFromUrl as ProductKey)) {
-                            if (
-                                !teamLogic.values.hasOnboardedAnyProduct &&
-                                !allProductUrls.some((path) =>
-                                    removeProjectIdIfPresent(location.pathname).startsWith(path)
-                                ) &&
-                                !teamLogic.values.currentTeam?.ingested_event
-                            ) {
-                                const nextUrl =
-                                    getRelativeNextPath(params.searchParams.next, location) ??
-                                    removeProjectIdIfPresent(location.pathname)
+                        const nextUrl =
+                            getRelativeNextPath(params.searchParams.next, location) ??
+                            removeProjectIdIfPresent(location.pathname)
 
-                                // Check if user is coming from a coupon campaign link
-                                const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
-                                if (campaign) {
-                                    router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
-                                    return
-                                }
-
-                                router.actions.replace(urls.useCaseSelection(), nextUrl ? { next: nextUrl } : undefined)
-                                return
-                            }
-
-                            if (
-                                productKeyFromUrl &&
-                                teamLogic.values.currentTeam &&
-                                !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
-                                // cloud mode? What is the experience for self-hosted?
-                            ) {
-                                if (
-                                    !teamLogic.values.hasOnboardedAnyProduct &&
-                                    !teamLogic.values.currentTeam?.ingested_event
-                                ) {
-                                    console.warn(
-                                        `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
-                                    )
-
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                    return
-                                }
-                            }
+                        // Check if user is coming from a coupon campaign link
+                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                        if (campaign) {
+                            router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
+                            return
                         }
+
+                        router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
+                        return
                     }
                 }
             }

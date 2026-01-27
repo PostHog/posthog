@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { debounce, slugify } from 'lib/utils'
@@ -36,6 +37,8 @@ export const endpointLogic = kea<endpointLogicType>([
         setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
+        openCreateFromInsightModal: true,
+        setDuplicateEndpoint: (endpoint: EndpointType | null) => ({ endpoint }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: () => ({}),
@@ -72,6 +75,12 @@ export const endpointLogic = kea<endpointLogicType>([
             null as string | null,
             {
                 setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
+            },
+        ],
+        duplicateEndpoint: [
+            null as EndpointType | null,
+            {
+                setDuplicateEndpoint: (_, { endpoint }) => endpoint,
             },
         ],
     }),
@@ -130,6 +139,9 @@ export const endpointLogic = kea<endpointLogicType>([
             actions.loadMaterializationStatus(name)
         }, 2000)
         return {
+            openCreateFromInsightModal: () => {
+                actions.loadEndpoints()
+            },
             createEndpoint: async ({ request }) => {
                 try {
                     if (request.name) {
@@ -145,6 +157,7 @@ export const endpointLogic = kea<endpointLogicType>([
             createEndpointSuccess: ({ response }) => {
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
+                actions.loadEndpoints()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
@@ -157,6 +170,9 @@ export const endpointLogic = kea<endpointLogicType>([
                         },
                     },
                 })
+
+                // Mark endpoint creation task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
             },
             createEndpointFailure: () => {
                 lemonToast.error('Failed to create endpoint')
@@ -182,7 +198,13 @@ export const endpointLogic = kea<endpointLogicType>([
                 } else {
                     lemonToast.success('Endpoint updated')
                 }
+
                 reloadMaterializationStatus(response.name)
+
+                // Mark activation task as completed when endpoint is activated
+                if (response.is_active) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureEndpoint)
+                }
             },
             updateEndpointFailure: () => {
                 lemonToast.error('Failed to update endpoint')

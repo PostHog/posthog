@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,7 +26,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -72,10 +72,14 @@ import {
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
+import {
+    EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    MetricInsightId,
+} from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentSceneLogic } from './experimentSceneLogic'
-import { experimentsLogic } from './experimentsLogic'
+import { experimentsLogic, getShippedVariantKey, isSingleVariantShipped } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     conversionRateForVariant,
@@ -338,6 +342,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
+                'reportExperimentMetricsRefreshed',
+                'reportExperimentAutoRefreshToggled',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -353,6 +359,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'openSecondarySharedMetricModal',
                 'openStopExperimentModal',
                 'closeStopExperimentModal',
+                'closePauseExperimentModal',
+                'closeResumeExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
             ],
@@ -364,6 +372,7 @@ export const experimentLogic = kea<experimentLogicType>([
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setExperimentType: (type?: string) => ({ type }),
+        setFeatureFlagActive: (isActive: boolean) => ({ isActive }),
         addVariant: true,
         removeVariant: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -376,6 +385,8 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
         endExperiment: true,
+        pauseExperiment: true,
+        resumeExperiment: true,
         archiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
@@ -506,6 +517,10 @@ export const experimentLogic = kea<experimentLogicType>([
             )[]
         ) => ({ results }),
         updateDistribution: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
+        resetAutoRefreshInterval: true,
+        stopAutoRefreshInterval: true,
+        setPageVisibility: (visible: boolean) => ({ visible }),
     }),
     reducers({
         experiment: [
@@ -907,8 +922,41 @@ export const experimentLogic = kea<experimentLogicType>([
                 setHogfettiTrigger: (_, { trigger }) => trigger,
             },
         ],
+        autoRefresh: [
+            {
+                interval: EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+                enabled: false,
+            } as { interval: number; enabled: boolean },
+            { persist: true, prefix: '2_' },
+            {
+                setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
+            },
+        ],
+        isPageVisible: [
+            true as boolean,
+            {
+                setPageVisibility: (_, { visible }) => visible,
+            },
+        ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
+        beforeUnmount: () => {
+            actions.stopAutoRefreshInterval()
+        },
+        setFeatureFlagActive: async ({ isActive }) => {
+            if (!values.experiment.feature_flag) {
+                lemonToast.error('Experiment does not have a feature flag linked')
+                return
+            }
+
+            const flagId = values.experiment.feature_flag.id
+            await featureFlagsLogic.asyncActions.updateFeatureFlag({
+                id: flagId,
+                payload: { active: isActive },
+            })
+
+            actions.loadExperiment()
+        },
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -1043,15 +1091,16 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
+            // Load metrics for running experiments (will set up auto-refresh after load completes)
             if (experiment?.start_date) {
-                actions.refreshExperimentResults()
+                actions.refreshExperimentResults(false)
             }
         },
         launchExperiment: async () => {
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
-            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchExperiment)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
         },
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })
@@ -1080,14 +1129,38 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             actions.closeStopExperimentModal()
         },
+        pauseExperiment: async () => {
+            await actions.setFeatureFlagActive(false)
+            actions.closePauseExperimentModal()
+            lemonToast.success('The feature flag has been disabled')
+            values.experiment && eventUsageLogic.actions.reportExperimentPaused(values.experiment)
+        },
+        resumeExperiment: async () => {
+            await actions.setFeatureFlagActive(true)
+            actions.closeResumeExperimentModal()
+            lemonToast.success('The feature flag has been enabled')
+            values.experiment && eventUsageLogic.actions.reportExperimentResumed(values.experiment)
+        },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         refreshExperimentResults: async ({ forceRefresh }) => {
-            actions.loadPrimaryMetricsResults(forceRefresh)
-            actions.loadSecondaryMetricsResults(forceRefresh)
-            actions.loadExposures(forceRefresh)
+            // Note: This listener is called both for manual and auto-refresh triggers
+            // The context parameter is not available here, so we'll track from the calling locations
+            try {
+                await Promise.all([
+                    actions.loadPrimaryMetricsResults(forceRefresh),
+                    actions.loadSecondaryMetricsResults(forceRefresh),
+                    actions.loadExposures(forceRefresh),
+                ])
+            } finally {
+                // Only set up auto-refresh if enabled AND page is visible
+                // This prevents the interval from restarting when async operations complete after the page becomes invisible
+                if (values.autoRefresh.enabled && values.experiment?.start_date && values.isPageVisible) {
+                    actions.resetAutoRefreshInterval()
+                }
+            }
         },
         updateExperimentMetrics: async () => {
             actions.updateExperiment({
@@ -1232,8 +1305,19 @@ export const experimentLogic = kea<experimentLogicType>([
                     id: sharedMetric.saved_metric,
                     metadata: sharedMetric.metadata,
                 }))
+
+            // Also remove orphaned shared metrics that were incorrectly stored in the metrics arrays
+            const cleanedMetrics = (values.experiment.metrics || []).filter(
+                (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
+            )
+            const cleanedMetricsSecondary = (values.experiment.metrics_secondary || []).filter(
+                (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
+            )
+
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: sharedMetricsIds,
+                metrics: cleanedMetrics,
+                metrics_secondary: cleanedMetricsSecondary,
             })
 
             actions.loadExperiment()
@@ -1413,6 +1497,11 @@ export const experimentLogic = kea<experimentLogicType>([
             })
 
             actions.setPrimaryMetricsResultsLoading(false)
+
+            // Mark the review results task as complete when results are loaded for a running experiment
+            if (values.experiment?.start_date) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
+            }
         },
         loadSecondaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setSecondaryMetricsResultsLoading(true)
@@ -1474,6 +1563,40 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.loadPrimaryMetricsResults(true)
             } else {
                 actions.loadSecondaryMetricsResults(true)
+            }
+        },
+        setAutoRefresh: ({ enabled, interval }) => {
+            // Track when user toggles auto-refresh settings
+            actions.reportExperimentAutoRefreshToggled(values.experiment, enabled, interval)
+            actions.resetAutoRefreshInterval()
+        },
+        stopAutoRefreshInterval: () => {
+            cache.disposables.dispose('autoRefreshInterval')
+        },
+        setPageVisibility: ({ visible }) => {
+            if (!visible) {
+                actions.stopAutoRefreshInterval()
+            } else if (values.autoRefresh.enabled) {
+                actions.resetAutoRefreshInterval()
+            }
+        },
+        resetAutoRefreshInterval: () => {
+            // Clear any existing interval first
+            cache.disposables.dispose('autoRefreshInterval')
+
+            if (values.autoRefresh.enabled) {
+                cache.disposables.add(() => {
+                    const intervalId = window.setInterval(() => {
+                        // Track auto-refresh trigger
+                        actions.reportExperimentMetricsRefreshed(values.experiment, true, {
+                            triggered_by: 'auto-refresh',
+                            auto_refresh_enabled: values.autoRefresh.enabled,
+                            auto_refresh_interval: values.autoRefresh.interval,
+                        })
+                        actions.refreshExperimentResults(true)
+                    }, values.autoRefresh.interval * 1000)
+                    return () => clearInterval(intervalId)
+                }, 'autoRefreshInterval')
             }
         },
     })),
@@ -1970,18 +2093,11 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         isSingleVariantShipped: [
             (s) => [s.experiment],
-            (experiment: Experiment): boolean => {
-                const filters = experiment.feature_flag?.filters
-
-                return (
-                    !!filters &&
-                    Array.isArray(filters.groups?.[0]?.properties) &&
-                    filters.groups?.[0]?.properties?.length === 0 &&
-                    filters.groups?.[0]?.rollout_percentage === 100 &&
-                    (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) ||
-                        false)
-                )
-            },
+            (experiment: Experiment): boolean => isSingleVariantShipped(experiment),
+        ],
+        shippedVariantKey: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string | null => getShippedVariantKey(experiment),
         ],
         hasPrimaryMetricSet: [
             (s) => [s.primaryMetricsLengthWithSharedMetrics],

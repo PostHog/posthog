@@ -127,6 +127,8 @@ class VercelIntegration:
         "billing": "/organization/billing/overview",
         "usage": "/organization/billing/usage",
         "support": "/#panel=support",
+        "secrets": "/settings/project#variables",
+        "onboarding": "/onboarding",
     }
     SSO_DEFAULT_REDIRECT = "/"
 
@@ -222,8 +224,8 @@ class VercelIntegration:
             {
                 "id": "posthog-usage-based",
                 "type": "subscription",
-                "name": "PostHog",
-                "description": "Usage-based analytics. First 1M events free. View pricing: https://posthog.com/pricing",
+                "name": "Pay-as-you-go",
+                "description": "Usage-based pricing. View pricing: https://posthog.com/pricing",
                 "scope": "installation",
                 "paymentMethodRequired": True,
                 "preauthorizationAmount": 0.5,
@@ -293,16 +295,18 @@ class VercelIntegration:
                 name=config.account.name or f"Vercel Installation {installation_id}"
             )
 
-            # Check if user already exists - if so, don't create mapping yet (wait for SSO) where user proves
-            # they have access to the account associated with the email they're using.
             existing_user = User.objects.filter(email=config.account.contact.email, is_active=True).first()
 
             if existing_user:
-                # Existing user - create organization and integration but no user mapping or org membership yet
-                # They'll need to login first before connecting via SSO and being added to the org
-                # Store the intended membership level for when they complete SSO
                 user = existing_user
                 user_created = False
+                if VercelIntegration._user_has_any_vercel_mapping(existing_user):
+                    VercelIntegration._add_user_to_organization(
+                        existing_user, organization, OrganizationMembership.Level.OWNER
+                    )
+                    should_create_mapping = True
+                else:
+                    should_create_mapping = False
             else:
                 user, user_created = VercelIntegration._find_or_create_user_by_email(
                     email=config.account.contact.email,
@@ -310,6 +314,7 @@ class VercelIntegration:
                     organization=organization,
                     level=OrganizationMembership.Level.OWNER,  # User installing gets owner level
                 )
+                should_create_mapping = user_created
 
             try:
                 org_integration, _ = OrganizationIntegration.objects.update_or_create(
@@ -322,8 +327,7 @@ class VercelIntegration:
                     },
                 )
 
-                # Only create user mapping for new users, existing users get mapped during SSO
-                if user_created:
+                if should_create_mapping:
                     VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
 
                 logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
@@ -396,14 +400,12 @@ class VercelIntegration:
         logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
         installation.delete()
-        is_dev = settings.DEBUG
         logger.info(
             "Successfully deleted Vercel installation",
             installation_id=installation_id,
-            finalized=is_dev,
             integration="vercel",
         )
-        return {"finalized": is_dev}  # Immediately finalize in dev mode for testing purposes
+        return {"finalized": True}
 
     @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:
@@ -808,7 +810,7 @@ class VercelIntegration:
             raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
         # Cache claims for potential existing user login flow (needed because the code can only be exchanged once)
-        VercelIntegration._set_cached_claims(code, claims, timeout=300)  # 5 minutes
+        VercelIntegration.set_cached_claims(code, claims, timeout=300)  # 5 minutes
 
         return claims
 
@@ -834,8 +836,24 @@ class VercelIntegration:
             if not isinstance(claims, VercelUserClaims):
                 raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
-            if not claims.user_email or request.user.email.lower() != claims.user_email.lower():
-                raise exceptions.PermissionDenied("Email verification failed for SSO")
+            if not claims.user_email:
+                raise exceptions.AuthenticationFailed("Vercel SSO claims missing user email")
+
+            if request.user.email.lower() != claims.user_email.lower():
+                logger.warning(
+                    "Email mismatch in Vercel SSO",
+                    expected_email=claims.user_email,
+                    logged_in_email=request.user.email,
+                    integration="vercel",
+                )
+                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
+                error_params = {
+                    "expected_email": claims.user_email,
+                    "current_email": request.user.email,
+                    "code": params.code,
+                    "state": params.state,
+                }
+                return f"/integrations/vercel/link-error?{urlencode(error_params)}"
 
             with transaction.atomic():
                 installation = OrganizationIntegration.objects.select_for_update().get(
@@ -844,7 +862,7 @@ class VercelIntegration:
                 )
 
                 intended_level = VercelIntegration._determine_membership_level(request.user.email, installation)
-                created = VercelIntegration._ensure_user_membership(
+                created = VercelIntegration._add_user_to_organization(
                     request.user, installation.organization, intended_level
                 )
 
@@ -888,7 +906,7 @@ class VercelIntegration:
         return OrganizationMembership.Level.MEMBER
 
     @staticmethod
-    def _ensure_user_membership(
+    def _add_user_to_organization(
         user: User, organization: Organization, level: OrganizationMembership.Level
     ) -> tuple[OrganizationMembership, bool]:
         membership, created = OrganizationMembership.objects.get_or_create(
@@ -918,14 +936,19 @@ class VercelIntegration:
         return claims
 
     @staticmethod
-    def _set_cached_claims(code: str, claims: VercelUserClaims, timeout: int = 300) -> None:
+    def set_cached_claims(code: str, claims: VercelUserClaims, timeout: int = 300) -> None:
         claims_key = VercelIntegration._get_cache_key(code)
         cache.set(claims_key, claims, timeout=timeout)
 
     @staticmethod
     def authenticate_sso(request, params: SSOParams) -> str:
+        claims: VercelClaims | None = None
         try:
-            claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
+            # First check for cached claims (from a previous attempt with email mismatch)
+            claims = VercelIntegration._get_cached_claims(params.code)
+            if claims is None:
+                # No cached claims, exchange the code with Vercel
+                claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
             if not isinstance(claims, VercelUserClaims):
                 raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
@@ -946,12 +969,18 @@ class VercelIntegration:
             )
             return redirect_url
         except RequiresExistingUserLogin as e:
+            # Re-cache the claims so they're available after the user logs in
+            if isinstance(claims, VercelUserClaims):
+                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
+
             continuation_url = f"/login/vercel/continue?{urlencode(params.to_dict_no_nulls())}"
-            login_url = f"/login?next={quote(continuation_url)}"
+            message = f"Please log in with {e.email} to link your Vercel account"
+            login_url = f"/login?email={quote(e.email)}&message={quote(message)}&next={quote(continuation_url)}"
 
             logger.info(
                 "Vercel SSO requires existing user login",
                 installation_id=e.installation_id,
+                email=e.email,
                 method="login_redirect_flow",
                 integration="vercel",
             )
@@ -968,6 +997,26 @@ class VercelIntegration:
             error_msg = response.error if response else "Token exchange failed"
             raise exceptions.AuthenticationFailed(f"Vercel token exchange failed: {error_msg}")
         return response
+
+    @staticmethod
+    def _user_has_any_vercel_mapping(user: User) -> bool:
+        """Check if user has any Vercel mappings (i.e., they've used Vercel before)."""
+        configs = (
+            OrganizationIntegration.objects.filter(kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL)
+            .values_list("config", flat=True)
+            .iterator()
+        )
+        for config in configs:
+            if not config:
+                continue
+            user_mappings = config.get("user_mappings", {})
+            for v in user_mappings.values():
+                try:
+                    if int(v) == user.pk:
+                        return True
+                except (ValueError, TypeError):
+                    capture_exception(ValueError(f"Corrupted user_mapping value: {v}"))
+        return False
 
     @staticmethod
     def _get_user_mapping(installation: OrganizationIntegration, vercel_user_id: str) -> int | None:
@@ -1013,7 +1062,7 @@ class VercelIntegration:
             )
             created = True
 
-        VercelIntegration._ensure_user_membership(user, organization, level)
+        VercelIntegration._add_user_to_organization(user, organization, level)
 
         return user, created
 

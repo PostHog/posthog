@@ -16,13 +16,13 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
+from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.event_usage import report_user_action
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
+from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
 
 # list of all event properties defined in the taxonomy, that don't start with $
@@ -146,6 +146,10 @@ class QueryContext:
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
     params: dict = dataclasses.field(default_factory=dict)
+
+    def __post_init__(self):
+        # Add limit and offset to params for parameterized query execution
+        self.params = {**self.params, "limit": self.limit, "offset": self.offset}
 
     def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> Self:
         if properties_to_filter:
@@ -324,7 +328,7 @@ class QueryContext:
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
             ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
-            LIMIT {self.limit} OFFSET {self.offset}
+            LIMIT %(limit)s OFFSET %(offset)s
             """
 
         return query
@@ -464,10 +468,6 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
 
             return super().update(property_definition, changed_fields)
         else:
-            # Any other fields require ingestion taxonomy feature
-            request = self.context.get("request")
-            if not (request and request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)):
-                raise EnterpriseFeatureException()
             return super().update(property_definition, validated_data)
 
 
@@ -510,6 +510,7 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
         return list(queryset)
 
 
+@extend_schema(tags=["core"])
 class PropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -564,33 +565,22 @@ class PropertyDefinitionViewSet(
             ]
         )
 
-        use_enterprise_taxonomy = (
-            isinstance(self.request.user, User)
-            and self.request.user.organization
-            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        )
         order_by_verified = False
-        if use_enterprise_taxonomy:
-            try:
-                # noinspection PyUnresolvedReferences
-                from ee.models.property_definition import EnterprisePropertyDefinition
+        if EE_AVAILABLE:
+            from ee.models.property_definition import EnterprisePropertyDefinition
 
-                # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-                property_definition_fields = ", ".join(
-                    [
-                        f'{f.cached_col.alias}."{f.column}"'
-                        for f in EnterprisePropertyDefinition._meta.get_fields()
-                        if hasattr(f, "column")
-                        and f.column not in ["deprecated_tags", "tags"]
-                        and hasattr(f, "cached_col")
-                    ]
-                )
+            # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+            property_definition_fields = ", ".join(
+                [
+                    f'{f.cached_col.alias}."{f.column}"'
+                    for f in EnterprisePropertyDefinition._meta.get_fields()
+                    if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"] and hasattr(f, "cached_col")
+                ]
+            )
 
-                queryset = EnterprisePropertyDefinition.objects
+            queryset = EnterprisePropertyDefinition.objects
 
-                order_by_verified = True
-            except ImportError:
-                use_enterprise_taxonomy = False
+            order_by_verified = True
 
         assert isinstance(self.paginator, NotCountingLimitOffsetPaginator)
         limit = self.paginator.get_limit(self.request)
@@ -612,7 +602,7 @@ class PropertyDefinitionViewSet(
                 project_id=self.project_id,
                 table=(
                     "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
-                    if use_enterprise_taxonomy
+                    if EE_AVAILABLE
                     else "posthog_propertydefinition"
                 ),
                 property_definition_fields=property_definition_fields,
@@ -637,9 +627,7 @@ class PropertyDefinitionViewSet(
                 query.validated_data.get("exclude_core_properties", False),
                 type=query.validated_data.get("type"),
             )
-            .with_hidden_filter(
-                query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=use_enterprise_taxonomy
-            )
+            .with_hidden_filter(query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=EE_AVAILABLE)
         )
 
         with connection.cursor() as cursor:
@@ -648,21 +636,15 @@ class PropertyDefinitionViewSet(
 
         self.paginator.set_count(full_count)
 
+        # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class: type[serializers.ModelSerializer] = self.serializer_class
-        if (
-            isinstance(self.request.user, User)
-            and self.request.user.organization
-            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        ):
-            try:
-                from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
-            except ImportError:
-                pass
-            else:
-                serializer_class = EnterprisePropertyDefinitionSerializer
+        if EE_AVAILABLE:
+            from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
+
+            serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
 
     def safely_get_object(self, queryset):
@@ -674,32 +656,25 @@ class PropertyDefinitionViewSet(
             id=id,
             effective_project_id=self.project_id,
         )
-        if (
-            isinstance(self.request.user, User)
-            and self.request.user.organization
-            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        ):
-            try:
-                # noinspection PyUnresolvedReferences
-                from ee.models.property_definition import EnterprisePropertyDefinition
-            except ImportError:
-                pass
-            else:
-                enterprise_property = (
-                    EnterprisePropertyDefinition.objects.alias(
-                        effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                    )
-                    .filter(id=id, effective_project_id=self.project_id)
-                    .first()
+        if EE_AVAILABLE:
+            from ee.models.property_definition import EnterprisePropertyDefinition
+
+            enterprise_property = (
+                EnterprisePropertyDefinition.objects.alias(
+                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
                 )
-                if enterprise_property:
-                    return enterprise_property
-                new_enterprise_property = EnterprisePropertyDefinition(
-                    propertydefinition_ptr_id=non_enterprise_property.id, description=""
-                )
-                new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
-                new_enterprise_property.save()
-                return new_enterprise_property
+                .filter(id=id, effective_project_id=self.project_id)
+                .first()
+            )
+            if enterprise_property:
+                return enterprise_property
+            # Lazy-create enterprise row if it doesn't exist
+            new_enterprise_property = EnterprisePropertyDefinition(
+                propertydefinition_ptr_id=non_enterprise_property.id, description=""
+            )
+            new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
+            new_enterprise_property.save()
+            return new_enterprise_property
         return non_enterprise_property
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])

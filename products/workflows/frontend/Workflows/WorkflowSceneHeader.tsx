@@ -4,29 +4,26 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SaveAsTemplateModal } from './SaveAsTemplateModal'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
+import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
+import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
-import { workflowTemplateLogic } from './workflowTemplateLogic'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
-    const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors, isTemplateEditMode } =
-        useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, deleteWorkflow } =
+    const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
+    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, archiveWorkflow } =
         useActions(logic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
     const templateId = searchParams.templateId as string | undefined
     const templateLogic = workflowTemplateLogic({ ...props, editTemplateId })
     const { showSaveAsTemplateModal } = useActions(templateLogic)
-    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isCreatedFromTemplate = props.id === 'new' && !!templateId
@@ -79,6 +76,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     size="small"
                                     disabledReason={workflowChanged ? 'Save changes first' : undefined}
                                     className="transition-colors duration-300 ease-in-out"
+                                    data-attr="workflow-launch"
                                 >
                                     <span
                                         className={`inline-block transition-opacity duration-300 ease-in-out ${
@@ -96,9 +94,16 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             <LemonButton fullWidth onClick={() => duplicate()}>
                                                 Duplicate
                                             </LemonButton>
+                                            <LemonButton fullWidth onClick={showSaveAsTemplateModal}>
+                                                Save as template
+                                            </LemonButton>
                                             <LemonDivider />
-                                            <LemonButton status="danger" fullWidth onClick={() => deleteWorkflow()}>
-                                                Delete
+                                            <LemonButton
+                                                status="danger"
+                                                fullWidth
+                                                onClick={() => archiveWorkflow(workflow)}
+                                            >
+                                                Archive
                                             </LemonButton>
                                         </>
                                     }
@@ -115,17 +120,16 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 Clear changes
                             </LemonButton>
                         )}
-                        {canCreateTemplates && (
+                        {editTemplateId ? (
                             <LemonButton
                                 type="primary"
                                 size="small"
                                 onClick={showSaveAsTemplateModal}
-                                loading={isTemplateEditMode && isWorkflowSubmitting}
+                                loading={isWorkflowSubmitting}
                             >
-                                {isTemplateEditMode ? 'Update template' : 'Save as template'}
+                                Update template
                             </LemonButton>
-                        )}
-                        {!isTemplateEditMode && (
+                        ) : (
                             <LemonButton
                                 type="primary"
                                 size="small"

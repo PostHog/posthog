@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -29,6 +30,8 @@ from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
+
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +72,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
+                # Move filter_test_accounts into filters for bytecode compilation
+                if data.get("config", {}).get("filter_test_accounts") is not None:
+                    filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
                 if filters:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
@@ -425,3 +431,24 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "total_users": total_users,
             }
         )
+
+    @action(detail=True, methods=["GET", "POST"])
+    def batch_jobs(self, request: Request, *args, **kwargs):
+        try:
+            hog_flow = self.get_object()
+        except Exception:
+            raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
+
+        if request.method == "POST":
+            serializer = HogFlowBatchJobSerializer(
+                data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
+            )
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=400)
+
+            batch_job = serializer.save()
+            return Response(HogFlowBatchJobSerializer(batch_job).data)
+        else:
+            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+            serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
+            return Response(serializer.data)

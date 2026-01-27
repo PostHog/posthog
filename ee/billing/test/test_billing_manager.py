@@ -160,6 +160,8 @@ class TestBillingManager(BaseTest):
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
+            "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
+            "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "survey_responses": {
                 "usage": 10,
@@ -190,6 +192,8 @@ class TestBillingManager(BaseTest):
                     "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
                     "survey_responses": {"usage": 10, "limit": 100},
                     "cdp_trigger_events": {"usage": 10, "limit": 100},
+                    "workflow_emails": {"usage": 100, "limit": 10000},
+                    "workflow_destinations_dispatched": {"usage": 50, "limit": 10000},
                 },
                 "billing_period": {
                     "current_period_start": "2024-01-01T00:00:00Z",
@@ -225,6 +229,8 @@ class TestBillingManager(BaseTest):
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
+            "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
+            "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},

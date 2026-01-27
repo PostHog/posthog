@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
@@ -24,6 +25,8 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 from temporalio import common
+
+from posthog.schema import ProductKey
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
@@ -70,6 +73,8 @@ from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
@@ -224,6 +229,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
+@extend_schema(tags=[ProductKey.PERSONS])
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
@@ -645,6 +651,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # HTTP error - if applicable, thrown after retires are exhausted
         except HTTPError as he:
+            logger.warning(
+                "delete_person_property.capture_http_error",
+                team_id=self.team_id,
+                person_uuid=str(person.uuid),
+                property_key=request.data.get("$unset"),
+                status_code=he.response.status_code,
+            )
             return response.Response(
                 {
                     "success": False,
@@ -655,10 +668,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
         except Exception:
+            logger.exception(
+                "delete_person_property.capture_error",
+                team_id=self.team_id,
+                person_uuid=str(person.uuid),
+                property_key=request.data.get("$unset"),
+            )
             return response.Response(
                 {
                     "success": False,
-                    "detail": f"Unable to delete property",
+                    "detail": "Unable to delete property",
                 },
                 status=400,
             )

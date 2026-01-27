@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -355,8 +355,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 alias="value",
                 expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
             )
-        elif breakdownType == "data_warehouse_person_property" and isinstance(breakdown, str):
+        elif breakdownType == "data_warehouse_person_property":
+            assert isinstance(breakdown, str)
             return ast.Field(chain=["person", *breakdown.split(".")])
+        elif breakdownType == "data_warehouse":
+            return get_breakdown_expr(breakdown, None)
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
@@ -367,8 +370,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
     def _get_breakdown_select_prop(self, source_kind: SourceTableKind) -> list[ast.Expr]:
         default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
 
-        breakdown, breakdownAttributionType, funnelsFilter = (
+        breakdown, breakdownType, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
+            self.context.breakdownType,
             self.context.breakdownAttributionType,
             self.context.funnelsFilter,
         )
@@ -378,7 +382,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # breakdown prop
         prop_basic: ast.Expr
-        if source_kind == SourceTableKind.EVENTS:
+        if (source_kind == SourceTableKind.EVENTS and breakdownType != "data_warehouse") or (
+            source_kind == SourceTableKind.DATA_WAREHOUSE and breakdownType == "data_warehouse"
+        ):
             prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
         else:
             prop_basic = parse_expr(f"{default_breakdown_selector} as prop_basic")
@@ -414,10 +420,30 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             if is_data_warehouse_source(source_kind):
                 assert isinstance(node, DataWarehouseNode)
                 if field == "uuid":
-                    return ast.Alias(
-                        alias="uuid",
-                        expr=ast.Call(name="toUUID", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field])]),
-                    )
+                    resolved_field = self.get_warehouse_field(node.table_name, node.id_field)
+                    if isinstance(resolved_field, UUIDDatabaseField):
+                        return ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field])
+                    else:
+                        # Handle non-UUID fields:
+                        # 1. Throw if we're encountering a null value.
+                        # 2. Try to cast strings to UUID directly.
+                        # 3. As a last resort, create a UUID by hashing the value with a table prefix.
+                        return parse_expr(
+                            f"""tupleElement((
+                                throwIf(isNull({{id_field}}), {{exception_message}}),
+                                toUUIDOrDefault(
+                                    {{id_field}},
+                                    reinterpretAsUUID(md5(concat({{table_prefix}}, toString({{id_field}}))))
+                                )
+                            ), 2)""",
+                            placeholders={
+                                "id_field": ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field]),
+                                "table_prefix": ast.Constant(value=f"{node.table_name}_"),
+                                "exception_message": ast.Constant(
+                                    value=f"Encountered a null value in {node.table_name}.{node.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values."
+                                ),
+                            },
+                        )
                 return ast.Constant(value=None)
             return ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])
 

@@ -1,13 +1,11 @@
 import { connect, kea, path, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
-import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
@@ -32,22 +30,23 @@ const ALWAYS_EXTRA_TABS = [
 const TABS_REQUIRING_A_TEAM = [
     SidePanelTab.Max,
     SidePanelTab.Notebooks,
+
     SidePanelTab.Activity,
-    SidePanelTab.Activation,
     SidePanelTab.Discussion,
     SidePanelTab.AccessControl,
     SidePanelTab.Exports,
     SidePanelTab.Health,
 ]
 
+/**
+ * @deprecated Sidepanel is soft-deprecated as only notebooks will be kept in sidepanel in future releases.
+ */
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     connect(() => ({
         values: [
             preflightLogic,
             ['isCloudOrDev'],
-            activationLogic,
-            ['shouldShowActivationTab'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
             // We need to mount this to ensure that marking as read works when the panel closes
@@ -87,15 +86,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Status)
                 }
 
-                // Quick start is shown in the sidebar for the first 90 days of a team's existence
-                if (currentTeam?.created_at) {
-                    const teamCreatedAt = dayjs(currentTeam.created_at)
-
-                    if (dayjs().diff(teamCreatedAt, 'day') < 90) {
-                        tabs.push(SidePanelTab.Activation)
-                    }
-                }
-
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
@@ -111,7 +101,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.Settings)
-                tabs.push(SidePanelTab.SdkDoctor)
+                if (isCloudOrDev) {
+                    tabs.push(SidePanelTab.SdkDoctor)
+                }
                 tabs.push(SidePanelTab.Health)
                 tabs.push(SidePanelTab.Changelog)
 
@@ -134,7 +126,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.needsAttention,
                 s.hasIssues,
                 s.hasAvailableFeature,
-                s.shouldShowActivationTab,
             ],
             (
                 enabledTabs,
@@ -145,8 +136,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 incidentioStatus,
                 needsAttention,
                 hasIssues,
-                hasAvailableFeature,
-                shouldShowActivationTab
+                hasAvailableFeature
             ): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
@@ -174,10 +164,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                     if (tab === SidePanelTab.Health && hasIssues) {
                         return true
-                    }
-
-                    if (tab === SidePanelTab.Activation && !shouldShowActivationTab) {
-                        return false
                     }
 
                     // Hide certain tabs unless they are selected

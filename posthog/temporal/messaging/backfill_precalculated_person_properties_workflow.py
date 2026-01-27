@@ -3,7 +3,7 @@ import time
 import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import temporalio.activity
 import temporalio.workflow
@@ -19,7 +19,94 @@ from posthog.temporal.common.logger import get_logger
 
 from common.hogvm.python.execute import execute_bytecode
 
+if TYPE_CHECKING:
+    from posthog.kafka_client.client import _KafkaProducer
+
 LOGGER = get_logger(__name__)
+
+
+def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, Any]:
+    """Parse person properties from ClickHouse, handling both string and dict formats.
+
+    Args:
+        properties_raw: The raw properties value from ClickHouse (can be string, dict, or None)
+        person_id: The person ID for logging purposes
+
+    Returns:
+        A dictionary of person properties (empty dict if parsing fails or non-dict value)
+    """
+    if isinstance(properties_raw, str):
+        try:
+            parsed = json.loads(properties_raw)
+            # Ensure we only return dicts (handles null, numbers, arrays, etc.)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            LOGGER.warning("Failed to parse properties for person", person_id=person_id)
+            return {}
+    else:
+        return properties_raw if isinstance(properties_raw, dict) else {}
+
+
+async def flush_kafka_batch(
+    kafka_producer: "_KafkaProducer",
+    pending_messages: list,
+    team_id: int,
+    cohort_id: int,
+    current_offset: int,
+    heartbeater,
+    logger,
+    is_final: bool = False,
+) -> int:
+    """Flush a batch of Kafka messages and check for failures.
+
+    Returns the number of messages flushed.
+    """
+    if not pending_messages:
+        return 0
+
+    batch_size = len(pending_messages)
+    batch_type = "final " if is_final else ""
+    heartbeater.details = (
+        f"Flushing {batch_type}{batch_size} messages for cohort {cohort_id} at offset {current_offset}",
+    )
+    logger.info(
+        f"Flushing {batch_type}batch of {batch_size} messages for cohort {cohort_id}",
+        team_id=team_id,
+        cohort_id=cohort_id,
+        offset=current_offset,
+        batch_size=batch_size,
+    )
+
+    await asyncio.to_thread(kafka_producer.flush)
+
+    # Check for failures in this batch
+    failed_count = 0
+    for send_result in pending_messages:
+        try:
+            send_result.get(timeout=0)  # Non-blocking check
+        except Exception as e:
+            logger.warning(
+                f"Kafka send result failure for cohort {cohort_id}: {e}",
+                team_id=team_id,
+                cohort_id=cohort_id,
+                offset=current_offset,
+                error=str(e),
+                exception_type=type(e).__name__,
+            )
+            failed_count += 1
+
+    if failed_count > 0:
+        logger.error(
+            f"Failed to send {failed_count}/{batch_size} Kafka messages for cohort {cohort_id}",
+            team_id=team_id,
+            cohort_id=cohort_id,
+            offset=current_offset,
+            failed_count=failed_count,
+            batch_size=batch_size,
+        )
+        raise Exception(f"Failed to send {failed_count}/{batch_size} Kafka messages for cohort {cohort_id}")
+
+    return batch_size
 
 
 def get_person_properties_backfill_success_metric():
@@ -94,6 +181,9 @@ async def backfill_precalculated_person_properties_activity(
         current_offset = inputs.offset
         total_processed = 0
         total_events_produced = 0
+        total_flushed = 0
+        FLUSH_BATCH_SIZE = 10_000  # Flush every 10k messages to allow heartbeats
+        pending_kafka_messages = []
 
         while True:
             # Check if we've hit the limit
@@ -148,7 +238,8 @@ async def backfill_precalculated_person_properties_activity(
                 "offset": current_offset,
             }
 
-            persons = []
+            batch_count = 0
+
             with tags_context(
                 team_id=inputs.team_id,
                 feature=Feature.BEHAVIORAL_COHORTS,
@@ -157,84 +248,114 @@ async def backfill_precalculated_person_properties_activity(
             ):
                 async with get_client(team_id=inputs.team_id) as client:
                     async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
-                        persons.append(row)
+                        batch_count += 1
+                        person_id = str(row["person_id"])
+
+                        person_properties = parse_person_properties(row.get("properties"), person_id)
+                        distinct_ids = row["distinct_ids"]
+
+                        for filter_info in inputs.filters:
+                            # Evaluate person against filter using HogQL bytecode
+                            globals_dict = {
+                                "person": {
+                                    "id": person_id,
+                                    "properties": person_properties,
+                                },
+                                "project": {
+                                    "id": inputs.team_id,
+                                },
+                            }
+
+                            try:
+                                result = await asyncio.to_thread(
+                                    execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
+                                )
+                                matches = bool(result.result) if result else False
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
+                                    person_id=person_id,
+                                    condition_hash=filter_info.condition_hash,
+                                    error=str(e),
+                                )
+                                matches = False
+
+                            # ALWAYS emit - both matches and non-matches for EACH distinct_id
+                            for distinct_id in distinct_ids:
+                                event = {
+                                    "distinct_id": distinct_id,
+                                    "person_id": person_id,
+                                    "team_id": inputs.team_id,
+                                    "condition": filter_info.condition_hash,
+                                    "matches": matches,
+                                    "source": f"cohort_backfill_{inputs.cohort_id}",
+                                }
+
+                                # Produce to Kafka without blocking - collect send results for later flushing
+                                try:
+                                    send_result = kafka_producer.produce(
+                                        topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                        key=event["distinct_id"],
+                                        data=event,
+                                    )
+                                    pending_kafka_messages.append(send_result)
+                                    total_events_produced += 1
+
+                                    # Flush in batches to allow heartbeats
+                                    if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
+                                        flushed = await flush_kafka_batch(
+                                            kafka_producer,
+                                            pending_kafka_messages,
+                                            inputs.team_id,
+                                            inputs.cohort_id,
+                                            current_offset,
+                                            heartbeater,
+                                            logger,
+                                        )
+                                        total_flushed += flushed
+                                        pending_kafka_messages.clear()
+
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Failed to produce Kafka message for distinct_id {event['distinct_id']}: {e}",
+                                        distinct_id=event["distinct_id"],
+                                        person_id=person_id,
+                                        error=str(e),
+                                    )
+                                    # Continue processing even if Kafka produce fails
 
             # No more persons, we're done
-            if not persons:
+            if batch_count == 0:
                 break
 
-            logger.info(f"Fetched {len(persons)} persons at offset {current_offset}")
+            logger.info(f"Streamed {batch_count} persons at offset {current_offset}")
 
-            # Evaluate each person against each filter
-            events_to_produce = []
-
-            for person in persons:
-                person_id = str(person["person_id"])
-                person_properties = json.loads(person["properties"]) if person["properties"] else {}
-                distinct_ids = person["distinct_ids"]
-
-                for filter_info in inputs.filters:
-                    # Evaluate person against filter using HogQL bytecode
-                    globals_dict = {
-                        "person": {
-                            "id": person_id,
-                            "properties": person_properties,
-                        },
-                        "project": {
-                            "id": inputs.team_id,
-                        },
-                    }
-
-                    try:
-                        result = await asyncio.to_thread(
-                            execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
-                        )
-                        matches = bool(result.result) if result else False
-                    except Exception as e:
-                        logger.warning(
-                            f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
-                            person_id=person_id,
-                            condition_hash=filter_info.condition_hash,
-                            error=str(e),
-                        )
-                        matches = False
-
-                    # ALWAYS emit - both matches and non-matches for EACH distinct_id
-                    for distinct_id in distinct_ids:
-                        event = {
-                            "distinct_id": distinct_id,
-                            "person_id": person_id,
-                            "team_id": inputs.team_id,
-                            "condition": filter_info.condition_hash,
-                            "matches": matches,
-                            "source": f"cohort_backfill_{inputs.cohort_id}",
-                        }
-                        events_to_produce.append(event)
-
-            # Produce events to Kafka in batches
-            if events_to_produce:
-                heartbeater.details = (f"Publishing {len(events_to_produce)} events to Kafka",)
-
-                for event in events_to_produce:
-                    await asyncio.to_thread(
-                        kafka_producer.produce,
-                        topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                        key=event["distinct_id"],
-                        data=event,
-                    )
-
-                total_events_produced += len(events_to_produce)
-                logger.info(f"Produced {len(events_to_produce)} events for batch at offset {current_offset}")
-
-            total_processed += len(persons)
-            current_offset += len(persons)
+            total_processed += batch_count
+            current_offset += batch_count
 
             # Update heartbeat
-            heartbeater.details = (f"Processed {total_processed} persons, produced {total_events_produced} events",)
+            heartbeater.details = (
+                f"Processed {total_processed} persons, produced {total_events_produced} events, flushed {total_flushed}",
+            )
 
             # If we got fewer persons than batch_size, we're done
-            if len(persons) < current_batch_size:
+            if batch_count < current_batch_size:
                 break
+
+        # Flush any remaining messages
+        if pending_kafka_messages:
+            flushed = await flush_kafka_batch(
+                kafka_producer,
+                pending_kafka_messages,
+                inputs.team_id,
+                inputs.cohort_id,
+                current_offset,
+                heartbeater,
+                logger,
+                is_final=True,
+            )
+            total_flushed += flushed
+            pending_kafka_messages.clear()
 
         end_time = time.time()
         duration_seconds = end_time - start_time
@@ -243,9 +364,10 @@ async def backfill_precalculated_person_properties_activity(
 
         logger.info(
             f"Completed person properties precalculation: processed {total_processed} persons, "
-            f"produced {total_events_produced} events in {duration_seconds:.1f} seconds",
+            f"produced {total_events_produced} events, flushed {total_flushed} in {duration_seconds:.1f} seconds",
             persons_processed=total_processed,
             events_produced=total_events_produced,
+            events_flushed=total_flushed,
             duration_seconds=duration_seconds,
         )
 
@@ -273,7 +395,7 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             backfill_precalculated_person_properties_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(hours=2),  # Long timeout for large batches
+            start_to_close_timeout=dt.timedelta(hours=12),  # Long timeout for large batches
             heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=3,

@@ -1,0 +1,64 @@
+# serializer version: 1
+# name: TestRemoteConfig.test_valid_array_js
+  b'[MOCKED_ARRAY_JS_CONTENT]\n\n(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
+# ---
+# name: TestRemoteConfig.test_valid_config
+  dict({
+    'analytics': dict({
+      'endpoint': '/i/v0/e/',
+    }),
+    'autocaptureExceptions': False,
+    'autocapture_opt_out': False,
+    'captureDeadClicks': False,
+    'capturePerformance': dict({
+      'network_timing': True,
+      'web_vitals': False,
+      'web_vitals_allowed_metrics': None,
+    }),
+    'conversations': False,
+    'defaultIdentifiedOnly': True,
+    'elementsChainAsString': True,
+    'errorTracking': dict({
+      'autocaptureExceptions': False,
+      'suppressionRules': list([
+      ]),
+    }),
+    'hasFeatureFlags': False,
+    'heatmaps': False,
+    'logs': dict({
+      'captureConsoleLogs': False,
+    }),
+    'productTours': False,
+    'sessionRecording': dict({
+      'consoleLogRecordingEnabled': True,
+      'endpoint': '/s/',
+      'eventTriggers': list([
+      ]),
+      'linkedFlag': None,
+      'masking': None,
+      'minimumDurationMilliseconds': None,
+      'networkPayloadCapture': None,
+      'recorderVersion': 'v2',
+      'sampleRate': None,
+      'scriptConfig': dict({
+        'script': 'posthog-recorder',
+      }),
+      'triggerMatchType': None,
+      'urlBlocklist': list([
+      ]),
+      'urlTriggers': list([
+      ]),
+    }),
+    'siteApps': list([
+    ]),
+    'supportedCompression': list([
+      'gzip',
+      'gzip-js',
+    ]),
+    'surveys': False,
+    'token': 'token123',
+  })
+# ---
+# name: TestRemoteConfig.test_valid_config_js
+  b'(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
+# ---
