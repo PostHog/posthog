@@ -1074,6 +1074,8 @@ export const surveyLogic = kea<surveyLogicType>([
             null as string | null,
             {
                 setEditingLanguage: (_, { language }) => language,
+                resetSurvey: () => null,
+                loadSurveySuccess: () => null,
             },
         ],
         showArchivedResponses: [
@@ -1852,32 +1854,109 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
                 })
 
+                // First collect fields that have translations but empty defaults
+                const fieldsWithEmptyDefaults = new Set<string>()
+                languages.forEach((lang) => {
+                    const trans = survey.translations?.[lang]
+                    if (trans) {
+                        const fieldChecks = [
+                            { key: 'name', defaultValue: survey.name },
+                            { key: 'description', defaultValue: survey.description },
+                            { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
+                            {
+                                key: 'thankYouMessageDescription',
+                                defaultValue: survey.appearance?.thankYouMessageDescription,
+                            },
+                            {
+                                key: 'thankYouMessageCloseButtonText',
+                                defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
+                            },
+                        ]
+                        fieldChecks.forEach(({ key, defaultValue }) => {
+                            const value = trans[key]
+                            const defaultIsEmpty =
+                                !defaultValue || typeof defaultValue !== 'string' || defaultValue.trim() === ''
+                            const translationHasValue =
+                                value !== undefined && typeof value === 'string' && value.trim() !== ''
+
+                            // Track fields with translations but empty defaults
+                            if (defaultIsEmpty && translationHasValue) {
+                                fieldsWithEmptyDefaults.add(key)
+                            }
+                        })
+                    }
+                })
+
+                // Add errors for empty default fields that have translations
+                if (fieldsWithEmptyDefaults.size > 0) {
+                    const fieldChecks = [
+                        { key: 'name', defaultValue: survey.name },
+                        { key: 'description', defaultValue: survey.description },
+                        { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
+                        {
+                            key: 'thankYouMessageDescription',
+                            defaultValue: survey.appearance?.thankYouMessageDescription,
+                        },
+                        {
+                            key: 'thankYouMessageCloseButtonText',
+                            defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
+                        },
+                    ]
+                    fieldChecks.forEach(({ key, defaultValue }) => {
+                        const defaultIsEmpty =
+                            !defaultValue || typeof defaultValue !== 'string' || defaultValue.trim() === ''
+                        if (defaultIsEmpty && fieldsWithEmptyDefaults.has(key)) {
+                            errors.push({
+                                language: 'default',
+                                questionIndex: -1,
+                                field: key,
+                                error: 'Cannot be empty (has translation)',
+                            })
+                        }
+                    })
+                }
+
                 // Validate survey-level translations
                 languages.forEach((lang) => {
                     const trans = survey.translations?.[lang]
                     if (trans) {
-                        const fields = [
-                            'name',
-                            'description',
-                            'thankYouMessageHeader',
-                            'thankYouMessageDescription',
-                            'thankYouMessageCloseButtonText',
+                        const fieldChecks = [
+                            { key: 'name', defaultValue: survey.name },
+                            { key: 'description', defaultValue: survey.description },
+                            { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
+                            {
+                                key: 'thankYouMessageDescription',
+                                defaultValue: survey.appearance?.thankYouMessageDescription,
+                            },
+                            {
+                                key: 'thankYouMessageCloseButtonText',
+                                defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
+                            },
                         ]
-                        fields.forEach((field) => {
-                            const value = trans[field]
+                        fieldChecks.forEach(({ key, defaultValue }) => {
+                            const value = trans[key]
+                            const defaultHasValue =
+                                defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
+
                             if (value === '[Translation needed]') {
                                 errors.push({
                                     language: lang,
                                     questionIndex: -1,
-                                    field,
+                                    field: key,
                                     error: 'Contains placeholder "[Translation needed]"',
                                 })
                             }
-                            if (typeof value === 'string' && value.trim() === '') {
+                            // Only validate empty translation strings if default has a value
+                            if (
+                                defaultHasValue &&
+                                value !== undefined &&
+                                typeof value === 'string' &&
+                                value.trim() === ''
+                            ) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: -1,
-                                    field,
+                                    field: key,
                                     error: 'Cannot be empty',
                                 })
                             }
@@ -1887,34 +1966,104 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // Validate question-level translations
                 survey.questions.forEach((question, qIndex) => {
+                    // Validate default choices for empty strings
+                    if (question.choices && Array.isArray(question.choices)) {
+                        question.choices.forEach((choice, choiceIndex) => {
+                            if (typeof choice === 'string' && choice.trim() === '') {
+                                errors.push({
+                                    language: 'default',
+                                    questionIndex: qIndex,
+                                    field: `choices[${choiceIndex}]`,
+                                    error: 'Cannot be empty',
+                                })
+                            }
+                        })
+                    }
+
                     if (!question.translations) {
                         return
                     }
 
+                    // First collect fields that have translations but empty defaults
+                    const fieldsWithEmptyDefaults = new Set<string>()
+                    Object.values(question.translations).forEach((trans) => {
+                        const textFieldChecks = [
+                            { key: 'question', defaultValue: question.question },
+                            { key: 'description', defaultValue: question.description },
+                            { key: 'buttonText', defaultValue: question.buttonText },
+                            { key: 'lowerBoundLabel', defaultValue: question.lowerBoundLabel },
+                            { key: 'upperBoundLabel', defaultValue: question.upperBoundLabel },
+                        ]
+                        textFieldChecks.forEach(({ key, defaultValue }) => {
+                            const value = trans[key]
+                            const defaultIsEmpty =
+                                !defaultValue || typeof defaultValue !== 'string' || defaultValue.trim() === ''
+                            const translationHasValue =
+                                value !== undefined && typeof value === 'string' && value.trim() !== ''
+
+                            // Track fields with translations but empty defaults
+                            if (defaultIsEmpty && translationHasValue) {
+                                fieldsWithEmptyDefaults.add(key)
+                            }
+                        })
+                    })
+
+                    // Add errors for empty default fields that have translations
+                    if (fieldsWithEmptyDefaults.size > 0) {
+                        const textFieldChecks = [
+                            { key: 'question', defaultValue: question.question },
+                            { key: 'description', defaultValue: question.description },
+                            { key: 'buttonText', defaultValue: question.buttonText },
+                            { key: 'lowerBoundLabel', defaultValue: question.lowerBoundLabel },
+                            { key: 'upperBoundLabel', defaultValue: question.upperBoundLabel },
+                        ]
+                        textFieldChecks.forEach(({ key, defaultValue }) => {
+                            const defaultIsEmpty =
+                                !defaultValue || typeof defaultValue !== 'string' || defaultValue.trim() === ''
+                            if (defaultIsEmpty && fieldsWithEmptyDefaults.has(key)) {
+                                errors.push({
+                                    language: 'default',
+                                    questionIndex: qIndex,
+                                    field: key,
+                                    error: 'Cannot be empty (has translation)',
+                                })
+                            }
+                        })
+                    }
+
                     Object.entries(question.translations).forEach(([lang, trans]) => {
                         // Check text fields
-                        const textFields = [
-                            'question',
-                            'description',
-                            'buttonText',
-                            'lowerBoundLabel',
-                            'upperBoundLabel',
+                        const textFieldChecks = [
+                            { key: 'question', defaultValue: question.question },
+                            { key: 'description', defaultValue: question.description },
+                            { key: 'buttonText', defaultValue: question.buttonText },
+                            { key: 'lowerBoundLabel', defaultValue: question.lowerBoundLabel },
+                            { key: 'upperBoundLabel', defaultValue: question.upperBoundLabel },
                         ]
-                        textFields.forEach((field) => {
-                            const value = trans[field]
+                        textFieldChecks.forEach(({ key, defaultValue }) => {
+                            const value = trans[key]
+                            const defaultHasValue =
+                                defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
+
                             if (value === '[Translation needed]') {
                                 errors.push({
                                     language: lang,
                                     questionIndex: qIndex,
-                                    field,
+                                    field: key,
                                     error: 'Contains placeholder "[Translation needed]"',
                                 })
                             }
-                            if (typeof value === 'string' && value.trim() === '') {
+                            // Only validate empty translation strings if default has a value
+                            if (
+                                defaultHasValue &&
+                                value !== undefined &&
+                                typeof value === 'string' &&
+                                value.trim() === ''
+                            ) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: qIndex,
-                                    field,
+                                    field: key,
                                     error: 'Cannot be empty',
                                 })
                             }
@@ -2412,6 +2561,9 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     afterMount(({ props, actions }) => {
+        // Reset editing language to prevent stale state from previous surveys
+        actions.setEditingLanguage(null)
+
         if (props.id !== 'new') {
             actions.loadSurvey()
         }
