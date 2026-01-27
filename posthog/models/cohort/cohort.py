@@ -25,7 +25,7 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
-from posthog.person_db_router import PERSONS_DB_FOR_READ, PERSONS_DB_FOR_WRITE
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
@@ -531,7 +531,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         uuids = [
             str(uuid)
-            for uuid in Person.objects.db_manager(PERSONS_DB_FOR_READ)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id)
             .filter(properties__email__in=emails)
             .values_list("uuid", flat=True)
