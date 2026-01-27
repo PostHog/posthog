@@ -1,7 +1,7 @@
 import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
@@ -11,6 +11,7 @@ import {
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { objectsEqual } from 'lib/utils'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -95,8 +96,12 @@ export function PropertyFilters({
     const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
+    const prevFiltersRef = useRef(propertyFilters)
     useEffect(() => {
-        setFilters(propertyFilters ?? [])
+        if (!objectsEqual(prevFiltersRef.current, propertyFilters)) {
+            prevFiltersRef.current = propertyFilters
+            setFilters(propertyFilters ?? [])
+        }
     }, [propertyFilters, setFilters])
 
     // do not open on initial render, only open if newly inserted
