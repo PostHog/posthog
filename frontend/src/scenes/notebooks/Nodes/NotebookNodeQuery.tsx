@@ -1,6 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -50,6 +50,15 @@ const Component = ({
     const { expanded } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
+
+    // Clear any stored height on mount for auto-sizing
+    const hasClearedInitialHeightRef = useRef(false)
+    useEffect(() => {
+        if (!hasClearedInitialHeightRef.current && (attributes as any).height !== undefined) {
+            hasClearedInitialHeightRef.current = true
+            updateAttributes({ height: undefined } as any)
+        }
+    }, [(attributes as any).height, updateAttributes])
 
     const insightLogicProps = {
         dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
