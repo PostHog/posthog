@@ -557,12 +557,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return []
 
         try:
-            # Use direct ClickHouse SQL for fast person lookup
+            # Use materialized email column for optimal performance
             query = """
             SELECT DISTINCT person.id
-            FROM person FINAL
+            FROM person
             WHERE person.team_id = %(team_id)s
-              AND JSONExtractString(person.properties, 'email') IN %(emails)s
+              AND person.pmat_email IN %(emails)s
               AND person.is_deleted = 0
             """
 
