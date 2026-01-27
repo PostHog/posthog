@@ -15,7 +15,6 @@ module.exports = {
 
     resolveTestPath: (snapshotFilePath, snapshotExtension) => {
         const testPath = snapshotFilePath.replace('__snapshots__/', '').replace(/\.snap$/, '')
-        console.log('resolveTestPath called: ', snapshotFilePath, snapshotExtension, testPath)
         return testPath
     },
 
