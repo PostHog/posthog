@@ -96,3 +96,12 @@ async def create_generation_clustering_coordinator_schedule(client: Client):
             coordinator_schedule,
             trigger_immediately=False,
         )
+
+
+async def delete_generation_clustering_coordinator_schedule(client: Client):
+    """Delete the generation clustering coordinator schedule.
+
+    Args:
+        client: Temporal client
+    """
+    await a_delete_schedule(client, GENERATION_COORDINATOR_SCHEDULE_ID)
