@@ -216,12 +216,22 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         return self.handle_activate(request, *args, **kwargs)
 
-    @action(methods=["GET"], detail=False)
+    # TODO: Once billing GET list() is removed (PR 3), switch to POST-only:
+    # - Remove handle_activate() and ActivateSerializer
+    # - Move handle_activate_post() logic into activate()
+    @action(methods=["GET", "POST"], detail=False)
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        if request.method == "POST":
+            return self.handle_activate_post(request)
         return self.handle_activate(request, *args, **kwargs)
 
-    # A viewset action cannot call another action directly so this is in place until
-    # the 'activation' endpoint is removed. Once removed, this method can move to the 'activate' action
+    def handle_activate_post(self, request: Request) -> Response:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.activate_subscription(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
+    # TODO: Remove once billing GET list() is removed (PR 3)
     def handle_activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         organization = self._get_org_required()

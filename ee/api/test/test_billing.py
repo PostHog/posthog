@@ -943,6 +943,19 @@ class TestActivateBillingAPI(APILicensedTest):
             },
         )
 
+    @patch("ee.billing.billing_manager.BillingManager.activate_subscription")
+    def test_activate_post_success(self, mock_activate_subscription):
+        mock_activate_subscription.return_value = {"success": True, "products": ["product_analytics"]}
+
+        url = "/api/billing/activate"
+        data = {"products": "all_products:"}
+
+        response = self.client.post(url, data, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "products": ["product_analytics"]})
+        mock_activate_subscription.assert_called_once_with(self.organization, {"products": "all_products:"})
+
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     def test_deactivate_success(self, mock_get_billing, mock_deactivate_products):
