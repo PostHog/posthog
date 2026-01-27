@@ -6,7 +6,7 @@ import urllib.parse
 from enum import Enum, auto
 from functools import wraps
 from ipaddress import ip_address
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -15,6 +15,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 import structlog
+from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
@@ -33,7 +34,8 @@ from posthog.exceptions import (
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
-from posthog.models import Entity
+from posthog.models import Entity, User
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -576,3 +578,32 @@ class ServerTimingsGathered:
             current_length = new_length
 
         return ", ".join(result)
+
+
+ACTIVITY_TYPES = {
+    "partial_update": "updated",
+    "update": "updated",
+    "delete": "deleted",
+    "create": "created",
+    "default": "changed",
+}
+
+
+def log_activity_from_viewset(viewset, instance, activity=None, name=None, previous=None) -> None:
+    try:
+        model_class = instance.__class__.__name__
+        name = name or model_class
+        activity = activity or ACTIVITY_TYPES.get(viewset.action, ACTIVITY_TYPES["default"])
+        changes = changes_between(model_class, previous=previous, current=instance)
+        log_activity(
+            organization_id=viewset.organization.id,
+            team_id=viewset.team.id,
+            user=cast(User, viewset.request.user),
+            was_impersonated=is_impersonated_session(viewset.request),
+            item_id=str(instance.id),
+            scope=model_class,
+            activity=activity,
+            detail=Detail(name=name, changes=changes),
+        )
+    except:
+        pass

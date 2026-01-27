@@ -1,14 +1,9 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getNextJSSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    Tab: any,
-    dedent: any,
-    snippets: any
-): StepDefinition[] => {
+export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = ctx
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -109,8 +104,9 @@ export const getNextJSSteps = (
                             </Tab.Panel>
                             <Tab.Panel>
                                 <Markdown>
-                                    For the App router, create a `providers.tsx` file in your `app` folder. The `posthog-js`
-                                    library needs to be initialized on the client-side using the `'use client'` directive:
+                                    For the App router, create a `providers.tsx` file in your `app` folder. The
+                                    `posthog-js` library needs to be initialized on the client-side using the `'use
+                                    client'` directive:
                                 </Markdown>
                                 <CodeBlock
                                     blocks={[
@@ -145,8 +141,8 @@ export const getNextJSSteps = (
                                     ]}
                                 />
                                 <Markdown>
-                                    Then import the `PostHogProvider` component in your `app/layout.tsx` and wrap your app
-                                    with it:
+                                    Then import the `PostHogProvider` component in your `app/layout.tsx` and wrap your
+                                    app with it:
                                 </Markdown>
                                 <CodeBlock
                                     blocks={[
@@ -218,7 +214,8 @@ export const getNextJSSteps = (
                     <CalloutBox type="fyi" title="Defaults option">
                         <Markdown>
                             The `defaults` option automatically configures PostHog with recommended settings for new
-                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for details.
+                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -263,9 +260,7 @@ export const getNextJSSteps = (
                                 />
                             </Tab.Panel>
                             <Tab.Panel>
-                                <Markdown>
-                                    Use the `usePostHog` hook to access PostHog in client components:
-                                </Markdown>
+                                <Markdown>Use the `usePostHog` hook to access PostHog in client components:</Markdown>
                                 <CodeBlock
                                     blocks={[
                                         {
@@ -300,9 +295,7 @@ export const getNextJSSteps = (
             badge: 'optional',
             content: (
                 <>
-                    <Markdown>
-                        To capture events from API routes or server actions, install `posthog-node`:
-                    </Markdown>
+                    <Markdown>To capture events from API routes or server actions, install `posthog-node`:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -341,8 +334,8 @@ export const getNextJSSteps = (
                         <Tab.Panels>
                             <Tab.Panel>
                                 <Markdown>
-                                    For the App router, you can use PostHog in API routes or server actions. Create a new
-                                    PostHog client instance for each request, or reuse a singleton instance across
+                                    For the App router, you can use PostHog in API routes or server actions. Create a
+                                    new PostHog client instance for each request, or reuse a singleton instance across
                                     requests:
                                 </Markdown>
                                 <CodeBlock
@@ -369,9 +362,7 @@ export const getNextJSSteps = (
                                         },
                                     ]}
                                 />
-                                <Markdown>
-                                    You can also use PostHog in server actions:
-                                </Markdown>
+                                <Markdown>You can also use PostHog in server actions:</Markdown>
                                 <CodeBlock
                                     blocks={[
                                         {
@@ -400,9 +391,7 @@ export const getNextJSSteps = (
                                 />
                             </Tab.Panel>
                             <Tab.Panel>
-                                <Markdown>
-                                    For the Pages router, use PostHog in your API routes:
-                                </Markdown>
+                                <Markdown>For the Pages router, use PostHog in your API routes:</Markdown>
                                 <CodeBlock
                                     blocks={[
                                         {
@@ -450,26 +439,9 @@ export const getNextJSSteps = (
         {
             title: 'Send events',
             badge: 'recommended',
-            content: (
-                <>
-                    {JSEventCapture && <JSEventCapture />}
-                </>
-            ),
+            content: <>{JSEventCapture && <JSEventCapture />}</>,
         },
     ]
 }
 
-export const NextJSInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-    const steps = getNextJSSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const NextJSInstallation = createInstallation(getNextJSSteps)

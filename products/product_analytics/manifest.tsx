@@ -41,12 +41,12 @@ export const manifest: ProductManifest = {
         } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
-                return urls.sqlEditor(query.query)
+                return urls.sqlEditor({ query: query.query })
             }
 
             // Redirect DataNode and DataViz queries with HogQL source to SQL editor
             if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-                return urls.sqlEditor(query.source.query)
+                return urls.sqlEditor({ query: query.source.query })
             }
 
             return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {

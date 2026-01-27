@@ -45,6 +45,7 @@ import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
@@ -461,7 +462,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <ReplayIntegrations />,
-                flag: 'REPLAY_LINEAR_INTEGRATION',
             },
         ],
     },
@@ -657,6 +657,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Notifications',
                 component: <ActivityLogNotifications />,
                 flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-discussions',
+        title: 'Discussions',
+        settings: [
+            {
+                id: 'discussion-mention-integrations',
+                title: 'Integrations',
+                component: <DiscussionMentionNotifications />,
             },
         ],
     },

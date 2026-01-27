@@ -30,10 +30,8 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
             <div className="text-sm truncate mb-auto">{responseText}</div>
             <div className="flex items-center justify-between text-xs text-secondary mt-1">
                 <PersonDisplay
-                    person={{
-                        distinct_id: response.distinctId,
-                        properties: response.personProperties || {},
-                    }}
+                    person={{ distinct_id: response.distinctId }}
+                    displayName={response.personDisplayName}
                     withIcon="xs"
                     noEllipsis={false}
                     noLink={!response.distinctId}
@@ -59,10 +57,8 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                     <p className="text-sm whitespace-pre-wrap leading-relaxed">{responseText}</p>
                     <div className="flex items-center justify-between text-xs text-secondary mt-3 pt-2 border-t">
                         <PersonDisplay
-                            person={{
-                                distinct_id: response.distinctId,
-                                properties: response.personProperties || {},
-                            }}
+                            person={{ distinct_id: response.distinctId }}
+                            displayName={response.personDisplayName}
                             withIcon
                             noEllipsis={false}
                             noLink={!response.distinctId}

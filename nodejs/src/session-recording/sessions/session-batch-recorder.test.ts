@@ -10,7 +10,9 @@ import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
+import { SessionTracker } from './session-tracker'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
@@ -127,6 +129,8 @@ jest.mock('./metrics', () => ({
         incrementBytesWritten: jest.fn(),
         incrementSessionsRateLimited: jest.fn(),
         incrementEventsRateLimited: jest.fn(),
+        incrementNewSessionsDetected: jest.fn(),
+        incrementNewSessionsRateLimited: jest.fn(),
     },
 }))
 
@@ -147,6 +151,8 @@ describe('SessionBatchRecorder', () => {
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockSessionTracker: jest.Mocked<SessionTracker>
+    let mockSessionFilter: jest.Mocked<SessionFilter>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -183,11 +189,22 @@ describe('SessionBatchRecorder', () => {
             newBatch: jest.fn().mockReturnValue(mockWriter),
         } as unknown as jest.Mocked<SessionBatchFileStorage>
 
+        mockSessionTracker = {
+            trackSession: jest.fn().mockResolvedValue(false),
+        } as unknown as jest.Mocked<SessionTracker>
+
+        mockSessionFilter = {
+            isBlocked: jest.fn().mockResolvedValue(false),
+            handleNewSession: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFilter>
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
+            mockSessionTracker,
+            mockSessionFilter,
             Number.MAX_SAFE_INTEGER
         )
     })
@@ -1407,6 +1424,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 Number.MAX_SAFE_INTEGER
             )
             await recorder.record(message)
@@ -1605,6 +1624,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 3
             )
 
@@ -1630,6 +1651,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 2
             )
 
@@ -1658,6 +1681,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 1
             )
 
@@ -1679,6 +1704,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 1
             )
 
@@ -1703,6 +1730,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 2
             )
 
@@ -1737,6 +1766,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 2
             )
 
@@ -1771,6 +1802,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 1
             )
 
@@ -1799,6 +1832,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 1
             )
 
@@ -1829,6 +1864,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 2
             )
 
@@ -1856,6 +1893,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 1
             )
 
@@ -1882,6 +1921,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 1
             )
 
@@ -1909,6 +1950,8 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 1
             )
 
@@ -1936,6 +1979,76 @@ describe('SessionBatchRecorder', () => {
 
             expect(SessionBatchMetrics.incrementSessionsRateLimited).toHaveBeenCalledTimes(1)
             expect(SessionBatchMetrics.incrementEventsRateLimited).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('new session rate limiting', () => {
+        it('should call handleNewSession for new sessions', async () => {
+            mockSessionTracker.trackSession.mockResolvedValue(true)
+
+            const message = createMessage('session1', [
+                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
+            ])
+
+            await recorder.record(message)
+
+            expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'session1')
+        })
+
+        it('should not call handleNewSession for existing sessions', async () => {
+            mockSessionTracker.trackSession.mockResolvedValue(false)
+
+            const message = createMessage('session1', [
+                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
+            ])
+
+            await recorder.record(message)
+
+            expect(mockSessionFilter.handleNewSession).not.toHaveBeenCalled()
+        })
+
+        it('should drop message when session is blocked after handleNewSession', async () => {
+            mockSessionTracker.trackSession.mockResolvedValue(true)
+            // Simulate handleNewSession blocking the session by having isBlocked return true
+            mockSessionFilter.isBlocked.mockResolvedValue(true)
+
+            const message = createMessage('session1', [
+                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
+            ])
+
+            const bytesWritten = await recorder.record(message)
+
+            expect(bytesWritten).toBe(0)
+            expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'session1')
+            expect(mockSessionFilter.isBlocked).toHaveBeenCalledWith(1, 'session1')
+        })
+
+        it('should track offset when new session is blocked', async () => {
+            mockSessionTracker.trackSession.mockResolvedValue(true)
+            mockSessionFilter.isBlocked.mockResolvedValue(true)
+
+            const message = createMessage(
+                'session1',
+                [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }],
+                { partition: 1, offset: 42 }
+            )
+
+            await recorder.record(message)
+
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 42 })
+        })
+
+        it('should allow new session when not blocked', async () => {
+            mockSessionTracker.trackSession.mockResolvedValue(true)
+            mockSessionFilter.isBlocked.mockResolvedValue(false)
+
+            const message = createMessage('session1', [
+                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
+            ])
+
+            const bytesWritten = await recorder.record(message)
+
+            expect(bytesWritten).toBeGreaterThan(0)
         })
     })
 })

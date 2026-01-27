@@ -27,6 +27,7 @@ use crate::{
         PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
     },
     processor_rebalance_handler::ProcessorRebalanceHandler,
+    rebalance_coordinator::RebalanceCoordinator,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
 };
@@ -97,8 +98,14 @@ impl KafkaDeduplicatorService {
                 .context("Failed to parse max_store_capacity")?,
         };
 
+        // Create rebalance coordinator first (other components depend on it)
+        let rebalance_coordinator = Arc::new(RebalanceCoordinator::new());
+
         // Create store manager for handling concurrent store creation
-        let store_manager = Arc::new(StoreManager::new(store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            store_config.clone(),
+            rebalance_coordinator.clone(),
+        ));
 
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {
@@ -310,8 +317,11 @@ impl KafkaDeduplicatorService {
             },
         };
 
+        // Get rebalance coordinator from store manager (created in new())
+        let rebalance_coordinator = self.store_manager.rebalance_coordinator().clone();
+
         // Create offset tracker for tracking processed offsets
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_coordinator.clone()));
 
         let router = Arc::new(PartitionRouter::new(
             processor,
@@ -328,6 +338,7 @@ impl KafkaDeduplicatorService {
         // Create rebalance handler with the router for partition worker management
         let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
             self.store_manager.clone(),
+            rebalance_coordinator,
             router,
             offset_tracker.clone(),
             self.checkpoint_importer.clone(),
@@ -355,6 +366,8 @@ impl KafkaDeduplicatorService {
                 .with_queued_max_messages_kbytes(
                     self.config.kafka_consumer_queued_max_messages_kbytes,
                 )
+                // Consumer group membership settings
+                .with_max_poll_interval_ms(self.config.kafka_max_poll_interval_ms)
                 .build();
 
         // Create shutdown channel

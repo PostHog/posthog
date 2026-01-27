@@ -1,7 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getBubbleSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
+export const getBubbleSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -54,17 +57,4 @@ export const getBubbleSteps = (CodeBlock: any, Markdown: any, dedent: any, snipp
     ]
 }
 
-export const BubbleInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getBubbleSteps(CodeBlock, Markdown, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const BubbleInstallation = createInstallation(getBubbleSteps)

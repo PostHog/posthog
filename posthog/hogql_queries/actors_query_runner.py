@@ -366,7 +366,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                         else None,
                     )
                 ):
-                    order_by = []
+                    order_by = [ast.OrderExpr(expr=ast.Field(chain=["id"]))]
                 else:
                     order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
             elif len(columns) > 0:
@@ -534,6 +534,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 props.append(f"toString(properties.{key})")
             else:
                 props.append(f"toString(properties.`{key}`)")
+        # nosemgrep: hogql-fstring-audit (property_keys from team config is admin-only, not user input)
         return parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
 
     @staticmethod
