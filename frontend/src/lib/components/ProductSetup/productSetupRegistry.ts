@@ -2,7 +2,7 @@ import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { InsightType, OnboardingStepKey, ReplayTabs } from '~/types'
+import { OnboardingStepKey, ReplayTabs } from '~/types'
 
 import { type ProductSetupConfig, type SetupTask, SetupTaskId } from './types'
 
@@ -58,7 +58,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Visualize how events or actions vary over time.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightNew({ type: InsightType.TRENDS }),
+                getUrl: () => urls.insightOptions(),
                 targetSelector: '[data-attr="insight-option-trends"]',
             },
             {
@@ -67,7 +67,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Track how users move through steps like signup → activation → purchase.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightNew({ type: InsightType.FUNNELS }),
+                getUrl: () => urls.insightOptions(),
                 targetSelector: '[data-attr="insight-option-funnels"]',
             },
             {
@@ -76,7 +76,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'See how many users return on subsequent days after an initial action.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightNew({ type: InsightType.RETENTION }),
+                getUrl: () => urls.insightOptions(),
                 targetSelector: '[data-attr="insight-option-retention"]',
             },
             {
@@ -85,7 +85,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Trace the journeys users take within your product.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightNew({ type: InsightType.PATHS }),
+                getUrl: () => urls.insightOptions(),
                 targetSelector: '[data-attr="insight-option-paths"]',
             },
             {
@@ -94,7 +94,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'See what keeps users coming back by viewing repeated actions.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightNew({ type: InsightType.STICKINESS }),
+                getUrl: () => urls.insightOptions(),
                 targetSelector: '[data-attr="insight-option-stickiness"]',
             },
             {
@@ -103,7 +103,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Break down users into new, returning, resurrected, and dormant.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
+                getUrl: () => urls.insightOptions(),
                 targetSelector: '[data-attr="insight-option-lifecycle"]',
             },
             {
