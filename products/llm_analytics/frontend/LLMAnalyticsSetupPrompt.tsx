@@ -6,7 +6,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 
 type Thing = 'generation' | 'trace'
 
@@ -19,7 +19,7 @@ export function LLMAnalyticsSetupPrompt({
     thing?: Thing
     className?: string
 }): JSX.Element {
-    const { hasSentAiEvent, hasSentAiEventLoading } = useValues(llmAnalyticsLogic)
+    const { hasSentAiEvent, hasSentAiEventLoading } = useValues(llmAnalyticsSharedLogic)
 
     return hasSentAiEventLoading ? (
         <div className="flex justify-center">
