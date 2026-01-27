@@ -13,7 +13,13 @@ module.exports = {
     // For jest-image-snapshot, see https://github.com/americanexpress/jest-image-snapshot#removing-outdated-snapshots
     reporters: ['default', 'jest-image-snapshot/src/outdated-snapshot-reporter.js'],
     testEnvironment: './test-runner-jest-environment.js',
-    // Exclude rust/ directory from Jest's module/snapshot scanning to prevent
-    // Rust test snapshots from being detected as "obsolete" during Storybook tests
-    modulePathIgnorePatterns: ['<rootDir>/rust/'],
+    // Explicitly set roots to exclude rust/ from Jest's scanning.
+    // Without this, Jest scans the entire rootDir and detects Rust test snapshots
+    // (*.snap files in rust/cymbal/tests/snapshots/) as "obsolete" because they
+    // don't correspond to any JavaScript tests.
+    roots: [
+        '<rootDir>/frontend',
+        '<rootDir>/products',
+        '<rootDir>/common',
+    ],
 }
