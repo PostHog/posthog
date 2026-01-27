@@ -25,6 +25,7 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
         clearErrorCount: true,
         resetCount: true, // Reset count when team changes or user logs out
         refreshCount: true, // Public action for other logics to trigger immediate refresh
+        loadUnreadCount: true, // Explicit parameterless action (loader will use this)
     }),
     reducers({
         errorCounter: [
