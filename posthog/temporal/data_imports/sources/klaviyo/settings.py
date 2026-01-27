@@ -20,7 +20,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "updated_at",
             "type": IncrementalFieldType.DateTime,
-            "field": "updated_at",
+            "field": "attributes__updated_at",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
@@ -28,7 +28,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "updated_at",
             "type": IncrementalFieldType.DateTime,
-            "field": "updated_at",
+            "field": "attributes__updated_at",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
@@ -36,7 +36,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "datetime",
             "type": IncrementalFieldType.DateTime,
-            "field": "datetime",
+            "field": "attributes__datetime",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
@@ -44,7 +44,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "updated",
             "type": IncrementalFieldType.DateTime,
-            "field": "updated",
+            "field": "attributes__updated",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
@@ -52,7 +52,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "updated",
             "type": IncrementalFieldType.DateTime,
-            "field": "updated",
+            "field": "attributes__updated",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
@@ -60,7 +60,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "updated",
             "type": IncrementalFieldType.DateTime,
-            "field": "updated",
+            "field": "attributes__updated",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
