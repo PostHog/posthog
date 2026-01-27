@@ -352,7 +352,7 @@ SELECT
     multiIf(not is_initial_query, '',
         JSONHas(log_comment, 'query', 'source'), JSONExtractString(log_comment, 'query', 'source', 'query'),
         JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
-    if(is_initial_query, JSONExtractRaw(log_comment, 'query'), '') as lc_query,,
+    if(is_initial_query, JSONExtractRaw(log_comment, 'query'), '') as lc_query,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
     JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
