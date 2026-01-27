@@ -13,9 +13,9 @@ def get_resource(
     name: str, should_use_incremental_field: bool, db_incremental_field_last_value: Any = None
 ) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
-        "Campaigns": {
-            "name": "Campaigns",
-            "table_name": "campaigns",
+        "Email Campaigns": {
+            "name": "Email Campaigns",
+            "table_name": "email_campaigns",
             "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
@@ -27,10 +27,30 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/campaigns",
                 "params": {
-                    "page[size]": 100,
-                    "filter": f"greater-than(updated_at,{db_incremental_field_last_value})"
+                    "filter": f"and(equals(messages.channel,'email'),greater-than(updated_at,{db_incremental_field_last_value}))"
                     if should_use_incremental_field and db_incremental_field_last_value
-                    else None,
+                    else "equals(messages.channel,'email')",
+                },
+            },
+            "table_format": "delta",
+        },
+        "SMS Campaigns": {
+            "name": "SMS Campaigns",
+            "table_name": "sms_campaigns",
+            "primary_key": "id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "data",
+                "path": "/campaigns",
+                "params": {
+                    "filter": f"and(equals(messages.channel,'sms'),greater-than(updated_at,{db_incremental_field_last_value}))"
+                    if should_use_incremental_field and db_incremental_field_last_value
+                    else "equals(messages.channel,'sms')",
                 },
             },
             "table_format": "delta",
