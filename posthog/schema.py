@@ -5541,16 +5541,6 @@ class RetentionValue(BaseModel):
     label: str | None = None
 
 
-class RevenueAnalyticsAssistantFilters(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: list[RevenueAnalyticsBreakdown]
-    date_from: str | None = None
-    date_to: str | None = None
-    properties: list[RevenueAnalyticsPropertyFilter]
-
-
 class RevenueAnalyticsEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12726,6 +12716,16 @@ class RetentionResult(BaseModel):
     values: list[RetentionValue]
 
 
+class RevenueAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[RevenueAnalyticsBreakdown]
+    date_from: str | None = None
+    date_to: str | None = None
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
+
+
 class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12733,7 +12733,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseMod
     dateRange: DateRange | None = None
     kind: NodeKind
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsGrossRevenueQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12746,7 +12746,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsMRRQueryResponse(BaseModel):
     dateRange: DateRange | None = None
     kind: NodeKind
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsMRRQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12759,7 +12759,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsMetricsQueryResponse(BaseModel):
     dateRange: DateRange | None = None
     kind: NodeKind
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsMetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12772,7 +12772,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     dateRange: DateRange | None = None
     kind: NodeKind
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsOverviewQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12785,7 +12785,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
     dateRange: DateRange | None = None
     kind: NodeKind
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsTopCustomersQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12809,7 +12809,7 @@ class RevenueAnalyticsGrossRevenueQuery(BaseModel):
     interval: SimpleIntervalType
     kind: Literal["RevenueAnalyticsGrossRevenueQuery"] = "RevenueAnalyticsGrossRevenueQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsGrossRevenueQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12824,7 +12824,7 @@ class RevenueAnalyticsMRRQuery(BaseModel):
     interval: SimpleIntervalType
     kind: Literal["RevenueAnalyticsMRRQuery"] = "RevenueAnalyticsMRRQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsMRRQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12839,7 +12839,7 @@ class RevenueAnalyticsMetricsQuery(BaseModel):
     interval: SimpleIntervalType
     kind: Literal["RevenueAnalyticsMetricsQuery"] = "RevenueAnalyticsMetricsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsMetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12852,7 +12852,7 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     dateRange: DateRange | None = None
     kind: Literal["RevenueAnalyticsOverviewQuery"] = "RevenueAnalyticsOverviewQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsOverviewQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12866,7 +12866,7 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
     groupBy: RevenueAnalyticsTopCustomersGroupBy
     kind: Literal["RevenueAnalyticsTopCustomersQuery"] = "RevenueAnalyticsTopCustomersQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[RevenueAnalyticsPropertyFilter]
+    properties: list[RevenueAnalyticsPropertyFilter | HogQLPropertyFilter]
     response: RevenueAnalyticsTopCustomersQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")

@@ -4899,7 +4899,15 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
     return errors === 0
 }
 export const RevenueAnalyticsPropertyFilters = validate66
-const schema53 = { items: { $ref: '#/definitions/RevenueAnalyticsPropertyFilter' }, type: 'array' }
+const schema53 = {
+    items: {
+        anyOf: [
+            { $ref: '#/definitions/RevenueAnalyticsPropertyFilter' },
+            { $ref: '#/definitions/HogQLPropertyFilter' },
+        ],
+    },
+    type: 'array',
+}
 function validate66(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
@@ -4908,9 +4916,13 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
             var valid0 = true
             const len0 = data.length
             for (let i0 = 0; i0 < len0; i0++) {
+                let data0 = data[i0]
                 const _errs1 = errors
+                const _errs2 = errors
+                let valid1 = false
+                const _errs3 = errors
                 if (
-                    !validate57(data[i0], {
+                    !validate57(data0, {
                         instancePath: instancePath + '/' + i0,
                         parentData: data,
                         parentDataProperty: i0,
@@ -4919,6 +4931,50 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
                 ) {
                     vErrors = vErrors === null ? validate57.errors : vErrors.concat(validate57.errors)
                     errors = vErrors.length
+                }
+                var _valid0 = _errs3 === errors
+                valid1 = valid1 || _valid0
+                if (!valid1) {
+                    const _errs4 = errors
+                    if (
+                        !validate42(data0, {
+                            instancePath: instancePath + '/' + i0,
+                            parentData: data,
+                            parentDataProperty: i0,
+                            rootData,
+                        })
+                    ) {
+                        vErrors = vErrors === null ? validate42.errors : vErrors.concat(validate42.errors)
+                        errors = vErrors.length
+                    }
+                    var _valid0 = _errs4 === errors
+                    valid1 = valid1 || _valid0
+                }
+                if (!valid1) {
+                    const err0 = {
+                        instancePath: instancePath + '/' + i0,
+                        schemaPath: '#/items/anyOf',
+                        keyword: 'anyOf',
+                        params: {},
+                        message: 'must match a schema in anyOf',
+                    }
+                    if (vErrors === null) {
+                        vErrors = [err0]
+                    } else {
+                        vErrors.push(err0)
+                    }
+                    errors++
+                    validate66.errors = vErrors
+                    return false
+                } else {
+                    errors = _errs2
+                    if (vErrors !== null) {
+                        if (_errs2) {
+                            vErrors.length = _errs2
+                        } else {
+                            vErrors = null
+                        }
+                    }
                 }
                 var valid0 = _errs1 === errors
                 if (!valid0) {
@@ -4941,8 +4997,8 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
     validate66.errors = vErrors
     return errors === 0
 }
-export const SessionPropertyFilter = validate68
-function validate68(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+export const SessionPropertyFilter = validate69
+function validate69(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -4953,7 +5009,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                 (data.operator === undefined && (missing0 = 'operator')) ||
                 (data.type === undefined && (missing0 = 'type'))
             ) {
-                validate68.errors = [
+                validate69.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -4975,7 +5031,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                             key0 === 'value'
                         )
                     ) {
-                        validate68.errors = [
+                        validate69.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -4992,7 +5048,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.key !== undefined) {
                         const _errs2 = errors
                         if (typeof data.key !== 'string') {
-                            validate68.errors = [
+                            validate69.errors = [
                                 {
                                     instancePath: instancePath + '/key',
                                     schemaPath: '#/properties/key/type',
@@ -5011,7 +5067,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                         if (data.label !== undefined) {
                             const _errs4 = errors
                             if (typeof data.label !== 'string') {
-                                validate68.errors = [
+                                validate69.errors = [
                                     {
                                         instancePath: instancePath + '/label',
                                         schemaPath: '#/properties/label/type',
@@ -5031,7 +5087,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                 let data2 = data.operator
                                 const _errs6 = errors
                                 if (typeof data2 !== 'string') {
-                                    validate68.errors = [
+                                    validate69.errors = [
                                         {
                                             instancePath: instancePath + '/operator',
                                             schemaPath: '#/definitions/PropertyOperator/type',
@@ -5078,7 +5134,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_wildcard'
                                     )
                                 ) {
-                                    validate68.errors = [
+                                    validate69.errors = [
                                         {
                                             instancePath: instancePath + '/operator',
                                             schemaPath: '#/definitions/PropertyOperator/enum',
@@ -5098,7 +5154,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                     let data3 = data.type
                                     const _errs9 = errors
                                     if (typeof data3 !== 'string') {
-                                        validate68.errors = [
+                                        validate69.errors = [
                                             {
                                                 instancePath: instancePath + '/type',
                                                 schemaPath: '#/properties/type/type',
@@ -5110,7 +5166,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                         return false
                                     }
                                     if ('session' !== data3) {
-                                        validate68.errors = [
+                                        validate69.errors = [
                                             {
                                                 instancePath: instancePath + '/type',
                                                 schemaPath: '#/properties/type/const',
@@ -5151,7 +5207,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate68.errors = [
+            validate69.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -5163,10 +5219,10 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate68.errors = vErrors
+    validate69.errors = vErrors
     return errors === 0
 }
-export const CompareFilter = validate70
+export const CompareFilter = validate71
 const schema56 = {
     additionalProperties: false,
     properties: {
@@ -5183,7 +5239,7 @@ const schema56 = {
     },
     type: 'object',
 }
-function validate70(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate71(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -5191,7 +5247,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
             const _errs1 = errors
             for (const key0 in data) {
                 if (!(key0 === 'compare' || key0 === 'compare_to')) {
-                    validate70.errors = [
+                    validate71.errors = [
                         {
                             instancePath,
                             schemaPath: '#/additionalProperties',
@@ -5208,7 +5264,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
                 if (data.compare !== undefined) {
                     const _errs2 = errors
                     if (typeof data.compare !== 'boolean') {
-                        validate70.errors = [
+                        validate71.errors = [
                             {
                                 instancePath: instancePath + '/compare',
                                 schemaPath: '#/properties/compare/type',
@@ -5227,7 +5283,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.compare_to !== undefined) {
                         const _errs4 = errors
                         if (typeof data.compare_to !== 'string') {
-                            validate70.errors = [
+                            validate71.errors = [
                                 {
                                     instancePath: instancePath + '/compare_to',
                                     schemaPath: '#/properties/compare_to/type',
@@ -5245,7 +5301,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate70.errors = [
+            validate71.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -5257,6 +5313,6 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate70.errors = vErrors
+    validate71.errors = vErrors
     return errors === 0
 }

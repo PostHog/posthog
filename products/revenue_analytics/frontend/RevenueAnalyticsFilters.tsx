@@ -10,6 +10,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isHogQLPropertyFilter, isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -202,7 +203,12 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                                     TaxonomicFilterGroupType.HogQLExpression,
                                 ]}
                                 onChange={(filters) =>
-                                    setRevenueAnalyticsFilters(filters as RevenueAnalyticsPropertyFiltersType)
+                                    setRevenueAnalyticsFilters(
+                                        filters.filter(
+                                            (f): f is RevenueAnalyticsPropertyFiltersType[number] =>
+                                                isRevenueAnalyticsPropertyFilter(f) || isHogQLPropertyFilter(f)
+                                        )
+                                    )
                                 }
                                 propertyFilters={revenueAnalyticsFilter}
                                 pageKey="revenue-analytics"
