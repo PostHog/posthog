@@ -303,6 +303,22 @@ describe('Hog Inputs', () => {
             return result.rows[0].id
         }
 
+        const setupFirebaseIntegration = () => {
+            const firebaseIntegration = {
+                id: 1,
+                team_id: team.id,
+                kind: 'firebase',
+                config: { project_id: 'test-project' },
+                sensitive_config: {
+                    key_info: {
+                        project_id: 'test-project',
+                    },
+                },
+            }
+            hub.integrationManager.getMany = jest.fn().mockResolvedValue({ 1: firebaseIntegration })
+            return firebaseIntegration
+        }
+
         let hogFunction: HogFunctionType
         let globals: HogFunctionInvocationGlobalsWithInputs
 
@@ -349,11 +365,21 @@ describe('Hog Inputs', () => {
         })
 
         it('resolves distinct_id to FCM token for active subscription', async () => {
+            setupFirebaseIntegration()
             const distinctId = 'user-123'
-            const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'app-123')
+            const matchingToken = 'fcm-token-abc123'
+            const nonMatchingToken = 'fcm-token-xyz789'
+            // Insert subscription with matching firebase_app_id
+            await insertPushSubscription(team.id, distinctId, matchingToken, 'android', true, 'fcm', 'test-project')
+            // Insert subscription with different firebase_app_id to verify filtering
+            await insertPushSubscription(team.id, distinctId, nonMatchingToken, 'android', true, 'fcm', 'other-project')
 
             hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
                 {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
@@ -361,6 +387,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: distinctId,
                 },
@@ -368,19 +397,27 @@ describe('Hog Inputs', () => {
 
             const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
             const result = await hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
+            // Should return matching token (test-project), not the non-matching one (other-project)
             expect(result).toEqual({
                 push_subscription_distinct_id: {
-                    value: token,
+                    value: matchingToken,
                 },
             })
+            expect(result.push_subscription_distinct_id.value).not.toBe(nonMatchingToken)
         })
 
         it('returns null for inactive subscription', async () => {
+            setupFirebaseIntegration()
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', false, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId, token, 'android', false, 'fcm', 'test-project')
 
             hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
                 {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
@@ -388,6 +425,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: distinctId,
                 },
@@ -403,11 +443,17 @@ describe('Hog Inputs', () => {
         })
 
         it('returns null for subscription from different team', async () => {
+            setupFirebaseIntegration()
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(999, distinctId, token, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(999, distinctId, token, 'android', true, 'fcm', 'test-project')
 
             hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
                 {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
@@ -415,6 +461,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: distinctId,
                 },
@@ -430,13 +479,19 @@ describe('Hog Inputs', () => {
         })
 
         it('filters by platform when specified', async () => {
+            setupFirebaseIntegration()
             const distinctId = 'user-123'
             const androidToken = 'fcm-token-android'
             const iosToken = 'fcm-token-ios'
-            await insertPushSubscription(team.id, distinctId, androidToken, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId, androidToken, 'android', true, 'fcm', 'test-project')
             await insertPushSubscription(team.id, distinctId, iosToken, 'ios', true, 'apns')
 
             hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
                 {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
@@ -444,6 +499,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: distinctId,
                 },
@@ -459,9 +517,10 @@ describe('Hog Inputs', () => {
         })
 
         it('resolves liquid template to distinct_id', async () => {
+            setupFirebaseIntegration()
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'test-project')
 
             globals.person = {
                 id: 'person-1',
@@ -472,6 +531,11 @@ describe('Hog Inputs', () => {
 
             hogFunction.inputs_schema = [
                 {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
+                {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
                     platform: 'android',
@@ -479,6 +543,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: '{{ person.name }}',
                     templating: 'liquid',
@@ -495,9 +562,10 @@ describe('Hog Inputs', () => {
         })
 
         it('resolves hog template to distinct_id', async () => {
+            setupFirebaseIntegration()
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'test-project')
 
             globals.event = {
                 ...globals.event!,
@@ -506,6 +574,11 @@ describe('Hog Inputs', () => {
 
             hogFunction.inputs_schema = [
                 {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
+                {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
                     platform: 'android',
@@ -513,6 +586,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: distinctId,
                     templating: 'hog',
@@ -530,7 +606,13 @@ describe('Hog Inputs', () => {
         })
 
         it('returns null when template resolution fails', async () => {
+            setupFirebaseIntegration()
             hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
                 {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
@@ -539,6 +621,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: '{{ invalid.template }}',
                     templating: 'liquid',
@@ -555,6 +640,7 @@ describe('Hog Inputs', () => {
         })
 
         it('falls back to related distinct_ids for same person and updates distinct_id', async () => {
+            setupFirebaseIntegration()
             const originalDistinctId = 'user-original'
             const newDistinctId = 'user-new'
             const token = 'fcm-token-abc123'
@@ -565,10 +651,15 @@ describe('Hog Inputs', () => {
             await insertPersonDistinctId(team.id, personId, newDistinctId)
 
             // Subscription exists with original distinct_id
-            await insertPushSubscription(team.id, originalDistinctId, token, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, originalDistinctId, token, 'android', true, 'fcm', 'test-project')
 
             // But we're looking for new distinct_id
             hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
                 {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
@@ -576,6 +667,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: newDistinctId,
                 },
@@ -601,14 +695,20 @@ describe('Hog Inputs', () => {
         })
 
         it('handles multiple push subscription inputs', async () => {
+            setupFirebaseIntegration()
             const distinctId1 = 'user-1'
             const distinctId2 = 'user-2'
             const token1 = 'fcm-token-1'
             const token2 = 'fcm-token-2'
-            await insertPushSubscription(team.id, distinctId1, token1, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId1, token1, 'android', true, 'fcm', 'test-project')
             await insertPushSubscription(team.id, distinctId2, token2, 'ios', true, 'apns')
 
             hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
                 {
                     key: 'android_token',
                     type: 'push_subscription_distinct_id',
@@ -621,6 +721,9 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 android_token: {
                     value: distinctId1,
                 },
@@ -692,7 +795,9 @@ describe('Hog Inputs', () => {
             })
         })
 
-        it('returns null when subscription not found', async () => {
+        it('throws error when integrationInputs is not provided', async () => {
+            const distinctId = 'user-123'
+
             hogFunction.inputs_schema = [
                 {
                     key: 'push_subscription_distinct_id',
@@ -701,6 +806,143 @@ describe('Hog Inputs', () => {
                 },
             ]
             hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            await expect(hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, undefined)).rejects.toThrow(
+                /firebase_account integration is required for push subscription inputs/
+            )
+        })
+
+        it('throws error when firebase_account integration is not present in integrationInputs', async () => {
+            const distinctId = 'user-123'
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            // integrationInputs exists but doesn't have firebase_account
+            const integrationInputs = {}
+
+            await expect(
+                hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
+            ).rejects.toThrow(/firebase_account integration is required for push subscription inputs but was not found/)
+        })
+
+        it('throws error when firebase_account integration value is null', async () => {
+            const distinctId = 'user-123'
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            // integrationInputs has firebase_account but value is null
+            const integrationInputs = {
+                firebase_account: {
+                    value: null,
+                },
+            }
+
+            await expect(
+                hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
+            ).rejects.toThrow(/firebase_account integration is required for push subscription inputs but was not found/)
+        })
+
+        it('throws error when firebase_account integration is present but firebase_app_id is missing', async () => {
+            const distinctId = 'user-123'
+
+            // Mock firebase_account integration without key_info.project_id
+            const firebaseIntegration = {
+                id: 1,
+                team_id: team.id,
+                kind: 'firebase',
+                config: {},
+                sensitive_config: {
+                    // key_info exists but doesn't have project_id
+                    key_info: {},
+                },
+            }
+            hub.integrationManager.getMany = jest.fn().mockResolvedValue({ 1: firebaseIntegration })
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
+                push_subscription_distinct_id: {
+                    value: distinctId,
+                },
+            }
+
+            const integrationInputs = await hogInputsService.loadIntegrationInputs(hogFunction)
+
+            await expect(
+                hogInputsService.loadPushSubscriptionInputs(hogFunction, globals, integrationInputs)
+            ).rejects.toThrow(/Firebase app ID.*not found.*firebase_account integration/)
+        })
+
+        it('returns null when subscription not found', async () => {
+            // Mock firebase_account integration
+            const firebaseIntegration = {
+                id: 1,
+                team_id: team.id,
+                kind: 'firebase',
+                config: { project_id: 'test-project' },
+                sensitive_config: {
+                    key_info: {
+                        project_id: 'test-project',
+                    },
+                },
+            }
+            hub.integrationManager.getMany = jest.fn().mockResolvedValue({ 1: firebaseIntegration })
+
+            hogFunction.inputs_schema = [
+                {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
+                {
+                    key: 'push_subscription_distinct_id',
+                    type: 'push_subscription_distinct_id',
+                    platform: 'android',
+                },
+            ]
+            hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: 'non-existent-user',
                 },
@@ -716,9 +958,10 @@ describe('Hog Inputs', () => {
         })
 
         it('handles liquid template with double braces detection', async () => {
+            setupFirebaseIntegration()
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'
-            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'app-123')
+            await insertPushSubscription(team.id, distinctId, token, 'android', true, 'fcm', 'test-project')
 
             globals.person = {
                 id: 'person-1',
@@ -729,12 +972,20 @@ describe('Hog Inputs', () => {
 
             hogFunction.inputs_schema = [
                 {
+                    key: 'firebase_account',
+                    type: 'integration',
+                    integration: 'firebase',
+                },
+                {
                     key: 'push_subscription_distinct_id',
                     type: 'push_subscription_distinct_id',
                     platform: 'android',
                 },
             ]
             hogFunction.inputs = {
+                firebase_account: {
+                    value: { integrationId: 1 },
+                },
                 push_subscription_distinct_id: {
                     value: '{{ person.name }}',
                     // No templating specified, but contains {{ so should use liquid

@@ -4,7 +4,6 @@ import { parseJSON } from '~/utils/json-parse'
 
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
-import { logger } from '../../../utils/logger'
 import { EncryptedFields } from '../../utils/encryption-utils'
 
 export type PushSubscriptionGetArgs = {
@@ -140,11 +139,8 @@ export class PushSubscriptionsManagerService {
         }
     }
 
-    // TODOdin: Do we really need this?
     private async fetchPushSubscriptions(ids: string[]): Promise<Record<string, PushSubscription[] | undefined>> {
         const subscriptionArgs = ids.map(fromKey)
-
-        logger.debug('[PushSubscriptionsManager]', 'Fetching push subscriptions', { subscriptionArgs })
 
         // Separate queries by platform, provider, and firebase_app_id filters for efficiency
         const queryGroups: Array<{ indices: number[]; args: PushSubscriptionGetArgs[] }> = []
