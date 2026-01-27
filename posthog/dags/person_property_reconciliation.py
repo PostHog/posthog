@@ -605,9 +605,8 @@ def compare_raw_updates_with_person_state(
     if not raw_updates:
         return []
 
-    # Build lookup from person_id to raw_update for efficient access
-    raw_updates_by_person: dict[str, RawPersonPropertyUpdates] = {u.person_id: u for u in raw_updates}
-    person_ids = list(raw_updates_by_person.keys())
+    # Extract person_ids for batching
+    person_ids = [u.person_id for u in raw_updates]
 
     # Query person properties and versions in batches to avoid "Query size exceeded"
     person_data: dict[str, tuple[dict, int]] = {}
