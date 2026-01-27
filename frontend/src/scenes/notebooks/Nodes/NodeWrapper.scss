@@ -35,6 +35,11 @@
         .NotebookNode__content {
             z-index: 1;
             transition: box-shadow 150ms ease-out;
+
+            // Prevent tables from growing to fill available space in notebooks
+            .LemonTable {
+                flex: none;
+            }
         }
     }
 
