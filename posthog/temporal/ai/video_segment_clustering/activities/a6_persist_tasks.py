@@ -170,7 +170,6 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
             start_time=segment_start_time,
             end_time=segment_end_time,
             defaults={
-                "team": team,
                 "distinct_id": segment.distinct_id,
                 "content": segment.content,
                 "distance_to_centroid": None,
