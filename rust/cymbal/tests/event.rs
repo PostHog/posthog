@@ -48,6 +48,7 @@ enum TestStacktrace {
 
 #[derive(Debug, Clone, Serialize)]
 struct TestFrame {
+    raw_id: String,
     mangled_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     resolved_name: Option<String>,
@@ -103,6 +104,7 @@ impl TestException {
 impl TestFrame {
     fn js(name: &str) -> Self {
         Self {
+            raw_id: format!("{}/0", Uuid::now_v7()),
             mangled_name: name.to_string(),
             resolved_name: Some(name.to_string()),
             source: None,
@@ -116,6 +118,7 @@ impl TestFrame {
 
     fn ts(name: &str) -> Self {
         Self {
+            raw_id: format!("{}/0", Uuid::now_v7()),
             mangled_name: name.to_string(),
             resolved_name: Some(name.to_string()),
             source: None,
@@ -189,8 +192,42 @@ impl TestHarness {
         self.post(serde_json::to_vec(input).unwrap()).await
     }
 
-    async fn post_raw<T: DeserializeOwned>(&self, json: &[u8]) -> (StatusCode, T) {
-        self.post(json.to_vec()).await
+    async fn post_event_to_team<T: DeserializeOwned>(
+        &self,
+        input: &TestEventInput,
+        path_team_id: i32,
+    ) -> (StatusCode, T) {
+        utils::get_response(
+            self.db.clone(),
+            STORAGE_BUCKET.to_string(),
+            || {
+                Request::builder()
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .uri(format!("/{}/event/process", path_team_id))
+                    .body(Body::from(serde_json::to_vec(input).unwrap()))
+                    .unwrap()
+            },
+            Arc::new(Self::create_s3_mock()),
+        )
+        .await
+    }
+
+    async fn post_raw_string(&self, json: &[u8]) -> (StatusCode, String) {
+        utils::get_raw_response(
+            self.db.clone(),
+            STORAGE_BUCKET.to_string(),
+            || {
+                Request::builder()
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .uri("/1/event/process")
+                    .body(Body::from(json.to_vec()))
+                    .unwrap()
+            },
+            Arc::new(Self::create_s3_mock()),
+        )
+        .await
     }
 
     async fn suppress_issue(&self, issue_id: Uuid) {
@@ -217,10 +254,14 @@ impl TestHarness {
 async fn invalid_request_returns_400(db: PgPool) {
     let harness = TestHarness::new(db);
 
-    let (status, body): (_, ErrorResponse) = harness.post_raw(b"{}").await;
+    let (status, body) = harness.post_raw_string(b"{}").await;
 
     assert!(status.is_client_error());
-    assert!(body.error.contains("missing field"));
+    assert!(
+        body.contains("missing field"),
+        "Expected 'missing field' error, got: {}",
+        body
+    );
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -232,6 +273,20 @@ async fn empty_exception_list_returns_400(db: PgPool) {
 
     assert!(status.is_client_error());
     assert_eq!(body.error, "Exception list cannot be empty");
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn team_id_mismatch_returns_400(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = TestEventInput::new(vec![TestException::new("Error", "test error")]);
+
+    // Post to team 2 in URL but team_id 1 in payload
+    let (status, body): (_, ErrorResponse) = harness.post_event_to_team(&input, 2).await;
+
+    assert!(status.is_client_error());
+    assert!(body.error.contains("Team ID mismatch"));
+    assert!(body.error.contains("path team_id 2"));
+    assert!(body.error.contains("payload team_id 1"));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -252,8 +307,11 @@ async fn creates_issue_with_fingerprint(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn uses_client_fingerprint_override(db: PgPool) {
     let harness = TestHarness::new(db);
-    let input = TestEventInput::new(vec![TestException::new("TypeError", "cannot read property")])
-        .with_fingerprint("custom-fingerprint");
+    let input = TestEventInput::new(vec![TestException::new(
+        "TypeError",
+        "cannot read property",
+    )])
+    .with_fingerprint("custom-fingerprint");
 
     let (status, body): (_, OutputErrProps) = harness.post_event(&input).await;
 
@@ -308,7 +366,9 @@ async fn extracts_metadata_from_exceptions(db: PgPool) {
     assert_eq!(body.types, vec!["TypeError"]);
     assert_eq!(body.values, vec!["Cannot read property 'foo' of undefined"]);
     assert!(body.handled);
-    assert!(body.sources.contains(&"src/components/Button.tsx".to_string()));
+    assert!(body
+        .sources
+        .contains(&"src/components/Button.tsx".to_string()));
     assert!(body.sources.contains(&"src/App.tsx".to_string()));
     assert!(body.functions.contains(&"handleClick".to_string()));
     assert!(body.functions.contains(&"onClick".to_string()));

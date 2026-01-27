@@ -27,6 +27,8 @@ pub enum ProcessEventError {
     InvalidRequest(#[from] serde_json::Error),
     #[error("Exception list cannot be empty")]
     EmptyExceptionList,
+    #[error("Team ID mismatch: path team_id {path} does not match payload team_id {payload}")]
+    TeamIdMismatch { path: i32, payload: i32 },
     #[error("Failed to process event: {0}")]
     ProcessingError(#[from] UnhandledError),
     #[error("Issue is suppressed: {0}")]
@@ -38,6 +40,7 @@ impl ProcessEventError {
         match self {
             ProcessEventError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
             ProcessEventError::EmptyExceptionList => StatusCode::BAD_REQUEST,
+            ProcessEventError::TeamIdMismatch { .. } => StatusCode::BAD_REQUEST,
             ProcessEventError::ProcessingError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ProcessEventError::Suppressed(_) => StatusCode::OK,
         }
@@ -49,6 +52,9 @@ impl ProcessEventError {
             ProcessEventError::EmptyExceptionList => {
                 Json(json!({ "error": "Exception list cannot be empty" }))
             }
+            ProcessEventError::TeamIdMismatch { path, payload } => Json(
+                json!({ "error": format!("Team ID mismatch: path team_id {} does not match payload team_id {}", path, payload) }),
+            ),
             ProcessEventError::ProcessingError(err) => Json(json!({ "error": err.to_string() })),
             ProcessEventError::Suppressed(issue_id) => {
                 Json(json!({ "suppressed": true, "issue_id": issue_id.to_string() }))
@@ -89,6 +95,14 @@ pub async fn process_event(
     State(ctx): State<Arc<AppContext>>,
     Json(event): Json<ResolvedExceptionEvent>,
 ) -> Result<OutputErrProps, ProcessEventError> {
+    // Validate that team_id in path matches team_id in payload
+    if team_id != event.team_id {
+        return Err(ProcessEventError::TeamIdMismatch {
+            path: team_id,
+            payload: event.team_id,
+        });
+    }
+
     // Validate that exception list is not empty
     if event.error_properties.exception_list.is_empty() {
         return Err(ProcessEventError::EmptyExceptionList);

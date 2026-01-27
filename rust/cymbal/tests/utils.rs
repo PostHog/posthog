@@ -62,6 +62,44 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
 
     // Deserialize the JSON into your struct
     let body: T = serde_json::from_str(body_string.as_str())
-        .expect("Failed to deserialize data: {body_string}");
+        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e}\nBody: {body_string}"));
     (status, body)
+}
+
+#[allow(dead_code)]
+pub(crate) async fn get_raw_response(
+    db: PgPool,
+    storage_bucket: String,
+    request_factory: impl Fn() -> Request<Body>,
+    s3_client: Arc<MockS3Client>,
+) -> (StatusCode, String) {
+    let mut config = Config::init_with_defaults().unwrap();
+    config.object_storage_bucket = storage_bucket.clone();
+
+    let redis_client = Arc::new(MockRedisClient::new());
+    let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
+
+    let app_ctx = AppContext::new(
+        &config,
+        s3_client,
+        db.clone(),
+        db.clone(),
+        redis_client,
+        issue_buckets_redis_client,
+    )
+    .await
+    .unwrap();
+
+    let ctx = Arc::new(app_ctx);
+
+    let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
+
+    let status = res.status();
+
+    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+
+    let body_string = String::from_utf8(body_bytes.to_vec()).unwrap();
+    (status, body_string)
 }

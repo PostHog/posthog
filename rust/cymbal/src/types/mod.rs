@@ -193,7 +193,8 @@ pub struct OutputErrProps {
     pub handled: bool,
     #[serde(
         rename = "$exception_releases",
-        skip_serializing_if = "HashMap::is_empty"
+        skip_serializing_if = "HashMap::is_empty",
+        default
     )]
     pub releases: HashMap<String, ReleaseInfo>,
     // Search metadata (materialized)
