@@ -51,7 +51,11 @@ export function PersonIcon({
     }, [person?.properties?.email])
 
     // Generate a stable color index from the person's distinct_id if not explicitly provided
-    const colorIndex = index ?? getPersonColorIndex(person)
+    //
+    // Don't depend on `person` for the memoization since this is only used to get an accurate color
+    // and person is a complex object that could change.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    const colorIndex = useMemo(() => index ?? getPersonColorIndex(person), [index])
 
     return (
         <ProfilePicture
