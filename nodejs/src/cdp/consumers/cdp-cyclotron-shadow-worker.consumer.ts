@@ -1,13 +1,22 @@
+import { Counter } from 'prom-client'
+
 import { shadowFetchContext } from '../services/hog-executor.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorker, CdpCyclotronWorkerHub } from './cdp-cyclotron-worker.consumer'
+
+const shadowInvocationsProcessed = new Counter({
+    name: 'cdp_shadow_invocations_processed',
+    help: 'Number of invocations processed by the shadow worker',
+    labelNames: ['outcome'],
+})
 
 /**
  * Shadow worker that consumes from the shadow Cyclotron database.
  * Executes the full invocation pipeline (including bytecode) but with no-op HTTP fetches,
  * scoped via AsyncLocalStorage so other workers in the same process are unaffected.
  *
- * Skips log/metric production to avoid shadow data mixing with real data.
+ * Skips Kafka log/metric production to avoid shadow data mixing with real data.
+ * Instead exposes Prometheus metrics for observability.
  */
 export class CdpCyclotronShadowWorker extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronShadowWorker'
@@ -39,6 +48,12 @@ export class CdpCyclotronShadowWorker extends CdpCyclotronWorker {
         }
 
         const invocationResults = await this.processInvocations(invocations)
+
+        for (const result of invocationResults) {
+            const outcome = result.error ? 'error' : result.finished ? 'completed' : 'continuing'
+            shadowInvocationsProcessed.inc({ outcome })
+        }
+
         const backgroundTask = this.queueInvocationResults(invocationResults)
 
         return { backgroundTask, invocationResults }
