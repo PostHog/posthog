@@ -39,8 +39,8 @@ import {
     AccessControlResourceType,
     ActivityScope,
     Experiment,
+    ExperimentProgressStatus,
     ExperimentsTabs,
-    ProgressStatus,
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
@@ -49,12 +49,20 @@ import { StatusTag } from './ExperimentView/components'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
-import { EXPERIMENTS_PER_PAGE, ExperimentsFilters, experimentsLogic, getExperimentStatus } from './experimentsLogic'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getExperimentStatus,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from './experimentsLogic'
 import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
+    productKey: ProductKey.EXPERIMENTS,
 }
 
 export const EXPERIMENTS_PRODUCT_DESCRIPTION =
@@ -123,15 +131,15 @@ const ExperimentsTableFilters = ({
                                 const { status: _, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ status: status as ProgressStatus, page: 1 })
+                                onFiltersChange({ status: status as ExperimentProgressStatus, page: 1 })
                             }
                         }}
                         options={
                             [
                                 { label: 'All', value: 'all' },
-                                { label: 'Draft', value: ProgressStatus.Draft },
-                                { label: 'Running', value: ProgressStatus.Running },
-                                { label: 'Complete', value: ProgressStatus.Complete },
+                                { label: 'Draft', value: ExperimentProgressStatus.Draft },
+                                { label: 'Running / Paused', value: ExperimentProgressStatus.Running },
+                                { label: 'Complete', value: ExperimentProgressStatus.Complete },
                             ] as { label: string; value: string }[]
                         }
                         value={filters.status ?? 'all'}
@@ -218,6 +226,15 @@ const ExperimentsTable = ({
                                     >
                                         <LemonTag type="warning" className="ml-1">
                                             Legacy
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {isSingleVariantShipped(experiment) && (
+                                    <Tooltip
+                                        title={`Variant "${getShippedVariantKey(experiment)}" has been rolled out to 100% of users`}
+                                    >
+                                        <LemonTag type="completion" className="ml-1">
+                                            <b className="uppercase">100% rollout</b>
                                         </LemonTag>
                                     </Tooltip>
                                 )}
@@ -452,27 +469,32 @@ const ExperimentsTable = ({
                     </span>
                 </div>
             ) : null}
-            <LemonTable
-                dataSource={experiments.results}
-                columns={columns}
-                rowKey="id"
-                loading={experimentsLoading}
-                defaultSorting={{
-                    columnKey: 'created_at',
-                    order: -1,
-                }}
-                noSortingCancellation
-                pagination={pagination}
-                nouns={['experiment', 'experiments']}
-                data-attr="experiment-table"
-                emptyState="No results for this filter, change filter or create a new experiment."
-                onSort={(newSorting) =>
-                    setExperimentsFilters({
-                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
-                        page: 1,
-                    })
-                }
-            />
+
+            <div data-attr="experiments-table-container">
+                <LemonTable
+                    dataSource={experiments.results}
+                    columns={columns}
+                    rowKey="id"
+                    loading={experimentsLoading}
+                    defaultSorting={{
+                        columnKey: 'created_at',
+                        order: -1,
+                    }}
+                    noSortingCancellation
+                    pagination={pagination}
+                    nouns={['experiment', 'experiments']}
+                    data-attr="experiment-table"
+                    emptyState="No results for this filter, change filter or create a new experiment."
+                    onSort={(newSorting) =>
+                        setExperimentsFilters({
+                            order: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                            page: 1,
+                        })
+                    }
+                />
+            </div>
         </SceneContent>
     )
 }

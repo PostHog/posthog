@@ -12,15 +12,7 @@ import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/inge
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import {
-    CookielessServerHashMode,
-    EventHeaders,
-    Hub,
-    IncomingEvent,
-    IncomingEventWithTeam,
-    PipelineEvent,
-    Team,
-} from '../../src/types'
+import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
@@ -101,43 +93,7 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
     return events.map(createKafkaMessage)
 }
 
-type PreprocessedEvent = {
-    message: Message
-    headers: EventHeaders
-    event: IncomingEvent
-    eventWithTeam: IncomingEventWithTeam
-}
-
-const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): PreprocessedEvent[] => {
-    return events.map((e): PreprocessedEvent => {
-        const message = createKafkaMessage(e)
-        const headers = {
-            token: e.token || '',
-            distinct_id: e.distinct_id || '',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        }
-        return {
-            message,
-            headers,
-            event: { event: e },
-            eventWithTeam: {
-                event: {
-                    ...e,
-                    team_id: team.id,
-                },
-                team: team,
-                message,
-                headers,
-            },
-        }
-    })
-}
-
-describe.each([
-    ['legacy pipeline', false],
-    ['joined pipeline', true],
-] as const)('IngestionConsumer (%s)', (_name, useJoinedPipeline) => {
+describe('IngestionConsumer', () => {
     let ingester: IngestionConsumer
     let hub: Hub
     let team: Team
@@ -202,7 +158,6 @@ describe.each([
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
-        hub.INGESTION_JOINED_PIPELINE = useJoinedPipeline
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
@@ -697,110 +652,6 @@ describe.each([
             ingester = await createIngestionConsumer(hub)
         })
 
-        it('should batch events based on the distinct_id', () => {
-            const messages = [
-                ...createIncomingEventsWithTeam(
-                    [
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                        createEvent({ distinct_id: 'distinct-id-2' }),
-                        createEvent({ distinct_id: 'distinct-id-1' }),
-                    ],
-                    team
-                ),
-                ...createIncomingEventsWithTeam(
-                    [createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' })],
-                    team2
-                ),
-            ]
-
-            const batches = ingester['groupEventsByDistinctId'](messages)
-
-            expect(Object.keys(batches)).toHaveLength(3)
-
-            // Rewrite the test to check for the overall object with the correct length
-            expect(batches).toEqual({
-                [`${team.api_token}:distinct-id-1`]: {
-                    distinctId: 'distinct-id-1',
-                    token: team.api_token,
-                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
-                },
-                [`${team.api_token}:distinct-id-2`]: {
-                    distinctId: 'distinct-id-2',
-                    token: team.api_token,
-                    events: [expect.any(Object)],
-                },
-                [`${team2.api_token}:distinct-id-1`]: {
-                    distinctId: 'distinct-id-1',
-                    token: team2.api_token,
-                    events: [expect.any(Object)],
-                },
-            })
-        })
-
-        it('should preserve headers when grouping events by distinct_id', () => {
-            const events = [
-                createEvent({ distinct_id: 'distinct-id-1' }),
-                createEvent({ distinct_id: 'distinct-id-2' }),
-            ]
-
-            // Create messages with custom headers
-            const messages: PreprocessedEvent[] = events.map((event, index): PreprocessedEvent => {
-                const message = createKafkaMessage(event)
-                message.headers = [
-                    { token: Buffer.from(team.api_token) },
-                    { distinct_id: Buffer.from(event.distinct_id || '') },
-                    { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
-                ]
-
-                const headers = {
-                    token: team.api_token,
-                    distinct_id: event.distinct_id || '',
-                    timestamp: (Date.now() + index * 1000).toString(),
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
-
-                return {
-                    message,
-                    headers,
-                    event: { event },
-                    eventWithTeam: {
-                        event: { ...event, team_id: team.id },
-                        team: team,
-                        message: message,
-                        headers,
-                    },
-                }
-            })
-
-            const batches = ingester['groupEventsByDistinctId'](messages)
-
-            expect(Object.keys(batches)).toHaveLength(2)
-
-            // Check that headers are preserved in the grouped events
-            expect(batches[`${team.api_token}:distinct-id-1`].events[0].headers).toEqual({
-                token: team.api_token,
-                distinct_id: 'distinct-id-1',
-                timestamp: expect.any(String),
-                force_disable_person_processing: false,
-                historical_migration: false,
-            })
-
-            expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
-                token: team.api_token,
-                distinct_id: 'distinct-id-2',
-                timestamp: expect.any(String),
-                force_disable_person_processing: false,
-                historical_migration: false,
-            })
-
-            // Verify the timestamp values are different
-            const timestamp1 = parseInt(batches[`${team.api_token}:distinct-id-1`].events[0].headers.timestamp!)
-            const timestamp2 = parseInt(batches[`${team.api_token}:distinct-id-2`].events[0].headers.timestamp!)
-            expect(timestamp2 - timestamp1).toBe(1000)
-        })
-
         it('should validate historical_migration flag based on timestamp age', async () => {
             const ingestionTime = fixedTime // Now = ingestion time
             const oldEventTime = ingestionTime.minus({ hours: 50 }) // Event happened 50 hours ago (>48 hours)
@@ -862,6 +713,67 @@ describe.each([
             const recentEventMessage = eventsTopicMessages.find((m) => m.value.event === 'recent-event')
             expect(recentEventMessage).toBeDefined()
             expect(recentEventMessage?.value.historical_migration).toBeUndefined()
+        })
+
+        it('should drop AI events with invalid token properties', async () => {
+            const events = [
+                createEvent({
+                    distinct_id: 'user-valid-ai',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_input_tokens: 100,
+                        $ai_cache_read_input_tokens: 50,
+                        $ai_model: 'gpt-4',
+                    },
+                }),
+                createEvent({
+                    distinct_id: 'user-invalid-ai',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_input_tokens: 'invalid-not-a-number',
+                        $ai_model: 'gpt-4',
+                    },
+                }),
+                createEvent({
+                    distinct_id: 'user-invalid-ai-cache',
+                    event: '$ai_embedding',
+                    properties: {
+                        $ai_input_tokens: 100,
+                        $ai_cache_read_input_tokens: { nested: 'object' },
+                        $ai_model: 'text-embedding-3-small',
+                    },
+                }),
+                createEvent({
+                    distinct_id: 'user-non-ai',
+                    event: '$pageview',
+                    properties: {
+                        $ai_input_tokens: 'invalid-but-not-ai-event',
+                    },
+                }),
+            ]
+
+            const messages = createKafkaMessages(events)
+            await ingester.handleKafkaBatch(messages)
+
+            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
+            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
+
+            // Valid AI event should be processed
+            const validAiEvent = eventsTopicMessages.find((m) => m.value.event === '$ai_generation')
+            expect(validAiEvent).toBeDefined()
+            expect(validAiEvent?.value.distinct_id).toBe('user-valid-ai')
+
+            // Invalid AI events should be dropped (not in the output)
+            const invalidAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai')
+            expect(invalidAiEvent).toBeUndefined()
+
+            const invalidCacheEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai-cache')
+            expect(invalidCacheEvent).toBeUndefined()
+
+            // Non-AI event with invalid token property should still be processed (validation only applies to AI events)
+            const nonAiEvent = eventsTopicMessages.find((m) => m.value.event === '$pageview')
+            expect(nonAiEvent).toBeDefined()
+            expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
         })
     })
 

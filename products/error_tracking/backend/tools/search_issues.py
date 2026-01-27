@@ -1,6 +1,7 @@
 import json
 from datetime import UTC
-from typing import Literal
+from textwrap import dedent
+from typing import Literal, cast
 
 from django.utils import timezone
 
@@ -8,10 +9,19 @@ import structlog
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import ErrorTrackingIssue, ErrorTrackingIssueStatus, ErrorTrackingQuery
+from posthog.schema import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueStatus,
+    ErrorTrackingQuery,
+    FilterLogicalOperator,
+    MaxErrorTrackingIssuePreview,
+    MaxErrorTrackingSearchResponse,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+)
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
-from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
@@ -46,128 +56,162 @@ SEARCH_QUERY_EXAMPLES = """
 - "Top 10 most frequent resolved issues" → status: "resolved", orderBy: "occurrences", limit: 10
 """
 
-QUERY_FIELD_DESCRIPTION = f"""
-User's question converted into an error tracking query.
-
-# Query Structure
-
-## status (optional)
-Filter by issue status:
-- "active": Currently active issues (default if not specified)
-- "resolved": Issues marked as resolved
-- "pending_release": Issues pending a release
-- "suppressed": Suppressed/muted issues
-- "archived": Archived issues
-- "all": Show all issues regardless of status
-
-## searchQuery (optional)
-Free text search across:
-- Exception type (e.g., "TypeError", "ReferenceError")
-- Exception message
-- Function names in stack traces
-- File paths in stack traces
-
-## dateRange (REQUIRED)
-Time range for the query:
-- date_from: Start date (relative like "-7d", "-30d" or absolute "2024-12-01")
-- date_to: End date (null for "until now", or absolute date)
-
-Common relative formats:
-- "-7d" = last 7 days
-- "-30d" = last 30 days
-- "-24h" = last 24 hours
-
-Note: All dates in results are displayed in UTC timezone.
-
-## orderBy (REQUIRED)
-Sort results by:
-- "last_seen": When the issue was last seen (most recent activity)
-- "first_seen": When the issue first appeared
-- "occurrences": Total occurrence count
-- "users": Number of affected users
-- "sessions": Number of affected sessions
-- "revenue": Revenue impact (if configured)
-
-## orderDirection (optional)
-- "DESC": Descending (default, highest/newest first)
-- "ASC": Ascending (lowest/oldest first)
-
-## limit (optional)
-Number of results to return (1-100, default 25)
-
-## filterGroup (optional)
-Property filters for advanced filtering. Structure:
-{{
-    "type": "AND" | "OR",
-    "values": [
-        {{
-            "type": "AND" | "OR",
-            "values": [
-                {{
-                    "type": "event" | "person" | "session",
-                    "key": "property_name",
-                    "value": "value_or_array",
-                    "operator": "exact" | "icontains" | "is_set" | ...
-                }}
-            ]
-        }}
-    ]
-}}
-
-Common filter properties:
-- event.$browser: Browser type
-- event.$os: Operating system
-- event.$device_type: Device type (Desktop, Mobile, Tablet)
-- event.$current_url: URL where error occurred
-- event.$lib: SDK/library used (web, posthog-python, posthog-node, etc.)
-
-## filterTestAccounts (optional)
-- true: Exclude internal/test accounts
-- false: Include all accounts
-
-## volumeResolution (REQUIRED)
-Resolution for volume chart data. Use 1 for daily buckets.
-
-{SEARCH_QUERY_EXAMPLES}
-""".strip()
-
-TOOL_DESCRIPTION = """
-Search for error tracking issues based on criteria like status, search text, date range, and ordering.
-
-# When to use this tool:
-- User asks to find, search, or list error tracking issues
-- User asks about errors, exceptions, or issues in their application
-- User wants to filter errors by status, date, frequency, or other criteria
-- User asks questions like "show me recent errors" or "what are the most common issues"
-
-# What this tool returns:
-A formatted list of matching issues with their name, status, occurrence count, and other key metrics.
-All timestamps are in UTC timezone.
-""".strip()
-
 
 class SearchErrorTrackingIssuesArgs(BaseModel):
-    query: ErrorTrackingQuery = Field(description=QUERY_FIELD_DESCRIPTION)
+    query: ErrorTrackingQuery = Field(
+        description=dedent("""
+        User's question converted into an error tracking query.
+
+        IMPORTANT: When the user asks to "show more" or "next page", you should pass the cursor
+        from the previous response to continue pagination. Do NOT modify the query parameters.""").strip()
+        + dedent(f"""
+
+        # Query Structure
+
+        ## status (optional)
+        Filter by issue status:
+        - "active": Currently active issues (default if not specified)
+        - "resolved": Issues marked as resolved
+        - "pending_release": Issues pending a release
+        - "suppressed": Suppressed/muted issues
+        - "archived": Archived issues
+        - "all": Show all issues regardless of status
+
+        ## searchQuery (optional)
+        Free text search across:
+        - Exception type (e.g., "TypeError", "ReferenceError")
+        - Exception message
+        - Function names in stack traces
+        - File paths in stack traces
+
+        ## dateRange (REQUIRED)
+        Time range for the query:
+        - date_from: Start date (relative like "-7d", "-30d" or absolute "2024-12-01")
+        - date_to: End date (null for "until now", or absolute date)
+
+        Common relative formats:
+        - "-7d" = last 7 days
+        - "-30d" = last 30 days
+        - "-24h" = last 24 hours
+
+        Note: All dates in results are displayed in UTC timezone.
+
+        ## orderBy (REQUIRED)
+        Sort results by:
+        - "last_seen": When the issue was last seen (most recent activity)
+        - "first_seen": When the issue first appeared
+        - "occurrences": Total occurrence count
+        - "users": Number of affected users
+        - "sessions": Number of affected sessions
+        - "revenue": Revenue impact (if configured)
+
+        ## orderDirection (optional)
+        - "DESC": Descending (default, highest/newest first)
+        - "ASC": Ascending (lowest/oldest first)
+
+        ## limit (optional)
+        Number of results to return (1-100, default 50)
+
+        ## filterGroup (optional)
+        Property filters for advanced filtering. Structure:
+        {{{{
+            "type": "AND" | "OR",
+            "values": [
+                {{{{
+                    "type": "AND" | "OR",
+                    "values": [
+                        {{{{
+                            "type": "event" | "person" | "session",
+                            "key": "property_name",
+                            "value": "value_or_array",
+                            "operator": "exact" | "icontains" | "is_set" | ...
+                        }}}}
+                    ]
+                }}}}
+            ]
+        }}}}
+
+        Common filter properties:
+        - event.$browser: Browser type
+        - event.$os: Operating system
+        - event.$device_type: Device type (Desktop, Mobile, Tablet)
+        - event.$current_url: URL where error occurred
+        - event.$lib: SDK/library used (web, posthog-python, posthog-node, etc.)
+
+        ## filterTestAccounts (optional)
+        - true: Exclude internal/test accounts
+        - false: Include all accounts
+
+        ## volumeResolution (REQUIRED)
+        Resolution for volume chart data. Use 1 for daily buckets.
+
+        {SEARCH_QUERY_EXAMPLES}
+        """).strip()
+    )
+    cursor: str | None = Field(
+        default=None,
+        description="Pagination cursor from previous search results. Pass this to get the next page of results.",
+    )
 
 
 class SearchErrorTrackingIssuesTool(MaxTool):
     name: Literal["search_error_tracking_issues"] = "search_error_tracking_issues"
     args_schema: type[BaseModel] = SearchErrorTrackingIssuesArgs
-    description: str = TOOL_DESCRIPTION
+    description: str = dedent("""
+        Search for error tracking issues based on criteria like status, search text, date range, and ordering.
+
+        # When to use this tool:
+        - User asks to find, search, or list error tracking issues
+        - User asks about errors, exceptions, or issues in their application
+        - User wants to filter errors by status, date, frequency, or other criteria
+        - User asks questions like "show me recent errors" or "what are the most common issues"
+        - User asks to "show more" or see "next page" of results (use the cursor from previous results)
+
+        # What this tool returns:
+        A formatted list of matching issues with their name, status, occurrence count, and other key metrics.
+        If more results are available, a cursor will be provided for pagination.
+        All timestamps are in UTC timezone.
+        """).strip()
 
     def get_required_resource_access(self):
         return [("error_tracking", "viewer")]
 
-    async def _arun_impl(self, query: ErrorTrackingQuery) -> tuple[str, ToolMessagesArtifact | None]:
-        # Adding some sane default limits
+    async def _arun_impl(
+        self, query: ErrorTrackingQuery, cursor: str | None = None
+    ) -> tuple[str, MaxErrorTrackingSearchResponse | None]:
+        # Ensure reasonable defaults to match dashboard behavior
         if query.limit is None or query.limit <= 0:
-            query.limit = 25
+            query.limit = 50  # Match dashboard default
         elif query.limit > 100:
             query.limit = 100
 
         # Default to active issues if no status specified
         if query.status is None:
             query.status = ErrorTrackingIssueStatus.ACTIVE
+
+        # Ensure query parameters match dashboard defaults
+        query.withAggregations = True
+        query.withFirstEvent = False
+        if query.filterTestAccounts is None:
+            query.filterTestAccounts = False
+        # Set empty filterGroup if not provided (matches dashboard behavior)
+        if query.filterGroup is None:
+            query.filterGroup = PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            )
+        # Set searchQuery to empty string if None (matches dashboard behavior)
+        if query.searchQuery is None:
+            query.searchQuery = ""
+
+        # Apply cursor offset for pagination (default to 0 to match dashboard behavior)
+        current_offset = 0
+        if cursor:
+            try:
+                current_offset = int(cursor)
+            except ValueError:
+                logger.warning("Invalid pagination cursor", cursor=cursor)
+        query.offset = current_offset
 
         try:
             utc_now = timezone.now().astimezone(UTC)
@@ -180,11 +224,59 @@ class SearchErrorTrackingIssuesTool(MaxTool):
             logger.exception("Error executing error tracking query", error=str(e))
             return f"Error searching for issues: {e}", None
 
-        return self._format_results(query_results), None
+        # Extract results and pagination info from response
+        # Note: executor returns dict with extra caching fields, so we validate issues individually
+        raw_results = cast(list[dict], query_results.get("results", []))
+        results = [ErrorTrackingIssue.model_validate(r) for r in raw_results]
+        has_more_from_response = cast(bool, query_results.get("hasMore", False))
 
-    def _format_results(self, response: dict) -> str:
+        # Use has_more from paginator response (based on ClickHouse results before Postgres filtering)
+        # Fall back to comparing result count vs limit if not available
+        has_more = has_more_from_response if has_more_from_response else len(results) >= query.limit
+        next_cursor = str(current_offset + query.limit) if has_more else None
+
+        content = self._format_results(results, has_more)
+        issue_previews = self._build_issue_previews(results)
+
+        filters = MaxErrorTrackingSearchResponse(
+            status=query.status,
+            search_query=query.searchQuery,
+            date_from=query.dateRange.date_from if query.dateRange else None,
+            date_to=query.dateRange.date_to if query.dateRange else None,
+            order_by=query.orderBy,
+            order_direction=query.orderDirection,
+            limit=query.limit,
+            has_more=has_more,
+            next_cursor=next_cursor,
+            issues=issue_previews,
+        )
+
+        return content, filters
+
+    def _build_issue_previews(self, results: list[ErrorTrackingIssue]) -> list[MaxErrorTrackingIssuePreview]:
+        """Build issue preview objects for frontend display."""
+        previews = []
+        for issue in results:
+            aggregations = issue.aggregations
+
+            previews.append(
+                MaxErrorTrackingIssuePreview(
+                    id=issue.id or "",
+                    name=issue.name,
+                    description=issue.description or self._extract_exception_message(issue),
+                    status=issue.status or "unknown",
+                    library=issue.library,
+                    first_seen=self._format_date(issue.first_seen) or None,
+                    last_seen=self._format_date(issue.last_seen) or None,
+                    occurrences=int(aggregations.occurrences) if aggregations else 0,
+                    users=int(aggregations.users) if aggregations else 0,
+                    sessions=int(aggregations.sessions) if aggregations else 0,
+                )
+            )
+        return previews
+
+    def _format_results(self, results: list[ErrorTrackingIssue], has_more: bool = False) -> str:
         """Format query results as text output."""
-        results = response.get("results", [])
 
         if not results:
             return "No issues found matching your criteria."
@@ -197,10 +289,13 @@ class SearchErrorTrackingIssuesTool(MaxTool):
 
         # Show up to 10 issues in the response
         for i, issue in enumerate(results[:10], 1):
-            content += self._format_issue(i, ErrorTrackingIssue.model_validate(issue))
+            content += self._format_issue(i, issue)
 
         if total_count > 10:
-            content += f"\n...and {total_count - 10} more issues"
+            content += f"\n...and {total_count - 10} more issues in this batch"
+
+        if has_more:
+            content += "\n\nMore issues are available. Ask me to show more if needed."
 
         return content
 

@@ -11,24 +11,24 @@ export function IframeHeatmapBrowser({
 }): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { widthOverride, dataUrl, displayUrl } = useValues(logic)
+    const { widthOverride, heightOverride, dataUrl, displayUrl } = useValues(logic)
     const { onIframeLoad } = useActions(logic)
 
     return (
-        <div className="flex flex-row gap-x-2 w-full min-h-full">
-            <div className="relative flex justify-center flex-1 w-full min-h-full overflow-scroll">
+        <div className="flex flex-row gap-x-2 w-full">
+            <div className="relative flex justify-center flex-1 w-full overflow-visible">
                 <div
-                    className="relative h-full overflow-scroll"
+                    className="relative"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: widthOverride }}
+                    style={{ width: widthOverride, height: heightOverride }}
                 >
                     <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                     <iframe
                         id="heatmap-iframe"
                         ref={iframeRef}
-                        className="h-full bg-white"
+                        className="bg-white"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: widthOverride }}
+                        style={{ width: widthOverride, height: heightOverride }}
                         src={displayUrl || dataUrl || ''}
                         onLoad={onIframeLoad}
                         // these two sandbox values are necessary so that the site and toolbar can run

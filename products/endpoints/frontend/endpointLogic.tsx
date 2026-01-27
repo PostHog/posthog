@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { debounce, slugify } from 'lib/utils'
@@ -36,16 +37,18 @@ export const endpointLogic = kea<endpointLogicType>([
         setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
+        openCreateFromInsightModal: true,
+        setDuplicateEndpoint: (endpoint: EndpointType | null) => ({ endpoint }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
-        createEndpointFailure: () => ({}),
+        createEndpointFailure: (isHogQLError?: boolean) => ({ isHogQLError }),
         updateEndpoint: (name: string, request: Partial<EndpointRequest>, showViewButton?: boolean) => ({
             name,
             request,
             showViewButton,
         }),
         updateEndpointSuccess: (response: any, showViewButton?: boolean) => ({ response, showViewButton }),
-        updateEndpointFailure: () => ({}),
+        updateEndpointFailure: (isHogQLError?: boolean) => ({ isHogQLError }),
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         deleteEndpointFailure: () => ({}),
@@ -72,6 +75,12 @@ export const endpointLogic = kea<endpointLogicType>([
             null as string | null,
             {
                 setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
+            },
+        ],
+        duplicateEndpoint: [
+            null as EndpointType | null,
+            {
+                setDuplicateEndpoint: (_, { endpoint }) => endpoint,
             },
         ],
     }),
@@ -130,6 +139,9 @@ export const endpointLogic = kea<endpointLogicType>([
             actions.loadMaterializationStatus(name)
         }, 2000)
         return {
+            openCreateFromInsightModal: () => {
+                actions.loadEndpoints()
+            },
             createEndpoint: async ({ request }) => {
                 try {
                     if (request.name) {
@@ -137,14 +149,16 @@ export const endpointLogic = kea<endpointLogicType>([
                     }
                     const response = await api.endpoint.create(request)
                     actions.createEndpointSuccess(response)
-                } catch (error) {
+                } catch (error: any) {
                     console.error('Failed to create endpoint:', error)
-                    actions.createEndpointFailure()
+                    const isHogQLError = error.attr === 'query' && error.detail?.startsWith('Invalid HogQL query')
+                    actions.createEndpointFailure(isHogQLError)
                 }
             },
             createEndpointSuccess: ({ response }) => {
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
+                actions.loadEndpoints()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
@@ -157,18 +171,28 @@ export const endpointLogic = kea<endpointLogicType>([
                         },
                     },
                 })
+
+                // Mark endpoint creation task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
             },
-            createEndpointFailure: () => {
-                lemonToast.error('Failed to create endpoint')
+            createEndpointFailure: ({ isHogQLError }) => {
+                if (isHogQLError) {
+                    lemonToast.error(
+                        'Invalid HogQL query. Try running it first and fix any errors before creating an endpoint.'
+                    )
+                } else {
+                    lemonToast.error('Failed to create endpoint')
+                }
             },
             updateEndpoint: async ({ name, request, showViewButton }) => {
                 try {
                     const response = await api.endpoint.update(name, request)
                     actions.updateEndpointSuccess(response, showViewButton)
                     actions.loadEndpoints()
-                } catch (error) {
+                } catch (error: any) {
                     console.error('Failed to update endpoint:', error)
-                    actions.updateEndpointFailure()
+                    const isHogQLError = error.attr === 'query' && error.detail?.startsWith('Invalid HogQL query')
+                    actions.updateEndpointFailure(isHogQLError)
                 }
             },
             updateEndpointSuccess: ({ response, showViewButton }) => {
@@ -182,10 +206,22 @@ export const endpointLogic = kea<endpointLogicType>([
                 } else {
                     lemonToast.success('Endpoint updated')
                 }
+
                 reloadMaterializationStatus(response.name)
+
+                // Mark activation task as completed when endpoint is activated
+                if (response.is_active) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureEndpoint)
+                }
             },
-            updateEndpointFailure: () => {
-                lemonToast.error('Failed to update endpoint')
+            updateEndpointFailure: ({ isHogQLError }) => {
+                if (isHogQLError) {
+                    lemonToast.error(
+                        'Invalid HogQL query. Try running it first and fix any errors before updating the endpoint.'
+                    )
+                } else {
+                    lemonToast.error('Failed to update endpoint')
+                }
             },
             deleteEndpoint: async ({ name }) => {
                 try {

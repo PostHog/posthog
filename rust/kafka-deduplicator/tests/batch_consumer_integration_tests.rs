@@ -5,6 +5,7 @@ use std::time::Duration;
 use axum::async_trait;
 use kafka_deduplicator::kafka::{
     batch_consumer::*,
+    batch_context::ConsumerCommandSender,
     batch_message::*,
     offset_tracker::OffsetTracker,
     partition_router::{shutdown_workers, PartitionRouter, PartitionRouterConfig},
@@ -13,6 +14,7 @@ use kafka_deduplicator::kafka::{
     test_utils::TestRebalanceHandler,
     types::Partition,
 };
+use kafka_deduplicator::test_utils::create_test_coordinator;
 
 use common_types::CapturedEvent;
 
@@ -77,8 +79,10 @@ fn create_batch_kafka_consumer(
         }
     }
 
+    // Create offset tracker with coordinator
+    let coordinator = create_test_coordinator();
     let processor = Arc::new(TestProcessor { sender: chan_tx });
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
@@ -189,23 +193,49 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     tokio::time::sleep(Duration::from_millis(1)).await;
 
+    // Retry loop to wait for messages with timeout
     let mut msgs_recv = 0;
-    while let Some(batch_result) = batch_rx.recv().await {
-        let (msgs, errs) = batch_result.unpack();
-        if !errs.is_empty() {
-            panic!("Errors in batch: {errs:?}");
+    let max_attempts = 10;
+    let wait_duration = Duration::from_millis(500);
+
+    for attempt in 0..max_attempts {
+        // Try to receive all available batches without blocking
+        loop {
+            match batch_rx.try_recv() {
+                Ok(batch_result) => {
+                    let (msgs, errs) = batch_result.unpack();
+                    if !errs.is_empty() {
+                        panic!("Errors in batch: {errs:?}");
+                    }
+                    assert!(
+                        msgs.len() <= 3,
+                        "Batch size should be at most 3, got: {}",
+                        msgs.len()
+                    );
+                    msgs_recv += msgs.len();
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break, // No more messages right now
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break, // Channel closed
+            }
         }
-        assert!(
-            msgs.len() <= 3,
-            "Batch size should be at most 3, got: {}",
-            msgs.len()
-        );
-        msgs_recv += msgs.len();
+
+        // If we've received all messages, break early
+        if msgs_recv >= expected_msg_count {
+            break;
+        }
+
+        // Wait before next attempt (unless this is the last attempt)
+        if attempt < max_attempts - 1 {
+            tokio::time::sleep(wait_duration).await;
+        }
     }
 
     assert_eq!(
-        msgs_recv, expected_msg_count,
-        "Should have received all messages, got: {msgs_recv}",
+        msgs_recv,
+        expected_msg_count,
+        "Should have received all messages after {} attempts (waited up to {}ms), got: {msgs_recv}",
+        max_attempts,
+        (max_attempts - 1) * wait_duration.as_millis()
     );
 
     // Wait for graceful shutdown
@@ -310,8 +340,14 @@ impl RebalanceHandler for RoutingRebalanceHandler {
         self.inner.setup_revoked_partitions(partitions);
     }
 
-    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
-        self.inner.async_setup_assigned_partitions(partitions).await
+    async fn async_setup_assigned_partitions(
+        &self,
+        partitions: &TopicPartitionList,
+        consumer_command_tx: &ConsumerCommandSender,
+    ) -> Result<()> {
+        self.inner
+            .async_setup_assigned_partitions(partitions, consumer_command_tx)
+            .await
     }
 
     async fn cleanup_revoked_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
@@ -334,12 +370,12 @@ impl RebalanceHandler for RoutingRebalanceHandler {
     }
 
     async fn on_pre_rebalance(&self) -> Result<()> {
-        self.offset_tracker.set_rebalancing(true);
+        // Note: rebalancing state is now tracked by store_manager
         self.inner.on_pre_rebalance().await
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
-        self.offset_tracker.set_rebalancing(false);
+        // Note: rebalancing state is now tracked by store_manager
         self.inner.on_post_rebalance().await
     }
 }
@@ -408,8 +444,9 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
     // Create the processor that counts messages
     let processor = Arc::new(CountingProcessor::new());
 
-    // Create offset tracker
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    // Create offset tracker with coordinator
+    let coordinator = create_test_coordinator();
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
     // Create router with partition workers
     let router = Arc::new(PartitionRouter::new(

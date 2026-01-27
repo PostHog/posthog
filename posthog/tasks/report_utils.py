@@ -47,6 +47,7 @@ def capture_event(
     properties: dict[str, Any],
     timestamp: Optional[Union[datetime, str]] = None,
     distinct_id: Optional[str] = None,
+    set_on_organization: bool = False,
 ) -> None:
     """
     Captures a single event.
@@ -75,6 +76,14 @@ def capture_event(
             groups={"organization": str(organization_id), "instance": settings.SITE_URL},
             timestamp=timestamp,
         )
+
+        # Also set properties as group properties on the organization
+        if set_on_organization:
+            pha_client.group_identify(
+                group_type="organization",
+                group_key=str(organization_id),
+                properties=properties,
+            )
     else:
         pha_client.capture(
             distinct_id=get_machine_id(),

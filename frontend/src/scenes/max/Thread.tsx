@@ -41,18 +41,15 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { NotebookTarget } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { copyToClipboard } from '~/lib/utils/copyToClipboard'
 import { stripMarkdown } from '~/lib/utils/stripMarkdown'
-import { openNotebook } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
@@ -63,13 +60,12 @@ import {
     FailureMessage,
     MultiQuestionForm,
     MultiVisualizationMessage,
-    NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { Region } from '~/types'
+import { PendingApproval, Region } from '~/types'
 
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
@@ -84,7 +80,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
-import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
+import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
@@ -95,13 +91,11 @@ import {
     isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
-    isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
     isNotebookArtifactContent,
-    isNotebookUpdateMessage,
     isVisualizationArtifactContent,
     visualizationTypeToQuery,
 } from './utils'
@@ -311,21 +305,31 @@ interface MessageProps {
 function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading, isSharedThread, pendingApprovalsData } = useValues(maxThreadLogic)
+    const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
+    const { isDev } = useValues(preflightLogic)
+    const [showUiPayloadJson, setShowUiPayloadJson] = useState(false)
+    const [showToolCallResultJson, setShowToolCallResultJson] = useState(false)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
 
-    // Compute pending approval cards that match this message's tool_calls
+    // Compute resolved approval cards that match this message's tool_calls
+    // Pending approvals are now shown in the input area, so we only show resolved ones here
     // Must be at component level (not inside conditional) to satisfy React hooks rules
     const approvalCardElements = useMemo(() => {
         if (!conversationId || !isAssistantMessage(message) || !message.tool_calls?.length) {
             return null
         }
         const toolCallIds = new Set(message.tool_calls.map((tc) => tc.id).filter(Boolean))
-        const matchingApprovals = Object.values(pendingApprovalsData).filter(
-            (approval) => approval.original_tool_call_id && toolCallIds.has(approval.original_tool_call_id)
+        // Show approvals that are resolved either by backend OR frontend
+        // Backend: decision_status !== 'pending'
+        // Frontend: resolvedApprovalStatuses[id] exists (for approvals resolved during this session)
+        const matchingApprovals = (Object.values(pendingApprovalsData) as PendingApproval[]).filter(
+            (approval) =>
+                approval.original_tool_call_id &&
+                toolCallIds.has(approval.original_tool_call_id) &&
+                (approval.decision_status !== 'pending' || resolvedApprovalStatuses[approval.proposal_id])
         )
         if (matchingApprovals.length === 0) {
             return null
@@ -342,7 +346,7 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                 }}
             />
         ))
-    }, [conversationId, message, pendingApprovalsData])
+    }, [conversationId, message, pendingApprovalsData, resolvedApprovalStatuses])
 
     return (
         <MessageContainer groupType={groupType}>
@@ -465,10 +469,16 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                         // Compute actions separately to render after tool calls
                         const retriable = !!(isLastInGroup && isFinal)
                         // Check if message has a multi-question form
+                        // When isFinal is true, the form is shown in the input area, so don't render here
                         const multiQuestionFormElement = isMultiQuestionFormMessage(message)
                             ? (() => {
                                   if (message.status !== 'completed') {
                                       // Don't show streaming forms
+                                      return null
+                                  }
+                                  // Don't show the form in the thread when it's the final pending form
+                                  // because it's now displayed in the input area
+                                  if (isFinal) {
                                       return null
                                   }
                                   const formArgs = message.tool_calls?.find(
@@ -486,10 +496,9 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                           ? (nextMessage.ui_payload.create_form.answers as Record<string, string>)
                                           : undefined
                                   return (
-                                      <MultiQuestionFormComponent
+                                      <MultiQuestionFormRecap
                                           key={`${key}-multi-form`}
                                           form={form}
-                                          isFinal={isFinal}
                                           savedAnswers={savedAnswers}
                                       />
                                   )
@@ -508,11 +517,18 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                             }
 
                             if (isLastInGroup) {
-                                if (isMultiQuestionFormMessage(message)) {
+                                // When multi-question form is not final, hide actions (form is shown inline)
+                                // When it IS final, the form is shown in the input area, so show actions here
+                                if (isMultiQuestionFormMessage(message) && !isFinal) {
                                     return null
                                 }
                                 // Message has been interrupted with quick replies
-                                if (message.meta?.form?.options && isFinal) {
+                                // (non-links as ones with links get rendered in TextAnswer)
+                                if (
+                                    message.meta?.form?.options &&
+                                    !message.meta?.form?.options.some((option) => option.href) &&
+                                    isFinal
+                                ) {
                                     return <AssistantMessageForm key={`${key}-form`} form={message.meta.form} />
                                 }
 
@@ -548,21 +564,65 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                     ) {
                         const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
                         return (
-                            <UIPayloadAnswer
-                                key={key}
-                                toolCallId={message.tool_call_id}
-                                toolName={toolName}
-                                toolPayload={toolPayload}
-                            />
+                            <>
+                                <UIPayloadAnswer
+                                    key={key}
+                                    toolCallId={message.tool_call_id}
+                                    toolName={toolName}
+                                    toolPayload={toolPayload}
+                                />
+                                {isDev && (
+                                    <div className="ml-5 flex flex-col gap-1">
+                                        <LemonButton
+                                            size="xxsmall"
+                                            type="secondary"
+                                            icon={<IconBug />}
+                                            onClick={() => setShowUiPayloadJson(!showUiPayloadJson)}
+                                            tooltip="Development-only. Note: The JSON here is prettified"
+                                            tooltipPlacement="top-start"
+                                            className="w-fit"
+                                        >
+                                            {showUiPayloadJson ? 'Hide' : 'Show'} above tool call result as JSON
+                                        </LemonButton>
+                                        {showUiPayloadJson && (
+                                            <CodeSnippet language={Language.JSON}>
+                                                {JSON.stringify(message, null, 2)}
+                                            </CodeSnippet>
+                                        )}
+                                    </div>
+                                )}
+                            </>
                         )
                     } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
-                            <TextAnswer
-                                key={key}
-                                message={message}
-                                interactable={!isSharedThread && isLastInGroup}
-                                isFinalGroup={isFinal}
-                            />
+                            <>
+                                <TextAnswer
+                                    key={key}
+                                    message={message}
+                                    interactable={!isSharedThread && isLastInGroup}
+                                    isFinalGroup={isFinal}
+                                />
+                                {isDev && isAssistantToolCallMessage(message) && (
+                                    <div className="ml-5 flex flex-col gap-1">
+                                        <LemonButton
+                                            size="xxsmall"
+                                            type="secondary"
+                                            icon={<IconBug />}
+                                            onClick={() => setShowToolCallResultJson(!showToolCallResultJson)}
+                                            tooltip="Development-only. Note: The JSON here is prettified"
+                                            tooltipPlacement="top-start"
+                                            className="w-fit"
+                                        >
+                                            {showToolCallResultJson ? 'Hide' : 'Show'} above tool call result as JSON
+                                        </LemonButton>
+                                        {showToolCallResultJson && (
+                                            <CodeSnippet language={Language.JSON}>
+                                                {JSON.stringify(message, null, 2)}
+                                            </CodeSnippet>
+                                        )}
+                                    </div>
+                                )}
+                            </>
                         )
                     } else if (isArtifactMessage(message)) {
                         if (isVisualizationArtifactContent(message.content)) {
@@ -585,8 +645,6 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                         return null
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
-                    } else if (isNotebookUpdateMessage(message)) {
-                        return <NotebookUpdateAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })()}
@@ -718,96 +776,6 @@ function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): J
     )
 }
 
-interface NotebookUpdateAnswerProps {
-    message: NotebookUpdateMessage
-}
-
-function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Element {
-    const handleOpenNotebook = (notebookId?: string): void => {
-        openNotebook(notebookId || message.notebook_id, NotebookTarget.Scene)
-    }
-
-    // Only show the full notebook list if this is the final report message from deep research
-    const isReportCompletion = isDeepResearchReportCompletion(message)
-
-    const NOTEBOOK_TYPE_DISPLAY_NAMES: Record<string, string> = {
-        planning: 'Planning',
-        report: 'Final Report',
-    }
-
-    const NOTEBOOK_TYPE_DESCRIPTIONS: Record<string, string> = {
-        planning: 'Initial research plan and objectives',
-        report: 'Comprehensive analysis and findings',
-    }
-
-    if (isReportCompletion && message.conversation_notebooks) {
-        return (
-            <MessageTemplate type="ai">
-                <div className="bg-bg-light border border-border rounded-lg p-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                        <IconCheck className="text-success size-4" />
-                        <h4 className="text-sm font-semibold m-0">Deep Research Complete</h4>
-                    </div>
-
-                    <div className="space-y-2">
-                        <p className="text-xs text-muted mb-3">
-                            Your research has been completed. Each notebook contains detailed analysis:
-                        </p>
-
-                        {message.conversation_notebooks.map((notebook) => {
-                            const typeKey = (notebook.notebook_type ??
-                                'general') as keyof typeof NOTEBOOK_TYPE_DISPLAY_NAMES
-                            const displayName = NOTEBOOK_TYPE_DISPLAY_NAMES[typeKey] || notebook.notebook_type
-                            const description = NOTEBOOK_TYPE_DESCRIPTIONS[typeKey] || 'Research documentation'
-
-                            return (
-                                <div
-                                    key={notebook.notebook_id}
-                                    className="flex items-center justify-between p-3 bg-bg-3000 rounded border border-border-light"
-                                >
-                                    <div className="flex items-start gap-3">
-                                        <IconNotebook className="size-4 text-primary-alt mt-0.5" />
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-medium text-sm">
-                                                    {notebook.title || `${displayName} Notebook`}
-                                                </span>
-                                            </div>
-                                            <div className="text-xs text-muted">{description}</div>
-                                        </div>
-                                    </div>
-                                    <LemonButton
-                                        onClick={() => handleOpenNotebook(notebook.notebook_id)}
-                                        size="xsmall"
-                                        type="primary"
-                                        icon={<IconOpenInNew />}
-                                    >
-                                        Open
-                                    </LemonButton>
-                                </div>
-                            )
-                        })}
-                    </div>
-                </div>
-            </MessageTemplate>
-        )
-    }
-
-    // Default single notebook update message
-    return (
-        <MessageTemplate type="ai">
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                    <IconCheck className="text-success size-4" />
-                    <span>A notebook has been updated</span>
-                </div>
-                <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
-                    Open notebook
-                </LemonButton>
-            </div>
-        </MessageTemplate>
-    )
-}
 interface PlanningAnswerProps {
     toolCall: EnhancedToolCall
     isLastPlanningMessage?: boolean

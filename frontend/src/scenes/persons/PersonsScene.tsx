@@ -26,6 +26,7 @@ import { personsSceneLogic } from './personsSceneLogic'
 export const scene: SceneExport = {
     component: PersonsScene,
     logic: personsSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
@@ -41,7 +42,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
 
     useOnMountEffect(() => {
@@ -90,12 +91,15 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     </LemonMenu>
                 }
             />
-            <FeedbackBanner feedbackButtonId="people-list" />
+            <FeedbackBanner
+                feedbackButtonId="people-list"
+                message="We're improving the persons experience. Send us your feedback!"
+            />
 
             <Query
                 uniqueKey={`persons-query-${tabId}`}
                 attachTo={personsSceneLogic({ tabId })}
-                query={query}
+                query={{ ...query, showCount: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',
@@ -119,6 +123,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             to get things moving
                         </>
                     ),
+                    baseCurrency,
                 }}
                 dataAttr="persons-table"
             />

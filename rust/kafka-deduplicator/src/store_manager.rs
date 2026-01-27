@@ -14,6 +14,7 @@ use crate::metrics_const::{
     ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
     CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
 };
+use crate::rebalance_coordinator::RebalanceCoordinator;
 use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 use crate::utils::{format_partition_dir, format_store_path};
@@ -115,15 +116,18 @@ pub struct StoreManager {
     /// Flag to prevent concurrent cleanup operations
     cleanup_running: AtomicBool,
 
-    /// Flag indicating whether a Kafka rebalance is in progress
-    /// When true, orphan cleanup should be skipped to avoid deleting directories
-    /// that are about to be assigned
-    rebalancing: AtomicBool,
+    /// Coordinator for rebalance state (single source of truth)
+    rebalance_coordinator: Arc<RebalanceCoordinator>,
 }
 
 impl StoreManager {
-    /// Create a new store manager with the given configuration
-    pub fn new(store_config: DeduplicationStoreConfig) -> Self {
+    /// Create a new store manager with the given configuration and rebalance coordinator.
+    ///
+    /// The coordinator is used to check rebalance state during cleanup operations.
+    pub fn new(
+        store_config: DeduplicationStoreConfig,
+        rebalance_coordinator: Arc<RebalanceCoordinator>,
+    ) -> Self {
         let metrics = MetricsHelper::new().with_label("service", "kafka-deduplicator");
 
         Self {
@@ -131,27 +135,47 @@ impl StoreManager {
             store_config,
             metrics,
             cleanup_running: AtomicBool::new(false),
-            rebalancing: AtomicBool::new(false),
+            rebalance_coordinator,
         }
     }
 
-    /// Set the rebalancing flag to indicate a Kafka rebalance is in progress
-    ///
-    /// When true, operations like orphan directory cleanup will be skipped
-    /// to avoid deleting directories that are about to be assigned.
-    pub fn set_rebalancing(&self, rebalancing: bool) {
-        self.rebalancing.store(rebalancing, Ordering::SeqCst);
-    }
-
-    /// Check if a Kafka rebalance is currently in progress
-    pub fn is_rebalancing(&self) -> bool {
-        self.rebalancing.load(Ordering::SeqCst)
+    /// Get a reference to the rebalance coordinator.
+    pub fn rebalance_coordinator(&self) -> &Arc<RebalanceCoordinator> {
+        &self.rebalance_coordinator
     }
 
     /// Get an existing store for a partition, if it exists
     pub fn get(&self, topic: &str, partition: i32) -> Option<DeduplicationStore> {
         let partition_key = Partition::new(topic.to_string(), partition);
         self.stores.get(&partition_key).map(|entry| entry.clone())
+    }
+
+    /// Get an existing store for a partition during message processing.
+    ///
+    /// Returns an error if the store doesn't exist. This is the correct behavior
+    /// during normal consumption because:
+    /// - Stores are created during rebalance (via `get_or_create_for_rebalance`)
+    /// - Partitions are paused until stores are ready
+    /// - If no store exists, the partition was likely revoked
+    ///
+    /// Use this method in the batch processor instead of `get_or_create` to avoid
+    /// accidentally creating stores for revoked partitions.
+    pub fn get_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
+        let partition_key = Partition::new(topic.to_string(), partition);
+
+        self.stores.get(&partition_key).map(|entry| entry.clone()).ok_or_else(|| {
+            warn!(
+                topic = topic,
+                partition = partition,
+                "No store registered for partition - message will be dropped (partition may have been revoked or not yet assigned)"
+            );
+            metrics::counter!(crate::metrics_const::MESSAGES_DROPPED_NO_STORE).increment(1);
+            anyhow::anyhow!(
+                "No store registered for partition {}:{} - partition may have been revoked or not yet assigned",
+                topic,
+                partition
+            )
+        })
     }
 
     /// Get or create a deduplication store for a specific partition
@@ -475,7 +499,7 @@ impl StoreManager {
 
         // Skip cleanup during rebalance to avoid deleting entries from stores
         // that are being populated with imported checkpoints
-        if self.is_rebalancing() {
+        if self.rebalance_coordinator.is_rebalancing() {
             debug!("Skipping capacity cleanup - rebalance in progress");
             return Ok(0);
         }
@@ -549,7 +573,7 @@ impl StoreManager {
         for store in &stores {
             // Check if rebalance started mid-cleanup - abort to avoid deleting
             // entries from stores being populated with imported checkpoints
-            if self.is_rebalancing() {
+            if self.rebalance_coordinator.is_rebalancing() {
                 info!(
                     "Aborting capacity cleanup - rebalance started. Freed {} bytes so far",
                     total_bytes_freed
@@ -685,7 +709,6 @@ impl StoreManager {
 
                         // Then check if we need capacity-based cleanup
                         if manager.needs_cleanup() {
-                            info!("Global capacity exceeded, triggering cleanup");
                             match manager.cleanup_old_entries_if_needed() {
                                 Ok(0) => {
                                     debug!("Cleanup skipped (may be already running or no data to clean)");
@@ -753,7 +776,7 @@ impl StoreManager {
                 std::fs::create_dir_all(parent).with_context(|| {
                     format!("Failed to create parent directory: {}", parent.display())
                 })?;
-                info!("Created parent directory: {}", parent.display());
+                debug!("Created parent directory: {}", parent.display());
             }
         }
 
@@ -844,12 +867,6 @@ impl StoreManager {
         }
 
         Ok(size)
-    }
-
-    /// Check if a timestamp directory has a RocksDB LOCK file.
-    /// If LOCK exists, the database is open and the directory must NOT be deleted.
-    fn has_lock_file(timestamp_dir: &Path) -> bool {
-        timestamp_dir.join("LOCK").exists()
     }
 
     /// Get the newest WAL (*.log) file modification time within a single timestamp directory.
@@ -945,7 +962,6 @@ impl StoreManager {
 
     /// Check if a specific timestamp directory is safe to delete as an orphan.
     /// Returns false (NOT safe) if:
-    /// - A LOCK file exists (DB is open)
     /// - WAL files have been modified within the staleness threshold
     /// - Directory modified within staleness threshold (checkpoint import)
     /// - The parent partition is now in the stores map (re-assigned)
@@ -957,16 +973,7 @@ impl StoreManager {
     ) -> bool {
         let ts_dir_display = timestamp_dir.display();
 
-        // Check 1: LOCK file exists - DB is open, never delete
-        if Self::has_lock_file(timestamp_dir) {
-            info!(
-                path = %ts_dir_display,
-                "Orphan safety check: LOCK file found, skipping deletion"
-            );
-            return false;
-        }
-
-        // Check 2: WAL files modified recently - store may still be active
+        // Check 1: WAL files modified recently - store may still be active
         // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
         if let Some(wal_mtime) = Self::get_wal_mtime(timestamp_dir) {
             let elapsed = wal_mtime.elapsed().unwrap_or(Duration::ZERO);
@@ -981,7 +988,7 @@ impl StoreManager {
             }
         }
 
-        // Check 3: Directory modified recently - checkpoint import in progress
+        // Check 2: Directory modified recently - checkpoint import in progress
         // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
         if let Some(dir_mtime) = Self::get_dir_mtime(timestamp_dir) {
             let elapsed = dir_mtime.elapsed().unwrap_or(Duration::ZERO);
@@ -996,7 +1003,7 @@ impl StoreManager {
             }
         }
 
-        // Check 4: Double-check stores map - partition may have been re-assigned
+        // Check 3: Double-check stores map - partition may have been re-assigned
         for entry in self.stores.iter() {
             let partition = entry.key();
             let assigned_dir =
@@ -1019,7 +1026,7 @@ impl StoreManager {
     /// Safety checks before deletion:
     /// 1. Skip if stores map is empty (startup race)
     /// 2. Skip if rebalancing is in progress
-    /// 3. For each candidate timestamp dir: check LOCK file, WAL mtime, dir mtime, and re-verify stores map
+    /// 3. For each candidate timestamp dir: check WAL mtime, dir mtime, and re-verify stores map
     pub fn cleanup_orphaned_directories(&self, orphan_min_staleness: Duration) -> Result<u64> {
         // Guard: skip cleanup if no stores are registered yet (startup race) or
         // all stores were just unregistered (rebalance). This prevents deleting
@@ -1031,7 +1038,7 @@ impl StoreManager {
 
         // Guard: skip cleanup during rebalance to avoid deleting directories
         // that are about to be assigned to us
-        if self.is_rebalancing() {
+        if self.rebalance_coordinator.is_rebalancing() {
             debug!("Skipping orphan cleanup - rebalance in progress");
             return Ok(0);
         }
@@ -1049,7 +1056,7 @@ impl StoreManager {
         for (parent_dir_name, timestamp_path) in candidates {
             // Re-check rebalance mid-loop - abort to avoid deleting directories
             // that may be about to be assigned
-            if self.is_rebalancing() {
+            if self.rebalance_coordinator.is_rebalancing() {
                 info!(
                     "Aborting orphan cleanup - rebalance started. Freed {} bytes so far",
                     total_freed
@@ -1057,7 +1064,7 @@ impl StoreManager {
                 return Ok(total_freed);
             }
 
-            // Safety checks: LOCK file, WAL mtime, dir mtime, double-check stores map
+            // Safety checks: WAL mtime, dir mtime, double-check stores map
             if !self.is_safe_to_delete_timestamp_dir(
                 &timestamp_path,
                 &parent_dir_name,
@@ -1137,6 +1144,7 @@ impl CleanupTaskHandle {
 #[cfg(test)]
 mod tests {
     use crate::store::{TimestampKey, TimestampMetadata};
+    use crate::test_utils::create_test_coordinator;
 
     use super::*;
     use common_types::RawEvent;
@@ -1151,7 +1159,7 @@ mod tests {
             max_capacity: 100, // Very small capacity to test the logic
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Test that needs_cleanup works correctly
         assert!(
@@ -1189,7 +1197,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 0,
         };
-        let zero_manager = Arc::new(StoreManager::new(zero_config));
+        let zero_manager = Arc::new(StoreManager::new(zero_config, create_test_coordinator()));
         assert!(
             !zero_manager.needs_cleanup(),
             "Should never need cleanup with zero capacity"
@@ -1204,7 +1212,7 @@ mod tests {
             max_capacity: 5_000, // Small capacity
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Start periodic cleanup with short interval for testing
         let cleanup_handle = manager.clone().start_periodic_cleanup(
@@ -1252,7 +1260,7 @@ mod tests {
             max_capacity: 1_000_000,
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Start cleanup task
         let cleanup_handle = manager.clone().start_periodic_cleanup(
@@ -1280,7 +1288,7 @@ mod tests {
             max_capacity: 0, // Unlimited capacity
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Should never need cleanup with unlimited capacity
         assert!(!manager.needs_cleanup());
@@ -1298,7 +1306,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024, // 1GB
         };
 
-        let manager = StoreManager::new(config);
+        let manager = StoreManager::new(config, create_test_coordinator());
 
         // First creation should succeed
         let store1 = manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1339,7 +1347,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Spawn multiple tasks trying to create the same store
         let mut handles = vec![];
@@ -1395,7 +1403,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = StoreManager::new(config);
+        let manager = StoreManager::new(config, create_test_coordinator());
 
         // Pre-create during rebalance
         let store1 = manager
@@ -1432,7 +1440,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = StoreManager::new(config);
+        let manager = StoreManager::new(config, create_test_coordinator());
 
         // Step 1: Pre-create during rebalance (async_setup_assigned_partitions)
         let _store = manager
@@ -1476,7 +1484,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = StoreManager::new(config);
+        let manager = StoreManager::new(config, create_test_coordinator());
 
         // Initial assignment - pre-create store
         let store1 = manager
@@ -1537,7 +1545,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = StoreManager::new(config);
+        let manager = StoreManager::new(config, create_test_coordinator());
 
         // No pre-creation - messages arrive first
         // This would emit a warning in production
@@ -1577,7 +1585,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Spawn concurrent tasks: some for rebalance, some for message processing
         let mut handles = vec![];
@@ -1634,7 +1642,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Create a store for partition 0
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1649,7 +1657,7 @@ mod tests {
         assert!(timestamp_subdir.exists());
 
         // When NOT rebalancing, cleanup should remove the orphan timestamp dir
-        assert!(!manager.is_rebalancing());
+        assert!(!manager.rebalance_coordinator().is_rebalancing());
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(0))
             .unwrap();
@@ -1664,9 +1672,9 @@ mod tests {
         std::fs::write(timestamp_subdir.join("dummy.txt"), b"test data").unwrap();
         assert!(timestamp_subdir.exists());
 
-        // Set rebalancing flag
-        manager.set_rebalancing(true);
-        assert!(manager.is_rebalancing());
+        // Start rebalancing via coordinator
+        manager.rebalance_coordinator().start_rebalancing();
+        assert!(manager.rebalance_coordinator().is_rebalancing());
 
         // During rebalance, cleanup should skip and not remove the orphan
         let freed = manager
@@ -1678,9 +1686,9 @@ mod tests {
             "Orphan should NOT be removed during rebalance"
         );
 
-        // Clear rebalancing flag
-        manager.set_rebalancing(false);
-        assert!(!manager.is_rebalancing());
+        // Finish rebalancing via coordinator
+        manager.rebalance_coordinator().finish_rebalancing();
+        assert!(!manager.rebalance_coordinator().is_rebalancing());
 
         // Now cleanup should remove the orphan again
         let freed = manager
@@ -1701,7 +1709,7 @@ mod tests {
             max_capacity: 100, // Very small to trigger cleanup
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Create a store and add data
         let store = manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1720,66 +1728,21 @@ mod tests {
             store.put_timestamp_record(&key, &metadata).unwrap();
         }
 
-        // Set rebalancing flag
-        manager.set_rebalancing(true);
-        assert!(manager.is_rebalancing());
+        // Start rebalancing via coordinator
+        manager.rebalance_coordinator().start_rebalancing();
+        assert!(manager.rebalance_coordinator().is_rebalancing());
 
         // During rebalance, capacity cleanup should skip
         let freed = manager.cleanup_old_entries_if_needed().unwrap();
         assert_eq!(freed, 0, "Should skip cleanup during rebalance");
 
-        // Clear rebalancing flag
-        manager.set_rebalancing(false);
-        assert!(!manager.is_rebalancing());
+        // Finish rebalancing via coordinator
+        manager.rebalance_coordinator().finish_rebalancing();
+        assert!(!manager.rebalance_coordinator().is_rebalancing());
 
         // Now cleanup should run (may or may not free bytes depending on actual size)
         let result = manager.cleanup_old_entries_if_needed();
         assert!(result.is_ok(), "Cleanup should run after rebalance ends");
-    }
-
-    #[tokio::test]
-    async fn test_orphan_cleanup_lock_file_prevents_deletion() {
-        let temp_dir = TempDir::new().unwrap();
-        let config = DeduplicationStoreConfig {
-            path: temp_dir.path().to_path_buf(),
-            max_capacity: 1024 * 1024 * 1024,
-        };
-
-        let manager = Arc::new(StoreManager::new(config));
-
-        // Create a store for partition 0 (so stores map is not empty)
-        manager.get_or_create("test-topic", 0).await.unwrap();
-
-        // Create an "orphaned" directory with a LOCK file (simulating open DB)
-        let orphan_dir = temp_dir.path().join("other-topic_1");
-        let timestamp_subdir = orphan_dir.join("1234567890");
-        std::fs::create_dir_all(&timestamp_subdir).unwrap();
-        std::fs::write(timestamp_subdir.join("LOCK"), b"").unwrap();
-        std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
-        assert!(timestamp_subdir.exists());
-
-        // Cleanup should NOT remove the timestamp dir because LOCK file exists
-        let freed = manager
-            .cleanup_orphaned_directories(Duration::from_secs(0))
-            .unwrap();
-        assert_eq!(freed, 0, "Should not delete directory with LOCK file");
-        assert!(
-            timestamp_subdir.exists(),
-            "Timestamp dir with LOCK file should NOT be removed"
-        );
-
-        // Remove the LOCK file
-        std::fs::remove_file(timestamp_subdir.join("LOCK")).unwrap();
-
-        // Now cleanup should remove the timestamp dir
-        let freed = manager
-            .cleanup_orphaned_directories(Duration::from_secs(0))
-            .unwrap();
-        assert!(freed > 0, "Should delete directory without LOCK file");
-        assert!(
-            !timestamp_subdir.exists(),
-            "Timestamp dir without LOCK file should be removed"
-        );
     }
 
     #[tokio::test]
@@ -1790,7 +1753,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Create a store for partition 0 (so stores map is not empty)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1822,7 +1785,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Create a store for partition 0 (so stores map is not empty)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1855,7 +1818,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config));
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
 
         // Create a store for partition 0
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1886,6 +1849,90 @@ mod tests {
         assert!(
             !timestamp_subdir.exists(),
             "Orphan timestamp directory should be removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_returns_error_when_not_exists() {
+        // Test that get_store() returns an error when no store exists
+        // This is the expected behavior during message processing for revoked partitions
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config, create_test_coordinator());
+
+        // get_store() should return error when store doesn't exist
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_err(),
+            "get_store() should return error when store doesn't exist"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No store registered"),
+            "Error message should indicate no store registered"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_returns_store_when_exists() {
+        // Test that get_store() returns the store when it exists
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config, create_test_coordinator());
+
+        // Pre-create store (as would happen during rebalance)
+        manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
+        // get_store() should now return the store
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_ok(),
+            "get_store() should return Ok when store exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_store_after_unregister_returns_error() {
+        // Test that get_store() returns error after store is unregistered
+        // This simulates the revocation scenario
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+
+        let manager = StoreManager::new(config, create_test_coordinator());
+
+        // Create store
+        manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
+        // get_store() should work
+        assert!(manager.get_store("test-topic", 0).is_ok());
+
+        // Unregister store (as would happen during revocation)
+        manager.unregister_store("test-topic", 0);
+
+        // get_store() should now return error
+        let result = manager.get_store("test-topic", 0);
+        assert!(
+            result.is_err(),
+            "get_store() should return error after store is unregistered"
         );
     }
 }

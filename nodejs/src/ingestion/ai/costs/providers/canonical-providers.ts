@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-01-13 10:03:39 UTC
+// Generated at: 2026-01-26 20:01:57 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -18,7 +18,6 @@ export type CanonicalProvider =
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
-    | 'cerebras'
     | 'cerebras-fp16'
     | 'chutes'
     | 'chutes-bf16'
@@ -46,7 +45,6 @@ export type CanonicalProvider =
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-bf16'
-    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'gmicloud-int4'
     | 'google-ai-studio'
@@ -59,6 +57,7 @@ export type CanonicalProvider =
     | 'hyperbolic-bf16'
     | 'hyperbolic-fp8'
     | 'inception'
+    | 'inceptron-fp8'
     | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'
@@ -88,6 +87,7 @@ export type CanonicalProvider =
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
+    | 'novita'
     | 'novita-bf16'
     | 'novita-fp16'
     | 'novita-fp4'
@@ -111,7 +111,7 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-high-throughput'
     | 'sambanova-turbo'
-    | 'seed'
+    | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'
@@ -122,6 +122,7 @@ export type CanonicalProvider =
     | 'together-turbo'
     | 'venice-beta'
     | 'venice-fp16'
+    | 'venice-fp4'
     | 'venice-fp8'
     | 'wandb-bf16'
     | 'wandb-fp16'

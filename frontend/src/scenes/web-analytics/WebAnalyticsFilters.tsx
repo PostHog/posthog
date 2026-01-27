@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { useState } from 'react'
 
 import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
@@ -36,7 +36,7 @@ import {
     WebPropertyFilters,
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
-import { ProductTab } from './common'
+import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -51,6 +51,7 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
     return (
         <>
             <WebAnalyticsFiltersV2MigrationBanner />
+            <IncompatibleFiltersWarning />
             <FilterBar
                 top={tabs}
                 left={
@@ -90,37 +91,43 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     }
 
     return (
-        <FilterBar
-            top={tabs}
-            left={
-                <>
-                    <ReloadAll iconOnly />
-                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+        <>
+            <IncompatibleFiltersWarning />
 
-                    <WebAnalyticsDomainSelector />
-                    <WebAnalyticsDeviceToggle />
-                    <LiveUserCount
-                        docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
-                        dataAttr="web-analytics-live-user-count"
-                    />
-                </>
-            }
-            right={
-                <>
-                    <WebAnalyticsCompareFilter />
+            <div data-attr="web-analytics-filters">
+                <FilterBar
+                    top={tabs}
+                    left={
+                        <>
+                            <ReloadAll iconOnly />
+                            <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
-                    <WebConversionGoal />
-                    <TableSortingIndicator />
+                            <WebAnalyticsDomainSelector />
+                            <WebAnalyticsDeviceToggle />
+                            <LiveUserCount
+                                docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+                                dataAttr="web-analytics-live-user-count"
+                            />
+                        </>
+                    }
+                    right={
+                        <>
+                            <WebAnalyticsCompareFilter />
 
-                    <WebVitalsPercentileToggle />
-                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+                            <WebConversionGoal />
+                            <TableSortingIndicator />
 
-                    <WebAnalyticsAIFilters>
-                        <WebPropertyFilters />
-                    </WebAnalyticsAIFilters>
-                </>
-            }
-        />
+                            <WebVitalsPercentileToggle />
+                            <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+
+                            <WebAnalyticsAIFilters>
+                                <WebPropertyFilters />
+                            </WebAnalyticsAIFilters>
+                        </>
+                    }
+                />
+            </div>
+        </>
     )
 }
 
@@ -133,11 +140,6 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     } = useValues(webAnalyticsLogic)
     const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
         useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_POSTHOG_AI]) {
-        return children
-    }
 
     return (
         <MaxTool
@@ -185,6 +187,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
     const { validatedDomainFilter, hasHostFilter, authorizedDomains, showProposedURLForm } =
         useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <LemonSelect
@@ -209,7 +212,26 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                                   },
                               ]
                             : []),
-                        ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
+                        ...authorizedDomains.map((domain) => {
+                            const url = new URL(domain)
+                            return {
+                                label: domain,
+                                value: domain,
+                                ...(featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
+                                    ? {
+                                          icon: (
+                                              <img
+                                                  src={faviconUrl(url.hostname)}
+                                                  width={16}
+                                                  height={16}
+                                                  alt={`${domain} favicon`}
+                                                  onError={(e) => (e.currentTarget.style.display = 'none')}
+                                              />
+                                          ),
+                                      }
+                                    : {}),
+                            }
+                        }),
                     ],
                     footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggestedAuthorizedUrlList />,
                 },
@@ -510,5 +532,33 @@ const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
                 Add authorized URL
             </LemonButton>
         </div>
+    )
+}
+
+const IncompatibleFiltersWarning = (): JSX.Element | null => {
+    const { hasIncompatibleFilters, incompatibleFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
+    const { removeIncompatibleFilters } = useActions(webAnalyticsLogic)
+
+    if (!preAggregatedEnabled || !hasIncompatibleFilters) {
+        return null
+    }
+
+    const filterNames = incompatibleFilters.map((filter) => filter.key).join(', ')
+
+    return (
+        <LemonBanner type="warning" className="mb-2">
+            <div className="flex items-center justify-between w-full">
+                <div>
+                    <div className="font-semibold">Some filters are slowing down your queries</div>
+                    <div className="text-sm mt-0.5">
+                        The following filters are not supported by the new query engine and are causing your queries to
+                        slow down: <strong>{filterNames}</strong>
+                    </div>
+                </div>
+                <LemonButton type="primary" size="small" onClick={removeIncompatibleFilters}>
+                    Remove unsupported filters
+                </LemonButton>
+            </div>
+        </LemonBanner>
     )
 }

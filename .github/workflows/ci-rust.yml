@@ -8,6 +8,7 @@ on:
 
 env:
     CARGO_TERM_COLOR: always
+    UV_HTTP_TIMEOUT: 120
 
 jobs:
     # Job to decide if we should run rust ci
@@ -34,6 +35,7 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
@@ -58,14 +60,27 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
+
+            - name: Install system OpenSSL
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
+
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -76,6 +91,9 @@ jobs:
                   sccache --start-server
 
             - name: Run cargo build
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
@@ -151,7 +169,13 @@ jobs:
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
+
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -232,14 +256,27 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
+
+            - name: Install system OpenSSL
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
+
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: clippy,rustfmt
 
             - name: Install sccache
@@ -254,9 +291,15 @@ jobs:
               run: cargo fmt -- --check
 
             - name: Run clippy
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo clippy --all-targets --all-features -- -D warnings
 
             - name: Run cargo check
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
     shear:
@@ -275,7 +318,9 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
 
