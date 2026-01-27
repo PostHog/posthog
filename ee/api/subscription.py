@@ -15,6 +15,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
+from posthog.models import Insight
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.security.url_validation import is_url_allowed
@@ -136,7 +137,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     {"dashboard_export_insights": [f"Cannot select more than {DEFAULT_MAX_ASSET_COUNT} insights."]}
                 )
 
-            # If dashboard is set, ensure all selected insights belong to it (and are not deleted)
+            # Ensure all selected insights belong to the dashboard (and are not deleted)
             dashboard_insight_ids = set(
                 dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values_list(
                     "insight_id", flat=True
@@ -148,6 +149,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError(
                     {"dashboard_export_insights": [f"{len(invalid_ids)} invalid insight(s) selected."]}
                 )
+
+            # Ensure all selected insights belong to the team
+            if Insight.objects.filter(id__in=selected_ids).exclude(team_id=self.context["team_id"]).exists():
+                raise ValidationError({"dashboard_export_insights": ["Some insights do not belong to your team."]})
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]

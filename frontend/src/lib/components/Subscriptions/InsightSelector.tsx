@@ -37,7 +37,7 @@ export function InsightSelector({
             onChange(validSelectedIds)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [validSelectedIds.length, selectedInsightIds.length])
+    }, [validSelectedIds, selectedInsightIds])
 
     useEffect(() => {
         // Auto-select the first N insights for new subscriptions (when nothing is selected yet)
@@ -47,7 +47,7 @@ export function InsightSelector({
             onDefaultsApplied?.(defaultSelection)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [insightTiles, validSelectedIds.length, userHasInteracted])
+    }, [insightTiles, validSelectedIds, userHasInteracted])
 
     if (insightTiles.length === 0) {
         return <div className="text-secondary text-sm">No insights found in this dashboard.</div>

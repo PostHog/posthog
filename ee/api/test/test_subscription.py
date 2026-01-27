@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from rest_framework import status
 
+from posthog.models import Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
@@ -362,3 +363,34 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
         assert "Cannot set insights selection without a dashboard" in response.json()["detail"]
+
+    def test_cannot_create_dashboard_subscription_with_insights_from_other_team(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+
+        # Create another team and insight
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_insight = Insight.objects.create(
+            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            team=other_team,
+            created_by=self.user,
+        )
+
+        self.dashboard.tiles.create(insight=self.insight)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "dashboard": self.dashboard.id,
+                "dashboard_export_insights": [other_insight.id],
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "Dashboard Subscription",
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "dashboard_export_insights"
+        assert "do not belong to your team" in response.json()["detail"]
