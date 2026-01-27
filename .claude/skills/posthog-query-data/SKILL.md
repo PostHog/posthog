@@ -324,3 +324,16 @@ LIMIT 20
 ## Available HogQL functions
 
 Verify what functions are available using [the reference list](./references/available-functions.md) with suitable bash commands.
+
+## Examples reference
+
+Use the examples below to create optimized queries.
+
+- [Trends (unique users, specific time range, single series)](./references/example-trends-unique-users.md)
+- [Trends (total count with multiple breakdowns)](./references/example-trends-breakdowns.md)
+- [Funnel (two steps, aggregated by unique users, broken down by the person's role, sequential, 14-day conversion window)](./references/example-funnel-breakdown.md)
+- [Conversion trends (funnel, two steps, aggregated by unique groups, 1-day conversion window)](./references/example-funnel-trends.md)
+- [Retention (unique users, returned to perform an event in the next 12 weeks, recurring)](./references/example-retention.md)
+- [User paths (pageviews, three steps, applied path cleaning and filters, maximum 50 paths)](./references/example-paths.md)
+- [Lifecycle (unique users by pageviews)](./references/example-lifecycle.md)
+- [Stickiness (counted by pageviews from unique users, defined by at least one event for the interval, non-cumulative)](./references/example-stickiness.md)
