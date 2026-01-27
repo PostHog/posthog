@@ -60,6 +60,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         expandOnClick = true,
         autoHideMetadata = false,
         minHeight,
+        maxHeight,
         getPos,
         attributes,
         updateAttributes,
@@ -344,7 +345,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 isEditable && isResizeable && 'resize-y'
                                             )}
                                             // eslint-disable-next-line react/forbid-dom-props
-                                            style={isResizeable ? { height, minHeight } : {}}
+                                            style={isResizeable ? { height, minHeight, maxHeight } : {}}
                                             onClick={!expanded && expandOnClick ? () => setExpanded(true) : undefined}
                                             onMouseDown={onResizeStart}
                                         >

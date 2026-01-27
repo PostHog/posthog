@@ -80,6 +80,10 @@ export const NotebookDataframeTable = ({
         'No rows to display.'
     )
 
+    // Hide pagination for single-page results
+    const totalPages = Math.ceil(rowCount / pageSize)
+    const showPagination = totalPages > 1 || rowCount > PAGE_SIZE_OPTIONS[0]
+
     return (
         <div className="flex flex-col gap-2">
             <LemonTable
@@ -94,37 +98,43 @@ export const NotebookDataframeTable = ({
                 emptyState={emptyState}
                 loadingSkeletonRows={pageSize}
             />
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-                <div className="flex items-center gap-2 pl-3">
-                    <span>Rows per page</span>
-                    <LemonSelect
-                        size="small"
-                        value={pageSize}
-                        onChange={(value) => onPageSizeChange(value ?? pageSize)}
-                        options={PAGE_SIZE_OPTIONS.map((option) => ({
-                            label: option.toString(),
-                            value: option,
-                        }))}
-                    />
+            {showPagination ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                    <div className="flex items-center gap-2 pl-3">
+                        <span>Rows per page</span>
+                        <LemonSelect
+                            size="small"
+                            value={pageSize}
+                            onChange={(value) => onPageSizeChange(value ?? pageSize)}
+                            options={PAGE_SIZE_OPTIONS.map((option) => ({
+                                label: option.toString(),
+                                value: option,
+                            }))}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 pr-2">
+                        <span>{rowCount === 0 ? 'No rows' : `${startIndex}-${endIndex} of ${rowCount}`}</span>
+                        <LemonButton
+                            size="small"
+                            onClick={onPreviousPage}
+                            disabledReason={hasPrevious ? undefined : 'No previous page'}
+                        >
+                            Prev
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            onClick={onNextPage}
+                            disabledReason={hasNext ? undefined : 'No next page'}
+                        >
+                            Next
+                        </LemonButton>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2 pr-2">
-                    <span>{rowCount === 0 ? 'No rows' : `${startIndex}-${endIndex} of ${rowCount}`}</span>
-                    <LemonButton
-                        size="small"
-                        onClick={onPreviousPage}
-                        disabledReason={hasPrevious ? undefined : 'No previous page'}
-                    >
-                        Prev
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        onClick={onNextPage}
-                        disabledReason={hasNext ? undefined : 'No next page'}
-                    >
-                        Next
-                    </LemonButton>
+            ) : rowCount > 0 ? (
+                <div className="text-xs text-muted text-center py-1">
+                    Showing {rowCount === 1 ? 'one entry' : `${rowCount} entries`}
                 </div>
-            </div>
+            ) : null}
         </div>
     )
 }

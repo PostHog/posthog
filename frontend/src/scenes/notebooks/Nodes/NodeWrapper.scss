@@ -34,6 +34,7 @@
 
         .NotebookNode__content {
             z-index: 1;
+            overflow-y: auto;
             transition: box-shadow 150ms ease-out;
         }
     }

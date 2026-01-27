@@ -112,6 +112,7 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         selected?: boolean
         heightEstimate?: number | string
         minHeight?: number | string
+        maxHeight?: number | string
         /** If true the metadata area will only show when hovered if in editing mode */
         autoHideMetadata?: boolean
         /** Expand the node if the component is clicked */

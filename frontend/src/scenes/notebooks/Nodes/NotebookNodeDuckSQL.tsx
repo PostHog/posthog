@@ -67,7 +67,8 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
     )
 }
 
-const DEFAULT_DUCK_SQL_NODE_HEIGHT = 100
+const MIN_DUCK_SQL_NODE_HEIGHT = 40
+const MAX_DUCK_SQL_NODE_HEIGHT = 400
 
 const Component = ({
     attributes,
@@ -88,6 +89,7 @@ const Component = ({
     const footerRef = useRef<HTMLDivElement | null>(null)
     const lastAutoHeightRef = useRef<number | null>(null)
     const lastExecutionCodeHashRef = useRef<number | null>(null)
+    const userResizedRef = useRef<boolean>(false)
 
     const duckExecution = attributes.duckExecution ?? null
     const hasResult = duckExecution?.result !== undefined && duckExecution?.result !== null
@@ -111,33 +113,36 @@ const Component = ({
         }
     }, [debouncedUpdateHeight])
 
-    useLayoutEffect(() => {
-        if (!hasExecution) {
-            return
+    // Track if execution changes - reset user resize flag when new execution happens
+    useEffect(() => {
+        const lastExecutionCodeHash = lastExecutionCodeHashRef.current
+        if (executionCodeHash !== lastExecutionCodeHash) {
+            lastExecutionCodeHashRef.current = executionCodeHash
+            userResizedRef.current = false // Reset on new execution
         }
+    }, [executionCodeHash])
+
+    useLayoutEffect(() => {
         const output = outputRef.current
         if (!output) {
             return
         }
-        const footerHeight = footerRef.current?.offsetHeight ?? 0
-        const desiredHeight = output.scrollHeight + footerHeight + 8
-        const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_DUCK_SQL_NODE_HEIGHT
-        const lastExecutionCodeHash = lastExecutionCodeHashRef.current
-        const executionChanged = executionCodeHash !== lastExecutionCodeHash
 
-        if (executionChanged) {
-            lastExecutionCodeHashRef.current = executionCodeHash
-            lastAutoHeightRef.current = currentHeight
+        const footerHeight = footerRef.current?.offsetHeight ?? 0
+        const contentHeight = hasExecution ? output.scrollHeight + footerHeight + 8 : MIN_DUCK_SQL_NODE_HEIGHT
+
+        // Clamp to min/max bounds
+        const desiredHeight = Math.min(Math.max(contentHeight, MIN_DUCK_SQL_NODE_HEIGHT), MAX_DUCK_SQL_NODE_HEIGHT)
+        const currentHeight = typeof attributes.height === 'number' ? attributes.height : MIN_DUCK_SQL_NODE_HEIGHT
+
+        // Detect manual resize: if current height differs from last auto-set height and it wasn't us
+        const lastAutoHeight = lastAutoHeightRef.current
+        if (lastAutoHeight !== null && currentHeight !== lastAutoHeight && lastAutoHeight !== currentHeight) {
+            userResizedRef.current = true
         }
 
-        const lastAutoHeight = lastAutoHeightRef.current
-        const hasManualResize =
-            !executionChanged &&
-            lastAutoHeight !== null &&
-            typeof currentHeight === 'number' &&
-            currentHeight < lastAutoHeight
-
-        if (hasManualResize) {
+        // Skip auto-sizing if user has manually resized (unless it's a new execution)
+        if (userResizedRef.current) {
             return
         }
 
@@ -154,7 +159,6 @@ const Component = ({
         duckExecution?.stderr,
         duckExecution?.stdout,
         duckExecution?.traceback?.length,
-        executionCodeHash,
         hasExecution,
         debouncedUpdateHeight,
     ])
@@ -304,8 +308,9 @@ export const NotebookNodeDuckSQL = createPostHogWidgetNode<NotebookNodeDuckSQLAt
     nodeType: NotebookNodeType.DuckSQL,
     titlePlaceholder: 'SQL (duckdb)',
     Component,
-    heightEstimate: 120,
-    minHeight: 80,
+    heightEstimate: 'auto',
+    minHeight: 40,
+    maxHeight: 400,
     resizeable: true,
     startExpanded: true,
     attributes: {
