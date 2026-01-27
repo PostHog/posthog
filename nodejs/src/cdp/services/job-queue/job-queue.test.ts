@@ -241,6 +241,92 @@ describe('CyclotronJobQueue', () => {
             // Main path should still have been called
             expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
         })
+
+        describe('circuit breaker', () => {
+            const flushPromises = () => new Promise((resolve) => process.nextTick(resolve))
+
+            const invocations = [
+                createInvocation(
+                    {
+                        ...createHogExecutionGlobals(),
+                        inputs: {},
+                    },
+                    exampleHogFunction
+                ),
+            ]
+
+            it('should open circuit after 5 consecutive failures and skip writes', async () => {
+                const queue = buildQueue(true)
+                await queue.startAsProducer()
+                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
+                shadowMock.mockRejectedValue(new Error('fail'))
+
+                for (let i = 0; i < 5; i++) {
+                    await queue.queueInvocations(invocations)
+                    await flushPromises()
+                }
+
+                shadowMock.mockClear()
+                await queue.queueInvocations(invocations)
+                await flushPromises()
+
+                expect(shadowMock).not.toHaveBeenCalled()
+            })
+
+            it('should resume writes after cooldown and reset on success', async () => {
+                const now = Date.now()
+                jest.spyOn(Date, 'now').mockReturnValue(now)
+
+                const queue = buildQueue(true)
+                await queue.startAsProducer()
+                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
+                shadowMock.mockRejectedValue(new Error('fail'))
+
+                for (let i = 0; i < 5; i++) {
+                    await queue.queueInvocations(invocations)
+                    await flushPromises()
+                }
+
+                // Advance past the 60s cooldown
+                ;(Date.now as jest.Mock).mockReturnValue(now + 61_000)
+                shadowMock.mockResolvedValue(undefined)
+                shadowMock.mockClear()
+
+                await queue.queueInvocations(invocations)
+                await flushPromises()
+
+                expect(shadowMock).toHaveBeenCalledTimes(1)
+                expect(queue['shadowFailures']).toBe(0)
+
+                jest.restoreAllMocks()
+            })
+
+            it('should not resume writes before cooldown expires', async () => {
+                const now = Date.now()
+                jest.spyOn(Date, 'now').mockReturnValue(now)
+
+                const queue = buildQueue(true)
+                await queue.startAsProducer()
+                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
+                shadowMock.mockRejectedValue(new Error('fail'))
+
+                for (let i = 0; i < 5; i++) {
+                    await queue.queueInvocations(invocations)
+                    await flushPromises()
+                }
+
+                // Advance only 30s — still within cooldown
+                ;(Date.now as jest.Mock).mockReturnValue(now + 30_000)
+                shadowMock.mockClear()
+
+                await queue.queueInvocations(invocations)
+                await flushPromises()
+
+                expect(shadowMock).not.toHaveBeenCalled()
+
+                jest.restoreAllMocks()
+            })
+        })
     })
 })
 
