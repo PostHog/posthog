@@ -105,6 +105,20 @@ describe('InsightSelector', () => {
         expect(onDefaultsApplied).toHaveBeenCalledWith([101, 102, 103])
     })
 
+    it('filters out stale IDs that no longer exist in tiles', () => {
+        const onChange = jest.fn()
+
+        // Selected IDs include 999 which doesn't exist in tiles
+        renderInsightSelector({
+            tiles: createMockTiles() as DashboardTile[],
+            selectedInsightIds: [101, 999, 102],
+            onChange,
+        })
+
+        // Should call onChange to remove the stale ID
+        expect(onChange).toHaveBeenCalledWith([101, 102])
+    })
+
     it('shows max limit message when at capacity', () => {
         const sixInsightTiles = Array.from({ length: 6 }, (_, i) => ({
             id: i + 1,

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -25,30 +25,44 @@ export function InsightSelector({
     const { filteredTiles, insightTiles, showSearch, searchTerm, userHasInteracted } = useValues(logic)
     const { setSearchTerm, setUserHasInteracted } = useActions(logic)
 
+    // Filter out stale IDs that no longer exist in current tiles
+    const validSelectedIds = useMemo(() => {
+        const currentInsightIds = new Set(insightTiles.map((tile) => tile.insight!.id))
+        return selectedInsightIds.filter((id) => currentInsightIds.has(id))
+    }, [insightTiles, selectedInsightIds])
+
+    // If there are stale IDs, update the form state to remove them
+    useEffect(() => {
+        if (validSelectedIds.length < selectedInsightIds.length) {
+            onChange(validSelectedIds)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [validSelectedIds.length, selectedInsightIds.length])
+
     useEffect(() => {
         // Auto-select the first N insights for new subscriptions (when nothing is selected yet)
-        if (insightTiles.length > 0 && selectedInsightIds.length === 0 && !userHasInteracted) {
+        if (insightTiles.length > 0 && validSelectedIds.length === 0 && !userHasInteracted) {
             const defaultSelection = insightTiles.slice(0, MAX_INSIGHTS).map((tile) => tile.insight!.id)
             onChange(defaultSelection)
             onDefaultsApplied?.(defaultSelection)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [insightTiles, selectedInsightIds.length, userHasInteracted])
+    }, [insightTiles, validSelectedIds.length, userHasInteracted])
 
     if (insightTiles.length === 0) {
         return <div className="text-secondary text-sm">No insights found in this dashboard.</div>
     }
 
-    const selectedCount = selectedInsightIds.length
+    const selectedCount = validSelectedIds.length
     const atMaxLimit = selectedCount >= MAX_INSIGHTS
 
     const toggleInsight = (insightId: number): void => {
         setUserHasInteracted()
-        if (selectedInsightIds.includes(insightId)) {
-            const newIds = selectedInsightIds.filter((id) => id !== insightId)
+        if (validSelectedIds.includes(insightId)) {
+            const newIds = validSelectedIds.filter((id) => id !== insightId)
             onChange(newIds)
         } else if (!atMaxLimit) {
-            onChange([...selectedInsightIds, insightId])
+            onChange([...validSelectedIds, insightId])
         }
     }
 
@@ -75,7 +89,7 @@ export function InsightSelector({
                 ) : (
                     filteredTiles.map((tile) => {
                         const insight = tile.insight!
-                        const isChecked = selectedInsightIds.includes(insight.id)
+                        const isChecked = validSelectedIds.includes(insight.id)
                         const isDisabled = !isChecked && atMaxLimit
                         return (
                             <LemonCheckbox

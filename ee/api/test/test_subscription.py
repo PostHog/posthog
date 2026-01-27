@@ -340,3 +340,25 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
         assert "1 invalid insight(s) selected" in response.json()["detail"]
+
+    def test_cannot_set_dashboard_export_insights_on_insight_subscription(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "insight": self.insight.id,
+                "dashboard_export_insights": [self.insight.id],
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "Insight Subscription",
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "dashboard_export_insights"
+        assert "Cannot set insights selection without a dashboard" in response.json()["detail"]

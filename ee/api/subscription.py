@@ -107,6 +107,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
         if dashboard is None:
+            # Reject dashboard_export_insights on non dashboard subscriptions
+            if attrs.get("dashboard_export_insights"):
+                raise ValidationError(
+                    {"dashboard_export_insights": ["Cannot set insights selection without a dashboard."]}
+                )
             return
 
         # For PATCH requests, dashboard_export_insights might not be in attrs - only validate if provided or on create
@@ -210,6 +215,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         filters = self.request.GET.dict()
+
+        # Prefetch dashboard_export_insights to avoid N+1 queries in list/detail views
+        queryset = queryset.prefetch_related("dashboard_export_insights")
 
         if self.action == "list" and "deleted" not in filters:
             queryset = queryset.filter(deleted=False)
