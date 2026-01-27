@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -67,9 +66,6 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
     )
 }
 
-const MIN_DUCK_SQL_NODE_HEIGHT = 40
-const MAX_DUCK_SQL_NODE_HEIGHT = 400
-
 const Component = ({
     attributes,
     updateAttributes,
@@ -85,11 +81,6 @@ const Component = ({
         expanded,
     } = useValues(nodeLogic)
     const { navigateToNode, setDataframePage, setDataframePageSize } = useActions(nodeLogic)
-    const outputRef = useRef<HTMLDivElement | null>(null)
-    const footerRef = useRef<HTMLDivElement | null>(null)
-    const lastAutoHeightRef = useRef<number | null>(null)
-    const lastExecutionCodeHashRef = useRef<number | null>(null)
-    const userResizedRef = useRef<boolean>(false)
 
     const duckExecution = attributes.duckExecution ?? null
     const hasResult = duckExecution?.result !== undefined && duckExecution?.result !== null
@@ -100,68 +91,19 @@ const Component = ({
             hasResult ||
             duckExecution.media?.length ||
             duckExecution.traceback?.length)
+
+    // Reset height to auto when execution changes (so it re-fits to new content)
     const executionCodeHash = attributes.duckExecutionCodeHash ?? null
-
-    const debouncedUpdateHeight = useDebouncedCallback((height: number) => {
-        updateAttributes({ height })
-        lastAutoHeightRef.current = height
-    }, 150)
-
+    const lastExecutionCodeHashRef = useRef<number | null>(null)
     useEffect(() => {
-        return () => {
-            debouncedUpdateHeight.cancel()
-        }
-    }, [debouncedUpdateHeight])
-
-    // Track if execution changes - reset user resize flag when new execution happens
-    useEffect(() => {
-        const lastExecutionCodeHash = lastExecutionCodeHashRef.current
-        if (executionCodeHash !== lastExecutionCodeHash) {
+        if (executionCodeHash !== lastExecutionCodeHashRef.current) {
             lastExecutionCodeHashRef.current = executionCodeHash
-            userResizedRef.current = false // Reset on new execution
+            // Clear any manual height so CSS auto-sizing takes over
+            if (attributes.height !== undefined) {
+                updateAttributes({ height: undefined } as any)
+            }
         }
-    }, [executionCodeHash])
-
-    useLayoutEffect(() => {
-        const output = outputRef.current
-        if (!output) {
-            return
-        }
-
-        const footerHeight = footerRef.current?.offsetHeight ?? 0
-        const contentHeight = hasExecution ? output.scrollHeight + footerHeight + 8 : MIN_DUCK_SQL_NODE_HEIGHT
-
-        // Clamp to min/max bounds
-        const desiredHeight = Math.min(Math.max(contentHeight, MIN_DUCK_SQL_NODE_HEIGHT), MAX_DUCK_SQL_NODE_HEIGHT)
-        const currentHeight = typeof attributes.height === 'number' ? attributes.height : MIN_DUCK_SQL_NODE_HEIGHT
-
-        // Detect manual resize: if current height differs from last auto-set height and it wasn't us
-        const lastAutoHeight = lastAutoHeightRef.current
-        if (lastAutoHeight !== null && currentHeight !== lastAutoHeight && lastAutoHeight !== currentHeight) {
-            userResizedRef.current = true
-        }
-
-        // Skip auto-sizing if user has manually resized (unless it's a new execution)
-        if (userResizedRef.current) {
-            return
-        }
-
-        if (desiredHeight !== currentHeight) {
-            debouncedUpdateHeight(desiredHeight)
-        }
-    }, [
-        attributes.height,
-        dataframeLoading,
-        dataframePageSize,
-        dataframeResult,
-        duckExecution?.media?.length,
-        duckExecution?.result,
-        duckExecution?.stderr,
-        duckExecution?.stdout,
-        duckExecution?.traceback?.length,
-        hasExecution,
-        debouncedUpdateHeight,
-    ])
+    }, [executionCodeHash, attributes.height, updateAttributes])
 
     const isSettingsVisible = attributes.showSettings ?? false
     const showReturnVariableRow = expanded || isSettingsVisible
@@ -180,10 +122,9 @@ const Component = ({
     }
 
     return (
-        <div data-attr="notebook-node-duck-sql" className="flex h-full flex-col gap-2">
+        <div data-attr="notebook-node-duck-sql" className="flex flex-col gap-2">
             {expanded ? (
                 <div
-                    ref={outputRef}
                     className="space-y-3"
                     onMouseDown={(event) => event.stopPropagation()}
                     onDragStart={(event) => event.stopPropagation()}
@@ -244,7 +185,6 @@ const Component = ({
             ) : null}
             {showReturnVariableRow ? (
                 <div
-                    ref={footerRef}
                     className="flex flex-col gap-2 text-xs text-muted border-t p-2"
                     onClick={(event) => event.stopPropagation()}
                     onMouseDown={(event) => event.stopPropagation()}

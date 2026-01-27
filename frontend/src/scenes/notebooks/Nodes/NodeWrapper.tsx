@@ -126,7 +126,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
-    const height = attributes.height ?? heightEstimate
+    // Use 'fit-content' for auto-sizing nodes (when heightEstimate is 'auto' and no manual height set)
+    const height = attributes.height ?? (heightEstimate === 'auto' ? 'fit-content' : heightEstimate)
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
@@ -341,8 +342,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         <div
                                             ref={contentRef}
                                             className={clsx(
-                                                'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
-                                                isEditable && isResizeable && 'resize-y'
+                                                'NotebookNode__content flex flex-col relative z-0',
+                                                isEditable && isResizeable && 'resize-y overflow-auto'
                                             )}
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={isResizeable ? { height, minHeight, maxHeight } : {}}
