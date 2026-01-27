@@ -469,37 +469,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        # Process emails in batches to avoid memory issues
-        def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
-            """Create a batch of UUIDs from email addresses, excluding those already in cohort."""
-            start_idx = batch_index * batch_size
-            end_idx = start_idx + batch_size
-            batch_emails = items[start_idx:end_idx]
-            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id)
-            return uuids
-
-        # Use FunctionBatchIterator to process emails in batches
-        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-
-        # Call the batching method with ClickHouse insertion enabled
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
-
-    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int) -> list[str]:
-        """
-        Get UUIDs for a batch of email addresses, excluding those already in this cohort.
-
-        Args:
-            emails: List of email addresses to convert to UUIDs
-            team_id: Team ID to filter by
-
-        Returns:
-            List of UUIDs for persons with the given email addresses who are not already in this cohort
-        """
-        if not emails:
-            return []
-
-        # Check feature flag for ClickHouse-based email lookup
-        if posthoganalytics.feature_enabled(
+        # Check feature flag once for the entire import process
+        use_clickhouse = posthoganalytics.feature_enabled(
             "cohort-email-lookup-clickhouse",
             str(team_id),
             groups={"project": str(team_id)},
@@ -509,7 +480,39 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 }
             },
             send_feature_flag_events=False,
-        ):
+        )
+
+        # Process emails in batches to avoid memory issues
+        def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
+            """Create a batch of UUIDs from email addresses, excluding those already in cohort."""
+            start_idx = batch_index * batch_size
+            end_idx = start_idx + batch_size
+            batch_emails = items[start_idx:end_idx]
+            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id, use_clickhouse=use_clickhouse)
+            return uuids
+
+        # Use FunctionBatchIterator to process emails in batches
+        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
+
+        # Call the batching method with ClickHouse insertion enabled
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+
+    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int, use_clickhouse: bool = False) -> list[str]:
+        """
+        Get UUIDs for a batch of email addresses, excluding those already in this cohort.
+
+        Args:
+            emails: List of email addresses to convert to UUIDs
+            team_id: Team ID to filter by
+            use_clickhouse: Whether to use ClickHouse instead of PostgreSQL
+
+        Returns:
+            List of UUIDs for persons with the given email addresses who are not already in this cohort
+        """
+        if not emails:
+            return []
+
+        if use_clickhouse:
             return self._get_uuids_for_emails_batch_ch(emails, team_id)
 
         # Default to PostgreSQL method
@@ -557,7 +560,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Use direct ClickHouse SQL for fast person lookup
             query = """
             SELECT DISTINCT person.id
-            FROM person
+            FROM person FINAL
             WHERE person.team_id = %(team_id)s
               AND JSONExtractString(person.properties, 'email') IN %(emails)s
               AND person.is_deleted = 0
@@ -567,6 +570,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return [str(row[0]) for row in result]
 
         except Exception:
+            # Log error before falling back to PostgreSQL
+            logger.exception(
+                "ClickHouse email lookup failed, falling back to PostgreSQL",
+                team_id=team_id,
+                email_count=len(emails),
+            )
             # Fallback to PostgreSQL method
             return self._get_uuids_for_emails_batch_pg(emails, team_id)
 
