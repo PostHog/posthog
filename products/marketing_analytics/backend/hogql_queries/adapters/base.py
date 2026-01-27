@@ -128,7 +128,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     @staticmethod
     def _is_simple_column_name(value: str) -> bool:
-        return bool(value) and value.replace("_", "").replace(".", "").isalnum() and not value.startswith(".") and not value.endswith(".")
+        return (
+            bool(value)
+            and value.replace("_", "").replace(".", "").isalnum()
+            and not value.startswith(".")
+            and not value.endswith(".")
+        )
 
     def _resolve_field_expr(self, field_value: str) -> ast.Expr:
         if self._is_simple_column_name(field_value):

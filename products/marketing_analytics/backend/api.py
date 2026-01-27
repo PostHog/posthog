@@ -110,7 +110,6 @@ def _detect_source_type(table: DataWarehouseTable) -> str:
 
 
 def _get_adapter_class(source_type: str) -> type:
-
     adapter_class = MarketingSourceFactory._adapter_registry.get(source_type)
     if adapter_class:
         return adapter_class

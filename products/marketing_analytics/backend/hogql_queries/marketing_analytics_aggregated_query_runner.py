@@ -101,9 +101,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
             # We exclude the `Cost per` conversion goal columns from the mapping because we'll recalculate them later
             conversion_columns = {
-                k: v
-                for k, v in conversion_columns.items()
-                if not k.startswith(MarketingAnalyticsConstants.COST_PER)
+                k: v for k, v in conversion_columns.items() if not k.startswith(MarketingAnalyticsConstants.COST_PER)
             }
             all_columns.update(conversion_columns)
 
