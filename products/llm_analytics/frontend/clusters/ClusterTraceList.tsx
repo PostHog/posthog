@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { BulletList, parseBullets } from './ClusterDescriptionComponents'
-import { Cluster, ClusterTraceInfo, ClusteringLevel, TraceSummary } from './types'
+import { Cluster, ClusterItemInfo, ClusteringLevel, TraceSummary } from './types'
 
 interface ClusterTraceListProps {
     cluster: Cluster
@@ -64,7 +64,7 @@ function TraceListItem({
     clusteringLevel = 'trace',
 }: {
     traceId: string
-    traceInfo: ClusterTraceInfo
+    traceInfo: ClusterItemInfo
     summary?: TraceSummary
     clusteringLevel?: ClusteringLevel
 }): JSX.Element {

@@ -15,7 +15,7 @@ import { BulletList, ClusterDescription, parseBullets } from './ClusterDescripti
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { TRACES_PER_PAGE } from './constants'
-import { ClusterTraceInfo, ClusteringLevel, TraceSummary } from './types'
+import { ClusterItemInfo, ClusteringLevel, TraceSummary } from './types'
 
 export const scene: SceneExport<ClusterDetailLogicProps> = {
     component: LLMAnalyticsClusterScene,
@@ -154,7 +154,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                                 summary,
                             }: {
                                 traceId: string
-                                traceInfo: ClusterTraceInfo
+                                traceInfo: ClusterItemInfo
                                 summary?: TraceSummary
                             },
                             index: number
@@ -208,7 +208,7 @@ function TraceListItem({
     clusteringLevel = 'trace',
 }: {
     traceId: string
-    traceInfo: ClusterTraceInfo
+    traceInfo: ClusterItemInfo
     summary?: TraceSummary
     displayRank: number
     clusteringLevel?: ClusteringLevel

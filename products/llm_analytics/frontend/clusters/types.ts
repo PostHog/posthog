@@ -42,8 +42,7 @@ export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; 
 }
 
 // Cluster item info from the $ai_trace_clusters or $ai_generation_clusters event
-// Named ClusterTraceInfo for backwards compatibility, but used for both traces and generations
-export interface ClusterTraceInfo {
+export interface ClusterItemInfo {
     distance_to_centroid: number
     rank: number
     x: number // UMAP 2D x coordinate for scatter plot
@@ -59,7 +58,7 @@ export interface Cluster {
     size: number
     title: string
     description: string
-    traces: Record<string, ClusterTraceInfo>
+    traces: Record<string, ClusterItemInfo>
     centroid: number[] // 384-dim vector, not used in UI but present in data
     centroid_x: number // UMAP 2D x coordinate for scatter plot
     centroid_y: number // UMAP 2D y coordinate for scatter plot
@@ -96,7 +95,6 @@ export interface ClusteringRunOption {
 }
 
 // Summary from $ai_trace_summary or $ai_generation_summary events
-// Named TraceSummary for backwards compatibility
 export interface TraceSummary {
     traceId: string // Always set - the trace ID (or parent trace for generations)
     generationId?: string // Only set for generation-level summaries

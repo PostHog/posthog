@@ -13,7 +13,7 @@ import { Breadcrumb } from '~/types'
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
 import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusterTraceInfo, ClusteringLevel, TraceSummary, getTimestampBoundsFromRunId } from './types'
+import { Cluster, ClusterItemInfo, ClusteringLevel, TraceSummary, getTimestampBoundsFromRunId } from './types'
 
 export interface ClusterDetailLogicProps {
     runId: string
@@ -22,7 +22,7 @@ export interface ClusterDetailLogicProps {
 
 export interface TraceWithSummary {
     traceId: string
-    traceInfo: ClusterTraceInfo
+    traceInfo: ClusterItemInfo
     summary?: TraceSummary
 }
 
@@ -228,7 +228,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     return []
                 }
                 return Object.entries(cluster.traces)
-                    .sort(([, a], [, b]) => (a as ClusterTraceInfo).rank - (b as ClusterTraceInfo).rank)
+                    .sort(([, a], [, b]) => (a as ClusterItemInfo).rank - (b as ClusterItemInfo).rank)
                     .map(([traceId]) => traceId)
             },
         ],
