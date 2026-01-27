@@ -357,7 +357,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 actions.pollRunningJobsSuccess(running)
                 actions.loadRecentJobsSuccess(recent)
             } catch {
-                actions.pollRunningJobsSuccess([])
+                // Keep stale data during transient failures
             }
         },
 
