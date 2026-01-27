@@ -41,6 +41,7 @@ export function DataNode(props: DataNodeProps): JSX.Element {
                 </div>
             ) : (
                 <AutoSizer
+                    disableWidth={true}
                     renderProp={({ height }) =>
                         height ? (
                             <CodeEditor

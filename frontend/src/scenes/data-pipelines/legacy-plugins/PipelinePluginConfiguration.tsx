@@ -315,6 +315,7 @@ function JsonConfigField(props: {
 }): JSX.Element {
     return (
         <AutoSizer
+            disableWidth={true}
             className="min-h-60"
             renderProp={({ height }) =>
                 height ? (
