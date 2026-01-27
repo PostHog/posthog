@@ -22,6 +22,9 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 	outgoingChan := make(chan PostHogEvent, 1)
 	statsChan := make(chan CountEvent, 1)
 
+	activeTokens := NewCounter()
+	activeTokens.Add("test-token")
+
 	// Create PostHogKafkaConsumer
 	consumer := &PostHogKafkaConsumer{
 		consumer:     mockConsumer,
@@ -31,6 +34,7 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 		outgoingChan: outgoingChan,
 		statsChan:    statsChan,
 		parallel:     1,
+		activeTokens: activeTokens,
 	}
 
 	// Mock SubscribeTopics
@@ -101,13 +105,10 @@ func TestPostHogKafkaConsumer_Close(t *testing.T) {
 	mockConsumer.AssertExpectations(t)
 }
 
-func TestParse(t *testing.T) {
-	mockGeoLocator := new(mocks.GeoLocator)
-	mockGeoLocator.On("Lookup", "127.0.0.1").
-		Return(10., 20., nil).Once()
+func TestParseEvent(t *testing.T) {
 	data, err := os.ReadFile("testdata/event.json")
 	assert.NoError(t, err)
-	got := parse(mockGeoLocator, data)
+	got, ipStr := parseEvent(data)
 	assert.Equal(t, PostHogEvent{
 		Token:     "this is token",
 		Timestamp: 1738073128810.,
@@ -122,9 +123,20 @@ func TestParse(t *testing.T) {
 			"message_count": 0.,
 			"message_kind":  "event",
 		},
-		Lat: 10,
-		Lng: 20,
 	}, got)
+	assert.Equal(t, "127.0.0.1", ipStr)
+}
+
+func TestGetGeoData(t *testing.T) {
+	mockGeoLocator := new(mocks.GeoLocator)
+	mockGeoLocator.On("Lookup", "127.0.0.1").Return(10., 20., nil).Once()
+
+	consumer := &PostHogKafkaConsumer{geolocator: mockGeoLocator}
+	lat, lng := consumer.getGeoData("127.0.0.1")
+
+	assert.Equal(t, 10., lat)
+	assert.Equal(t, 20., lng)
+	mockGeoLocator.AssertExpectations(t)
 }
 
 func TestFlexibleString_UnmarshalJSON(t *testing.T) {
@@ -208,38 +220,32 @@ func TestPostHogEventWrapper_NumericDistinctId(t *testing.T) {
 	}
 }
 
-func TestParse_NumericDistinctId(t *testing.T) {
-	mockGeoLocator := new(mocks.GeoLocator)
-
+func TestParseEvent_NumericDistinctId(t *testing.T) {
 	// Test that numeric distinct_id from posthog-ruby SDK is handled correctly
 	// This is the exact format that was causing "parse error: expected string near offset 17 of '21'"
 	// The wrapper has distinct_id at the top level, and the data field contains the inner event JSON
 	input := `{"distinct_id":21,"uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{\"$lib\":\"posthog-ruby\"}}","token":"test-token"}`
 
-	got := parse(mockGeoLocator, []byte(input))
+	got, _ := parseEvent([]byte(input))
 
 	assert.Equal(t, "21", got.DistinctId)
 	assert.Equal(t, "$pageview", got.Event)
 	assert.Equal(t, "test-token", got.Token)
 }
 
-func TestParse_WrapperTimestampFallback(t *testing.T) {
-	mockGeoLocator := new(mocks.GeoLocator)
-
+func TestParseEvent_WrapperTimestampFallback(t *testing.T) {
 	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{}}","token":"test-token","timestamp":"2026-01-09T21:00:00.000Z"}`
 
-	got := parse(mockGeoLocator, []byte(input))
+	got, _ := parseEvent([]byte(input))
 
 	assert.Equal(t, "2026-01-09T21:00:00.000Z", got.Timestamp)
 	assert.Equal(t, "$pageview", got.Event)
 }
 
-func TestParse_InnerTimestampOverridesWrapper(t *testing.T) {
-	mockGeoLocator := new(mocks.GeoLocator)
-
+func TestParseEvent_InnerTimestampOverridesWrapper(t *testing.T) {
 	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{},\"timestamp\":\"2026-01-09T02:00:00.000Z\"}","token":"test-token","timestamp":"2026-01-10T21:00:00.000Z"}`
 
-	got := parse(mockGeoLocator, []byte(input))
+	got, _ := parseEvent([]byte(input))
 
 	assert.Equal(t, "2026-01-09T02:00:00.000Z", got.Timestamp)
 	assert.Equal(t, "$pageview", got.Event)

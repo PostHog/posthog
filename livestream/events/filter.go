@@ -49,14 +49,25 @@ type ResponseGeoEvent struct {
 }
 
 type Filter struct {
-	inboundChan chan PostHogEvent
-	SubChan     chan Subscription
-	UnSubChan   chan Subscription
-	subs        []Subscription
+	inboundChan  chan PostHogEvent
+	SubChan      chan Subscription
+	UnSubChan    chan Subscription
+	subs         []Subscription
+	activeTokens *Counter
 }
 
 func NewFilter(subChan chan Subscription, unSubChan chan Subscription, inboundChan chan PostHogEvent) *Filter {
-	return &Filter{SubChan: subChan, UnSubChan: unSubChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
+	return &Filter{
+		SubChan:      subChan,
+		UnSubChan:    unSubChan,
+		inboundChan:  inboundChan,
+		subs:         make([]Subscription, 0),
+		activeTokens: NewCounter(),
+	}
+}
+
+func (c *Filter) ActiveTokens() *Counter {
+	return c.activeTokens
 }
 
 func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
@@ -119,9 +130,11 @@ func (c *Filter) Run() {
 		select {
 		case newSub := <-c.SubChan:
 			c.subs = append(c.subs, newSub)
+			c.activeTokens.Add(newSub.Token)
 			metrics.SubTotal.Inc()
 		case unSub := <-c.UnSubChan:
 			c.subs = removeSubscription(unSub.SubID, c.subs)
+			c.activeTokens.Remove(unSub.Token)
 		case event := <-c.inboundChan:
 			var responseGeoEvent *ResponseGeoEvent
 

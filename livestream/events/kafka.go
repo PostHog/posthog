@@ -127,11 +127,17 @@ type PostHogKafkaConsumer struct {
 	outgoingChan chan PostHogEvent
 	statsChan    chan CountEvent
 	parallel     int
+	activeTokens *Counter
 }
 
 func NewPostHogKafkaConsumer(
-	kafkaConfig configs.KafkaConfig, geolocator geo.GeoLocator,
-	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
+	kafkaConfig configs.KafkaConfig,
+	geolocator geo.GeoLocator,
+	outgoingChan chan PostHogEvent,
+	statsChan    chan CountEvent,
+	parallel     int,
+	activeTokens *Counter,
+) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":          kafkaConfig.Brokers,
@@ -159,6 +165,7 @@ func NewPostHogKafkaConsumer(
 		outgoingChan: outgoingChan,
 		statsChan:    statsChan,
 		parallel:     parallel,
+		activeTokens: activeTokens,
 	}, nil
 }
 
@@ -196,6 +203,14 @@ func (c *PostHogKafkaConsumer) Consume() {
 		}
 
 		metrics.MsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
+
+		if !c.activeTokens.HasAny() {
+			event, _ := parseEvent(msg.Value)
+			c.statsChan <- CountEvent{Token: event.Token, DistinctID: event.DistinctId}
+			metrics.MsgSkippedNoSubscribers.Inc()
+			continue
+		}
+
 		c.incoming <- msg.Value
 	}
 }
@@ -206,13 +221,14 @@ func (c *PostHogKafkaConsumer) runParsing() {
 		if !ok {
 			return
 		}
-		phEvent := parse(c.geolocator, value)
+		phEvent, ipStr := parseEvent(value)
+		phEvent.Lat, phEvent.Lng = c.getGeoData(ipStr)
 		c.outgoingChan <- phEvent
 		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 	}
 }
 
-func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
+func parseEvent(kafkaMessage []byte) (PostHogEvent, string) {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
@@ -233,6 +249,8 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 	phEvent.Uuid = wrapperMessage.Uuid
 	phEvent.DistinctId = string(wrapperMessage.DistinctId)
 
+	eventToken := phEvent.Token
+
 	if wrapperMessage.Token != "" {
 		phEvent.Token = wrapperMessage.Token
 	} else if phEvent.Token == "" {
@@ -243,7 +261,21 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 		}
 	}
 
-	var ipStr = ""
+	// TODO: Temporarily track the source of the tokens to see what we actually need to parse when !c.activeTokens.HasAny()
+	var tokenSource string
+	switch {
+	case wrapperMessage.Token != "":
+		tokenSource = "wrapper"
+	case eventToken != "":
+		tokenSource = "event"
+	case phEvent.Token != "":
+		tokenSource = "properties"
+	default:
+		tokenSource = "none"
+	}
+	metrics.TokenSource.WithLabelValues(tokenSource).Inc()
+
+	var ipStr string
 	if ipValue, ok := phEvent.Properties["$ip"]; ok {
 		if ipProp, ok := ipValue.(string); ok && ipProp != "" {
 			ipStr = ipProp
@@ -252,16 +284,15 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 		ipStr = wrapperMessage.Ip
 	}
 
-	if ipStr != "" {
-		var err error
-		phEvent.Lat, phEvent.Lng, err = geolocator.Lookup(ipStr)
-		if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
-			// TODO capture error to PostHog
-			_ = err
-		}
-	}
+	return phEvent, ipStr
+}
 
-	return phEvent
+func (c *PostHogKafkaConsumer) getGeoData(ipStr string) (float64, float64) {
+	if ipStr == "" {
+		return 0, 0
+	}
+	lat, lng, _ := c.geolocator.Lookup(ipStr)
+	return lat, lng
 }
 
 func (c *PostHogKafkaConsumer) Close() {
