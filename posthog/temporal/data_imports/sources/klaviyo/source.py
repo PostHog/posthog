@@ -59,7 +59,7 @@ Make sure to grant the following read permissions:
                     ),
                 ],
             ),
-            feature_flag="dwh_klaviyo",
+            featureFlag="dwh_klaviyo",
         )
 
     def get_schemas(self, config: KlaviyoSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
