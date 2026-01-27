@@ -222,7 +222,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=response_status,
             )
-        except Exception as e:
+        except Exception:
             logger.exception(f"Failed to run video segment clustering workflow for team {self.team.id}")
             return Response(
                 {"error": "Failed to run video segment clustering workflow"},
