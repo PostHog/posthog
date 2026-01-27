@@ -12,7 +12,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +28,6 @@ interface SavedInsightsTableProps {
 export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTableProps): JSX.Element {
     const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
-    const { hasTagging } = useValues(organizationLogic)
     const summarizeInsight = useSummarizeInsight()
 
     const { tab } = filters
@@ -76,18 +74,14 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
                 )
             },
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof QueryBasedInsightModel,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  },
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof QueryBasedInsightModel,
+            key: 'tags',
+            render: function renderTags(tags: string[]) {
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        },
         ...(tab === SavedInsightsTabs.Yours
             ? []
             : [

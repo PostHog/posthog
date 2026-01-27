@@ -19,11 +19,15 @@ import {
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ChartDisplayType } from '~/types'
+
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
+    const { visualizationType } = useValues(dataVisualizationLogic)
     const {
         columns,
         numericalColumns,
@@ -42,6 +46,10 @@ export const SeriesTab = (): JSX.Element => {
 
     const hideAddYSeries = yData.length >= numericalColumns.length
     const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
+
+    if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+        return <HeatmapSeriesTab />
+    }
 
     if (showTableSettings) {
         return (

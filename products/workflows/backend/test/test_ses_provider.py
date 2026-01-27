@@ -97,7 +97,10 @@ class TestSESProvider(TestCase):
         provider = SESProvider()
 
         # Mock the SES client on the provider instance
-        with patch.object(provider, "ses_client") as mock_ses_client:
+        with (
+            patch.object(provider, "ses_client") as mock_ses_client,
+            patch("products.workflows.backend.providers.ses.posthoganalytics.feature_enabled", return_value=True),
+        ):
             # Mock the verification attributes to return a non-success status
             mock_ses_client.get_identity_verification_attributes.return_value = {
                 "VerificationAttributes": {
@@ -121,7 +124,7 @@ class TestSESProvider(TestCase):
             mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
             mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
 
-            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
         # Should return pending status with DNS records
         assert result == {
@@ -187,6 +190,7 @@ class TestSESProvider(TestCase):
             patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
             patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
             patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
+            patch("products.workflows.backend.providers.ses.posthoganalytics.feature_enabled", return_value=True),
         ):
             mock_verif_attrs.return_value = {
                 "VerificationAttributes": {
@@ -201,7 +205,7 @@ class TestSESProvider(TestCase):
                 "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
             }
 
-            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
             # Should return verified status with DNS records
             assert result["status"] == "success"

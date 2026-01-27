@@ -1,4 +1,6 @@
-import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { Layout } from 'react-grid-layout'
+
+import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
 import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
@@ -57,5 +59,82 @@ describe('calculating tile layouts', () => {
         expect(actual.xs?.map((layout) => layout.x)).toEqual([0, 0, 0, 0])
         // one col with equal height of 6 should be
         expect(actual.xs?.map((layout) => layout.y)).toEqual([0, 2, 4, 6])
+    })
+})
+
+describe('calculateDuplicateLayout', () => {
+    const smLayout = (i: string, x: number, y: number, w: number, h: number): Layout => ({ i, x, y, w, h })
+
+    it.each([
+        {
+            name: 'places to the right when there is room',
+            layouts: { sm: [smLayout('1', 0, 0, 6, 5)] },
+            tileId: 1,
+            expected: {
+                duplicateLayouts: { sm: { x: 6, y: 0, w: 6, h: 5 } },
+                tilesToUpdate: [],
+            },
+        },
+        {
+            name: 'places below when tile is too wide to fit right',
+            layouts: { sm: [smLayout('1', 0, 0, 8, 5)] },
+            tileId: 1,
+            expected: {
+                duplicateLayouts: { sm: { x: 0, y: 5, w: 8, h: 5 } },
+                tilesToUpdate: [],
+            },
+        },
+        {
+            name: 'places below when another tile blocks the right',
+            layouts: { sm: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)] },
+            tileId: 1,
+            expected: {
+                duplicateLayouts: { sm: { x: 0, y: 5, w: 6, h: 5 } },
+                tilesToUpdate: [],
+            },
+        },
+        {
+            name: 'pushes tiles at or below insertion point down',
+            layouts: {
+                sm: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5), smLayout('3', 0, 5, 6, 5)],
+            },
+            tileId: 1,
+            expected: {
+                duplicateLayouts: { sm: { x: 0, y: 5, w: 6, h: 5 } },
+                tilesToUpdate: [{ id: 3, layouts: { sm: { x: 0, y: 10, w: 6, h: 5 }, xs: undefined } }],
+            },
+        },
+        {
+            name: 'returns empty result when tile not found',
+            layouts: { sm: [smLayout('1', 0, 0, 6, 5)] },
+            tileId: 99,
+            expected: { duplicateLayouts: {}, tilesToUpdate: [] },
+        },
+        {
+            name: 'returns empty result when layouts are null',
+            layouts: null,
+            tileId: 1,
+            expected: { duplicateLayouts: {}, tilesToUpdate: [] },
+        },
+    ])('$name', ({ layouts, tileId, expected }) => {
+        const result = calculateDuplicateLayout(
+            layouts as Partial<Record<DashboardLayoutSize, Layout[]>> | null,
+            tileId
+        )
+
+        expect(result.duplicateLayouts).toEqual(expected.duplicateLayouts)
+        expect(result.tilesToUpdate).toEqual(expected.tilesToUpdate)
+    })
+
+    it('includes xs layout for duplicate when original has xs layout', () => {
+        const layouts = {
+            sm: [smLayout('1', 0, 0, 6, 5)],
+            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 5 } as Layout],
+        }
+
+        const result = calculateDuplicateLayout(layouts, 1)
+
+        expect(result.duplicateLayouts.sm).toEqual({ x: 6, y: 0, w: 6, h: 5 })
+        expect(result.duplicateLayouts.xs).toEqual({ x: 0, y: 5, w: 1, h: 5 })
     })
 })

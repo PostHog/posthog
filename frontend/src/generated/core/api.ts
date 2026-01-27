@@ -31,6 +31,8 @@ import type {
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DomainsListParams,
+    EnterpriseEventDefinitionApi,
+    EnterprisePropertyDefinitionApi,
     EnvironmentsDashboardsCreateFromTemplateJsonCreateParams,
     EnvironmentsDashboardsCreateParams,
     EnvironmentsDashboardsCreateUnlistedDashboardCreateParams,
@@ -51,6 +53,7 @@ import type {
     EnvironmentsGroupsUpdatePropertyCreateParams,
     EnvironmentsIntegrationsListParams,
     EnvironmentsSubscriptionsListParams,
+    EventDefinitionsListParams,
     ExportedAssetApi,
     ExportsListParams,
     FileSystemApi,
@@ -75,6 +78,8 @@ import type {
     PaginatedCommentListApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
+    PaginatedEnterpriseEventDefinitionListApi,
+    PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
     PaginatedGroupListApi,
@@ -83,7 +88,6 @@ import type {
     PaginatedOrganizationInviteListApi,
     PaginatedOrganizationMemberListApi,
     PaginatedProjectBackwardCompatBasicListApi,
-    PaginatedPropertyDefinitionListApi,
     PaginatedRoleListApi,
     PaginatedScheduledChangeListApi,
     PaginatedSubscriptionListApi,
@@ -94,19 +98,19 @@ import type {
     PatchedCommentApi,
     PatchedDashboardApi,
     PatchedDashboardTemplateApi,
+    PatchedEnterpriseEventDefinitionApi,
+    PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedIntegrationApi,
     PatchedOrganizationDomainApi,
     PatchedOrganizationMemberApi,
     PatchedProjectBackwardCompatApi,
-    PatchedPropertyDefinitionApi,
     PatchedRemovePersonRequestApi,
     PatchedRoleApi,
     PatchedScheduledChangeApi,
     PatchedSubscriptionApi,
     PatchedUserApi,
     ProjectBackwardCompatApi,
-    PropertyDefinitionApi,
     PropertyDefinitionsListParams,
     RoleApi,
     RolesListParams,
@@ -1975,7 +1979,7 @@ export const environmentsIntegrationsClickupWorkspacesRetrieve = async (
 }
 
 export type environmentsIntegrationsEmailPartialUpdateResponse200 = {
-    data: void
+    data: IntegrationApi
     status: 200
 }
 
@@ -2122,6 +2126,34 @@ export const environmentsIntegrationsGoogleConversionActionsRetrieve = async (
 ): Promise<environmentsIntegrationsGoogleConversionActionsRetrieveResponse> => {
     return apiMutator<environmentsIntegrationsGoogleConversionActionsRetrieveResponse>(
         getEnvironmentsIntegrationsGoogleConversionActionsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsIntegrationsJiraRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsIntegrationsJiraRetrieveResponseSuccess = environmentsIntegrationsJiraRetrieveResponse200 & {
+    headers: Headers
+}
+export type environmentsIntegrationsJiraRetrieveResponse = environmentsIntegrationsJiraRetrieveResponseSuccess
+
+export const getEnvironmentsIntegrationsJiraRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/environments/${projectId}/integrations/${id}/jira_projects/`
+}
+
+export const environmentsIntegrationsJiraRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<environmentsIntegrationsJiraRetrieveResponse> => {
+    return apiMutator<environmentsIntegrationsJiraRetrieveResponse>(
+        getEnvironmentsIntegrationsJiraRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
@@ -5255,32 +5287,45 @@ export const dashboardsCreateUnlistedDashboardCreate = async (
     )
 }
 
-export type eventDefinitionsRetrieveResponse200 = {
-    data: void
+export type eventDefinitionsListResponse200 = {
+    data: PaginatedEnterpriseEventDefinitionListApi
     status: 200
 }
 
-export type eventDefinitionsRetrieveResponseSuccess = eventDefinitionsRetrieveResponse200 & {
+export type eventDefinitionsListResponseSuccess = eventDefinitionsListResponse200 & {
     headers: Headers
 }
-export type eventDefinitionsRetrieveResponse = eventDefinitionsRetrieveResponseSuccess
+export type eventDefinitionsListResponse = eventDefinitionsListResponseSuccess
 
-export const getEventDefinitionsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/`
+export const getEventDefinitionsListUrl = (projectId: string, params?: EventDefinitionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/`
 }
 
-export const eventDefinitionsRetrieve = async (
+export const eventDefinitionsList = async (
     projectId: string,
+    params?: EventDefinitionsListParams,
     options?: RequestInit
-): Promise<eventDefinitionsRetrieveResponse> => {
-    return apiMutator<eventDefinitionsRetrieveResponse>(getEventDefinitionsRetrieveUrl(projectId), {
+): Promise<eventDefinitionsListResponse> => {
+    return apiMutator<eventDefinitionsListResponse>(getEventDefinitionsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
 export type eventDefinitionsCreateResponse201 = {
-    data: void
+    data: EnterpriseEventDefinitionApi
     status: 201
 }
 
@@ -5295,41 +5340,44 @@ export const getEventDefinitionsCreateUrl = (projectId: string) => {
 
 export const eventDefinitionsCreate = async (
     projectId: string,
+    enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
     options?: RequestInit
 ): Promise<eventDefinitionsCreateResponse> => {
     return apiMutator<eventDefinitionsCreateResponse>(getEventDefinitionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(enterpriseEventDefinitionApi),
     })
 }
 
-export type eventDefinitionsRetrieve2Response200 = {
-    data: void
+export type eventDefinitionsRetrieveResponse200 = {
+    data: EnterpriseEventDefinitionApi
     status: 200
 }
 
-export type eventDefinitionsRetrieve2ResponseSuccess = eventDefinitionsRetrieve2Response200 & {
+export type eventDefinitionsRetrieveResponseSuccess = eventDefinitionsRetrieveResponse200 & {
     headers: Headers
 }
-export type eventDefinitionsRetrieve2Response = eventDefinitionsRetrieve2ResponseSuccess
+export type eventDefinitionsRetrieveResponse = eventDefinitionsRetrieveResponseSuccess
 
-export const getEventDefinitionsRetrieve2Url = (projectId: string, id: string) => {
+export const getEventDefinitionsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/event_definitions/${id}/`
 }
 
-export const eventDefinitionsRetrieve2 = async (
+export const eventDefinitionsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<eventDefinitionsRetrieve2Response> => {
-    return apiMutator<eventDefinitionsRetrieve2Response>(getEventDefinitionsRetrieve2Url(projectId, id), {
+): Promise<eventDefinitionsRetrieveResponse> => {
+    return apiMutator<eventDefinitionsRetrieveResponse>(getEventDefinitionsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
 export type eventDefinitionsUpdateResponse200 = {
-    data: void
+    data: EnterpriseEventDefinitionApi
     status: 200
 }
 
@@ -5345,16 +5393,19 @@ export const getEventDefinitionsUpdateUrl = (projectId: string, id: string) => {
 export const eventDefinitionsUpdate = async (
     projectId: string,
     id: string,
+    enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
     options?: RequestInit
 ): Promise<eventDefinitionsUpdateResponse> => {
     return apiMutator<eventDefinitionsUpdateResponse>(getEventDefinitionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(enterpriseEventDefinitionApi),
     })
 }
 
 export type eventDefinitionsPartialUpdateResponse200 = {
-    data: void
+    data: EnterpriseEventDefinitionApi
     status: 200
 }
 
@@ -5370,11 +5421,14 @@ export const getEventDefinitionsPartialUpdateUrl = (projectId: string, id: strin
 export const eventDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
+    patchedEnterpriseEventDefinitionApi: NonReadonly<PatchedEnterpriseEventDefinitionApi>,
     options?: RequestInit
 ): Promise<eventDefinitionsPartialUpdateResponse> => {
     return apiMutator<eventDefinitionsPartialUpdateResponse>(getEventDefinitionsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEnterpriseEventDefinitionApi),
     })
 }
 
@@ -6649,7 +6703,7 @@ export const integrationsClickupWorkspacesRetrieve = async (
 }
 
 export type integrationsEmailPartialUpdateResponse200 = {
-    data: void
+    data: IntegrationApi
     status: 200
 }
 
@@ -6787,6 +6841,31 @@ export const integrationsGoogleConversionActionsRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export type integrationsJiraProjectsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type integrationsJiraProjectsRetrieveResponseSuccess = integrationsJiraProjectsRetrieveResponse200 & {
+    headers: Headers
+}
+export type integrationsJiraProjectsRetrieveResponse = integrationsJiraProjectsRetrieveResponseSuccess
+
+export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
+}
+
+export const integrationsJiraProjectsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<integrationsJiraProjectsRetrieveResponse> => {
+    return apiMutator<integrationsJiraProjectsRetrieveResponse>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export type integrationsLinearTeamsRetrieveResponse200 = {
@@ -6927,7 +7006,7 @@ export const integrationsAuthorizeRetrieve = async (
 }
 
 export type propertyDefinitionsListResponse200 = {
-    data: PaginatedPropertyDefinitionListApi
+    data: PaginatedEnterprisePropertyDefinitionListApi
     status: 200
 }
 
@@ -6964,7 +7043,7 @@ export const propertyDefinitionsList = async (
 }
 
 export type propertyDefinitionsRetrieveResponse200 = {
-    data: PropertyDefinitionApi
+    data: EnterprisePropertyDefinitionApi
     status: 200
 }
 
@@ -6989,7 +7068,7 @@ export const propertyDefinitionsRetrieve = async (
 }
 
 export type propertyDefinitionsUpdateResponse200 = {
-    data: PropertyDefinitionApi
+    data: EnterprisePropertyDefinitionApi
     status: 200
 }
 
@@ -7005,19 +7084,19 @@ export const getPropertyDefinitionsUpdateUrl = (projectId: string, id: string) =
 export const propertyDefinitionsUpdate = async (
     projectId: string,
     id: string,
-    propertyDefinitionApi: NonReadonly<PropertyDefinitionApi>,
+    enterprisePropertyDefinitionApi: NonReadonly<EnterprisePropertyDefinitionApi>,
     options?: RequestInit
 ): Promise<propertyDefinitionsUpdateResponse> => {
     return apiMutator<propertyDefinitionsUpdateResponse>(getPropertyDefinitionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(propertyDefinitionApi),
+        body: JSON.stringify(enterprisePropertyDefinitionApi),
     })
 }
 
 export type propertyDefinitionsPartialUpdateResponse200 = {
-    data: PropertyDefinitionApi
+    data: EnterprisePropertyDefinitionApi
     status: 200
 }
 
@@ -7033,14 +7112,14 @@ export const getPropertyDefinitionsPartialUpdateUrl = (projectId: string, id: st
 export const propertyDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedPropertyDefinitionApi: NonReadonly<PatchedPropertyDefinitionApi>,
+    patchedEnterprisePropertyDefinitionApi: NonReadonly<PatchedEnterprisePropertyDefinitionApi>,
     options?: RequestInit
 ): Promise<propertyDefinitionsPartialUpdateResponse> => {
     return apiMutator<propertyDefinitionsPartialUpdateResponse>(getPropertyDefinitionsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPropertyDefinitionApi),
+        body: JSON.stringify(patchedEnterprisePropertyDefinitionApi),
     })
 }
 

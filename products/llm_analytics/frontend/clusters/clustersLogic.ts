@@ -118,7 +118,11 @@ export const clustersLogic = kea<clustersLogicType>([
                             LIMIT ${MAX_CLUSTERING_RUNS}
                         `,
                         { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
-                        { refresh: 'force_blocking' }
+                        {
+                            refresh: 'force_blocking',
+                            // Run IDs are generated in UTC, so compare timestamps in UTC
+                            queryParams: { modifiers: { convertToProjectTimezone: false } },
+                        }
                     )
 
                     return (response.results || []).map((row: string[]) => ({
@@ -153,7 +157,9 @@ export const clustersLogic = kea<clustersLogicType>([
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${runId}
                             LIMIT 1
                         `,
-                        { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' }
+                        { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
+                        // Run IDs and bounds are in UTC, so compare timestamps in UTC
+                        { queryParams: { modifiers: { convertToProjectTimezone: false } } }
                     )
 
                     if (!response.results?.length) {

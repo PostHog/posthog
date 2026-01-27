@@ -258,7 +258,7 @@ class TestSSORedirectValidation:
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], path="invalid_path")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @pytest.mark.parametrize("path_value", ["billing", "usage", "support", "secrets"])
+    @pytest.mark.parametrize("path_value", ["billing", "usage", "support", "secrets", "onboarding"])
     def test_sso_redirect_accepts_valid_paths(self, path_value, sso_setup):
         """Valid path values should be accepted and redirect successfully."""
         with (
