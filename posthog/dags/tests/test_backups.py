@@ -43,8 +43,10 @@ def test_get_latest_backup(table: str):
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {
         "CommonPrefixes": [
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/full-20230101075404/"},
             {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/full-20240101075404/"},
             {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/inc-20240301075404/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/inc-20230301075404/"},
             {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/inc-20240201075404/"},
         ]
     }
@@ -54,6 +56,8 @@ def test_get_latest_backup(table: str):
     result = get_latest_backups(context=context, config=config, s3=mock_s3)
 
     assert isinstance(result, list)
+    assert len(result) == 5
+
     assert result[0].database == "posthog"
     assert result[0].date == "20240301075404"
     assert result[0].incremental is True
@@ -69,10 +73,19 @@ def test_get_latest_backup(table: str):
     assert result[2].incremental is False
     assert result[2].base_backup is None
 
+    assert result[3].database == "posthog"
+    assert result[3].date == "20230301075404"
+    assert result[3].incremental is True
+    assert result[3].base_backup is None
+
+    assert result[4].database == "posthog"
+    assert result[4].date == "20230101075404"
+    assert result[4].incremental is False
+    assert result[4].base_backup is None
+
     expected_table = table if table else None
-    assert result[0].table == expected_table
-    assert result[1].table == expected_table
-    assert result[2].table == expected_table
+    for backup in result:
+        assert backup.table == expected_table
 
 
 def test_get_latest_successful_backup_returns_latest_backup():

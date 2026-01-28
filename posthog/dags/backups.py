@@ -329,10 +329,13 @@ def get_latest_backups(
     if "CommonPrefixes" not in backups:
         return []
 
-    latest_backups = [
-        Backup.from_s3_path(backup["Prefix"])
-        for backup in sorted(backups["CommonPrefixes"], key=lambda x: x["Prefix"], reverse=True)
-    ]
+    # Parse all backups first, then sort by date (not lexicographically by prefix)
+    # to ensure correct ordering regardless of backup type (full/inc)
+    latest_backups = sorted(
+        [Backup.from_s3_path(backup["Prefix"]) for backup in backups["CommonPrefixes"]],
+        key=lambda x: x.date,
+        reverse=True,
+    )
     context.log.info(f"Found {len(latest_backups)} latest backups: {latest_backups}")
     return latest_backups[:15]
 
