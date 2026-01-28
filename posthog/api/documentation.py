@@ -197,6 +197,19 @@ class FilterActionSerializer(serializers.Serializer):
     )
 
 
+# Global mapping of (path, method) → product folder, populated during preprocessing
+_endpoint_product_mapping: dict[tuple[str, str], str] = {}
+
+
+def _get_product_from_module(module: str) -> str | None:
+    """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
+    if module.startswith("products."):
+        parts = module.split(".")
+        if len(parts) >= 2:
+            return parts[1]
+    return None
+
+
 def preprocess_exclude_path_format(endpoints, **kwargs):
     """
     preprocessing hook that filters out {format} suffixed paths, in case
@@ -204,6 +217,9 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     """
     # For frontend type generation, include INTERNAL views if they have explicit tags
     include_internal = os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
+
+    # Clear previous mapping
+    _endpoint_product_mapping.clear()
 
     result = []
     for path, path_regex, method, callback in endpoints:
@@ -218,6 +234,12 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
                     "{project_id}",  # TODO: "{environment_id}" once project environments are rolled out
                 )
                 path = path.replace("{parent_lookup_", "{")
+
+                # Track product folder for auto-tagging
+                product = _get_product_from_module(callback.cls.__module__)
+                if product:
+                    _endpoint_product_mapping[(path, method)] = product
+
                 result.append((path, path_regex, method, callback))
     return result
 
@@ -296,6 +318,12 @@ def custom_postprocessing_hook(result, generator, request, public):
             # Preserve explicit tags from @extend_schema before filtering/adding auto-derived ones
             # Exclude auto-derived URL structure tags (projects, environments) - these aren't real product tags
             explicit_tags = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
+
+            # Auto-add product tag for ViewSets in products/*/backend/
+            product = _endpoint_product_mapping.get((path, method.upper()))
+            if product and product not in explicit_tags:
+                explicit_tags.append(product)
+
             definition["x-explicit-tags"] = explicit_tags
 
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects"]]
@@ -308,7 +336,10 @@ def custom_postprocessing_hook(result, generator, request, public):
             for tag in definition["tags"]:
                 all_tags.append(tag)
             definition["operationId"] = (
-                definition["operationId"].replace("organizations_", "", 1).replace("projects_", "", 1)
+                definition["operationId"]
+                .replace("organizations_", "", 1)
+                .replace("projects_", "", 1)
+                .replace("environments_", "", 1)
             )
             if "parameters" in definition:
                 definition["parameters"] = [

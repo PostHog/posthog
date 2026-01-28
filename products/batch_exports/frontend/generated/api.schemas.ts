@@ -14,7 +14,6 @@
  */
 export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ModelEnumApi = {
     events: 'events',
     persons: 'persons',
@@ -23,14 +22,12 @@ export const ModelEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -48,7 +45,6 @@ export const NullEnumApi = {} as const
 export type BatchExportDestinationTypeEnumApi =
     (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BatchExportDestinationTypeEnumApi = {
     S3: 'S3',
     Snowflake: 'Snowflake',
@@ -98,7 +94,6 @@ export interface BatchExportDestinationApi {
  */
 export type IntervalEnumApi = (typeof IntervalEnumApi)[keyof typeof IntervalEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IntervalEnumApi = {
     hour: 'hour',
     day: 'day',
@@ -120,7 +115,6 @@ export const IntervalEnumApi = {
  */
 export type BatchExportRunStatusEnumApi = (typeof BatchExportRunStatusEnumApi)[keyof typeof BatchExportRunStatusEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BatchExportRunStatusEnumApi = {
     Cancelled: 'Cancelled',
     Completed: 'Completed',
@@ -808,7 +802,6 @@ export interface BatchExportRunApi {
  */
 export type TimezoneEnumApi = (typeof TimezoneEnumApi)[keyof typeof TimezoneEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TimezoneEnumApi = {
     'Africa/Abidjan': 'Africa/Abidjan',
     'Africa/Accra': 'Africa/Accra',
@@ -1422,7 +1415,7 @@ export interface BatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
     destination: BatchExportDestinationApi
     interval: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
@@ -1449,9 +1442,9 @@ export interface BatchExportApi {
     readonly latest_runs: readonly BatchExportRunApi[]
     hogql_query?: string
     /** A schema of custom fields to select when exporting data. */
-    readonly schema: unknown
-    filters?: unknown
-    timezone?: TimezoneEnumApi | NullEnumApi
+    readonly schema: unknown | null
+    filters?: unknown | null
+    timezone?: TimezoneEnumApi | NullEnumApi | null
     /**
      * @minimum 0
      * @maximum 6
@@ -1473,6 +1466,80 @@ export interface PaginatedBatchExportListApi {
     /** @nullable */
     previous?: string | null
     results: BatchExportApi[]
+}
+
+/**
+ * * `Cancelled` - Cancelled
+ * `Completed` - Completed
+ * `ContinuedAsNew` - Continued As New
+ * `Failed` - Failed
+ * `FailedRetryable` - Failed Retryable
+ * `Terminated` - Terminated
+ * `TimedOut` - Timedout
+ * `Running` - Running
+ * `Starting` - Starting
+ */
+export type BatchExportBackfillStatusEnumApi =
+    (typeof BatchExportBackfillStatusEnumApi)[keyof typeof BatchExportBackfillStatusEnumApi]
+
+export const BatchExportBackfillStatusEnumApi = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
+
+export interface BatchExportBackfillApi {
+    readonly id: string
+    readonly progress: string
+    /**
+     * The start of the data interval.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * The end of the data interval.
+     * @nullable
+     */
+    end_at?: string | null
+    /** The status of this backfill.
+
+* `Cancelled` - Cancelled
+* `Completed` - Completed
+* `ContinuedAsNew` - Continued As New
+* `Failed` - Failed
+* `FailedRetryable` - Failed Retryable
+* `Terminated` - Terminated
+* `TimedOut` - Timedout
+* `Running` - Running
+* `Starting` - Starting */
+    status: BatchExportBackfillStatusEnumApi
+    /** The timestamp at which this BatchExportBackfill was created. */
+    readonly created_at: string
+    /**
+     * The timestamp at which this BatchExportBackfill finished, successfully or not.
+     * @nullable
+     */
+    finished_at?: string | null
+    /** The timestamp at which this BatchExportBackfill was last updated. */
+    readonly last_updated_at: string
+    /** The team this belongs to. */
+    team: number
+    /** The BatchExport this backfill belongs to. */
+    batch_export: string
+}
+
+export interface PaginatedBatchExportBackfillListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportBackfillApi[]
 }
 
 export interface PaginatedBatchExportRunListApi {
@@ -1497,7 +1564,7 @@ export interface PatchedBatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
     destination?: BatchExportDestinationApi
     interval?: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
@@ -1524,9 +1591,9 @@ export interface PatchedBatchExportApi {
     readonly latest_runs?: readonly BatchExportRunApi[]
     hogql_query?: string
     /** A schema of custom fields to select when exporting data. */
-    readonly schema?: unknown
-    filters?: unknown
-    timezone?: TimezoneEnumApi | NullEnumApi
+    readonly schema?: unknown | null
+    filters?: unknown | null
+    timezone?: TimezoneEnumApi | NullEnumApi | null
     /**
      * @minimum 0
      * @maximum 6
@@ -1541,7 +1608,7 @@ export interface PatchedBatchExportApi {
     offset_hour?: number | null
 }
 
-export type EnvironmentsBatchExportsListParams = {
+export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -1552,7 +1619,7 @@ export type EnvironmentsBatchExportsListParams = {
     offset?: number
 }
 
-export type EnvironmentsBatchExportsRunsListParams = {
+export type BatchExportsBackfillsListParams = {
     /**
      * The pagination cursor value.
      */
@@ -1563,15 +1630,15 @@ export type EnvironmentsBatchExportsRunsListParams = {
     ordering?: string
 }
 
-export type BatchExportsListParams = {
+export type BatchExportsRunsListParams = {
     /**
-     * Number of results to return per page.
+     * The pagination cursor value.
      */
-    limit?: number
+    cursor?: string
     /**
-     * The initial index from which to return the results.
+     * Which field to use when ordering the results.
      */
-    offset?: number
+    ordering?: string
 }
 
 export type BatchExportsList2Params = {
@@ -1585,7 +1652,29 @@ export type BatchExportsList2Params = {
     offset?: number
 }
 
-export type BatchExportsRunsListParams = {
+export type BatchExportsList3Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type BatchExportsBackfillsList2Params = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+}
+
+export type BatchExportsRunsList2Params = {
     /**
      * The pagination cursor value.
      */
