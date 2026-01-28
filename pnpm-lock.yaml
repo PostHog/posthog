@@ -59,8 +59,8 @@ importers:
         specifier: ^0.18.1
         version: 0.18.1
       orval:
-        specifier: 8.0.0-rc.5
-        version: 8.0.0-rc.5(typescript@5.4.5)
+        specifier: 8.0.3
+        version: 8.0.3(typescript@5.4.5)
       oxlint:
         specifier: ^1.8.0
         version: 1.9.0
@@ -429,8 +429,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: ^0.36.4
-        version: 0.36.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: ^0.36.5
+        version: 0.36.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -858,8 +858,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.335.3
-        version: 1.335.3
+        specifier: 1.335.5
+        version: 1.335.5
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1659,8 +1659,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.3
-        version: 1.335.3
+        specifier: 1.335.5
+        version: 1.335.5
       react:
         specifier: '*'
         version: 18.2.0
@@ -1853,8 +1853,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.3
-        version: 1.335.3
+        specifier: 1.335.5
+        version: 1.335.5
       react:
         specifier: '*'
         version: 18.2.0
@@ -2094,8 +2094,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.3
-        version: 1.335.3
+        specifier: 1.335.5
+        version: 1.335.5
       prettier:
         specifier: '*'
         version: 3.6.2
@@ -2179,8 +2179,8 @@ importers:
         specifier: '*'
         version: 5.4.1
       posthog-js:
-        specifier: 1.335.3
-        version: 1.335.3
+        specifier: 1.335.5
+        version: 1.335.5
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2500,8 +2500,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.3
-        version: 1.335.3
+        specifier: 1.335.5
+        version: 1.335.5
       react:
         specifier: '*'
         version: 18.2.0
@@ -2572,8 +2572,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.335.3
-        version: 1.335.3
+        specifier: 1.335.5
+        version: 1.335.5
       react:
         specifier: '*'
         version: 18.2.0
@@ -6404,35 +6404,38 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.1.0
 
-  '@orval/angular@8.0.0-rc.5':
-    resolution: {integrity: sha512-XoWrw3CfeURhyV0M0AOK/cAVBZQQC+DhLT9PwzqqH0TNqoCZCSmF9VVPsX7U6N6J6qYk3wPPpFNOThqomDYgtw==}
+  '@orval/angular@8.0.3':
+    resolution: {integrity: sha512-zZyHVunumuxWUQMeNgFSCMKyBGIG1NWqlcctMpfecOYo2MbMaU6WeNws7BcfTXV6EP5gNbVdOjSdZ5N/6iX/kQ==}
 
-  '@orval/axios@8.0.0-rc.5':
-    resolution: {integrity: sha512-8Vky3se1l4yRnjn4o7E5y0n/76TR+/JvnXrhF4ubuzZZOlWhTtzhGgfLYi82ERai79SWiy4BaxQiYqInorPpIQ==}
+  '@orval/axios@8.0.3':
+    resolution: {integrity: sha512-Cb++1weUwvJ6fJFsMBzqVxUfw9EoyCa0kPieqQ0DDzzzfKWejhmSMlwVsIzQciQZs+W8rGzgg4NCPEMZpkQlqw==}
 
-  '@orval/core@8.0.0-rc.5':
-    resolution: {integrity: sha512-vej33JLz7rZJW9SK35g4pV3hH8i+Dw9E1Jeu1kvV3QCwGMDwJsm9x5Y6yly+1iGgpBmYZNSYC3aKqWGyA2Bq4g==}
+  '@orval/core@8.0.3':
+    resolution: {integrity: sha512-0UmTR06J4cijFsaKwZ7osC4dbEyghg3OzuMNnkkPGMkObIO3VkIn39loKNz02s0WFEaujycMFfTOhjq7CQF3aQ==}
 
-  '@orval/fetch@8.0.0-rc.5':
-    resolution: {integrity: sha512-bkhNo0JxP/JEydHE8PfpNRH6TjDs4Vn1x/J4snmFwqdrnscAZ2LeZq3zu2YNGbvBuu2LkMIjO3hDIv6Y23IVag==}
+  '@orval/fetch@8.0.3':
+    resolution: {integrity: sha512-VXAcekE7OpmcIVXxfVSRl4VSOgQIKCsNjlOcrP6tuQii88WlGraOmP3dKRzpzeChlni2alU+1ABgoyQjJ74k+w==}
 
-  '@orval/hono@8.0.0-rc.5':
-    resolution: {integrity: sha512-g3uxB+u9nDDLK8bfSKEra7T2IpMoZTLJQCAmjKipY3ZLKpgRMOrUJGFNuulaREgqBYVYMg9yZxVQ8FutKEHDGw==}
+  '@orval/hono@8.0.3':
+    resolution: {integrity: sha512-eYHgKfaVKDR4pFmLXFmVgB0R+Wf4xgMWrvrGbtLRnwgLfnVn+ewlaXDwhgiKvt7KohIqHIGw+9GD4tzGFp/QOg==}
 
-  '@orval/mcp@8.0.0-rc.5':
-    resolution: {integrity: sha512-Mtl5MyO9XVKulaUgZzwONx4su+YEAsD3t2ne2GTymHvFrVfGqCcTXdBzexfU2kyxGYIcFwEbkafgUmq08pU2bw==}
+  '@orval/mcp@8.0.3':
+    resolution: {integrity: sha512-0ucpqUHgtHSSLKmqlGzlFHs9sUV+gK93vGMtMy2hLz6TXQqVRBulWB9KDC7vcurAw6jn09X/6No54bHNAKCY3A==}
 
-  '@orval/mock@8.0.0-rc.5':
-    resolution: {integrity: sha512-3KlnQExn0LMSUe3JoL/4RlsEh+HpGHPvQakh/fS0qQ0qnJpy5w87p5RnXc7AoqdLkTUbV2FbyQo27WIonTCuIw==}
+  '@orval/mock@8.0.3':
+    resolution: {integrity: sha512-X62XNsfKySBUifm+/x6kyPA97RSr3HgBn0HCFvNdgdUE5o/lR8izgnBwHjafmlHCh8dHXWQZGtSjM/lkj5so+Q==}
 
-  '@orval/query@8.0.0-rc.5':
-    resolution: {integrity: sha512-7B6No8IrUzYCQgMzSPGo6ZEdwXS06aGWP2A6JrRasM3f3qGJ3nBNWQtSKk6BkMeV1UOsn/s6zbjzpfW8qdPg2g==}
+  '@orval/query@8.0.3':
+    resolution: {integrity: sha512-jai3fZMy40BJ8xb+q4kxSEmn48SfHrY9VWLIOFKb3hE+5aEhiNxcNiPuNX4TeZfWkaLAEUBfI3if2XHJ5emTTA==}
 
-  '@orval/swr@8.0.0-rc.5':
-    resolution: {integrity: sha512-Mcu0rY2ip8ODFFqyH7DzpJuThTaUuSr94q2A4aWV3s8lSl6XNjFsfcMj5KgS8akfWtkvD8d55MsVMTwGVWJubg==}
+  '@orval/solid-start@8.0.3':
+    resolution: {integrity: sha512-UC9vVcVy4skAzh9WwwBZFjHubVutb5O7urvcIJuBxIy6SGcVd11goVRfw0HYSfhQONiAhTOAUsRB5hQfIiN0lw==}
 
-  '@orval/zod@8.0.0-rc.5':
-    resolution: {integrity: sha512-YSW59qILZ9OkQYmRdXoZehhkZEC841u91557Uz9OnTQG/m7kJ1C9AK+7rmil8jBtw5qD0xloIoGwNgusyBB1tQ==}
+  '@orval/swr@8.0.3':
+    resolution: {integrity: sha512-sFlJLf/0/Kt6NAnUTAwMLLWma5GsbbYOftL+abStHMRDzv0qP3OFReek3fz3ZGVi3mENSKWAO9EVwC1FKZ681w==}
+
+  '@orval/zod@8.0.3':
+    resolution: {integrity: sha512-mbnFvKp1HPwR9bopQiAlH3GGo9qlwFr4iwWH2zvmLjtRpP1t7Hox0/w94Yn0++HbtXf6jctm/lMUOS2F8C4eQA==}
 
   '@oxc-resolver/binding-darwin-arm64@1.12.0':
     resolution: {integrity: sha512-wYe+dlF8npM7cwopOOxbdNjtmJp17e/xF5c0K2WooQXy5VOh74icydM33+Uh/SZDgwyum09/U1FVCX5GdeQk+A==}
@@ -6918,8 +6921,8 @@ packages:
   '@poppinss/exception@1.2.2':
     resolution: {integrity: sha512-m7bpKCD4QMlFCjA/nKTs23fuvoVFoA83brRKmObCUNmi/9tVu8Ve3w4YQAnJu4q3Tjf5fr685HYIC/IA2zHRSg==}
 
-  '@posthog/core@1.14.0':
-    resolution: {integrity: sha512-havjGYHwL8Gy6LXIR911h+M/sYlJLQbepxP/cc1M7Cp3v8F92bzpqkbuvUIUyb7/izkxfGwc9wMqKAo0QxMTrg==}
+  '@posthog/core@1.14.1':
+    resolution: {integrity: sha512-DtmJ1y1IDauX8yAZtIotRAYDRkgCCMLk5S9vFFRX7vufhWblQuRUOgn9WYSJrocJlZKm1aEjDzGQ0uyL7HcdLw==}
 
   '@posthog/core@1.4.0':
     resolution: {integrity: sha512-jmW8/I//YOHAfjzokqas+Qtc2T57Ux8d2uIJu7FLcMGxywckHsl6od59CD18jtUzKToQdjQhV6Y3429qj+KeNw==}
@@ -6929,6 +6932,12 @@ packages:
 
   '@posthog/icons@0.36.4':
     resolution: {integrity: sha512-xnusbGNz/5vSMUWdEViWuai7D/gxiMZSDDnP6s/acndMqzN+W4asPUgUNnTUps7OyAS1IKaO9zxhdikFrtooJA==}
+    peerDependencies:
+      react: '>=16.14.0'
+      react-dom: '>=16.14.0'
+
+  '@posthog/icons@0.36.5':
+    resolution: {integrity: sha512-grvGZyb4FznPnWv1ZcVc+SIrhkZhzKphKWFhwgFjdIBSkcwTVdmy3UBOTiIbmhomjpEjOJYK34bDCG238YZA5w==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -6969,8 +6978,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.335.3':
-    resolution: {integrity: sha512-mReFmfI+ep5sH3cnFhjvWfOcl3j6olKpN5lHFbOomLGxYTHMXcyMUBE3/o8WfrAgR1qxKQUsWMNcv6BhLr/GKA==}
+  '@posthog/types@1.335.5':
+    resolution: {integrity: sha512-QYj5c8wSaXGvV4ugEN65GHD0sIXRveGiZxV4tqpyoP7YIAvAwwA0do0yNfTrEjDXucCQn25pMbCqO25hJrMi5w==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -14707,10 +14716,6 @@ packages:
       node-notifier:
         optional: true
 
-  jiti@2.4.2:
-    resolution: {integrity: sha512-rg9zJN+G4n2nfJl5MW3BMygZX56zKPNVEYYqq7adpmMh4Jn2QNEwhvQlFy6jPVdcod7txZtKHWnyZiA3a0zP7A==}
-    hasBin: true
-
   jiti@2.6.1:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
     hasBin: true
@@ -15777,10 +15782,6 @@ packages:
   minimalistic-crypto-utils@1.0.1:
     resolution: {integrity: sha512-JIYlbt6g8i5jKfJ3xz7rF0LXmv2TkDxBLUkiBeZ7bAx4GnnNMr8xFpGnOxn6GhTEHx3SjRrZEoU+j04prX1ktg==}
 
-  minimatch@10.0.1:
-    resolution: {integrity: sha512-ethXTt3SGGR+95gudmqJ1eNhRO7eGEGIgYA9vnPatK4/etz2MEVDno5GMCibdMTuBMyElzIlgxMna3K94XDIDQ==}
-    engines: {node: 20 || >=22}
-
   minimatch@10.1.1:
     resolution: {integrity: sha512-enIvLvRAFZYXJzkCYG5RKmPfrFArdLv+R+lbQ53BmIMLIry74bjKzX6iHAm8WYamJkhSSEabrWN5D97XnKObjQ==}
     engines: {node: 20 || >=22}
@@ -16309,8 +16310,8 @@ packages:
   orderedmap@2.1.0:
     resolution: {integrity: sha512-/pIFexOm6S70EPdznemIz3BQZoJ4VTFrhqzu0ACBqBgeLsLxq8e6Jim63ImIfwW/zAD1AlXpRMlOv3aghmo4dA==}
 
-  orval@8.0.0-rc.5:
-    resolution: {integrity: sha512-GC80Pn2ZKHZRePYT4ngASG/7yWQaqysQggPfKnvWELtnb8+Ws1DOOpjcoa5GXrtc2tTgAmKyKvbl8rVSE30ROw==}
+  orval@8.0.3:
+    resolution: {integrity: sha512-L8RNV8aeCHy7qDI9Q3TlBIn+lCrCrqs+h83cHhuwz2otsOpDuT2J9BtkS8LxxTJrbjHFvwXbnkdKSfwWezxv3g==}
     engines: {node: '>=22.18.0'}
     hasBin: true
 
@@ -17179,8 +17180,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.335.3:
-    resolution: {integrity: sha512-ZQg3ozgsPom+SZtAxMN97Zx9Vqkdsv1D4TZU/OqbAZdm27PswV6+ShBurm3nKm9jrlUU1cGHMRn2ZJZf249znQ==}
+  posthog-js@1.335.5:
+    resolution: {integrity: sha512-1zCEdn7bc1mQ/jpd62YY8U1CyNiftIBE6uKqE2L+mjZ5aJyB2rtUAXefaTbaR/3A98tItjSej4aIa8FBN+O1fw==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -18899,10 +18900,6 @@ packages:
   strip-ansi@6.0.1:
     resolution: {integrity: sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==}
     engines: {node: '>=8'}
-
-  strip-ansi@7.1.0:
-    resolution: {integrity: sha512-iq6eVVI64nQQTRYq2KtEg2d2uU7LElhTJwsH4YzIHZshxlgZms/wIc4VoDQTlG/IvVIrBKG06CrZnp0qv7hkcQ==}
-    engines: {node: '>=12'}
 
   strip-ansi@7.1.2:
     resolution: {integrity: sha512-gmBGslpoQJtgnMAvOVqGZpEz9dyoKTCzy2nfz/n8aIFhN/jCE/rCmcxabB6jOOHV+0WNnylOxaxBQPSvcWklhA==}
@@ -20693,7 +20690,7 @@ snapshots:
     dependencies:
       '@jsdevtools/ono': 7.1.3
       '@types/json-schema': 7.0.15
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
 
   '@apidevtools/openapi-schemas@2.1.0': {}
 
@@ -24176,7 +24173,7 @@ snapshots:
       globals: 13.23.0
       ignore: 5.2.4
       import-fresh: 3.3.0
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
       minimatch: 3.1.2
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
@@ -24416,7 +24413,7 @@ snapshots:
     dependencies:
       string-width: 5.1.2
       string-width-cjs: string-width@4.2.3
-      strip-ansi: 7.1.0
+      strip-ansi: 7.1.2
       strip-ansi-cjs: strip-ansi@6.0.1
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
@@ -25915,21 +25912,21 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 2.0.1(@opentelemetry/api@1.9.0)
 
-  '@orval/angular@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/angular@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/axios@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/axios@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/core@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/core@8.0.3(typescript@5.4.5)':
     dependencies:
       '@scalar/openapi-types': 0.5.3
       acorn: 8.15.0
@@ -25946,61 +25943,68 @@ snapshots:
       - supports-color
       - typescript
 
-  '@orval/fetch@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/fetch@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
       '@scalar/openapi-types': 0.5.3
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/hono@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/hono@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/zod': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
+      '@orval/zod': 8.0.3(typescript@5.4.5)
       fs-extra: 11.3.2
       remeda: 2.32.0
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/mcp@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/mcp@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/fetch': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/zod': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
+      '@orval/fetch': 8.0.3(typescript@5.4.5)
+      '@orval/zod': 8.0.3(typescript@5.4.5)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/mock@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/mock@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/query@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/query@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/fetch': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
+      '@orval/fetch': 8.0.3(typescript@5.4.5)
       chalk: 5.6.2
       remeda: 2.32.0
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/swr@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/solid-start@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/fetch': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
     transitivePeerDependencies:
       - supports-color
       - typescript
 
-  '@orval/zod@8.0.0-rc.5(typescript@5.4.5)':
+  '@orval/swr@8.0.3(typescript@5.4.5)':
     dependencies:
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
+      '@orval/fetch': 8.0.3(typescript@5.4.5)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+
+  '@orval/zod@8.0.3(typescript@5.4.5)':
+    dependencies:
+      '@orval/core': 8.0.3(typescript@5.4.5)
       remeda: 2.32.0
     transitivePeerDependencies:
       - supports-color
@@ -26832,7 +26836,7 @@ snapshots:
 
   '@poppinss/exception@1.2.2': {}
 
-  '@posthog/core@1.14.0':
+  '@posthog/core@1.14.1':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -26843,6 +26847,11 @@ snapshots:
       cross-spawn: 7.0.6
 
   '@posthog/icons@0.36.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+
+  '@posthog/icons@0.36.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -26889,7 +26898,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.335.3': {}
+  '@posthog/types@1.335.5': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -29082,7 +29091,7 @@ snapshots:
       es-module-lexer: 1.4.1
       express: 4.18.2
       fork-ts-checker-webpack-plugin: 8.0.0(typescript@5.4.5)(webpack@5.88.2)
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       html-webpack-plugin: 5.5.3(webpack@5.88.2)
       magic-string: 0.30.19
       path-browserify: 1.0.1
@@ -29152,7 +29161,7 @@ snapshots:
       execa: 5.1.1
       express: 4.18.2
       find-up: 5.0.0
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       get-npm-tarball-url: 2.0.3
       get-port: 5.1.1
       giget: 1.1.2
@@ -29241,7 +29250,7 @@ snapshots:
       file-system-cache: 2.3.0
       find-cache-dir: 3.3.2
       find-up: 5.0.0
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       glob: 10.4.5
       handlebars: 4.7.7
       lazy-universal-dotenv: 4.0.0
@@ -29290,7 +29299,7 @@ snapshots:
       compression: 1.7.4
       detect-port: 1.5.1
       express: 4.18.2
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       globby: 11.1.0
       ip: 2.0.0
       lodash: 4.17.21
@@ -29338,7 +29347,7 @@ snapshots:
       '@babel/types': 7.26.3
       '@storybook/csf': 0.1.13
       '@storybook/types': 7.6.4
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       recast: 0.23.4
       ts-dedent: 2.2.0
     transitivePeerDependencies:
@@ -29427,7 +29436,7 @@ snapshots:
       '@types/node': 18.18.4
       '@types/semver': 7.5.5
       babel-plugin-add-react-displayname: 0.0.5
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       magic-string: 0.30.19
       react: 18.2.0
       react-docgen: 7.0.1
@@ -29592,7 +29601,7 @@ snapshots:
       chalk: 4.1.2
       detect-package-manager: 2.0.1
       fetch-retry: 5.0.6
-      fs-extra: 11.1.1
+      fs-extra: 11.3.2
       read-pkg-up: 7.0.1
     transitivePeerDependencies:
       - encoding
@@ -29808,13 +29817,13 @@ snapshots:
   '@tailwindcss/node@4.0.11':
     dependencies:
       enhanced-resolve: 5.18.1
-      jiti: 2.4.2
+      jiti: 2.6.1
       tailwindcss: 4.0.11
 
   '@tailwindcss/node@4.0.12':
     dependencies:
       enhanced-resolve: 5.18.1
-      jiti: 2.4.2
+      jiti: 2.6.1
       tailwindcss: 4.0.12
 
   '@tailwindcss/oxide-android-arm64@4.0.11':
@@ -32373,7 +32382,7 @@ snapshots:
 
   chalk-template@1.1.0:
     dependencies:
-      chalk: 5.4.1
+      chalk: 5.6.2
 
   chalk@2.4.2:
     dependencies:
@@ -32812,7 +32821,7 @@ snapshots:
   cosmiconfig@8.3.6(typescript@5.4.5):
     dependencies:
       import-fresh: 3.3.0
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
       parse-json: 5.2.0
       path-type: 4.0.0
     optionalDependencies:
@@ -32822,7 +32831,7 @@ snapshots:
     dependencies:
       env-paths: 2.2.1
       import-fresh: 3.3.0
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 5.4.5
@@ -34920,7 +34929,7 @@ snapshots:
     dependencies:
       foreground-child: 3.1.1
       jackspeak: 4.0.2
-      minimatch: 10.0.1
+      minimatch: 10.1.1
       minipass: 7.1.2
       package-json-from-dist: 1.0.1
       path-scurry: 2.0.0
@@ -36763,7 +36772,7 @@ snapshots:
   jest-watch-typeahead@2.2.2(jest@29.7.0):
     dependencies:
       ansi-escapes: 6.0.0
-      chalk: 5.4.1
+      chalk: 5.6.2
       jest: 29.7.0
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
@@ -36863,8 +36872,6 @@ snapshots:
       - supports-color
       - ts-node
 
-  jiti@2.4.2: {}
-
   jiti@2.6.1: {}
 
   jmespath@0.16.0: {}
@@ -36940,7 +36947,7 @@ snapshots:
   jsdom@20.0.3:
     dependencies:
       abab: 2.0.6
-      acorn: 8.11.2
+      acorn: 8.15.0
       acorn-globals: 7.0.1
       cssom: 0.5.0
       cssstyle: 2.3.0
@@ -37009,7 +37016,7 @@ snapshots:
   jsondiffpatch@0.6.0:
     dependencies:
       '@types/diff-match-patch': 1.0.36
-      chalk: 5.4.1
+      chalk: 5.6.2
       diff-match-patch: 1.0.5
 
   jsonfile@6.1.0:
@@ -37467,7 +37474,7 @@ snapshots:
 
   log-symbols@6.0.0:
     dependencies:
-      chalk: 5.4.1
+      chalk: 5.6.2
       is-unicode-supported: 1.3.0
 
   log-update@6.1.0:
@@ -38114,10 +38121,6 @@ snapshots:
 
   minimalistic-crypto-utils@1.0.1: {}
 
-  minimatch@10.0.1:
-    dependencies:
-      brace-expansion: 2.0.1
-
   minimatch@10.1.1:
     dependencies:
       '@isaacs/brace-expansion': 5.0.0
@@ -38677,7 +38680,7 @@ snapshots:
 
   ora@8.2.0:
     dependencies:
-      chalk: 5.4.1
+      chalk: 5.6.2
       cli-cursor: 5.0.0
       cli-spinners: 2.9.2
       is-interactive: 2.0.0
@@ -38691,19 +38694,20 @@ snapshots:
 
   orderedmap@2.1.0: {}
 
-  orval@8.0.0-rc.5(typescript@5.4.5):
+  orval@8.0.3(typescript@5.4.5):
     dependencies:
       '@commander-js/extra-typings': 14.0.0(commander@14.0.2)
-      '@orval/angular': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/axios': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/core': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/fetch': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/hono': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/mcp': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/mock': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/query': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/swr': 8.0.0-rc.5(typescript@5.4.5)
-      '@orval/zod': 8.0.0-rc.5(typescript@5.4.5)
+      '@orval/angular': 8.0.3(typescript@5.4.5)
+      '@orval/axios': 8.0.3(typescript@5.4.5)
+      '@orval/core': 8.0.3(typescript@5.4.5)
+      '@orval/fetch': 8.0.3(typescript@5.4.5)
+      '@orval/hono': 8.0.3(typescript@5.4.5)
+      '@orval/mcp': 8.0.3(typescript@5.4.5)
+      '@orval/mock': 8.0.3(typescript@5.4.5)
+      '@orval/query': 8.0.3(typescript@5.4.5)
+      '@orval/solid-start': 8.0.3(typescript@5.4.5)
+      '@orval/swr': 8.0.3(typescript@5.4.5)
+      '@orval/zod': 8.0.3(typescript@5.4.5)
       '@scalar/json-magic': 0.8.8
       '@scalar/openapi-parser': 0.23.9
       '@scalar/openapi-types': 0.5.3
@@ -39844,15 +39848,15 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.335.3:
+  posthog-js@1.335.5:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
       '@opentelemetry/exporter-logs-otlp-http': 0.208.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
-      '@posthog/core': 1.14.0
-      '@posthog/types': 1.335.3
+      '@posthog/core': 1.14.1
+      '@posthog/types': 1.335.5
       core-js: 3.40.0
       dompurify: 3.3.1
       fflate: 0.4.8
@@ -40915,7 +40919,7 @@ snapshots:
 
   read-yaml-file@2.1.0:
     dependencies:
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
       strip-bom: 4.0.0
 
   readable-stream@2.3.8:
@@ -41921,10 +41925,6 @@ snapshots:
     dependencies:
       ansi-regex: 5.0.1
 
-  strip-ansi@7.1.0:
-    dependencies:
-      ansi-regex: 6.0.1
-
   strip-ansi@7.1.2:
     dependencies:
       ansi-regex: 6.0.1
@@ -42927,7 +42927,7 @@ snapshots:
 
   unplugin@1.4.0:
     dependencies:
-      acorn: 8.11.2
+      acorn: 8.15.0
       chokidar: 3.6.0
       webpack-sources: 3.2.3
       webpack-virtual-modules: 0.5.0
