@@ -37,6 +37,7 @@ from ...hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from ..exporter import EXPORT_TIMER
+from ..exports.failure_handler import ExcelColumnLimitExceeded
 
 logger = structlog.get_logger(__name__)
 
@@ -86,7 +87,15 @@ class ExcelWriter(TabularWriter):
 
     def write_header(self, columns: list[str]) -> None:
         self._columns = columns
-        self._worksheet.append(columns)
+        try:
+            self._worksheet.append(columns)
+        except ValueError as e:
+            if "Invalid column index" in str(e):
+                raise ExcelColumnLimitExceeded(
+                    "Export exceeds Excel's maximum of 18,278 columns. "
+                    "Try exporting fewer columns or use CSV format instead."
+                ) from e
+            raise
 
     def write_row(self, row: dict) -> None:
         values = []
@@ -95,7 +104,15 @@ class ExcelWriter(TabularWriter):
             if value is not None and not isinstance(value, str | int | float | bool):
                 value = str(value)
             values.append(sanitize_value_for_excel(value))
-        self._worksheet.append(values)
+        try:
+            self._worksheet.append(values)
+        except ValueError as e:
+            if "Invalid column index" in str(e):
+                raise ExcelColumnLimitExceeded(
+                    "Export exceeds Excel's maximum of 18,278 columns. "
+                    "Try exporting fewer columns or use CSV format instead."
+                ) from e
+            raise
 
     def finish(self) -> str:
         self._workbook.save(self._path)
@@ -200,6 +217,15 @@ def _get_breakdown_info(
     return breakdown_values, breakdowns, has_breakdown_columns
 
 
+def _format_breakdown_value(breakdown_value: Any) -> str:
+    """Format breakdown_value for CSV export, handling various data types."""
+    if breakdown_value is None:
+        return ""
+    if isinstance(breakdown_value, list):
+        return "::".join(str(v) for v in breakdown_value)
+    return str(breakdown_value)
+
+
 def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
@@ -247,7 +273,7 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
                 yield from (
                     {
                         "name": x.get("custom_name") or x.get("action_id", ""),
-                        "breakdown_value": "::".join(x.get("breakdown_value", [])),
+                        "breakdown_value": _format_breakdown_value(x.get("breakdown_value")),
                         "action_id": x.get("action_id", ""),
                         "count": x.get("count", ""),
                         "median_conversion_time (seconds)": x.get("median_conversion_time", ""),

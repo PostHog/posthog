@@ -32,11 +32,14 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
+    ExcelWriter,
     UnexpectedEmptyJsonResponse,
     _convert_response_to_csv_data,
+    _format_breakdown_value,
     add_query_params,
     sanitize_value_for_excel,
 )
+from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
@@ -1516,3 +1519,46 @@ class TestCSVExporter(APIBaseTest):
                 # Control characters should be stripped, but visible parts preserved
                 assert "beforeafter" in str(data_row)  # NULL stripped
                 assert "[31mred[0mafter" in str(data_row)  # ANSI: ESC stripped, rest preserved
+
+    def test_format_breakdown_value(self) -> None:
+        """Test _format_breakdown_value handles various data types correctly."""
+        test_cases = [
+            (None, ""),
+            ([], ""),
+            (["a", "b", "c"], "a::b::c"),
+            (["single"], "single"),
+            ("single_string", "single_string"),
+            (123, "123"),
+            ([1, 2, 3], "1::2::3"),
+            (["foo", None, "bar"], "foo::None::bar"),
+        ]
+        for input_value, expected in test_cases:
+            result = _format_breakdown_value(input_value)
+            assert result == expected, (
+                f"Failed for input {repr(input_value)}: got {repr(result)}, expected {repr(expected)}"
+            )
+
+    def test_excel_writer_raises_column_limit_exceeded(self) -> None:
+        """Test that ExcelWriter raises ExcelColumnLimitExceeded when data has >18,278 columns."""
+        writer = ExcelWriter()
+
+        # Excel's maximum column is 16,384 (XFD), but openpyxl raises at 18,278 (ZZZ)
+        # Create more columns than Excel supports
+        columns = [f"col_{i}" for i in range(18300)]
+
+        with pytest.raises(ExcelColumnLimitExceeded) as exc_info:
+            writer.write_header(columns)
+
+        assert "18,278 columns" in str(exc_info.value)
+        assert "CSV format" in str(exc_info.value)
+
+    def test_excel_writer_normal_column_count_works(self) -> None:
+        """Test that ExcelWriter works fine with normal column counts."""
+        writer = ExcelWriter()
+        columns = ["col_a", "col_b", "col_c"]
+        writer.write_header(columns)
+        writer.write_row({"col_a": "1", "col_b": "2", "col_c": "3"})
+        path = writer.finish()
+
+        assert os.path.exists(path)
+        os.unlink(path)

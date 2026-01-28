@@ -5,7 +5,7 @@ from django.db import OperationalError
 from billiard.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
 from selenium.common import TimeoutException
-from urllib3.exceptions import MaxRetryError, ProtocolError
+from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
 from posthog.hogql.errors import (
     QueryError,
@@ -18,6 +18,7 @@ from posthog.errors import (
     CHQueryErrorCannotParseUuid,
     CHQueryErrorIllegalAggregation,
     CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
     CHQueryErrorNumberOfArgumentsDoesntMatch,
@@ -61,6 +62,12 @@ class ExportCancelled(Exception):
     pass
 
 
+class ExcelColumnLimitExceeded(Exception):
+    """Raised when export data exceeds Excel's 18,278 column limit (ZZZ)."""
+
+    pass
+
+
 EXCEPTIONS_TO_RETRY = (
     CHQueryErrorS3Error,
     CHQueryErrorTooManySimultaneousQueries,
@@ -68,6 +75,7 @@ EXCEPTIONS_TO_RETRY = (
     ProtocolError,
     ConcurrencyLimitExceeded,
     MaxRetryError,  # This is from urllib, e.g. HTTP retries instead of "job retries"
+    ReadTimeoutError,  # Network timeout from urllib3
     ClickHouseAtCapacity,
     SocketTimeoutError,
     SSLError,
@@ -91,6 +99,8 @@ USER_QUERY_ERRORS = (
     QuerySizeExceeded,
     CHQueryErrorUnsupportedMethod,
     ResolutionError,
+    CHQueryErrorInvalidJoinOnExpression,  # Invalid JOIN ON clause in HogQL query
+    ExcelColumnLimitExceeded,  # Export exceeds Excel's column limit
 )
 
 TIMEOUT_ERRORS = (
