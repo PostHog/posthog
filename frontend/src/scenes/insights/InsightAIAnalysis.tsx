@@ -6,9 +6,9 @@ import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { isPlatformAndSupportAddon } from 'scenes/billing/billingProductLogic'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
-import { BillingPlan } from '~/types'
 
 import { InsightSuggestions } from './InsightSuggestions'
 import { insightAIAnalysisLogic } from './insightAIAnalysisLogic'
@@ -30,11 +30,8 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
 
-    // Check for at least Boost add-on (Boost, Scale, or Enterprise)
-    const hasBoostOrHigher =
-        currentPlatformAddon?.type === BillingPlan.Boost ||
-        currentPlatformAddon?.type === BillingPlan.Scale ||
-        currentPlatformAddon?.type === BillingPlan.Enterprise
+    // Check for at least Boost add-on (Boost, Teams, Scale, or Enterprise)
+    const hasBoostOrHigher = currentPlatformAddon ? isPlatformAndSupportAddon(currentPlatformAddon) : false
 
     useEffect(() => {
         // Reset analysis when insight changes
