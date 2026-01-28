@@ -165,6 +165,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
+    TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
@@ -225,6 +226,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
+    | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
     | EndpointsUsageOverviewQuery
@@ -317,6 +319,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
+    | TraceNeighborsQuery
     | VectorSearchQuery
 
     // Customer analytics
@@ -4016,8 +4019,35 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
+export interface TraceNeighborsQueryResponse {
+    /** ID of the newer trace (chronologically after current) */
+    newerTraceId?: string
+    /** Timestamp of the newer trace */
+    newerTimestamp?: string
+    /** ID of the older trace (chronologically before current) */
+    olderTraceId?: string
+    /** Timestamp of the older trace */
+    olderTimestamp?: string
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
+}
+
+export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
+    kind: NodeKind.TraceNeighborsQuery
+    /** ID of the current trace to find neighbors for */
+    traceId: string
+    /** Timestamp of the current trace to find neighbors for */
+    timestamp: string
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
+    filterSupportTraces?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
+export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
