@@ -25,9 +25,9 @@ pub mod saving;
 pub mod sourcemap;
 
 mod s3;
+pub use s3::BlobClient;
 #[cfg(test)]
-pub use s3::MockS3Impl as S3Client;
-#[cfg(not(test))]
+pub use s3::MockBlobClient as MockS3Client;
 pub use s3::S3Impl as S3Client;
 
 #[async_trait]
