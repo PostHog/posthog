@@ -2,7 +2,6 @@ import json
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.http import HttpResponse
 from django.shortcuts import redirect
@@ -25,7 +24,7 @@ from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.utils import relative_date_parse
 
-from ee.billing.billing_manager import BillingManager, build_billing_token
+from ee.billing.billing_manager import BillingManager
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -188,66 +187,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
-    class ActivateSerializer(serializers.Serializer):
-        plan = serializers.CharField(required=False)
-        products = serializers.CharField(
-            required=False
-        )  # This is required but in order to support an error for the legacy 'plan' param we need to set required=False
-        redirect_path = serializers.CharField(required=False)
-        intent_product = serializers.CharField(required=False)
-
-        def validate(self, data):
-            plan = data.get("plan")
-            products = data.get("products")
-
-            if plan and not products:
-                raise ValidationError(
-                    {
-                        "plan": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead."
-                    }
-                )
-            if not products:
-                raise ValidationError({"products": "The 'products' parameter is required."})
-
-            return data
-
-    # This is deprecated and should be removed in the future in favor of 'activate'
-    @action(methods=["GET"], detail=False)
-    def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self.handle_activate(request, *args, **kwargs)
-
-    @action(methods=["GET"], detail=False)
-    def activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self.handle_activate(request, *args, **kwargs)
-
-    # A viewset action cannot call another action directly so this is in place until
-    # the 'activation' endpoint is removed. Once removed, this method can move to the 'activate' action
-    def handle_activate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        license = get_cached_instance_license()
+    @action(methods=["POST"], detail=False)
+    def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
-
-        serializer = self.ActivateSerializer(data=request.GET)
-        serializer.is_valid(raise_exception=True)
-
-        redirect_path = serializer.validated_data.get("redirect_path", "organization/billing")
-        if redirect_path.startswith("/"):
-            redirect_path = redirect_path[1:]
-
-        redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
-        url = f"{BILLING_SERVICE_URL}/activate?redirect_uri={redirect_uri}&organization_name={organization.name}"
-
-        products = serializer.validated_data.get("products")
-        url = f"{url}&products={products}"
-
-        intent_product = serializer.validated_data.get("intent_product")
-        if intent_product:
-            url = f"{url}&intent_product={intent_product}"
-
-        if license:
-            billing_service_token = build_billing_token(license, organization)
-            url = f"{url}&token={billing_service_token}"
-
-        return redirect(url)
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.activate_subscription(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
 
     class DeactivateSerializer(serializers.Serializer):
         products = serializers.CharField()

@@ -112,7 +112,7 @@ For product-specific rate limits and tracking:
 - `POST /{product}/v1/chat/completions`
 - `POST /{product}/v1/messages`
 
-Products: `llm_gateway` (default), `array`, `wizard`, `django`
+Products: `llm_gateway` (default), `twig`, `wizard`, `django`
 
 ## Supported models
 
