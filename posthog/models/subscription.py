@@ -101,18 +101,11 @@ class Subscription(models.Model):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Only cache rrule if all required fields are loaded (not deferred).
-        # The rrule property accesses multiple fields (frequency, count, interval, etc).
-        # If ANY field is deferred, accessing it triggers refresh_from_db which creates
-        # a new instance with OTHER fields deferred, causing infinite recursion.
-        rrule_fields = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
-        if not (self.get_deferred_fields() & rrule_fields):
-            self._rrule = self.rrule
+        self._rrule = self.rrule
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
-        # _rrule may not be set if object was loaded with deferred fields
-        if not self.id or str(getattr(self, "_rrule", None)) != str(self.rrule):
+        if not self.id or str(self._rrule) != str(self.rrule):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
