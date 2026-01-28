@@ -47,6 +47,7 @@ import {
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingUniversalFilters,
@@ -252,51 +253,40 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
 }
 
 /**
- * Normalizes filter values from URL to ensure multi-select operators have array values.
- * This fixes issues with saved/bookmarked URLs that may have string values instead of arrays.
+ * Normalizes a single property filter's value if it has a multi-select operator.
  */
-function normalizeFiltersFromUrl(filters: Partial<RecordingUniversalFilters>): Partial<RecordingUniversalFilters> {
-    if (!filters.filter_group?.values) {
-        return filters
+function normalizePropertyFilter<T extends { operator?: unknown; value?: unknown; type?: unknown }>(filter: T): T {
+    if (
+        !filter ||
+        typeof filter !== 'object' ||
+        !('operator' in filter) ||
+        !('value' in filter) ||
+        ('type' in filter && filter.type === 'cohort')
+    ) {
+        return filter
     }
+    const normalizedValue = normalizePropertyFilterValue(
+        filter.value as PropertyFilterValue,
+        filter.operator as PropertyOperator | null
+    )
+    if (normalizedValue !== filter.value) {
+        return { ...filter, value: normalizedValue }
+    }
+    return filter
+}
 
-    const normalizedFilterGroup: UniversalFiltersGroup = {
-        ...filters.filter_group,
-        values: filters.filter_group.values.map((group): UniversalFiltersGroup => {
-            if (!('values' in group) || !Array.isArray(group.values)) {
-                return group as UniversalFiltersGroup
-            }
-            return {
-                ...group,
-                values: group.values.map((filter): UniversalFilterValue => {
-                    // Only normalize property filters that have both operator and value properties
-                    // Skip cohort filters (value is number) and action/event filters (no value property)
-                    if (
-                        !filter ||
-                        typeof filter !== 'object' ||
-                        !('operator' in filter) ||
-                        !('value' in filter) ||
-                        ('type' in filter && filter.type === 'cohort')
-                    ) {
-                        return filter as UniversalFilterValue
-                    }
-                    const normalizedValue = normalizePropertyFilterValue(
-                        filter.value,
-                        filter.operator as PropertyOperator | null
-                    )
-                    if (normalizedValue !== filter.value) {
-                        return { ...filter, value: normalizedValue } as UniversalFilterValue
-                    }
-                    return filter as UniversalFilterValue
-                }),
-            }
-        }),
+/**
+ * Normalizes properties array inside an event or action filter.
+ * Returns the filter with normalized properties, or the original if no changes needed.
+ */
+function normalizeFilterWithNestedProperties<T extends { properties?: AnyPropertyFilter[] }>(filter: T): T {
+    if (!filter.properties || !Array.isArray(filter.properties)) {
+        return filter
     }
-
-    return {
-        ...filters,
-        filter_group: normalizedFilterGroup,
-    }
+    const normalizedProperties = filter.properties.map((prop) => normalizePropertyFilter(prop) as AnyPropertyFilter)
+    // Only create new object if something changed
+    const hasChanges = normalizedProperties.some((prop, i) => prop !== filter.properties![i])
+    return hasChanges ? { ...filter, properties: normalizedProperties } : filter
 }
 
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
@@ -323,9 +313,9 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     filters.forEach((f) => {
         if (isEventFilter(f)) {
-            events.push(f)
+            events.push(normalizeFilterWithNestedProperties(f))
         } else if (isActionFilter(f)) {
-            actions.push(f)
+            actions.push(normalizeFilterWithNestedProperties(f))
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
         } else if (isHogQLPropertyFilter(f)) {
@@ -1519,7 +1509,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Event,
                     operator: PropertyOperator.Exact,
                     key: params.eventProperty,
-                    value: normalizePropertyFilterValue(params.eventPropertyValue, PropertyOperator.Exact),
+                    value: params.eventPropertyValue,
                 }
             }
 
@@ -1528,7 +1518,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Person,
                     operator: PropertyOperator.Exact,
                     key: params.personProperty,
-                    value: normalizePropertyFilterValue(params.personPropertyValue, PropertyOperator.Exact),
+                    value: params.personPropertyValue,
                 }
             }
 
@@ -1551,12 +1541,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
-                // Normalize filters from URL to fix string values that should be arrays
-                const normalizedUrlFilters = params.filters ? normalizeFiltersFromUrl(params.filters) : undefined
                 const updatedFilters = {
-                    ...(normalizedUrlFilters && !equal(normalizedUrlFilters, values.filters)
-                        ? normalizedUrlFilters
-                        : {}),
+                    ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
                         ? { order_direction: params.order_direction }

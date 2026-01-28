@@ -2035,6 +2035,54 @@ class TestCompareRawUpdatesWithPersonState:
         # 123 == 123.0 in Python, so no diff is generated
         assert result == []
 
+    @patch("posthog.dags.person_property_reconciliation.PERSON_STATE_BATCH_SIZE", 2)
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_batches_large_person_lists(self, mock_sync_execute):
+        """Test that large person lists are batched to avoid query size limits.
+
+        When there are more persons than PERSON_STATE_BATCH_SIZE, the function
+        should split the queries into multiple batches and aggregate results.
+        """
+        # With batch size of 2, 5 persons should result in 3 batches
+        mock_sync_execute.side_effect = [
+            # Batch 1: persons 1-2
+            [
+                ("person-1", '{"email": "old1@example.com"}', 5),
+                ("person-2", '{"email": "old2@example.com"}', 6),
+            ],
+            # Batch 2: persons 3-4
+            [
+                ("person-3", '{"email": "old3@example.com"}', 7),
+                ("person-4", "{}", 8),  # Empty properties
+            ],
+            # Batch 3: person 5
+            [
+                ("person-5", '{"email": "old5@example.com"}', 9),
+            ],
+        ]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id=f"person-{i}",
+                set_updates={
+                    "email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), f"new{i}@example.com")
+                },
+                set_once_updates={},
+                unset_updates={},
+            )
+            for i in range(1, 6)
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        # Should have called sync_execute 3 times (one per batch)
+        assert mock_sync_execute.call_count == 3
+
+        # Should return 4 results (person-4 has empty properties so $set is excluded)
+        assert len(result) == 4
+        result_ids = {r.person_id for r in result}
+        assert result_ids == {"person-1", "person-2", "person-3", "person-5"}
+
 
 class TestGetPersonPropertyUpdatesWindowed:
     """Test the get_person_property_updates_windowed function."""

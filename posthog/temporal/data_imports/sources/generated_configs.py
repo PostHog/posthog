@@ -124,7 +124,7 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class KlaviyoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
