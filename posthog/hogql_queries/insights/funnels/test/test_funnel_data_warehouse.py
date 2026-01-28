@@ -177,7 +177,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                         id=table_name,
                         table_name=table_name,
                         id_field="uuid",
-                        distinct_id_field="user_id",
+                        distinct_id_field="toUUID(user_id)",
                         timestamp_field="created",
                     ),
                 ],
