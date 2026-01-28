@@ -136,7 +136,7 @@ impl CheckpointImporter {
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
                         error = e.to_string(),
-                        "Failed to import checkpoint files "
+                        "Failed to import checkpoint files"
                     );
                     if local_attempt_path.exists() {
                         match tokio::fs::remove_dir_all(&local_attempt_path).await {
