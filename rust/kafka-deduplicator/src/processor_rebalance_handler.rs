@@ -657,6 +657,56 @@ where
             return Ok(());
         }
 
+        // CRITICAL FIX: Create stores for any owned partitions that don't have stores yet.
+        // This handles "retained" partitions from previous rebalances that were cancelled
+        // before their stores were created. Without this, those partitions would be resumed
+        // but have no store to deduplicate against, causing "No store registered" errors.
+        let missing_partitions: Vec<Partition> = owned_partitions
+            .iter()
+            .filter(|p| {
+                self.store_manager
+                    .get(p.topic(), p.partition_number())
+                    .is_none()
+            })
+            .cloned()
+            .collect();
+
+        if !missing_partitions.is_empty() {
+            // #region agent log
+            let missing_list: Vec<String> = missing_partitions
+                .iter()
+                .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+                .collect();
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "async_setup_assigned_partitions:creating_missing_stores",
+                missing_partitions = ?missing_list,
+                missing_count = missing_partitions.len(),
+                "Creating stores for retained partitions that were missed due to cancelled rebalance"
+            );
+            // #endregion
+
+            warn!(
+                missing_count = missing_partitions.len(),
+                "Creating stores for retained partitions that were missed due to cancelled rebalance"
+            );
+
+            // Create stores for missing partitions (these are retained from cancelled rebalances)
+            let setup_futures = missing_partitions
+                .iter()
+                .map(|p| self.async_setup_single_partition(p, &cancel_token));
+            join_all(setup_futures).await;
+
+            // #region agent log
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "async_setup_assigned_partitions:after_missing_stores",
+                active_stores = self.store_manager.get_active_store_count(),
+                "Finished creating stores for retained partitions"
+            );
+            // #endregion
+        }
+
         // Build TopicPartitionList from ALL owned partitions
         let mut resume_tpl = TopicPartitionList::new();
         for p in &owned_partitions {
@@ -674,7 +724,7 @@ where
             .iter()
             .map(|e| format!("{}:{}", e.key().topic(), e.key().partition_number()))
             .collect();
-        let missing_stores: Vec<String> = owned_partitions
+        let still_missing: Vec<String> = owned_partitions
             .iter()
             .filter(|p| {
                 self.store_manager
@@ -688,8 +738,8 @@ where
             location = "async_setup_assigned_partitions:before_resume",
             partitions_to_resume = ?resume_list,
             active_stores = ?stores_list,
-            missing_stores = ?missing_stores,
-            missing_count = missing_stores.len(),
+            still_missing_stores = ?still_missing,
+            still_missing_count = still_missing.len(),
             "About to send Resume command"
         );
         // #endregion
@@ -1708,5 +1758,113 @@ mod tests {
         assert!(store_manager.get("topic-a", 0).is_some());
         assert!(store_manager.get("topic-a", 1).is_none());
         assert!(store_manager.get("topic-b", 0).is_some());
+    }
+
+    #[tokio::test]
+    async fn test_interrupted_rebalance_retained_partitions_get_stores() {
+        // CRITICAL TEST: Verifies the fix for the "No store registered" bug.
+        //
+        // Bug scenario before fix:
+        // 1. Rebalance A assigns [0, 1], starts async setup
+        // 2. Rebalance B assigns [2], INTERRUPTS A before stores are created
+        // 3. A sees cancellation, returns early (no stores created for [0, 1])
+        // 4. B only creates stores for [2] (its incremental assignment)
+        // 5. B resumes ALL owned [0, 1, 2]
+        // 6. BUG: [0, 1] receive messages but have NO stores!
+        //
+        // After fix: B detects missing stores for [0, 1] and creates them before Resume.
+        let temp_dir = TempDir::new().unwrap();
+        let store_config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        let coordinator = create_test_coordinator();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
+
+        let handler: ProcessorRebalanceHandler<String, TestProcessor> =
+            ProcessorRebalanceHandler::new(
+                store_manager.clone(),
+                coordinator.clone(),
+                offset_tracker,
+                None,
+            );
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // ==================== REBALANCE A (SYNC ONLY) ====================
+        // Rebalance A assigns [0, 1] - only SYNC setup, simulating interrupt
+        let mut partitions_a = rdkafka::TopicPartitionList::new();
+        partitions_a
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        partitions_a
+            .add_partition_offset("test-topic", 1, Offset::Beginning)
+            .unwrap();
+
+        // A's sync setup adds partitions to owned_partitions
+        handler.setup_assigned_partitions(&partitions_a);
+
+        // Verify A's partitions are owned
+        assert!(coordinator.is_partition_owned(&Partition::new("test-topic".to_string(), 0)));
+        assert!(coordinator.is_partition_owned(&Partition::new("test-topic".to_string(), 1)));
+
+        // DO NOT call async_setup for A - simulating interruption before stores created
+        // In real scenario, B's sync setup would cancel A's token before A's async runs
+
+        // Verify NO stores exist (A was interrupted)
+        assert!(
+            store_manager.get("test-topic", 0).is_none(),
+            "No store for partition 0 - A was interrupted"
+        );
+        assert!(
+            store_manager.get("test-topic", 1).is_none(),
+            "No store for partition 1 - A was interrupted"
+        );
+
+        // ==================== REBALANCE B ====================
+        // Rebalance B assigns [2] - B's sync setup cancels A's token
+        let mut partitions_b = rdkafka::TopicPartitionList::new();
+        partitions_b
+            .add_partition_offset("test-topic", 2, Offset::Beginning)
+            .unwrap();
+
+        handler.setup_assigned_partitions(&partitions_b); // This cancels A's token
+
+        // Verify all 3 partitions are now owned
+        assert!(coordinator.is_partition_owned(&Partition::new("test-topic".to_string(), 0)));
+        assert!(coordinator.is_partition_owned(&Partition::new("test-topic".to_string(), 1)));
+        assert!(coordinator.is_partition_owned(&Partition::new("test-topic".to_string(), 2)));
+        assert_eq!(coordinator.owned_partition_count(), 3);
+
+        // B's async setup - ONLY receives partition [2] in its incremental list
+        // Before fix: would only create store for [2], leaving [0, 1] without stores
+        // After fix: should detect [0, 1] are missing stores and create them
+        handler
+            .async_setup_assigned_partitions(&partitions_b, &tx)
+            .await
+            .unwrap();
+
+        // CRITICAL ASSERTIONS: All owned partitions must have stores!
+        assert!(
+            store_manager.get("test-topic", 0).is_some(),
+            "FIX VERIFICATION: Store for partition 0 should be created by B (retained from A)"
+        );
+        assert!(
+            store_manager.get("test-topic", 1).is_some(),
+            "FIX VERIFICATION: Store for partition 1 should be created by B (retained from A)"
+        );
+        assert!(
+            store_manager.get("test-topic", 2).is_some(),
+            "Store for partition 2 should be created by B (its own assignment)"
+        );
+
+        // Verify Resume was sent for all 3 partitions
+        let command = rx.try_recv().expect("Should have received Resume");
+        match command {
+            ConsumerCommand::Resume(tpl) => {
+                assert_eq!(tpl.count(), 3, "Should resume all 3 owned partitions");
+            }
+        }
     }
 }
