@@ -151,9 +151,12 @@ export function PropertyValue({
         )
     }
 
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
-    )
+    const formattedValues = (value === null || value === undefined || value === ''
+        ? []
+        : Array.isArray(value)
+          ? value
+          : [value]
+    ).map((label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex)))
 
     if (!editable) {
         return <>{formattedValues.join(' or ')}</>

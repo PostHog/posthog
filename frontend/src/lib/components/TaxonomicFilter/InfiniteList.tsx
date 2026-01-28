@@ -345,7 +345,7 @@ const InfiniteListRow = ({
                 onClick={() => {
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery ?? '')
+                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
                     )
                 }}
             >
