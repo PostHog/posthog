@@ -1,5 +1,6 @@
 import math
-from typing import Optional
+from collections import defaultdict
+from typing import Any, Optional
 
 import unittest
 from freezegun import freeze_time
@@ -11,6 +12,9 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+import numpy as np
+from pydantic.dataclasses import dataclass
 
 from posthog.schema import (
     ActionConversionGoal,
@@ -34,6 +38,14 @@ from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 
 nan_value = float("nan")
+
+
+@dataclass
+class PageViewProperties:
+    pathname: str
+    timestamp: str
+    scroll: float = 0
+    duration: float | None = 0
 
 
 class FloatAwareTestCase(unittest.TestCase):
@@ -64,6 +76,35 @@ class FloatAwareTestCase(unittest.TestCase):
 @snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareTestCase):
     QUERY_TIMESTAMP = "2025-01-29"
+
+    def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
+        per_path_durations: defaultdict[Any, list] = defaultdict(list)
+        total_view_counts: defaultdict[Any, int] = defaultdict(int)
+        per_path_user_count: defaultdict[Any, set] = defaultdict(set)
+
+        for person_idx, person in enumerate(groups_of_pageviews):
+            for page_view in person:
+                per_path_durations[page_view.pathname].append(page_view.duration)
+                total_view_counts[page_view.pathname] += 1
+                per_path_user_count[page_view.pathname].add(person_idx)
+
+        def calculate_p90(values: list[float | None]) -> float | None:
+            filtered_values = [v for v in values if v is not None]
+
+            if len(filtered_values) == 0:
+                return None
+
+            return float(np.percentile(filtered_values, 90))
+
+        results = {}
+        for path, durations in per_path_durations.items():
+            results[path] = {
+                "user_count": len(per_path_user_count[path]),
+                "view_count": total_view_counts[path],
+                "p90_duration": calculate_p90(durations),
+            }
+
+        return results
 
     def _create_events(self, data, event="$pageview"):
         person_result = []
@@ -107,8 +148,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 )
         return person_result
 
-    def _create_pageviews(self, distinct_id: str, list_path_time_scroll: list[tuple[str, str, float]]):
-        person_time = list_path_time_scroll[0][1]
+    def _create_pageviews(self, distinct_id: str, list_page_view_properties: list[PageViewProperties]):
+        person_time = list_page_view_properties[0].timestamp
+
         with freeze_time(person_time):
             person_result = _create_person(
                 team_id=self.team.pk,
@@ -119,39 +161,44 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 },
             )
             session_id = str(uuid7(person_time))
-            prev_path_time_scroll = None
-            for path_time_scroll in list_path_time_scroll:
-                pathname, time, scroll = path_time_scroll
-                prev_pathname, _, prev_scroll = prev_path_time_scroll or (None, None, None)
+            prev_page_view_properties: PageViewProperties | None = None
+
+            for page_view in list_page_view_properties:
+                prev_pathname = prev_page_view_properties.pathname if prev_page_view_properties else None
+                prev_scroll = prev_page_view_properties.scroll if prev_page_view_properties else None
+                prev_duration = prev_page_view_properties.duration if prev_page_view_properties else None
+
                 _create_event(
                     team=self.team,
                     event="$pageview",
                     distinct_id=distinct_id,
-                    timestamp=time,
+                    timestamp=page_view.timestamp,
                     properties={
                         "$session_id": session_id,
-                        "$pathname": pathname,
-                        "$current_url": "http://www.example.com" + pathname,
+                        "$pathname": page_view.pathname,
+                        "$current_url": "http://www.example.com" + page_view.pathname,
                         "$prev_pageview_pathname": prev_pathname,
+                        "$prev_pageview_duration": prev_duration,
                         "$prev_pageview_max_scroll_percentage": prev_scroll,
                         "$prev_pageview_max_content_percentage": prev_scroll,
                     },
                 )
-                prev_path_time_scroll = path_time_scroll
-            if prev_path_time_scroll:
-                prev_pathname, _, prev_scroll = prev_path_time_scroll
+                prev_page_view_properties = page_view
+
+            if prev_page_view_properties:
                 _create_event(
                     team=self.team,
                     event="$pageleave",
                     distinct_id=distinct_id,
-                    timestamp=prev_path_time_scroll[1],
+                    timestamp=prev_page_view_properties.timestamp,
                     properties={
                         "$session_id": session_id,
-                        "$pathname": prev_pathname,
-                        "$current_url": "http://www.example.com" + pathname,
-                        "$prev_pageview_pathname": prev_pathname,
-                        "$prev_pageview_max_scroll_percentage": prev_scroll,
-                        "$prev_pageview_max_content_percentage": prev_scroll,
+                        "$pathname": prev_page_view_properties.pathname,
+                        "$current_url": "http://www.example.com" + page_view.pathname,
+                        "$prev_pageview_pathname": prev_page_view_properties.pathname,
+                        "$prev_pageview_duration": prev_page_view_properties.duration,
+                        "$prev_pageview_max_scroll_percentage": prev_page_view_properties.scroll,
+                        "$prev_pageview_max_content_percentage": prev_page_view_properties.scroll,
                     },
                 )
         return person_result
@@ -165,6 +212,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         path_cleaning_filters=None,
         include_bounce_rate=False,
         include_scroll_depth=False,
+        include_avg_time_on_page=False,
         properties=None,
         compare_filter=None,
         action: Optional[Action] = None,
@@ -186,6 +234,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 doPathCleaning=bool(path_cleaning_filters),
                 includeBounceRate=include_bounce_rate,
                 includeScrollDepth=include_scroll_depth,
+                includeAvgTimeOnPage=include_avg_time_on_page,
                 compareFilter=compare_filter,
                 conversionGoal=ActionConversionGoal(actionId=action.id)
                 if action
@@ -593,9 +642,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
 
@@ -617,24 +666,24 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p2",
             [
-                ("/a", "2023-12-02T12:00:00", 0.9),
-                ("/a", "2023-12-02T12:00:01", 0.9),
-                ("/b", "2023-12-02T12:00:02", 0.2),
-                ("/c", "2023-12-02T12:00:03", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p3",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
             ],
         )
 
@@ -656,24 +705,24 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p2",
             [
-                ("/a", "2023-12-02T12:00:00", 0.9),
-                ("/a", "2023-12-02T12:00:01", 0.9),
-                ("/b", "2023-12-02T12:00:02", 0.2),
-                ("/c", "2023-12-02T12:00:03", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p3",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
             ],
         )
 
@@ -694,9 +743,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a/123", "2023-12-02T12:00:00", 0.1),
-                ("/b/123", "2023-12-02T12:00:01", 0.2),
-                ("/c/123", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a/123", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b/123", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c/123", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
 
@@ -723,9 +772,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
 
@@ -746,24 +795,24 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p2",
             [
-                ("/a", "2023-12-02T12:00:00", 0.9),
-                ("/a", "2023-12-02T12:00:01", 0.9),
-                ("/b", "2023-12-02T12:00:02", 0.2),
-                ("/c", "2023-12-02T12:00:03", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p3",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
             ],
         )
 
@@ -784,24 +833,24 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p2",
             [
-                ("/a", "2023-12-02T12:00:00", 0.9),
-                ("/a", "2023-12-02T12:00:01", 0.9),
-                ("/b", "2023-12-02T12:00:02", 0.2),
-                ("/c", "2023-12-02T12:00:03", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p3",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
             ],
         )
 
@@ -821,9 +870,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a/123", "2023-12-02T12:00:00", 0.1),
-                ("/b/123", "2023-12-02T12:00:01", 0.2),
-                ("/c/123", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a/123", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b/123", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c/123", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
 
@@ -849,9 +898,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
 
@@ -870,24 +919,24 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p2",
             [
-                ("/a", "2023-12-02T12:00:00", 0.9),
-                ("/a", "2023-12-02T12:00:01", 0.9),
-                ("/b", "2023-12-02T12:00:02", 0.2),
-                ("/c", "2023-12-02T12:00:03", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p3",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
             ],
         )
 
@@ -906,24 +955,24 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
-                ("/b", "2023-12-02T12:00:01", 0.2),
-                ("/c", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p2",
             [
-                ("/a", "2023-12-02T12:00:00", 0.9),
-                ("/a", "2023-12-02T12:00:01", 0.9),
-                ("/b", "2023-12-02T12:00:02", 0.2),
-                ("/c", "2023-12-02T12:00:03", 0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
             ],
         )
         self._create_pageviews(
             "p3",
             [
-                ("/a", "2023-12-02T12:00:00", 0.1),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
             ],
         )
 
@@ -943,9 +992,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/a/123", "2023-12-02T12:00:00", 0.1),
-                ("/b/123", "2023-12-02T12:00:01", 0.2),
-                ("/c/123", "2023-12-02T12:00:02", 0.9),
+                PageViewProperties(pathname="/a/123", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b/123", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c/123", timestamp="2023-12-02T12:00:02", scroll=0.9),
             ],
         )
 
@@ -1669,30 +1718,34 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "user1",
             [
-                ("/onboarding/portfolio-selection", "2023-12-02T12:00:00", 0.5),
-                ("/", "2023-12-02T12:00:30", 0.3),
+                PageViewProperties(
+                    pathname="/onboarding/portfolio-selection", timestamp="2023-12-02T12:00:00", scroll=0.5
+                ),
+                PageViewProperties(pathname="/", timestamp="2023-12-02T12:00:30", scroll=0.3),
             ],
         )
 
         self._create_pageviews(
             "user2",
             [
-                ("/", "2023-12-02T12:00:00", 0.1),
+                PageViewProperties(pathname="/", timestamp="2023-12-02T12:00:00", scroll=0.1),
             ],
         )
 
         self._create_pageviews(
             "user3",
             [
-                ("/onboarding/portfolio-selection", "2023-12-02T12:00:00", 0.1),
+                PageViewProperties(
+                    pathname="/onboarding/portfolio-selection", timestamp="2023-12-02T12:00:00", scroll=0.1
+                ),
             ],
         )
 
         self._create_pageviews(
             "user4",
             [
-                ("/onboarding/goals", "2023-12-02T12:00:30", 0.8),
-                ("/onboarding/funding", "2023-12-02T12:01:00", 0.9),
+                PageViewProperties(pathname="/onboarding/goals", timestamp="2023-12-02T12:00:30", scroll=0.8),
+                PageViewProperties(pathname="/onboarding/funding", timestamp="2023-12-02T12:01:00", scroll=0.9),
             ],
         )
 
@@ -1789,22 +1842,22 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/path1", "2023-12-02T12:00:00", 0.1),  # Bounce
+                PageViewProperties(pathname="/path1", timestamp="2023-12-02T12:00:00", scroll=0.1),  # Bounce
             ],
         )
         self._create_pageviews(
             "p2",
             [
-                ("/path2", "2023-12-02T12:00:00", 0.1),
-                ("/path2", "2023-12-02T12:00:01", 0.2),  # No bounce
+                PageViewProperties(pathname="/path2", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/path2", timestamp="2023-12-02T12:00:01", scroll=0.2),  # No bounce
             ],
         )
         self._create_pageviews(
             "p3",
             [
-                ("/path3", "2023-12-02T12:00:00", 0.1),
-                ("/path3", "2023-12-02T12:00:01", 0.1),
-                ("/path3", "2023-12-02T12:00:02", 0.2),  # No bounce
+                PageViewProperties(pathname="/path3", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/path3", timestamp="2023-12-02T12:00:01", scroll=0.1),
+                PageViewProperties(pathname="/path3", timestamp="2023-12-02T12:00:02", scroll=0.2),  # No bounce
             ],
         )
 
@@ -1834,19 +1887,19 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         self._create_pageviews(
             "p1",
             [
-                ("/path1", "2023-12-02T12:00:00", 0.1),  # Low scroll
+                PageViewProperties(pathname="/path1", timestamp="2023-12-02T12:00:00", scroll=0.1),  # Low scroll
             ],
         )
         self._create_pageviews(
             "p2",
             [
-                ("/path2", "2023-12-02T12:00:00", 0.5),  # Medium scroll
+                PageViewProperties(pathname="/path2", timestamp="2023-12-02T12:00:00", scroll=0.5),  # Medium scroll
             ],
         )
         self._create_pageviews(
             "p3",
             [
-                ("/path3", "2023-12-02T12:00:00", 0.9),  # High scroll
+                PageViewProperties(pathname="/path3", timestamp="2023-12-02T12:00:00", scroll=0.9),  # High scroll
             ],
         )
 
@@ -1964,3 +2017,314 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
         pre_agg_builder = runner.preaggregated_query_builder
         assert pre_agg_builder.can_use_preaggregated_tables()
+
+    def test_avg_time_on_page_one_user(self):
+        page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=10),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:10", duration=5),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:20", duration=30),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:30", duration=60),
+        ]
+
+        self._create_pageviews("p1", page_views)
+
+        stats = self._calculate_pageview_statistics([page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",  # breakdown (page / path)
+                    (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
+                    (stats["/a"]["view_count"], 0),  # (views_this_month, views_last_month)
+                    (stats["/a"]["p90_duration"], 0),  # (p90_time_on_page_this_month, p90_time_on_page_last_month)
+                    (0, 0),
+                    1 / len(results),  # ui fill fraction
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_avg_time_on_page_multiple_users(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=30),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:10", duration=20),
+        ]
+
+        p2_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:20", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:30", duration=40),
+        ]
+
+        p3_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:40", duration=10),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=15),
+        ]
+
+        self._create_pageviews("p1", p1_page_views)
+        self._create_pageviews("p2", p2_page_views)
+        self._create_pageviews("p3", p3_page_views)
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/a"]["view_count"], 0),
+                    (stats["/a"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_avg_time_on_multiple_routes_and_users(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=30),
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:30", duration=20),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=3),
+        ]
+
+        p2_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:30", duration=10),
+            PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:40", duration=40),
+        ]
+
+        p3_page_views = [
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:50", duration=10),
+            PageViewProperties(pathname="/c", timestamp="2023-12-02T12:01:00", duration=15),
+        ]
+
+        p4_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=40),
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:40", duration=25),
+            PageViewProperties(pathname="/c", timestamp="2023-12-02T12:01:50", duration=13),
+        ]
+
+        self._create_pageviews("p1", p1_page_views)
+        self._create_pageviews("p2", p2_page_views)
+        self._create_pageviews("p3", p3_page_views)
+        self._create_pageviews("p4", p4_page_views)
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/a"]["view_count"], 0),
+                    (stats["/a"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+                [
+                    "/b",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/b"]["view_count"], 0),
+                    (stats["/b"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+                [
+                    "/c",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/c"]["view_count"], 0),
+                    (stats["/c"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_avg_time_can_compare(self):
+        m1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-03", duration=30),
+        ]
+
+        m2_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-13", duration=120),
+        ]
+
+        self._create_pageviews("p1", m1_page_views)
+        self._create_pageviews("p2", m2_page_views)
+
+        m1_stats = self._calculate_pageview_statistics([m1_page_views])
+        m2_stats = self._calculate_pageview_statistics([m2_page_views])
+
+        results = self._run_web_stats_table_query(
+            "2023-12-06",
+            "2023-12-13",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            compare_filter=CompareFilter(compare=True),
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (m2_stats["/a"]["user_count"], m1_stats["/a"]["user_count"]),
+                    (m2_stats["/a"]["view_count"], m1_stats["/a"]["view_count"]),
+                    (m2_stats["/a"]["p90_duration"], m1_stats["/a"]["p90_duration"]),
+                    (1, 1),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_time_on_page_caps_at_24_hours(self):
+        page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:00", duration=100000),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T22:01:00", duration=120),
+        ]
+
+        self._create_pageviews("p1", page_views)
+
+        capped_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:00", duration=86400),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T22:01:00", duration=120),
+        ]
+        stats = self._calculate_pageview_statistics([capped_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/a"]["view_count"], 0),
+                    (stats["/a"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_calculate_pageview_statistics_p90_single_session(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=30),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=15),
+        ]
+
+        stats = self._calculate_pageview_statistics([p1_page_views])
+
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 28.5, places=2)
+
+    def test_calculate_pageview_statistics_p90_multiple_sessions(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=25),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=40),
+        ]
+
+        p2_page_views = [
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:00", duration=30),
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:50", duration=15),
+        ]
+
+        p3_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=17),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=28),
+        ]
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
+
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 36.4, places=2)
+
+    def test_calculate_pageview_statistics_excludes_null_durations(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:00:00", duration=None),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:40", duration=50),
+        ]
+        p2_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:02:00", duration=80),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:03:20", duration=50),
+        ]
+        p3_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:04:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:05:00", duration=50),
+        ]
+        p4_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:06:00", duration=40),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:06:40", duration=50),
+        ]
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        self.assertAlmostEqual(stats["/start"]["p90_duration"], 76.0, places=2)
+
+    def test_null_prev_pageview_duration_excluded_from_p90(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:00:00", duration=None),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:40", duration=50),
+        ]
+        p2_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:02:00", duration=80),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:03:20", duration=50),
+        ]
+        p3_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:04:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:05:00", duration=50),
+        ]
+        p4_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:06:00", duration=40),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:06:40", duration=50),
+        ]
+
+        self._create_pageviews("p1", p1_page_views)
+        self._create_pageviews("p2", p2_page_views)
+        self._create_pageviews("p3", p3_page_views)
+        self._create_pageviews("p4", p4_page_views)
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        start_result = next(r for r in results if r[0] == "/start")
+        self.assertAlmostEqual(start_result[3][0], stats["/start"]["p90_duration"], places=2)

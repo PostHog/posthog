@@ -6,13 +6,13 @@ import {
     ExperimentTrendsQuery,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { InsightType } from '~/types'
+import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
-import { insertMetricIntoOrderingArray } from '../../utils'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
+import { MAX_AXIS_RANGE } from './constants'
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
@@ -32,7 +32,8 @@ export function MetricsTable({
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
-    const { duplicateMetric, updateExperimentMetrics, setExperiment } = useActions(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics, updateMetricBreakdown, removeMetricBreakdown } =
+        useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
@@ -46,7 +47,7 @@ export function MetricsTable({
     )
 
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const axisRange = maxAbsValue + axisMargin
+    const axisRange = Math.min(maxAbsValue + axisMargin, MAX_AXIS_RANGE)
 
     if (metrics.length === 0) {
         return (
@@ -65,9 +66,13 @@ export function MetricsTable({
                     <col />
                     <col />
                     <col />
+                    <col />
                     <col className="min-w-[400px]" />
                 </colgroup>
-                <TableHeader axisRange={axisRange} />
+                <TableHeader
+                    axisRange={axisRange}
+                    statsMethod={experiment.stats_config?.method || ExperimentStatsMethod.Bayesian}
+                />
                 <tbody>
                     {metrics.map((metric, index) => {
                         const result = results[index]
@@ -93,22 +98,22 @@ export function MetricsTable({
                                     }
 
                                     const newUuid = crypto.randomUUID()
-
                                     duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
-
-                                    const newOrderingArray = insertMetricIntoOrderingArray(
-                                        experiment,
-                                        newUuid,
-                                        metric.uuid,
-                                        isSecondary
-                                    )
-                                    setExperiment({
-                                        [isSecondary
-                                            ? 'secondary_metrics_ordered_uuids'
-                                            : 'primary_metrics_ordered_uuids']: newOrderingArray,
-                                    })
-
                                     updateExperimentMetrics()
+                                }}
+                                onBreakdownChange={(breakdown) => {
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+
+                                    updateMetricBreakdown(metric.uuid, breakdown)
+                                }}
+                                onRemoveBreakdown={(index) => {
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+
+                                    removeMetricBreakdown(metric.uuid, index)
                                 }}
                                 error={error}
                                 isLoading={isLoading}

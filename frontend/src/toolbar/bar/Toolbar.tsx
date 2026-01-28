@@ -13,11 +13,11 @@ import {
     IconEye,
     IconHide,
     IconLive,
-    IconLogomark,
     IconNight,
     IconPieChart,
     IconQuestion,
     IconSearch,
+    IconSpotlight,
     IconStethoscope,
     IconTestTube,
     IconToggle,
@@ -26,6 +26,7 @@ import {
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
+import { AnimatedLogomark } from 'lib/brand/Logomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
@@ -38,6 +39,9 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
+import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
@@ -196,7 +200,7 @@ function piiMaskingMenuItem(
 
 function MoreMenu(): JSX.Element {
     const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
-    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor } =
+    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor, startGracefulExit } =
         useActions(toolbarLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
@@ -211,8 +215,6 @@ function MoreMenu(): JSX.Element {
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
-
-    const { logout } = useActions(toolbarConfigLogic)
 
     return (
         <LemonMenu
@@ -256,7 +258,7 @@ function MoreMenu(): JSX.Element {
                             window.open(HELP_URL, '_blank')?.focus()
                         },
                     },
-                    { icon: <IconX />, label: 'Close toolbar', onClick: logout },
+                    { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
                 ].filter(Boolean) as LemonMenuItems
             }
             maxContentWidth={true}
@@ -278,6 +280,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
 
+    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
+    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -292,6 +297,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <WebVitalsToolbarMenu />
     ) : visibleMenu === 'experiments' && showExperiments ? (
         <ExperimentsToolbarMenu />
+    ) : visibleMenu === 'product-tours' && showProductTours ? (
+        <ProductToursToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -333,13 +340,19 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isExiting, isLoading } =
+        useValues(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
+        useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
+    const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
+
+    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
+    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
     useEffect(() => {
         setElement(ref.current)
@@ -365,14 +378,21 @@ export function Toolbar(): JSX.Element | null {
         if (userIntent === 'heatmaps') {
             setVisibleMenu('heatmap')
         }
+
+        if (userIntent === 'add-product-tour' || userIntent === 'edit-product-tour') {
+            setVisibleMenu('product-tours')
+        }
     }, [userIntent]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (isEmbeddedInApp) {
         return null
     }
 
+    const showSidebar = selectedTourId !== null && !isPreviewing
+
     return (
         <>
+            {showSidebar && <ProductToursSidebar />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -380,7 +400,8 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--with-experiments': showExperiments,
+                    'Toolbar--extra-buttons-1': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 2,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -398,7 +419,11 @@ export function Toolbar(): JSX.Element | null {
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
-                    <IconLogomark />
+                    <AnimatedLogomark
+                        animate={isLoading}
+                        animateOnce={isExiting ? completeGracefulExit : undefined}
+                        className="Toolbar__logomark"
+                    />
                 </ToolbarButton>
                 {isAuthenticated ? (
                     <>
@@ -423,6 +448,11 @@ export function Toolbar(): JSX.Element | null {
                         {showExperiments && (
                             <ToolbarButton menuId="experiments" title="Experiments">
                                 <IconTestTube />
+                            </ToolbarButton>
+                        )}
+                        {showProductTours && (
+                            <ToolbarButton menuId="product-tours" title="Product tours">
+                                <IconSpotlight />
                             </ToolbarButton>
                         )}
                     </>

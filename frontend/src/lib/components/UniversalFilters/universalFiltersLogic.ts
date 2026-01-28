@@ -35,11 +35,12 @@ export type UniversalFiltersLogicProps = {
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    endpointFilters?: Record<string, any>
 }
 
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
     path((key) => ['lib', 'components', 'UniversalFilters', 'universalFiltersLogic', key]),
-    props({} as UniversalFiltersLogicProps),
+    props({ endpointFilters: {} } as UniversalFiltersLogicProps),
     key((props) => {
         return `${props.rootKey}-${JSON.stringify(props.group)}`
     }),
@@ -99,6 +100,10 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
     selectors({
         rootKey: [(_, p) => [p.rootKey], (rootKey) => rootKey],
         taxonomicGroupTypes: [(_, p) => [p.taxonomicGroupTypes], (types) => types],
+        endpointFilters: [
+            (_, p) => [p.endpointFilters || (() => undefined)],
+            (endpointFilters?: Record<string, any>) => endpointFilters,
+        ],
         taxonomicPropertyFilterGroupTypes: [
             (_, p) => [p.taxonomicGroupTypes],
             (types) =>
@@ -111,7 +116,9 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
                         TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.Logs,
                         TaxonomicFilterGroupType.LogAttributes,
+                        TaxonomicFilterGroupType.LogResourceAttributes,
                     ].includes(t)
                 ),
         ],

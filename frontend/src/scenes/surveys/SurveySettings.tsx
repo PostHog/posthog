@@ -25,7 +25,7 @@ interface Props {
     isModal?: boolean
 }
 
-function SurveyPopupToggle(): JSX.Element {
+export function SurveyPopupToggle(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 

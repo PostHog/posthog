@@ -1,0 +1,104 @@
+# serializer version: 1
+# name: TestQueryTransformation.test_basic_transformation
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start)
+  '''
+# ---
+# name: TestQueryTransformation.test_basic_transformation_count_distinct
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start)
+  '''
+# ---
+# name: TestQueryTransformation.test_breakdown_with_aliases
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start, arrayElement(breakdown_value, 1) AS browser, arrayElement(breakdown_value, 2) AS os)
+  '''
+# ---
+# name: TestQueryTransformation.test_count_distinct_variant
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start)
+  '''
+# ---
+# name: TestQueryTransformation.test_date_extraction
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-06-15')), less(time_window_start, toDate('2024-07-20')))
+     GROUP BY time_window_start)
+  '''
+# ---
+# name: TestQueryTransformation.test_multiple_breakdowns_transformation
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start, arrayElement(breakdown_value, 1), arrayElement(breakdown_value, 2))
+  '''
+# ---
+# name: TestQueryTransformation.test_nested_select
+  '''
+  sql
+    (SELECT sum(unique_persons)
+     FROM
+       (SELECT uniqExactMerge(uniq_exact_state) AS unique_persons
+        FROM preaggregation_results
+        WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+        GROUP BY time_window_start))
+  '''
+# ---
+# name: TestQueryTransformation.test_preserves_alias
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state) AS unique_persons
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start)
+  '''
+# ---
+# name: TestQueryTransformation.test_preserves_limit
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start
+     LIMIT 10)
+  '''
+# ---
+# name: TestQueryTransformation.test_preserves_order_by
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start
+     ORDER BY toStartOfDay(timestamp) DESC)
+  '''
+# ---
+# name: TestQueryTransformation.test_single_breakdown_transformation
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start, arrayElement(breakdown_value, 1))
+  '''
+# ---

@@ -24,6 +24,7 @@ export interface Fuse extends FuseClass<HogFunctionType> {}
 export type HogFunctionListFilters = {
     search?: string
     showPaused?: boolean
+    createdBy?: string | null
 }
 
 export type HogFunctionListLogicProps = {
@@ -100,6 +101,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         await api.hogFunctions.list({
                             filter_groups: props.forceFilterGroups,
                             types: [props.type, ...(props.additionalTypes || [])],
+                            // TODO: This is a temporary fix. We need proper server-side pagination
+                            // once we rework the data pipelines UI and batch exports is no longer
+                            // part of the same list
+                            limit: 300,
                         })
                     ).results
                 },
@@ -173,7 +178,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         filteredHogFunctions: [
             (s) => [s.filters, s.sortedHogFunctions, s.hogFunctionsFuse, s.user],
             (filters, hogFunctions, hogFunctionsFuse, user): HogFunctionType[] => {
-                const { search, showPaused } = filters
+                const { search, showPaused, createdBy } = filters
 
                 return (search ? hogFunctionsFuse.search(search).map((x) => x.item) : hogFunctions).filter((x) => {
                     if (!shouldShowHogFunction(x, user)) {
@@ -183,6 +188,11 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     if (!showPaused && !x.enabled) {
                         return false
                     }
+
+                    if (createdBy && x.created_by?.uuid !== createdBy) {
+                        return false
+                    }
+
                     return true
                 })
             },

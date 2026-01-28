@@ -1,0 +1,2 @@
+# This file intentionally left blank.
+# This prevents an example project's dependencies from accidentally leaking into the main pnpm workspace.

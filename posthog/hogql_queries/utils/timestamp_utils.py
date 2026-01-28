@@ -7,7 +7,7 @@ from django.core.cache import cache
 
 from dateutil.relativedelta import MO, SU, relativedelta
 
-from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode
+from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, GroupNode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
@@ -135,7 +135,7 @@ def _get_earliest_timestamp_from_node(team: Team, node: Union[EventsNode, Action
 
 
 def get_earliest_timestamp_from_series(
-    team: Team, series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]]
+    team: Team, series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]]
 ) -> datetime:
     """
     Get the earliest timestamp for specific events/actions in a series.
@@ -143,16 +143,24 @@ def get_earliest_timestamp_from_series(
     for its own earliest timestamp, and the minimum is returned.
 
     :param team: The team
-    :param series: A list of series nodes (EventsNode, ActionsNode, or DataWarehouseNode)
+    :param series: A list of series nodes (EventsNode, ActionsNode, DataWarehouseNode, or GroupNode)
     :return: The earliest timestamp across all series
     """
+    # Expand GroupNode nodes into individual nodes
+    nodes: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = []
+    for node in series:
+        if isinstance(node, GroupNode):
+            nodes.extend(node.nodes)
+        else:
+            nodes.append(node)
+
     timestamps = []
-    if len(series) == 1 or settings.IN_UNIT_TESTING:
-        timestamps = [_get_earliest_timestamp_from_node(team, node) for node in series]
+    if len(nodes) == 1 or settings.IN_UNIT_TESTING:
+        timestamps = [_get_earliest_timestamp_from_node(team, node) for node in nodes]
 
     else:
-        with ThreadPoolExecutor(max_workers=min(len(series), 4)) as executor:
-            futures = [executor.submit(_get_earliest_timestamp_from_node, team, node) for node in series]
+        with ThreadPoolExecutor(max_workers=min(len(nodes), 4)) as executor:
+            futures = [executor.submit(_get_earliest_timestamp_from_node, team, node) for node in nodes]
             timestamps = [future.result() for future in futures]
 
     return min(timestamps)

@@ -18,8 +18,6 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
         return <></>
     }
 
-    const hasParameters = endpoint.parameters && Object.keys(endpoint.parameters).length > 0
-
     return (
         <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
             <div className="flex flex-col gap-0 overflow-hidden">
@@ -31,7 +29,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                         </LemonTag>
                     </div>
                     <div className="flex flex-col">
-                        <LemonLabel info="A version is incremented when the underlying query changes. You can execute old versions of the Endpoint by setting the `version` param on the request body.">
+                        <LemonLabel info="Versions auto-increment when the query changes. Access older versions via the 'version' parameter in requests. Useful for gradual rollouts and rollbacks.">
                             Current version
                         </LemonLabel>
                         <div className="flex items-center gap-2">
@@ -54,21 +52,6 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                         </LemonButton>
                     </div>
                 </div>
-
-                {hasParameters && (
-                    <div className="flex flex-col mt-4">
-                        <LemonLabel>Variables</LemonLabel>
-                        <div className="space-y-2 mt-1">
-                            {Object.entries(endpoint.parameters).map(([key, value]) => (
-                                <div key={key} className="flex items-start gap-2">
-                                    <code className="text-xs bg-bg-light px-2 py-1 rounded">{key}</code>
-                                    <span className="text-muted-alt">:</span>
-                                    <code className="text-xs text-muted">{JSON.stringify(value)}</code>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </div>
 
             <div className="flex flex-col gap-4 overflow-hidden items-start min-[1200px]:items-end">

@@ -55,7 +55,7 @@ export const themeLogic = kea<themeLogicType>([
         theme: [
             (s) => [s.selectedTheme, s.featureFlags],
             (selectedTheme, featureFlags): Theme | null => {
-                const flagVariant = featureFlags[FEATURE_FLAGS.THEME]
+                const flagVariant = featureFlags[FEATURE_FLAGS.THEME_OVERRIDE]
                 return (
                     (selectedTheme ? themes.find((theme) => theme.id === selectedTheme) : null) ??
                     (typeof flagVariant === 'string' ? themes.find((theme) => theme.id === flagVariant) : null) ??

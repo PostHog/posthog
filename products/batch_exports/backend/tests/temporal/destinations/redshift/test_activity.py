@@ -102,7 +102,7 @@ async def _run_activity(
     if use_internal_stage:
         assert insert_inputs.batch_export.batch_export_id is not None
         # we first need to run the insert_into_internal_stage_activity so that we have data to export
-        await activity_environment.run(
+        stage_folder = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.batch_export.team_id,
@@ -118,6 +118,7 @@ async def _run_activity(
                 destination_default_fields=redshift_default_fields(),
             ),
         )
+        insert_inputs.batch_export.stage_folder = stage_folder
         result = await activity_environment.run(insert_into_redshift_activity_from_stage, insert_inputs)
     else:
         result = await activity_environment.run(insert_into_redshift_activity, insert_inputs)
@@ -434,12 +435,12 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
     new_event = new_events[0]
     new_event_properties = new_event["properties"] or {}
     assert len(rows) == 1, "Previous session row still present in Redshift"
-    assert (
-        rows[0]["session_id"] == new_event_properties["$session_id"]
-    ), "Redshift row does not match expected `session_id`"
-    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(
-        tzinfo=dt.UTC
-    ), "Redshift data was not updated with new timestamp"
+    assert rows[0]["session_id"] == new_event_properties["$session_id"], (
+        "Redshift row does not match expected `session_id`"
+    )
+    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(tzinfo=dt.UTC), (
+        "Redshift data was not updated with new timestamp"
+    )
 
 
 async def test_insert_into_redshift_activity_handles_person_schema_changes(

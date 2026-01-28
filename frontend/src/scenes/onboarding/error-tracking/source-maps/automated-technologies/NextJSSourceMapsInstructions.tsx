@@ -4,6 +4,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SourceMapsAPIKeyBanner } from '../SourceMapsAPIKeyBanner'
 import { VerifySourceMaps } from '../VerifySourceMaps'
 
 export function NextJSSourceMapsInstructions(): JSX.Element {
@@ -12,6 +13,8 @@ export function NextJSSourceMapsInstructions(): JSX.Element {
 
     return (
         <>
+            <SourceMapsAPIKeyBanner />
+
             <h3>Install the PostHog Next.js config package</h3>
             <p>
                 This package handles automatic source map generation and upload for error tracking. Install it using

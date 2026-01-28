@@ -134,6 +134,25 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                 />
             </LemonLabel>
             <LemonLabel className={labelClassName}>
+                <div>Use preaggregated intermediate:</div>
+                <LemonSelect
+                    options={[
+                        { value: true, label: 'true' },
+                        { value: false, label: 'false' },
+                    ]}
+                    onChange={(value) =>
+                        setQuery({
+                            ...query,
+                            modifiers: { ...query.modifiers, usePreaggregatedIntermediateResults: value },
+                        })
+                    }
+                    value={
+                        query.modifiers?.usePreaggregatedIntermediateResults ??
+                        response?.modifiers?.usePreaggregatedIntermediateResults
+                    }
+                />
+            </LemonLabel>
+            <LemonLabel className={labelClassName}>
                 <div>Property Groups:</div>
                 <LemonSelect
                     options={[

@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -15,25 +16,20 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     ActionType,
-    AvailableFeature,
     ChartDisplayType,
     FilterLogicalOperator,
-    ProductKey,
-    ReplayTabs,
 } from '~/types'
 
 import { actionsLogic } from '../logics/actionsLogic'
@@ -46,8 +42,6 @@ export function ActionsTable(): JSX.Element {
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     const tryInInsightsUrl = (action: ActionType): string => {
@@ -161,19 +155,15 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags',
-                      width: 250,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags',
+            width: 250,
+            key: 'tags',
+            render: function renderTags(tags: string[]) {
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         ...(currentTeam?.slack_incoming_webhook
@@ -207,8 +197,8 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton to={urls.duplicateAction(action)} fullWidth>
                                     Duplicate
                                 </LemonButton>
-                                <LemonButton
-                                    to={urls.replay(ReplayTabs.Home, {
+                                <ViewRecordingsPlaylistButton
+                                    filters={{
                                         filter_group: {
                                             type: FilterLogicalOperator.And,
                                             values: [
@@ -225,7 +215,7 @@ export function ActionsTable(): JSX.Element {
                                                 },
                                             ],
                                         },
-                                    })}
+                                    }}
                                     onClick={() => {
                                         addProductIntentForCrossSell({
                                             from: ProductKey.ACTIONS,
@@ -233,13 +223,9 @@ export function ActionsTable(): JSX.Element {
                                             intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
                                         })
                                     }}
-                                    sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"
-                                    targetBlank
-                                >
-                                    View recordings
-                                </LemonButton>
+                                />
                                 <LemonButton to={tryInInsightsUrl(action)} fullWidth targetBlank>
                                     Try out in Insights
                                 </LemonButton>

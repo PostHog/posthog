@@ -47,8 +47,8 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         ).exclude(deleted=True)
 
         # Should have views for each event (purchase, subscription_charge) and each view type
-        # Each event should generate 5 view types: customer, charge, subscription, revenue_item, product
-        expected_view_count = 2 * 5  # 2 events * 5 types
+        # Each event should generate 6 view types: customer, charge, subscription, revenue_item, product, mrr
+        expected_view_count = 2 * 6  # 2 events * 6 types
         self.assertGreaterEqual(views.count(), expected_view_count)
 
         # Check that views have the expected structure
@@ -63,11 +63,13 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             [
                 "revenue_analytics.events.purchase.charge_events_revenue_view",
                 "revenue_analytics.events.purchase.customer_events_revenue_view",
+                "revenue_analytics.events.purchase.mrr_events_revenue_view",
                 "revenue_analytics.events.purchase.revenue_item_events_revenue_view",
                 "revenue_analytics.events.purchase.product_events_revenue_view",
                 "revenue_analytics.events.purchase.subscription_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.charge_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.customer_events_revenue_view",
+                "revenue_analytics.events.subscription_charge.mrr_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.product_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.revenue_item_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.subscription_events_revenue_view",

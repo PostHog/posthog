@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -38,6 +38,12 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BIGQUERY
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
+            "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
+        }
+
     def get_schemas(self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,
@@ -62,7 +68,9 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             if not table_name.startswith(build_destination_table_prefix(None))
         ]
 
-    def validate_credentials(self, config: BigQuerySourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         region: str | None = None
         if (
             config.use_custom_region

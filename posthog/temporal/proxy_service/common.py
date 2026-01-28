@@ -31,6 +31,11 @@ def use_gateway_api() -> bool:
     return settings.PROXY_USE_GATEWAY_API
 
 
+def use_cloudflare_proxy() -> bool:
+    """Returns whether to use Cloudflare for SaaS for proxy provisioning."""
+    return settings.CLOUDFLARE_PROXY_ENABLED
+
+
 class NonRetriableException(Exception):
     pass
 
@@ -146,6 +151,7 @@ def activity_capture_event(inputs: CaptureEventInputs):
         event=f"managed reverse proxy {inputs.event_type}",
         distinct_id=f"org-{record.organization_id}",
         properties={
+            "organization_id": record.organization_id,
             "proxy_record_id": inputs.proxy_record_id,
             "domain": record.domain if record else None,
             "target_cname": record.target_cname if record else None,

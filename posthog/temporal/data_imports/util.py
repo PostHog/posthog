@@ -13,6 +13,17 @@ from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.s3 import get_s3_client
 
+
+class NonRetryableException(Exception):
+    @property
+    def cause(self) -> Optional[BaseException]:
+        """Cause of the exception.
+
+        This is the same as ``Exception.__cause__``.
+        """
+        return self.__cause__
+
+
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
 S3_DELETE_TIME_BUFFER = 600
 

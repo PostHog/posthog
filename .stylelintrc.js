@@ -43,7 +43,7 @@ module.exports = {
         'scss/at-rule-no-unknown': [
             true,
             {
-                ignoreAtRules: ['tailwind', 'config', 'theme'],
+                ignoreAtRules: ['tailwind', 'config', 'theme', 'starting-style'],
             },
         ],
         'custom-property-pattern': null,

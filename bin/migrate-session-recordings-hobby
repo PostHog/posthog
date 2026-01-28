@@ -27,7 +27,8 @@ echo "🚀 Starting migration..."
 echo ""
 
 # Run the migration script inside the plugins container
-docker-compose run --rm \
+# Using --no-deps to avoid conflicts with already-running services
+docker-compose run --rm --no-deps \
     -e OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000 \
     -e OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user \
     -e OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password \
@@ -35,7 +36,7 @@ docker-compose run --rm \
     -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID=any \
     -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY=any \
     plugins \
-    node plugin-server/bin/migrate-minio-to-seaweedfs.js "$@"
+    node nodejs/bin/migrate-minio-to-seaweedfs.js "$@"
 
 if [ $? -eq 0 ]; then
     echo ""

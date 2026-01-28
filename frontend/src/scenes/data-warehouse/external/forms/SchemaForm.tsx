@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonModal, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { SyncTypeLabelMap } from 'scenes/data-warehouse/utils'
@@ -14,7 +14,7 @@ import { SyncMethodForm } from './SyncMethodForm'
 export default function SchemaForm(): JSX.Element {
     const containerRef = useFloatingContainer()
     const { toggleSchemaShouldSync, openSyncMethodModal, toggleAllTables } = useActions(sourceWizardLogic)
-    const { databaseSchema, tablesAllToggledOn } = useValues(sourceWizardLogic)
+    const { databaseSchema, tablesAllToggledOn, suggestedTablesMap } = useValues(sourceWizardLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
         if (schema.sync_type === null) {
@@ -59,13 +59,27 @@ export default function SchemaForm(): JSX.Element {
                                 title: 'Table',
                                 key: 'table',
                                 render: function RenderTable(_, schema) {
+                                    const isSuggested = suggestedTablesMap[schema.table] !== undefined
+                                    const tooltip =
+                                        suggestedTablesMap[schema.table] ??
+                                        'This table is suggested to be enabled for this source'
+
                                     return (
-                                        <span
-                                            className="font-mono cursor-pointer"
-                                            onClick={() => onClickCheckbox(schema, !schema.should_sync)}
-                                        >
-                                            {schema.table}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span
+                                                className="font-mono cursor-pointer"
+                                                onClick={() => onClickCheckbox(schema, !schema.should_sync)}
+                                            >
+                                                {schema.table}
+                                            </span>
+                                            {isSuggested && (
+                                                <Tooltip title={tooltip} placement="top">
+                                                    <LemonTag type="primary" className="cursor-help">
+                                                        Suggested
+                                                    </LemonTag>
+                                                </Tooltip>
+                                            )}
+                                        </div>
                                     )
                                 },
                             },
@@ -85,6 +99,14 @@ export default function SchemaForm(): JSX.Element {
                                     'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
                                 isHidden: !databaseSchema.some((schema) => schema.sync_type),
                                 render: function RenderSyncType(_, schema) {
+                                    if (!schema.incremental_available && !schema.append_available) {
+                                        return (
+                                            <span className="text-xs text-muted-foreground">
+                                                Incremental sync not supported
+                                            </span>
+                                        )
+                                    }
+
                                     if (
                                         schema.sync_type !== 'full_refresh' &&
                                         schema.sync_type !== null &&
@@ -94,6 +116,7 @@ export default function SchemaForm(): JSX.Element {
                                             schema.incremental_fields.find(
                                                 (f) => f.field == schema.incremental_field
                                             ) ?? null
+
                                         if (field) {
                                             return (
                                                 <>
@@ -105,6 +128,8 @@ export default function SchemaForm(): JSX.Element {
                                             )
                                         }
                                     }
+
+                                    return <span className="text-xs text-muted-foreground">No sync field selected</span>
                                 },
                             },
                             {
@@ -136,6 +161,11 @@ export default function SchemaForm(): JSX.Element {
                                                 size="small"
                                                 type="secondary"
                                                 onClick={() => openSyncMethodModal(schema)}
+                                                disabledReason={
+                                                    !schema.incremental_available && !schema.append_available
+                                                        ? 'Full refresh is the only supported sync method for this table'
+                                                        : undefined
+                                                }
                                             >
                                                 {SyncTypeLabelMap[schema.sync_type]}
                                             </LemonButton>

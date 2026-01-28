@@ -74,21 +74,24 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
             const hasResults =
                 recordings_counts.collection.count !== null || recordings_counts.saved_filters?.count !== null
 
-            const totalPinnedCount: number | null = recordings_counts.collection.count
-            const unwatchedPinnedCount =
-                (recordings_counts.collection.count || 0) - (recordings_counts.collection.watched_count || 0)
+            // Use collection count if available, otherwise fall back to saved_filters count
+            const totalCount: number | null =
+                recordings_counts.collection.count ?? recordings_counts.saved_filters?.count ?? null
+            const watchedCount: number =
+                recordings_counts.collection.watched_count ?? recordings_counts.saved_filters?.watched_count ?? 0
+            const unwatchedCount = (totalCount || 0) - watchedCount
 
             const tooltip = (
                 <div className="text-start">
                     {hasResults ? (
-                        totalPinnedCount > 0 ? (
-                            unwatchedPinnedCount > 0 ? (
+                        totalCount && totalCount > 0 ? (
+                            unwatchedCount > 0 ? (
                                 <p>
-                                    You have {unwatchedPinnedCount} unwatched recordings to watch out of a total of{' '}
-                                    {totalPinnedCount} in this collection.
+                                    You have {unwatchedCount} unwatched recordings to watch out of a total of{' '}
+                                    {totalCount} in this collection.
                                 </p>
                             ) : (
-                                <p>You have watched all of the {totalPinnedCount} recordings in this collection.</p>
+                                <p>You have watched all of the {totalCount} recordings in this collection.</p>
                             )
                         ) : (
                             <p>No results found for this collection.</p>
@@ -105,9 +108,9 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                         {hasResults ? (
                             <span className="flex items-center gap-x-1 cursor-help">
                                 <LemonBadge.Number
-                                    status={unwatchedPinnedCount ? 'primary' : 'muted'}
+                                    status={unwatchedCount ? 'primary' : 'muted'}
                                     className="text-xs cursor-pointer"
-                                    count={totalPinnedCount || 0}
+                                    count={totalCount || 0}
                                     maxDigits={3}
                                     showZero={true}
                                 />
@@ -240,7 +243,7 @@ export function SessionRecordingCollections(): JSX.Element {
                     onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
                     value={filters.search || ''}
                 />
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
                         <LemonButton
                             data-attr="session-recording-playlist-pinned-filter"
@@ -263,6 +266,7 @@ export function SessionRecordingCollections(): JSX.Element {
                                 onSelect={(value) => {
                                     setSavedPlaylistsFilters({ collectionType: value })
                                 }}
+                                size="small"
                                 options={[
                                     {
                                         label: 'All',

@@ -121,6 +121,18 @@ function SeriesDisplay({
               : 'total'
     ] as MathDefinition | undefined
 
+    const entityDisplay =
+        series.kind === 'GroupNode' ? (
+            series.nodes.map((node, i) => (
+                <React.Fragment key={i}>
+                    {i > 0 && <span className="text-muted"> or </span>}
+                    <EntityDisplay entity={node} />
+                </React.Fragment>
+            ))
+        ) : (
+            <EntityDisplay entity={series} />
+        )
+
     return (
         <div className="SeriesDisplay">
             {isFunnelsQuery(query) ? (
@@ -130,7 +142,7 @@ function SeriesDisplay({
             )}
             <div>
                 {isFunnelsQuery(query) ? 'Performed' : 'Counting'}
-                <EntityDisplay entity={series} />
+                {entityDisplay}
                 {!isFunnelsQuery(query) && (
                     <>
                         by{' '}

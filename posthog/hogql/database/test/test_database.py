@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import ROOT_TABLES__DO_NOT_ADD_ANY_MORE, Database
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -371,7 +371,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     @snapshot_postgres_queries
@@ -719,7 +719,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select id from persons"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
             in query
         ), query
 
@@ -737,7 +737,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)"
             in query
         ), query
 
@@ -1101,7 +1101,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_team_id_on_all_tables(self):
         db = Database.create_for(team=self.team)
 
-        table_names = db.get_all_table_names()
+        table_names = db.tables.resolve_all_table_names()
         for table_name in table_names:
             table = db.get_table(table_name)
             assert table is not None
@@ -1109,6 +1109,65 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             if isinstance(table, LazyTable | DANGEROUS_NoTeamIdCheckTable):
                 continue
             assert "team_id" in table.fields, f"Table {table_name} must have a team_id column"
+
+    def test_no_new_posthog_tables(self):
+        existing_posthog_table_names = [
+            "events",
+            "groups",
+            "persons",
+            "person_distinct_ids",
+            "person_distinct_id_overrides",
+            "error_tracking_issue_fingerprint_overrides",
+            "session_replay_events",
+            "cohort_people",
+            "static_cohort_people",
+            "cohort_membership",
+            "precalculated_events",
+            "precalculated_person_properties",
+            "log_entries",
+            "query_log",
+            "app_metrics",
+            "console_logs_log_entries",
+            "batch_export_log_entries",
+            "sessions",
+            "heatmaps",
+            "exchange_rate",
+            "document_embeddings",
+            "pg_embeddings",
+            "logs",
+            "log_attributes",
+            "logs_kafka_metrics",
+            "web_stats_daily",
+            "web_bounces_daily",
+            "web_stats_hourly",
+            "web_bounces_hourly",
+            "web_stats_combined",
+            "web_bounces_combined",
+            "web_pre_aggregated_stats",
+            "web_pre_aggregated_bounces",
+            "preaggregation_results",
+            "persons_revenue_analytics",
+            "groups_revenue_analytics",
+            "raw_session_replay_events",
+            "raw_person_distinct_ids",
+            "raw_persons",
+            "raw_groups",
+            "raw_cohort_people",
+            "raw_person_distinct_id_overrides",
+            "raw_error_tracking_issue_fingerprint_overrides",
+            "raw_sessions",
+            "raw_sessions_v3",
+            "raw_query_log",
+            "raw_document_embeddings",
+            "document_embeddings_text_embedding_3_small_1536",
+            "document_embeddings_text_embedding_3_large_3072",
+        ]
+
+        current_tables = ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys()
+        for table_name in current_tables:
+            assert table_name in existing_posthog_table_names, (
+                f"Table {table_name} should not be added to ROOT_TABLES__DO_NOT_ADD_ANY_MORE. Add the table to the `posthog` TableNode"
+            )
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""

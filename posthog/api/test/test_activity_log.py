@@ -21,8 +21,6 @@ def _feature_flag_json_payload(key: str) -> dict:
         "deleted": False,
         "active": True,
         "created_by": None,
-        "is_simple_flag": False,
-        "rollout_percentage": None,
         "ensure_experience_continuity": False,
         "experiment_set": None,
     }
@@ -179,10 +177,14 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         return notebook_version
 
     def test_can_list_all_activity(self) -> None:
-        res = self.client.get(f"/api/projects/{self.team.id}/activity_log?include_organization_scoped=1")
+        # Enable org-level activity logs to include org-scoped records
+        self.team.receive_org_level_activity_logs = True
+        self.team.save()
+
+        res = self.client.get(f"/api/projects/{self.team.id}/activity_log")
 
         assert res.status_code == status.HTTP_200_OK
-        assert len(res.json()["results"]) == 43
+        assert len(res.json()["results"]) == 46
 
     def test_can_list_all_activity_filtered_by_scope(self) -> None:
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")

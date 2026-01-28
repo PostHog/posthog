@@ -78,7 +78,7 @@ export function ExternalDataSourceConfiguration({
     return (
         <SceneSection
             title="Data warehouse sources configuration"
-            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_revenue_last_30_days virtual fields."
+            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_mrr virtual fields."
         >
             <div className={cn('flex flex-col items-end w-full')}>
                 <AccessControlAction

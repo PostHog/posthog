@@ -1,8 +1,9 @@
 import dataclasses
-from typing import Literal, Optional, cast
+from typing import Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
@@ -15,7 +16,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 # This mutates the nodes
 def resolve_lazy_tables(
     node: _T_AST,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: HogQLDialect,
     stack: Optional[list[ast.SelectQuery]],
     context: HogQLContext,
 ):
@@ -79,14 +80,14 @@ class LazyTableResolver(TraversingVisitor):
 
     def __init__(
         self,
-        dialect: Literal["hogql", "clickhouse"],
+        dialect: HogQLDialect,
         stack: Optional[list[ast.SelectQuery]],
         context: HogQLContext,
     ):
         super().__init__()
         self.field_collectors: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
-        self.dialect: Literal["hogql", "clickhouse"] = dialect
+        self.dialect: HogQLDialect = dialect
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:

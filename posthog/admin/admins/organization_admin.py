@@ -44,6 +44,8 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage_display",
         "limited_products_display",
         "customer_trust_scores",
+        "is_active",
+        "is_not_active_reason",
         "is_hipaa",
         "is_platform",
         "members_can_invite",
@@ -126,6 +128,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 
         # Access request stored during change_view
         request = getattr(self, "_current_request", None)
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/organization/limited_products.html",
@@ -177,6 +180,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 
         # Access request stored during change_view
         request = getattr(self, "_current_request", None)
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/organization/usage_display.html",

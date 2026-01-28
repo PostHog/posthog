@@ -1,0 +1,10 @@
+<div style="margin: 10px 0;">
+    <a class="button" href="{{ view_url }}" target="_blank" style="margin-right: 10px;">View cached config JSON</a>
+    <button type="submit" name="_delete_cache" class="button"
+        formmethod="post" formaction="{{ delete_url }}" formnovalidate
+        onclick="return confirm('Delete cache for team {{ team_name_escaped }}? This will force a rebuild on next request.');">
+        Delete cache</button>
+    <p style="margin-top: 8px; color: #666; font-size: 12px;">
+        Cache key: <code>{{ cache_key }}</code>
+    </p>
+</div>

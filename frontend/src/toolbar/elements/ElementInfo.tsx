@@ -10,6 +10,7 @@ import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLo
 
 import { actionsTabLogic } from '../actions/actionsTabLogic'
 import { ElementStatistic } from './ElementStatistic'
+import { SelectorQualityWarning } from './SelectorQualityWarning'
 
 export function ElementInfo(): JSX.Element | null {
     const { clickCount: totalClickCount, dateRange } = useValues(heatmapToolbarMenuLogic)
@@ -22,13 +23,15 @@ export function ElementInfo(): JSX.Element | null {
         return null
     }
 
-    const { element, position, count, clickCount, rageclickCount, deadclickCount, actionStep } = activeMeta
+    const { element, position, count, clickCount, rageclickCount, deadclickCount, actionStep, actions } = activeMeta
 
     return (
         <>
             <div className="p-3 border-l-[5px] border-l-warning bg-bg-light">
                 <h1 className="section-title">Selected Element</h1>
-                <ActionStep actionStep={actionStep} />
+                {actionStep && <ActionStep actionStep={actionStep} />}
+
+                <SelectorQualityWarning selector={actionStep?.selector} compact />
             </div>
 
             {position ? (
@@ -56,12 +59,12 @@ export function ElementInfo(): JSX.Element | null {
             <div className="p-3 border-l-[5px] border-l-success bg-surface-secondary">
                 {!automaticActionCreationEnabled && (
                     <>
-                        <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
+                        <h1 className="section-title">Actions ({actions?.length ?? 0})</h1>
 
-                        {activeMeta.actions.length === 0 ? (
+                        {!actions || actions.length === 0 ? (
                             <p className="text-primary">No actions include this element</p>
                         ) : (
-                            <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
+                            <ActionsListView actions={actions.map((a) => a.action)} />
                         )}
                     </>
                 )}

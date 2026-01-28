@@ -395,7 +395,7 @@ async fn query_type_person_simple_search_filter(qmgr: &Manager, project_id: i32)
 // the property names of all PropertyParentType::Event rows
 fn expected_person_props_all() -> [&'static str; 8] {
     [
-        "$feature_enrollment/artificial-hog",
+        "$feature_enrollment/my-flag",
         "$survey_dismissed/abc123",
         "company_type",
         "$os_version",
@@ -667,7 +667,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         // PropertyParentType::Person
         (
             Uuid::now_v7(),
-            "$feature_enrollment/artificial-hog",
+            "$feature_enrollment/my-flag",
             1,
             1,
             false,

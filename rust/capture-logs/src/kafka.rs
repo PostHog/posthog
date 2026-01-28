@@ -198,7 +198,7 @@ impl KafkaSink {
         let mut writer = Writer::with_codec(
             &schema,
             Vec::new(),
-            Codec::Zstandard(ZstandardSettings::default()),
+            Codec::Zstandard(ZstandardSettings::new(1)),
         );
 
         for row in &rows {
@@ -233,7 +233,7 @@ impl KafkaSink {
                     }),
             ),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {}", err))),
+            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 

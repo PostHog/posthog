@@ -4,6 +4,7 @@ import { FeatureFlagType } from '~/types'
 
 import { openConfirmationModal } from './ConfirmationModal'
 import type { featureFlagConfirmationLogicType } from './featureFlagConfirmationLogicType'
+import { DependentFlag } from './featureFlagLogic'
 
 /**
  * Detects feature flag changes that warrant confirmation.
@@ -109,9 +110,10 @@ export function checkFeatureFlagConfirmation(
     updatedFlag: FeatureFlagType,
     shouldDisplayConfirmation: boolean,
     customConfirmationMessage: string | undefined,
-    extraMessages: string[] | undefined,
     featureFlagConfirmationEnabled: boolean,
-    onConfirm: () => void
+    onConfirm: () => void,
+    dependentFlags?: DependentFlag[],
+    isBeingDisabled?: boolean
 ): boolean {
     // Check if confirmation is needed
     const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
@@ -126,7 +128,8 @@ export function checkFeatureFlagConfirmation(
                 type: 'multi-changes',
                 changes: changes,
                 customConfirmationMessage: customConfirmationMessage,
-                extraMessages: extraMessages,
+                dependentFlags: dependentFlags,
+                isBeingDisabled: isBeingDisabled,
                 featureFlagConfirmationEnabled: featureFlagConfirmationEnabled,
                 onConfirm: onConfirm,
             })

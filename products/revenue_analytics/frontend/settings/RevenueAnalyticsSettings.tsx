@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
@@ -8,8 +8,10 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -51,6 +53,9 @@ export function RevenueAnalyticsSettings(): JSX.Element {
         !dataWarehouseSources?.results.filter((source) => source.source_type === 'Stripe').length
 
     const shouldBlockSettings = managedViewsetsEnabled && !isViewsetEnabled
+
+    const { reportRevenueAnalyticsSettingsViewed } = useActions(eventUsageLogic)
+    useOnMountEffect(() => reportRevenueAnalyticsSettingsViewed())
 
     return (
         <SceneContent>

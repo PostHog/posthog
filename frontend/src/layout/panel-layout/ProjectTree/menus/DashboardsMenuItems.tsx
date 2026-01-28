@@ -6,6 +6,7 @@ import { IconChevronRight } from '@posthog/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -22,6 +23,7 @@ export function DashboardsMenuItems({
     MenuSub = DropdownMenuSub,
     MenuSubTrigger = DropdownMenuSubTrigger,
     MenuSubContent = DropdownMenuSubContent,
+    MenuGroup = DropdownMenuGroup,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
     const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
@@ -38,28 +40,30 @@ export function DashboardsMenuItems({
                     </MenuSubTrigger>
 
                     <MenuSubContent>
-                        {pinnedDashboards.map((dashboard) => (
-                            <MenuItem asChild key={dashboard.id}>
-                                <Link
-                                    buttonProps={{
-                                        menuItem: true,
-                                    }}
-                                    to={urls.dashboard(dashboard.id)}
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        onLinkClick?.(false)
-                                        router.actions.push(urls.dashboard(dashboard.id))
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                            onLinkClick?.(true)
-                                        }
-                                    }}
-                                >
-                                    <span className="truncate">{dashboard.name}</span>
-                                </Link>
-                            </MenuItem>
-                        ))}
+                        <MenuGroup>
+                            {pinnedDashboards.map((dashboard) => (
+                                <MenuItem asChild key={dashboard.id}>
+                                    <Link
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                        to={urls.dashboard(dashboard.id)}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            onLinkClick?.(false)
+                                            router.actions.push(urls.dashboard(dashboard.id))
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                onLinkClick?.(true)
+                                            }
+                                        }}
+                                    >
+                                        <span className="truncate">{dashboard.name}</span>
+                                    </Link>
+                                </MenuItem>
+                            ))}
+                        </MenuGroup>
                     </MenuSubContent>
                 </MenuSub>
             ) : dashboardsLoading ? (

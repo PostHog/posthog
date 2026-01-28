@@ -1,4 +1,5 @@
 import time
+import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -15,14 +16,14 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
-from posthog.tasks.utils import CeleryQueue
+from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 logger = get_logger(__name__)
 
@@ -54,6 +55,20 @@ def delete_expired_exported_assets() -> None:
     from posthog.models import ExportedAsset
 
     ExportedAsset.delete_expired_assets()
+
+
+@shared_task(ignore_result=True)
+def clear_expired_sessions() -> None:
+    from django.contrib.sessions.models import Session
+
+    deleted_count, _ = Session.objects.filter(expire_date__lt=timezone.now()).delete()
+
+    with pushed_metrics_registry("celery_clear_expired_sessions") as registry:
+        Gauge(
+            "posthog_celery_clear_expired_sessions_deleted_count",
+            "Number of expired Django sessions deleted",
+            registry=registry,
+        ).set(deleted_count)
 
 
 @shared_task(ignore_result=True)
@@ -242,6 +257,7 @@ def ingestion_lag() -> None:
     team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
 
     try:
+        tag_queries(name="ingestion_lag")
         results = sync_execute(
             query,
             {
@@ -299,6 +315,8 @@ def replay_count_metrics() -> None:
         )
         --group by team_id
         """
+
+        tag_queries(product=Product.REPLAY, name="replay_count_metrics")
 
         results = sync_execute(
             query,
@@ -527,7 +545,7 @@ def clean_stale_partials() -> None:
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
 
-    Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
+    Partial.objects.filter(timestamp__lt=timezone.now() - datetime.timedelta(7)).delete()
 
 
 @shared_task(ignore_result=True)
@@ -631,13 +649,6 @@ def sync_insight_cache_states_task() -> None:
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
     sync_insight_cache_states()
-
-
-@shared_task(ignore_result=True)
-def schedule_cache_updates_task() -> None:
-    from posthog.caching.insight_cache import schedule_cache_updates
-
-    schedule_cache_updates()
 
 
 @shared_task(
@@ -774,16 +785,6 @@ def send_org_usage_reports() -> None:
     send_all_org_usage_reports.delay()
 
 
-@shared_task(ignore_result=True)
-def schedule_all_subscriptions() -> None:
-    try:
-        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
-    except ImportError:
-        pass
-    else:
-        _schedule_all_subscriptions()
-
-
 @shared_task(ignore_result=True, retries=3)
 def clickhouse_send_license_usage() -> None:
     try:
@@ -803,20 +804,6 @@ def check_flags_to_rollback() -> None:
         check_flags_to_rollback()
     except ImportError:
         pass
-
-
-@shared_task(ignore_result=True)
-def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
-    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_single_recording_v2
-
-    persist_single_recording_v2(id, team_id)
-
-
-@shared_task(ignore_result=True)
-def ee_persist_finished_recordings_v2() -> None:
-    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_finished_recordings_v2
-
-    persist_finished_recordings_v2()
 
 
 @shared_task(
@@ -931,9 +918,7 @@ def background_delete_model_task(
 
             time.sleep(0.2)  # Sleep to avoid overwhelming the database
 
-        logger.info(
-            f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
-        )
+        logger.info(f"Completed background deletion for {model_name}, team_id={team_id}, total_deleted={deleted_count}")
 
     except Exception as e:
         logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)
@@ -941,6 +926,8 @@ def background_delete_model_task(
 
 
 @shared_task(
+    bind=True,
+    base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
     autoretry_for=(Exception,),
@@ -948,7 +935,7 @@ def background_delete_model_task(
     retry_backoff_max=120,
     max_retries=3,
 )
-def sync_feature_flag_last_called() -> None:
+def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     """
     Sync last_called_at timestamps from ClickHouse $feature_flag_called events to PostgreSQL.
 
@@ -989,6 +976,30 @@ def sync_feature_flag_last_called() -> None:
         return
 
     start_time = timezone.now()
+
+    tag_queries(product=Product.FEATURE_FLAGS, name="sync_feature_flag_last_called")
+
+    # Create metrics gauges for this task run
+    updated_count_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_updated_count",
+        "Number of feature flags updated in last sync",
+        registry=self.metrics_registry,
+    )
+    events_processed_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_events_processed",
+        "Number of events processed in last sync",
+        registry=self.metrics_registry,
+    )
+    clickhouse_results_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_clickhouse_results",
+        "Number of results returned from ClickHouse query",
+        registry=self.metrics_registry,
+    )
+    checkpoint_lag_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
+        "Seconds between checkpoint timestamp and current time",
+        registry=self.metrics_registry,
+    )
 
     try:
         redis_client = get_client()
@@ -1050,28 +1061,10 @@ def sync_feature_flag_last_called() -> None:
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
 
             # Emit metrics for no-results case
-            checkpoint_lag_seconds = 0.0  # No lag when checkpoint is set to current time
-            with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_updated_count",
-                    "Number of feature flags updated in last sync",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_events_processed",
-                    "Number of events processed in last sync",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_clickhouse_results",
-                    "Number of results returned from ClickHouse query",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
-                    "Seconds between checkpoint timestamp and current time",
-                    registry=registry,
-                ).set(checkpoint_lag_seconds)
+            updated_count_gauge.set(0)
+            events_processed_gauge.set(0)
+            clickhouse_results_gauge.set(0)
+            checkpoint_lag_gauge.set(0.0)  # No lag when checkpoint is set to current time
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1137,27 +1130,10 @@ def sync_feature_flag_last_called() -> None:
 
         # Emit metrics for successful completion
         checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
-        with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_updated_count",
-                "Number of feature flags updated in last sync",
-                registry=registry,
-            ).set(updated_count)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_events_processed",
-                "Number of events processed in last sync",
-                registry=registry,
-            ).set(processed_events)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_clickhouse_results",
-                "Number of results returned from ClickHouse query",
-                registry=registry,
-            ).set(clickhouse_results)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
-                "Seconds between checkpoint timestamp and current time",
-                registry=registry,
-            ).set(checkpoint_lag_seconds)
+        updated_count_gauge.set(updated_count)
+        events_processed_gauge.set(processed_events)
+        clickhouse_results_gauge.set(clickhouse_results)
+        checkpoint_lag_gauge.set(checkpoint_lag_seconds)
 
         # Track if we hit the ClickHouse result limit
         if clickhouse_results >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:
@@ -1300,3 +1276,31 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
             f"[refresh_activity_log_fields_cache] completed flush and rebuild for "
             f"{processed_orgs}/{org_count} organizations"
         )
+
+
+@shared_task(ignore_result=True)
+def sync_user_product_lists_for_new_team(team_id: int) -> None:
+    """
+    Sync UserProductList for all users who have access to a new team.
+    Called during project creation to avoid request timeouts for large organizations.
+    """
+    from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+    from posthog.models.team import Team
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        return
+
+    users = list(team.all_users_with_access())
+    logger.info(
+        "sync_user_product_lists_for_new_team: Starting sync",
+        team_id=team_id,
+        user_count=len(users),
+    )
+
+    for user in users:
+        backfill_user_product_list_for_new_user(user, team)
+
+    logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)

@@ -4,7 +4,9 @@ use serde_json::json;
 
 use crate::common::*;
 use feature_flags::config::{Config, FlexBool};
-use feature_flags::utils::test_utils::{insert_new_team_in_redis, setup_redis_client, TestContext};
+use feature_flags::utils::test_utils::{
+    insert_config_in_hypercache, insert_new_team_in_redis, setup_redis_client, TestContext,
+};
 
 pub mod common;
 
@@ -30,6 +32,13 @@ async fn test_rate_limit_basic() -> Result<()> {
         .insert_person(team.id, "user123".to_string(), None)
         .await
         .unwrap();
+
+    // Insert config into hypercache (required for default config=true behavior)
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
@@ -100,6 +109,13 @@ async fn test_rate_limit_disabled() -> Result<()> {
         .await
         .unwrap();
 
+    // Insert config into hypercache (required for default config=true behavior)
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
 
@@ -159,6 +175,14 @@ async fn test_rate_limit_per_token_isolation() -> Result<()> {
         .insert_person(team2.id, "user2".to_string(), None)
         .await
         .unwrap();
+
+    // Insert config into hypercache for both teams
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token1, remote_config.clone()).await?;
+    insert_config_in_hypercache(redis_client.clone(), &token2, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
@@ -342,6 +366,13 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         .await
         .unwrap();
 
+    // Insert config into hypercache
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
 
@@ -416,6 +447,13 @@ async fn test_ip_rate_limit_basic() -> Result<()> {
         .insert_person(team.id, "user123".to_string(), None)
         .await
         .unwrap();
+
+    // Insert config into hypercache
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
@@ -547,6 +585,13 @@ async fn test_both_rate_limiters_together() -> Result<()> {
         .await
         .unwrap();
 
+    // Insert config into hypercache
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
 
@@ -613,6 +658,13 @@ async fn test_ip_rate_limit_disabled() -> Result<()> {
         .await
         .unwrap();
 
+    // Insert config into hypercache
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
 
@@ -662,6 +714,13 @@ async fn test_ip_rate_limit_respects_x_forwarded_for() -> Result<()> {
         .insert_person(team.id, "user123".to_string(), None)
         .await
         .unwrap();
+
+    // Insert config into hypercache
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
@@ -765,6 +824,13 @@ async fn test_token_rate_limit_log_only_mode() -> Result<()> {
         .await
         .unwrap();
 
+    // Insert config into hypercache
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
 
@@ -830,6 +896,13 @@ async fn test_ip_rate_limit_log_only_mode() -> Result<()> {
         .insert_person(team.id, "user123".to_string(), None)
         .await
         .unwrap();
+
+    // Insert config into hypercache
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
@@ -900,6 +973,13 @@ async fn test_mixed_log_only_modes() -> Result<()> {
         .insert_person(team.id, "user123".to_string(), None)
         .await
         .unwrap();
+
+    // Insert config into hypercache
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();

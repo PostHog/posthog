@@ -8,10 +8,13 @@ from django.core.files import File
 
 import posthoganalytics
 import posthoganalytics.ai.openai
+from drf_spectacular.utils import extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import serializers, viewsets
 from rest_framework.parsers import JSONParser, MultiPartParser
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -216,6 +219,7 @@ Record the agreed-upon next steps, including any additional actions that need to
         return str(uuid4())
 
 
+@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "user_interview_DO_NOT_USE"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()

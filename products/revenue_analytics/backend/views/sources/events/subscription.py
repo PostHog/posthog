@@ -16,7 +16,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     prefix = view_prefix_for_event(event.eventName)
 
-    if event.subscriptionProperty is None:
+    if not event.subscriptionProperty:
         return BuiltQuery(
             key=event.eventName,
             prefix=prefix,
@@ -48,7 +48,12 @@ def build(handle: SourceHandle) -> BuiltQuery:
             ),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=events_expr_for_team(team),
+        where=ast.And(
+            exprs=[
+                events_expr_for_team(team),
+                ast.Call(name="isNotNull", args=[ast.Field(chain=["subscription_id"])]),
+            ]
+        ),
         group_by=[
             ast.Field(chain=["subscription_id"]),
             ast.Field(chain=["person_id"]),

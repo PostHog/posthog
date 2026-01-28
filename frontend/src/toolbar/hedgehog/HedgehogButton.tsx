@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 
@@ -13,6 +14,8 @@ export function HedgehogButton(): JSX.Element {
     const { syncWithHedgehog, setHedgehogActor, toggleMinimized } = useActions(toolbarLogic)
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { heatmapEnabled } = useValues(heatmapToolbarMenuLogic)
+
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
         if (heatmapEnabled) {
@@ -35,6 +38,7 @@ export function HedgehogButton(): JSX.Element {
                         syncWithHedgehog()
                     }}
                     onClick={() => toggleMinimized()}
+                    paused={!isPageVisible}
                 />
             )}
         </>

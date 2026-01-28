@@ -1,17 +1,20 @@
 import './MetricRowGroup.scss'
 
-import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useActions } from 'kea'
+import React, { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import {
+    Breakdown,
     ExperimentMetric,
     ExperimentStatsBaseValidated,
     NewExperimentQueryResponse,
@@ -25,12 +28,15 @@ import { MetricHeader } from '../shared/MetricHeader'
 import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
+    formatChanceToWinForGoal,
     formatDeltaPercent,
     formatMetricValue,
+    formatPValue,
     getDelta,
     getMetricSubtitleValues,
     getNiceTickValues,
     hasValidationFailures,
+    isBayesianResult,
     isDeltaPositive,
     isSignificant,
     isWinning,
@@ -50,6 +56,398 @@ import {
 } from './constants'
 import { useAxisScale } from './useAxisScale'
 
+interface CollapsibleBreakdownSectionProps {
+    breakdownResults: any[]
+    metric: ExperimentMetric
+    experiment: Experiment
+    axisRange: number
+    isAlternatingRow: boolean
+    isLastMetric: boolean
+    isLoading?: boolean
+    exposuresLoading?: boolean
+    error?: any
+    colors: ReturnType<typeof useChartColors>
+    scale: ReturnType<typeof useAxisScale>
+    onRemoveBreakdown: (index: number) => void
+    handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
+    handleTooltipMouseLeave: () => void
+    handleTooltipMouseMove: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
+}
+
+function CollapsibleBreakdownSection({
+    breakdownResults,
+    metric,
+    experiment,
+    axisRange,
+    isAlternatingRow,
+    isLoading,
+    exposuresLoading,
+    error,
+    colors,
+    scale,
+    onRemoveBreakdown,
+    handleTooltipMouseEnter,
+    handleTooltipMouseLeave,
+    handleTooltipMouseMove,
+}: CollapsibleBreakdownSectionProps): JSX.Element {
+    const [_, setIsExpanded] = useState(false)
+    const mainTableRef = useRef<HTMLTableRowElement>(null)
+    const nestedTableRef = useRef<HTMLTableElement>(null)
+
+    const totalRows = 1 + (breakdownResults[0]?.variants?.length || 0)
+
+    const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
+        return (
+            <div className="text-xs text-muted">
+                {(() => {
+                    const { numerator, denominator } = getMetricSubtitleValues(variant, metric)
+                    return (
+                        <>
+                            {humanFriendlyLargeNumber(numerator)} / {humanFriendlyLargeNumber(denominator)}
+                        </>
+                    )
+                })()}
+            </div>
+        )
+    }
+
+    return (
+        <tr ref={mainTableRef} data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
+            <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+                <LemonCollapse
+                    multiple={false}
+                    embedded
+                    className={`breakdown-collapse breakdown-collapse--${isAlternatingRow ? 'alt-row' : 'normal-row'}`}
+                    panels={[
+                        {
+                            key: 'breakdowns',
+                            header: (
+                                <div className="flex items-center gap-2">
+                                    {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
+                                        <BreakdownTag
+                                            key={index}
+                                            breakdown={breakdown.property}
+                                            breakdownType={breakdown.type || 'event'}
+                                            onClose={() => onRemoveBreakdown(index)}
+                                            size="small"
+                                        />
+                                    ))}
+                                </div>
+                            ),
+                            content: (
+                                <div className="p-0 -m-4">
+                                    <table ref={nestedTableRef} className="w-full">
+                                        <tbody>
+                                            {breakdownResults.map((breakdownResult) => {
+                                                const baselineResult = breakdownResult.baseline
+                                                const variantResults = breakdownResult.variants || []
+
+                                                if (variantResults.length === 0) {
+                                                    return (
+                                                        <tr
+                                                            key={breakdownResult.breakdown_value}
+                                                            className="hover:bg-bg-hover"
+                                                            style={{
+                                                                height: `${CELL_HEIGHT}px`,
+                                                                maxHeight: `${CELL_HEIGHT}px`,
+                                                            }}
+                                                        >
+                                                            <td
+                                                                className={`w-1/5 border-r p-3 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                            >
+                                                                {formatBreakdownLabel(
+                                                                    breakdownResult.breakdown_value,
+                                                                    metric.breakdownFilter,
+                                                                    [],
+                                                                    undefined,
+                                                                    0,
+                                                                    undefined
+                                                                )}
+                                                            </td>
+                                                            <td
+                                                                colSpan={6}
+                                                                className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                style={{
+                                                                    height: `${CELL_HEIGHT}px`,
+                                                                    maxHeight: `${CELL_HEIGHT}px`,
+                                                                }}
+                                                            >
+                                                                {isLoading || exposuresLoading ? (
+                                                                    <ChartLoadingState height={CELL_HEIGHT} />
+                                                                ) : (
+                                                                    <ChartEmptyState
+                                                                        height={CELL_HEIGHT}
+                                                                        experimentStarted={!!experiment.start_date}
+                                                                        metric={metric}
+                                                                        error={error}
+                                                                    />
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                }
+
+                                                return (
+                                                    <React.Fragment key={breakdownResult.breakdown_value}>
+                                                        {/* Baseline row */}
+                                                        <tr
+                                                            className="hover:bg-bg-hover"
+                                                            style={{
+                                                                height: `${CELL_HEIGHT}px`,
+                                                                maxHeight: `${CELL_HEIGHT}px`,
+                                                            }}
+                                                        >
+                                                            <td
+                                                                className={`w-1/5 border-r p-3 align-top border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} text-xs`}
+                                                                rowSpan={totalRows}
+                                                                style={{
+                                                                    height: `${CELL_HEIGHT * totalRows}px`,
+                                                                    maxHeight: `${CELL_HEIGHT * totalRows}px`,
+                                                                }}
+                                                            >
+                                                                {formatBreakdownLabel(
+                                                                    breakdownResult.breakdown_value,
+                                                                    metric.breakdownFilter,
+                                                                    [],
+                                                                    undefined,
+                                                                    0,
+                                                                    undefined
+                                                                )}
+                                                            </td>
+
+                                                            <td
+                                                                className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                style={{
+                                                                    height: `${CELL_HEIGHT}px`,
+                                                                    maxHeight: `${CELL_HEIGHT}px`,
+                                                                }}
+                                                            >
+                                                                <VariantTag variantKey={baselineResult.key} />
+                                                            </td>
+
+                                                            <td
+                                                                className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                style={{
+                                                                    height: `${CELL_HEIGHT}px`,
+                                                                    maxHeight: `${CELL_HEIGHT}px`,
+                                                                }}
+                                                            >
+                                                                <div className="metric-cell">
+                                                                    <div>
+                                                                        {formatMetricValue(baselineResult, metric)}
+                                                                    </div>
+                                                                    {ratioMetricLabel(baselineResult, metric)}
+                                                                </div>
+                                                            </td>
+
+                                                            <td
+                                                                className={`w-20 pt-1 pl-3 pr-3 pb-1 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                style={{
+                                                                    height: `${CELL_HEIGHT}px`,
+                                                                    maxHeight: `${CELL_HEIGHT}px`,
+                                                                }}
+                                                            >
+                                                                <div />
+                                                            </td>
+
+                                                            <td
+                                                                className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                style={{
+                                                                    height: `${CELL_HEIGHT}px`,
+                                                                    maxHeight: `${CELL_HEIGHT}px`,
+                                                                }}
+                                                            >
+                                                                <div />
+                                                            </td>
+
+                                                            {/* Empty Details column for alignment */}
+                                                            <td
+                                                                className={`w-20 pt-3 align-top relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                rowSpan={totalRows}
+                                                                style={{
+                                                                    height: `${CELL_HEIGHT * totalRows}px`,
+                                                                    maxHeight: `${CELL_HEIGHT * totalRows}px`,
+                                                                }}
+                                                            />
+
+                                                            <td
+                                                                className={`p-0 align-top text-center relative overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                style={{
+                                                                    height: `${CELL_HEIGHT}px`,
+                                                                    maxHeight: `${CELL_HEIGHT}px`,
+                                                                }}
+                                                            >
+                                                                {axisRange && axisRange > 0 ? (
+                                                                    <div className="relative h-full">
+                                                                        <svg
+                                                                            viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
+                                                                            preserveAspectRatio="none"
+                                                                            className="h-full w-full"
+                                                                        >
+                                                                            <GridLines
+                                                                                tickValues={getNiceTickValues(
+                                                                                    axisRange
+                                                                                )}
+                                                                                scale={scale}
+                                                                                height={CHART_CELL_VIEW_BOX_HEIGHT}
+                                                                                viewBoxWidth={VIEW_BOX_WIDTH}
+                                                                                zeroLineColor={colors.ZERO_LINE}
+                                                                                gridLineColor={colors.BOUNDARY_LINES}
+                                                                                zeroLineWidth={1.25}
+                                                                                gridLineWidth={0.75}
+                                                                                opacity={GRID_LINES_OPACITY}
+                                                                            />
+                                                                        </svg>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex items-center justify-center h-full text-muted text-xs">
+                                                                        —
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Variant rows */}
+                                                        {variantResults.map(
+                                                            (variant: ExperimentVariantResult, index: number) => {
+                                                                const isLastRow = index === variantResults.length - 1
+                                                                const significant = isSignificant(variant)
+                                                                const deltaPositive = isDeltaPositive(variant)
+                                                                const winning = isWinning(variant, metric.goal)
+                                                                const deltaText = formatDeltaPercent(variant)
+
+                                                                return (
+                                                                    <tr
+                                                                        key={`${metric.uuid}-${variant.key}`}
+                                                                        className="hover:bg-bg-hover"
+                                                                        style={{
+                                                                            height: `${CELL_HEIGHT}px`,
+                                                                            maxHeight: `${CELL_HEIGHT}px`,
+                                                                        }}
+                                                                        onMouseEnter={(e) =>
+                                                                            handleTooltipMouseEnter(e, variant)
+                                                                        }
+                                                                        onMouseLeave={handleTooltipMouseLeave}
+                                                                        onMouseMove={(e) =>
+                                                                            handleTooltipMouseMove(e, variant)
+                                                                        }
+                                                                    >
+                                                                        <td
+                                                                            className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                            style={{
+                                                                                height: `${CELL_HEIGHT}px`,
+                                                                                maxHeight: `${CELL_HEIGHT}px`,
+                                                                            }}
+                                                                        >
+                                                                            <VariantTag variantKey={variant.key} />
+                                                                        </td>
+
+                                                                        <td
+                                                                            className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                            style={{
+                                                                                height: `${CELL_HEIGHT}px`,
+                                                                                maxHeight: `${CELL_HEIGHT}px`,
+                                                                            }}
+                                                                        >
+                                                                            <div className="metric-cell">
+                                                                                <div>
+                                                                                    {formatMetricValue(variant, metric)}
+                                                                                </div>
+                                                                                {ratioMetricLabel(variant, metric)}
+                                                                            </div>
+                                                                        </td>
+
+                                                                        <td
+                                                                            className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                            style={{
+                                                                                height: `${CELL_HEIGHT}px`,
+                                                                                maxHeight: `${CELL_HEIGHT}px`,
+                                                                            }}
+                                                                        >
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span
+                                                                                    className={`metric-cell font-bold ${significant ? (winning ? 'text-success' : 'text-danger') : ''}`}
+                                                                                >
+                                                                                    {deltaText}
+                                                                                </span>
+                                                                                {significant &&
+                                                                                    deltaPositive !== undefined && (
+                                                                                        <span
+                                                                                            className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}
+                                                                                        >
+                                                                                            {deltaPositive ? (
+                                                                                                <IconTrending
+                                                                                                    className="w-5 h-5"
+                                                                                                    style={{
+                                                                                                        strokeWidth: 2.5,
+                                                                                                    }}
+                                                                                                />
+                                                                                            ) : (
+                                                                                                <IconTrendingDown
+                                                                                                    className="w-5 h-5"
+                                                                                                    style={{
+                                                                                                        strokeWidth: 2.5,
+                                                                                                    }}
+                                                                                                />
+                                                                                            )}
+                                                                                        </span>
+                                                                                    )}
+                                                                            </div>
+                                                                        </td>
+
+                                                                        <td
+                                                                            className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${!significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''} ${isLastRow ? 'border-b' : ''}`}
+                                                                            style={{
+                                                                                height: `${CELL_HEIGHT}px`,
+                                                                                maxHeight: `${CELL_HEIGHT}px`,
+                                                                                backgroundColor: significant
+                                                                                    ? winning
+                                                                                        ? `${colors.BAR_POSITIVE}30`
+                                                                                        : `${colors.BAR_NEGATIVE}30`
+                                                                                    : undefined,
+                                                                            }}
+                                                                        >
+                                                                            <span
+                                                                                className={`metric-cell ${significant ? (winning ? 'text-success font-bold' : 'text-danger font-bold') : ''}`}
+                                                                            >
+                                                                                {isBayesianResult(variant)
+                                                                                    ? formatChanceToWinForGoal(
+                                                                                          variant,
+                                                                                          metric.goal
+                                                                                      )
+                                                                                    : formatPValue(variant.p_value)}
+                                                                            </span>
+                                                                        </td>
+
+                                                                        <ChartCell
+                                                                            variantResult={variant}
+                                                                            metric={metric}
+                                                                            axisRange={axisRange}
+                                                                            metricUuid={metric.uuid}
+                                                                            isAlternatingRow={isAlternatingRow}
+                                                                            isLastRow={isLastRow}
+                                                                            isSecondary={false}
+                                                                        />
+                                                                    </tr>
+                                                                )
+                                                            }
+                                                        )}
+                                                    </React.Fragment>
+                                                )
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ),
+                        },
+                    ]}
+                    onChange={(activeKey) => setIsExpanded(activeKey === 'breakdowns')}
+                />
+            </td>
+        </tr>
+    )
+}
+
 interface MetricRowGroupProps {
     metric: ExperimentMetric
     result: NewExperimentQueryResponse | null
@@ -61,6 +459,8 @@ interface MetricRowGroupProps {
     isLastMetric: boolean
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
+    onBreakdownChange: (breakdown: Breakdown) => void
+    onRemoveBreakdown: (index: number) => void
     error?: any
     isLoading?: boolean
     hasMinimumExposureForResults?: boolean
@@ -79,6 +479,8 @@ export function MetricRowGroup({
     isLastMetric,
     isAlternatingRow,
     onDuplicateMetric,
+    onBreakdownChange,
+    onRemoveBreakdown,
     error,
     isLoading,
     hasMinimumExposureForResults = true,
@@ -108,10 +510,9 @@ export function MetricRowGroup({
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { featureFlags } = useValues(experimentLogic)
     const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
 
-    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && experiment.stats_config?.timeseries
+    const timeseriesEnabled = experiment.scheduling_config?.timeseries
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
@@ -233,12 +634,13 @@ export function MetricRowGroup({
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                        onBreakdownChange={onBreakdownChange}
                     />
                 </td>
 
                 {/* Combined columns for loading/error state */}
                 <td
-                    colSpan={5}
+                    colSpan={6}
                     className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                         !isLastMetric ? 'border-b' : ''
                     }`}
@@ -270,7 +672,7 @@ export function MetricRowGroup({
                     const { numerator, denominator } = getMetricSubtitleValues(variant, metric)
                     return (
                         <>
-                            {humanFriendlyNumber(numerator)} / {humanFriendlyNumber(denominator)}
+                            {humanFriendlyLargeNumber(numerator)} / {humanFriendlyLargeNumber(denominator)}
                         </>
                     )
                 })()}
@@ -305,9 +707,7 @@ export function MetricRowGroup({
             >
                 {/* Metric column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
-                        !isLastMetric ? 'border-b' : ''
-                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalRows}
                     style={{
                         height: `${CELL_HEIGHT * totalRows}px`,
@@ -321,6 +721,7 @@ export function MetricRowGroup({
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                        onBreakdownChange={onBreakdownChange}
                     />
                 </td>
 
@@ -357,9 +758,19 @@ export function MetricRowGroup({
                     <div />
                 </td>
 
+                {/* P-value / Win probability (empty for baseline) */}
+                <td
+                    className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                >
+                    <div />
+                </td>
+
                 {/* Details column - with rowspan */}
                 <td
-                    className={`pt-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
+                    className={`pt-3 align-top relative overflow-hidden border-b ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                     rowSpan={totalRows}
@@ -466,26 +877,44 @@ export function MetricRowGroup({
                         >
                             <div className="flex items-center gap-1">
                                 <span
-                                    className={`${
-                                        significant
-                                            ? winning
-                                                ? 'metric-cell text-success font-bold'
-                                                : 'metric-cell text-danger font-bold'
-                                            : 'metric-cell'
-                                    }`}
+                                    className={`metric-cell font-bold ${significant ? (winning ? 'text-success' : 'text-danger') : ''}`}
                                 >
                                     {deltaText}
                                 </span>
                                 {significant && deltaPositive !== undefined && (
                                     <span className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}>
                                         {deltaPositive ? (
-                                            <IconTrending className="w-4 h-4" />
+                                            <IconTrending className="w-5 h-5" style={{ strokeWidth: 2.5 }} />
                                         ) : (
-                                            <IconTrendingDown className="w-4 h-4" />
+                                            <IconTrendingDown className="w-5 h-5" style={{ strokeWidth: 2.5 }} />
                                         )}
                                     </span>
                                 )}
                             </div>
+                        </td>
+
+                        {/* P-value / Win probability */}
+                        <td
+                            className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${
+                                !significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''
+                            } ${isLastRow ? 'border-b' : ''}`}
+                            style={{
+                                height: `${CELL_HEIGHT}px`,
+                                maxHeight: `${CELL_HEIGHT}px`,
+                                backgroundColor: significant
+                                    ? winning
+                                        ? `${colors.BAR_POSITIVE}30`
+                                        : `${colors.BAR_NEGATIVE}30`
+                                    : undefined,
+                            }}
+                        >
+                            <span
+                                className={`metric-cell ${significant ? (winning ? 'text-success font-bold' : 'text-danger font-bold') : ''}`}
+                            >
+                                {isBayesianResult(variant)
+                                    ? formatChanceToWinForGoal(variant, metric.goal)
+                                    : formatPValue(variant.p_value)}
+                            </span>
                         </td>
 
                         {/* Chart */}
@@ -502,6 +931,28 @@ export function MetricRowGroup({
                     </tr>
                 )
             })}
+
+            {/* Collapsible Breakdown Section */}
+            {result.breakdown_results && result.breakdown_results.length > 0 && (
+                <CollapsibleBreakdownSection
+                    breakdownResults={result.breakdown_results}
+                    metric={metric}
+                    experiment={experiment}
+                    axisRange={axisRange}
+                    isAlternatingRow={isAlternatingRow}
+                    isLastMetric={isLastMetric}
+                    isLoading={isLoading}
+                    exposuresLoading={exposuresLoading}
+                    error={error}
+                    colors={colors}
+                    scale={scale}
+                    onRemoveBreakdown={onRemoveBreakdown}
+                    handleTooltipMouseEnter={handleTooltipMouseEnter}
+                    handleTooltipMouseLeave={handleTooltipMouseLeave}
+                    handleTooltipMouseMove={handleTooltipMouseMove}
+                />
+            )}
+
             {timeseriesModalState.variantResult && (
                 <TimeseriesModal
                     isOpen={timeseriesModalState.isOpen}

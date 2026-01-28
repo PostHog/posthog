@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
@@ -128,18 +127,9 @@ function RNSetupSurveysProvider(): JSX.Element {
 }
 
 export function SDKInstallRNInstructions(props: RNSetupProps): JSX.Element {
-    const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = !props.hideWizard && isCloudOrDev
     return (
         <>
-            {showSetupWizard && (
-                <>
-                    <h2>Automated Installation</h2>
-                    <SetupWizardBanner integrationName="React Native" />
-                    <LemonDivider label="OR" />
-                    <h2>Manual Installation</h2>
-                </>
-            )}
+            <SetupWizardBanner integrationName="React Native" hide={props.hideWizard} />
             <h3>Install</h3>
             <RNInstallSnippet includeReplay={props.includeReplay} includeSurveys={props.includeSurveys} />
             <h3>Configure</h3>

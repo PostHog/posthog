@@ -1,15 +1,30 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
+import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps } from '~/types'
+import {
+    AnyResponseType,
+    DataTableNode,
+    NodeKind,
+    TraceNeighborsQuery,
+    TraceNeighborsQueryResponse,
+    TraceQuery,
+} from '~/queries/schema/schema-general'
+import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
 
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -19,6 +34,14 @@ export enum DisplayOption {
     ExpandAll = 'expand_all',
     CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
     TextView = 'text_view',
+}
+
+export enum TraceViewMode {
+    Conversation = 'conversation',
+    Raw = 'raw',
+    Summary = 'summary',
+    Evals = 'evals',
+    Clusters = 'clusters',
 }
 
 export interface LLMAnalyticsTraceDataNodeLogicParams {
@@ -51,10 +74,20 @@ export function getDataNodeLogicProps({
 export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
 
+    connect(() => ({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            llmAnalyticsSharedLogic,
+            ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
+        ],
+    })),
+
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
         setLineNumber: (lineNumber: number | null) => ({ lineNumber }),
+        setInitialTab: (tab: string | null) => ({ tab }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
@@ -70,12 +103,37 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         handleTextViewFallback: true,
         copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
+        loadCommentCount: true,
+        setViewMode: (viewMode: TraceViewMode) => ({ viewMode }),
+        loadNeighbors: (traceId: string, timestamp: string) => ({ traceId, timestamp }),
     }),
 
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
+        initialTab: [null as string | null, { setInitialTab: (_, { tab }) => tab }],
+        viewMode: [
+            TraceViewMode.Conversation as TraceViewMode,
+            {
+                setViewMode: (_, { viewMode }) => viewMode,
+                setInitialTab: (_, { tab }) => {
+                    if (tab === 'summary') {
+                        return TraceViewMode.Summary
+                    }
+                    if (tab === 'raw') {
+                        return TraceViewMode.Raw
+                    }
+                    if (tab === 'evals') {
+                        return TraceViewMode.Evals
+                    }
+                    if (tab === 'clusters') {
+                        return TraceViewMode.Clusters
+                    }
+                    return TraceViewMode.Conversation
+                },
+            },
+        ],
         dateRange: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
             {
@@ -161,6 +219,76 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         ],
     }),
 
+    loaders(({ values }) => ({
+        commentCount: [
+            0,
+            {
+                loadCommentCount: async (_, breakpoint) => {
+                    if (
+                        !values.traceId ||
+                        !(
+                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
+                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+                        )
+                    ) {
+                        return 0
+                    }
+
+                    await breakpoint(100)
+                    const response = await api.comments.getCount({
+                        scope: ActivityScope.LLM_TRACE,
+                        item_id: values.traceId,
+                        exclude_emoji_reactions: true,
+                    })
+
+                    breakpoint()
+
+                    return response
+                },
+            },
+        ],
+        neighbors: [
+            null as TraceNeighborsQueryResponse | null,
+            {
+                loadNeighbors: async ({ traceId, timestamp }, breakpoint) => {
+                    if (!traceId || !timestamp) {
+                        return null
+                    }
+
+                    await breakpoint(100)
+
+                    // Only pass dateRange if it's an explicit date (not a relative default like "-1h" or "dStart")
+                    // Relative dates start with "-" or "d" and are defaults, not user-selected filters
+                    const hasExplicitDateRange =
+                        values.dateFilter?.dateFrom &&
+                        !values.dateFilter.dateFrom.startsWith('-') &&
+                        !values.dateFilter.dateFrom.startsWith('d')
+
+                    const query: TraceNeighborsQuery = {
+                        kind: NodeKind.TraceNeighborsQuery,
+                        traceId,
+                        timestamp,
+                        dateRange: hasExplicitDateRange
+                            ? {
+                                  date_from: values.dateFilter.dateFrom,
+                                  date_to: values.dateFilter.dateTo,
+                              }
+                            : undefined,
+                        filterTestAccounts: values.shouldFilterTestAccounts,
+                        filterSupportTraces: values.shouldFilterSupportTraces,
+                        properties: values.propertyFilters as AnyPropertyFilter[],
+                    }
+
+                    const response = await api.query(query)
+
+                    breakpoint()
+
+                    return response as TraceNeighborsQueryResponse
+                },
+            },
+        ],
+    })),
+
     selectors({
         inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
         outputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.output],
@@ -219,6 +347,25 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 (eventType: string): boolean => {
                     return eventTypeExpandedMap[eventType] ?? true
                 },
+        ],
+        newerTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.newerTraceId ?? null],
+        newerTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.newerTimestamp ?? null],
+        olderTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTraceId ?? null],
+        olderTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTimestamp ?? null],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.traceId, s.featureFlags],
+            (traceId, featureFlags): SidePanelSceneContext => {
+                // Discussions are always at the trace level, accessible from anywhere in the trace
+                return {
+                    activity_scope: ActivityScope.LLM_TRACE,
+                    activity_item_id: traceId || '',
+                    discussions_disabled: !(
+                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
+                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+                    ),
+                    activity_item_context: { trace_id: traceId || '' },
+                }
+            },
         ],
     }),
 
@@ -279,11 +426,25 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         },
     })),
 
+    subscriptions(({ actions }) => ({
+        traceId: (traceId: string) => {
+            if (traceId) {
+                actions.loadCommentCount()
+
+                // Mark both tasks as completed - viewing a trace implies AI events were sent
+                globalSetupLogic
+                    .findMounted()
+                    ?.actions.markTaskAsCompleted([SetupTaskId.IngestFirstLlmEvent, SetupTaskId.ViewFirstTrace])
+            }
+        },
+    })),
+
     urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
             actions.setLineNumber(line ? parseInt(line, 10) : null)
+            actions.setInitialTab(tab || null)
             if (timestamp) {
                 actions.setDateRange(timestamp || null)
             } else if (exception_ts) {
@@ -298,4 +459,38 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             actions.setSearchQuery(search || '')
         },
     })),
+
+    actionToUrl(({ values }) => {
+        const buildUrl = (): string | undefined => {
+            if (!values.traceId) {
+                return undefined
+            }
+            const params: Record<string, string> = {}
+            if (values.eventId) {
+                params.event = values.eventId
+            }
+            if (values.dateRange) {
+                if (values.dateRange.dateFrom && !values.dateRange.dateTo) {
+                    params.timestamp = values.dateRange.dateFrom
+                } else if (values.dateRange.dateFrom && values.dateRange.dateTo) {
+                    params.exception_ts = dayjs(values.dateRange.dateFrom)
+                        .add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes')
+                        .toISOString()
+                }
+            }
+            if (values.searchQuery) {
+                params.search = values.searchQuery
+            }
+            if (values.lineNumber) {
+                params.line = values.lineNumber.toString()
+            }
+            // Always include tab parameter
+            params.tab = values.viewMode
+            return urls.llmAnalyticsTrace(values.traceId, params)
+        }
+
+        return {
+            setViewMode: buildUrl,
+        }
+    }),
 ])

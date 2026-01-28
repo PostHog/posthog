@@ -19,9 +19,14 @@ interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     position?: 'top-right' | 'bottom-right' | 'top-left' | 'bottom-left'
 }
 
+/**
+ * @deprecated MaxTool is deprecated and will be removed soon. Context aware AI will replace it. Talk to team-posthog-ai for future plans.
+ */
+
 export function MaxTool({
     identifier,
     context,
+    contextDescription,
     introOverride,
     callback,
     suggestions,
@@ -35,6 +40,7 @@ export function MaxTool({
     const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
         context,
+        contextDescription,
         introOverride,
         callback,
         suggestions,

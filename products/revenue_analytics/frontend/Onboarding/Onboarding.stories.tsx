@@ -60,8 +60,8 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const Onboarding: Story = { args: { closeOnboarding: () => {} } }
-export const OnboardingAddSource: Story = { args: { initialSetupView: 'add-source', closeOnboarding: () => {} } }
+export const Onboarding: Story = { args: { completeOnboarding: () => {} } }
+export const OnboardingAddSource: Story = { args: { initialSetupView: 'add-source', completeOnboarding: () => {} } }
 export const OnboardingWithViewsetFeatureFlag: StoryFn = () => {
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
@@ -69,7 +69,7 @@ export const OnboardingWithViewsetFeatureFlag: StoryFn = () => {
         loadCurrentTeamSuccess(MOCK_TEAM_WITHOUT_VIEWSET)
     })
 
-    return <RevenueAnalyticsOnboarding closeOnboarding={() => {}} />
+    return <RevenueAnalyticsOnboarding completeOnboarding={() => {}} />
 }
 OnboardingWithViewsetFeatureFlag.parameters = {
     featureFlags: [FEATURE_FLAGS.MANAGED_VIEWSETS],

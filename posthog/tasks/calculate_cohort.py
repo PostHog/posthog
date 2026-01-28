@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 
 from django.conf import settings
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
@@ -20,6 +20,7 @@ from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.util import (
+    COHORT_STATS_COLLECTION_DELAY_SECONDS,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
@@ -335,24 +336,6 @@ def calculate_cohort_from_list(
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(
-    cohort_id: int, filter_data: dict[str, Any], team_id: Optional[int] = None
-) -> None:
-    """
-    team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly.
-    """
-    from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
-
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
-
-    insert_cohort_actors_into_ch(cohort, filter_data, team_id=team_id)
-    insert_cohort_people_into_pg(cohort, team_id=team_id)
-
-
-@shared_task(ignore_result=True, max_retries=1)
 def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
@@ -456,7 +439,7 @@ def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start
         )
 
 
-@shared_task(ignore_result=True, max_retries=2)
+@shared_task(ignore_result=True, max_retries=3)
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:
@@ -512,11 +495,13 @@ def collect_cohort_query_stats(
             history.save(update_fields=update_fields)
         else:
             logger.warning(
-                "No query stats found for cohort calculation",
+                "No query stats found for cohort calculation, will retry",
                 tag_matcher=tag_matcher,
                 cohort_id=cohort_id,
                 history_id=history_id,
             )
+            # Retry the task with 60 second countdown
+            raise collect_cohort_query_stats.retry(countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS)
 
         # Collect observability metrics based on the calculation result
         # This runs even if the worker OOM'd, since this task was scheduled before the calculation

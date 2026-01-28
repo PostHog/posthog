@@ -324,7 +324,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
 
-        credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id)
+        credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id, instance.name)
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,

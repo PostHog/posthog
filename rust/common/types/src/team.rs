@@ -36,6 +36,7 @@ pub struct Team {
     pub autocapture_web_vitals_opt_in: Option<bool>,
     pub capture_performance_opt_in: Option<bool>,
     pub capture_console_log_opt_in: Option<bool>,
+    pub logs_settings: Option<Json<JsonValue>>,
     #[serde(default)]
     pub session_recording_opt_in: bool,
     pub inject_web_apps: Option<bool>,
@@ -60,6 +61,8 @@ pub struct Team {
     pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
+    pub conversations_enabled: Option<bool>,
+    pub conversations_settings: Option<Json<JsonValue>>,
 }
 
 fn default_timezone() -> String {
@@ -95,6 +98,7 @@ impl Team {
                     autocapture_web_vitals_opt_in,
                     capture_performance_opt_in,
                     capture_console_log_opt_in,
+                    logs_settings as "logs_settings: _",
                     session_recording_opt_in,
                     inject_web_apps,
                     surveys_opt_in,
@@ -116,7 +120,9 @@ impl Team {
                     session_recording_trigger_match_type_config,
                     recording_domains,
                     cookieless_server_hash_mode,
-                    timezone
+                    timezone,
+                    conversations_enabled,
+                    conversations_settings as "conversations_settings: _"
                 FROM posthog_team
                 WHERE id = $1
                 LIMIT 1
@@ -150,6 +156,7 @@ impl Team {
                     autocapture_web_vitals_opt_in,
                     capture_performance_opt_in,
                     capture_console_log_opt_in,
+                    logs_settings as "logs_settings: _",
                     session_recording_opt_in,
                     inject_web_apps,
                     surveys_opt_in,
@@ -171,7 +178,9 @@ impl Team {
                     session_recording_trigger_match_type_config,
                     recording_domains,
                     cookieless_server_hash_mode,
-                    timezone
+                    timezone,
+                    conversations_enabled,
+                    conversations_settings as "conversations_settings: _"
                 FROM posthog_team
                 WHERE api_token = $1
                 LIMIT 1

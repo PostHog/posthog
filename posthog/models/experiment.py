@@ -63,6 +63,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     )
 
     stats_config = models.JSONField(default=dict, null=True, blank=True)
+    scheduling_config = models.JSONField(default=dict, null=True, blank=True)
 
     conclusion = models.CharField(
         max_length=30,

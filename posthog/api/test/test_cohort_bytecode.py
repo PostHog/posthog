@@ -464,3 +464,152 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertEqual(person_filter["type"], "person")
         self.assertIsNotNone(person_filter.get("bytecode"))
         self.assertIsNotNone(person_filter.get("conditionHash"))
+
+    def test_cohort_exceeding_20m_person_threshold_not_realtime(self):
+        # 7. Cohort with more than 20M persons should not be realtime
+
+        # Create a realtime-eligible cohort
+        filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$browser", "type": "person", "negation": False, "operator": "is_set"},
+                        ],
+                    }
+                ],
+            }
+        }
+
+        # Create the cohort first (it will be realtime by default)
+        cohort = self._create_and_fetch("Large cohort", filters)
+        self.assertEqual(cohort.cohort_type, "realtime")
+
+        # Now update the cohort's count to exceed 20M
+        cohort.count = 20_000_001
+        cohort.save()
+
+        # Update the cohort with the same filters - should no longer be realtime
+        cohort2 = self._patch_and_fetch(cohort.id, filters)
+        self.assertIsNone(cohort2.cohort_type)
+
+    def test_cohort_at_20m_person_threshold_is_realtime(self):
+        # 8. Cohort with exactly 20M persons should still be realtime
+
+        # Create a realtime-eligible cohort
+        filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$browser", "type": "person", "negation": False, "operator": "is_set"},
+                        ],
+                    }
+                ],
+            }
+        }
+
+        # Create the cohort first
+        cohort = self._create_and_fetch("At threshold cohort", filters)
+        self.assertEqual(cohort.cohort_type, "realtime")
+
+        # Set count to exactly 20M
+        cohort.count = 20_000_000
+        cohort.save()
+
+        # Update the cohort - should still be realtime (at threshold, not over)
+        cohort2 = self._patch_and_fetch(cohort.id, filters)
+        self.assertEqual(cohort2.cohort_type, "realtime")
+
+    def test_null_safe_comparisons_in_cohort_bytecode(self):
+        # Test that cohort bytecode generation wraps comparison operations with null checks
+        from posthog.api.cohort import generate_cohort_filter_bytecode
+
+        from common.hogvm.python.operation import Operation
+
+        # Test GT operator with person property
+        filter_data_gt = {
+            "key": "age",
+            "type": "person",
+            "value": 13,
+            "operator": "gt",
+        }
+        bytecode_gt, error_gt, hash_gt = generate_cohort_filter_bytecode(filter_data_gt, self.team)
+        self.assertIsNone(error_gt)
+        self.assertIsNotNone(bytecode_gt)
+        # The bytecode should contain null-safe wrapping operations
+        assert bytecode_gt is not None  # Type narrowing for mypy
+        self.assertIn("isNull", bytecode_gt)  # isNull function calls
+        self.assertIn(Operation.OR, bytecode_gt)  # OR operation for combining null checks
+        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_gt)  # Conditional jump
+        self.assertIn(Operation.FALSE, bytecode_gt)  # Return false if null
+        self.assertIn(Operation.GT, bytecode_gt)  # The actual GT comparison
+
+        # Test LT operator
+        filter_data_lt = {
+            "key": "age",
+            "type": "person",
+            "value": 100,
+            "operator": "lt",
+        }
+        bytecode_lt, error_lt, hash_lt = generate_cohort_filter_bytecode(filter_data_lt, self.team)
+        self.assertIsNone(error_lt)
+        self.assertIsNotNone(bytecode_lt)
+        assert bytecode_lt is not None  # Type narrowing for mypy
+        self.assertIn("isNull", bytecode_lt)
+        self.assertIn(Operation.OR, bytecode_lt)
+        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_lt)
+        self.assertIn(Operation.LT, bytecode_lt)
+
+        # Test GTE operator
+        filter_data_gte = {
+            "key": "age",
+            "type": "person",
+            "value": 18,
+            "operator": "gte",
+        }
+        bytecode_gte, error_gte, hash_gte = generate_cohort_filter_bytecode(filter_data_gte, self.team)
+        self.assertIsNone(error_gte)
+        self.assertIsNotNone(bytecode_gte)
+        assert bytecode_gte is not None  # Type narrowing for mypy
+        self.assertIn("isNull", bytecode_gte)
+        self.assertIn(Operation.OR, bytecode_gte)
+        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_gte)
+        self.assertIn(Operation.GT_EQ, bytecode_gte)
+
+        # Test LTE operator
+        filter_data_lte = {
+            "key": "age",
+            "type": "person",
+            "value": 65,
+            "operator": "lte",
+        }
+        bytecode_lte, error_lte, hash_lte = generate_cohort_filter_bytecode(filter_data_lte, self.team)
+        self.assertIsNone(error_lte)
+        self.assertIsNotNone(bytecode_lte)
+        assert bytecode_lte is not None  # Type narrowing for mypy
+        self.assertIn("isNull", bytecode_lte)
+        self.assertIn(Operation.OR, bytecode_lte)
+        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_lte)
+        self.assertIn(Operation.LT_EQ, bytecode_lte)
+
+        # Test that EQ operator does NOT get wrapped (should not have null-safe wrapping)
+        filter_data_eq = {
+            "key": "age",
+            "type": "person",
+            "value": 25,
+            "operator": "exact",
+        }
+        bytecode_eq, error_eq, hash_eq = generate_cohort_filter_bytecode(filter_data_eq, self.team)
+        self.assertIsNone(error_eq)
+        self.assertIsNotNone(bytecode_eq)
+        assert bytecode_eq is not None  # Type narrowing for mypy
+        # EQ should not have the null-safe wrapping
+        self.assertIn(Operation.EQ, bytecode_eq)
+        # Should NOT have the wrapping pattern (no JUMP_IF_FALSE for null checks)
+        # Should NOT have the wrapping pattern (no isNull function for null checks)
+        self.assertNotIn("isNull", bytecode_eq)

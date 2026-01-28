@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use common_kafka::kafka_consumer::Offset;
-use common_types::{
-    embedding::{EmbeddingModel, EmbeddingRecord, EmbeddingRequest},
-    format::format_ch_datetime,
+use common_types::embedding::{
+    EmbeddingModel, EmbeddingRequest, EmbeddingResponse, EmbeddingResult, ModelResult,
 };
 use metrics::counter;
 use reqwest::{Client, Method, Request, RequestBuilder};
@@ -30,10 +29,10 @@ pub async fn handle_batch(
     requests: Vec<EmbeddingRequest>,
     _offsets: &[Offset], // TODO - tie errors to offsets
     context: Arc<AppContext>,
-) -> Result<Vec<EmbeddingRecord>> {
+) -> Result<Vec<EmbeddingResponse>> {
     let mut handles = vec![];
 
-    for request in requests {
+    for request in requests.into_iter() {
         let team_id = request.team_id;
         let labels = RequestLabels::from(&request);
         let Some(request) = apply_ai_opt_in(&context, request, team_id).await? else {
@@ -44,19 +43,35 @@ pub async fn handle_batch(
             .increment(1);
             continue;
         };
-        for model in &request.models {
-            handles.push(handle_single(context.clone(), *model, request.clone()));
-        }
+
+        let ctx = context.clone();
+        handles.push(async move {
+            let mut results = vec![];
+            for model in &request.models {
+                let (model, embedding) =
+                    handle_single(ctx.clone(), *model, request.clone()).await?;
+                results.push(ModelResult {
+                    model,
+                    outcome: EmbeddingResult::Success { embedding },
+                });
+            }
+            Ok::<_, anyhow::Error>(EmbeddingResponse { request, results })
+        });
     }
-    let results = futures::future::join_all(handles).await;
-    results.into_iter().collect()
+
+    let results: Result<Vec<_>> = futures::future::join_all(handles)
+        .await
+        .into_iter()
+        .collect();
+
+    results
 }
 
 pub async fn handle_single(
     context: Arc<AppContext>,
     model: EmbeddingModel,
     request: EmbeddingRequest,
-) -> Result<EmbeddingRecord> {
+) -> Result<(EmbeddingModel, Vec<f64>)> {
     let labels = RequestLabels::from(&request)
         .and_model(model)
         .and([("from", "kafka")]);
@@ -72,17 +87,7 @@ pub async fn handle_single(
 
     counter!(EMBEDDINGS_GENERATED, labels.render()).increment(1);
 
-    Ok(EmbeddingRecord {
-        team_id: request.team_id,
-        product: request.product.clone(),
-        document_type: request.document_type.clone(),
-        model_name: model,
-        rendering: request.rendering.to_string(),
-        document_id: request.document_id.to_string(),
-        timestamp: format_ch_datetime(request.timestamp),
-        embedding,
-        content: Some(request.content.clone()),
-    })
+    Ok((model, embedding))
 }
 
 pub async fn generate_embedding(

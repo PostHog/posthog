@@ -20,6 +20,7 @@ from .constants import (
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
     TOTAL_REPORTED_CONVERSION_FIELD,
+    TOTAL_REPORTED_CONVERSION_VALUE_FIELD,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
 )
 
@@ -43,7 +44,9 @@ class MarketingAnalyticsConfig:
 
     # Field names for grouping
     campaign_field: str = MarketingSourceAdapter.campaign_name_field
+    id_field: str = MarketingSourceAdapter.campaign_id_field
     source_field: str = MarketingSourceAdapter.source_name_field
+    match_key_field: str = MarketingSourceAdapter.match_key_field
 
     # Column aliases for output
     campaign_column_alias: str = MarketingAnalyticsBaseColumns.CAMPAIGN
@@ -63,6 +66,7 @@ class MarketingAnalyticsConfig:
     total_clicks_field: str = TOTAL_CLICKS_FIELD
     total_impressions_field: str = TOTAL_IMPRESSIONS_FIELD
     total_reported_conversions_field: str = TOTAL_REPORTED_CONVERSION_FIELD
+    total_reported_conversion_value_field: str = TOTAL_REPORTED_CONVERSION_VALUE_FIELD
     default_distinct_id_field: str = DEFAULT_DISTINCT_ID_FIELD
 
     # Precision settings
@@ -97,7 +101,7 @@ class MarketingAnalyticsConfig:
     @property
     def group_by_fields(self) -> list[str]:
         """Get the list of fields to group by"""
-        return [self.campaign_field, self.source_field]
+        return [self.campaign_field, self.id_field, self.source_field]
 
     def get_campaign_cost_field_chain(self, field_name: str) -> list[str | int]:
         """Get field chain for campaign cost CTE fields"""

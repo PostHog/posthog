@@ -12,9 +12,11 @@ import './buffer-polyfill'
 import { initKea } from './initKea'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'
+import { preWarmDecompression } from './scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 
 loadPostHogJS()
 initKea()
+preWarmDecompression()
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
 // It won't be applied on other platforms.

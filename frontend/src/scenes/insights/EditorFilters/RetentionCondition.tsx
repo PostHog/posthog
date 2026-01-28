@@ -66,7 +66,7 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
             <div className="flex items-center gap-2">
                 <div>Bracket By</div>
                 <LemonSelect
-                    value={period}
+                    value={period ?? RetentionPeriod.Day}
                     onChange={(value): void => {
                         updateInsightFilter({ period: value ? value : undefined })
                     }}
@@ -237,7 +237,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                             }}
                         />
                         <LemonSelect
-                            value={period}
+                            value={period ?? RetentionPeriod.Day}
                             onChange={(value): void => {
                                 updateInsightFilter({ period: value ? value : undefined })
                                 // reset date range when we change interval type

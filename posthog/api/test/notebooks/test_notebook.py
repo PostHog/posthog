@@ -190,6 +190,28 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["short_id"] == notebook["short_id"]
 
+    def test_python_node_static_analysis(self) -> None:
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-python",
+                    "attrs": {"code": "value = count + 1\nresult = len(value)\n"},
+                }
+            ],
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"content": content},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        attrs = response.json()["content"]["content"][0]["attrs"]
+        assert attrs["globalsUsed"] == ["count"]
+        assert attrs["globalsExportedWithTypes"] == [
+            {"name": "result", "type": "unknown"},
+            {"name": "value", "type": "unknown"},
+        ]
+
     def test_listing_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
         another_user = User.objects.create_and_join(self.organization, "other@example.com", password="")
@@ -251,7 +273,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/notebooks/{response.json()['short_id']}",
-            HTTP_IF_NONE_MATCH=response.json()["version"],
+            headers={"if-none-match": response.json()["version"]},
         )
 
         assert response.status_code == status.HTTP_304_NOT_MODIFIED

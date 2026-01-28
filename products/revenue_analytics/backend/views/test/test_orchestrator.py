@@ -16,6 +16,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,
+    RevenueAnalyticsMRRView,
     RevenueAnalyticsProductView,
     RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
@@ -69,7 +70,7 @@ class TestRevenueAnalyticsViews(BaseTest):
     def test_schema_source_views(self):
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 5)
+        self.assertEqual(len(source_views), 6)
         self.assertIn("stripe.revenue_item_revenue_view", [s.name for s in source_views])
 
         # Per-view class filtering
@@ -92,6 +93,10 @@ class TestRevenueAnalyticsViews(BaseTest):
         charge_views = [v for v in source_views if isinstance(v, RevenueAnalyticsChargeView)]
         self.assertEqual(len(charge_views), 1)
         self.assertEqual(charge_views[0].name, "stripe.charge_revenue_view")
+
+        mrr_views = [v for v in source_views if isinstance(v, RevenueAnalyticsMRRView)]
+        self.assertEqual(len(mrr_views), 1)
+        self.assertEqual(mrr_views[0].name, "stripe.mrr_revenue_view")
 
     def test_revenue_view_with_disabled_source(self):
         """Test that the orchestrator returns None for disabled sources"""
@@ -117,7 +122,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 5)
+        self.assertEqual(len(source_views), 6)
 
     def test_revenue_view_prefix(self):
         """Test that the orchestrator handles prefix correctly"""
@@ -126,7 +131,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 5)
+        self.assertEqual(len(source_views), 6)
         self.assertIn("stripe.prefix.revenue_item_revenue_view", [s.name for s in source_views])
 
     def test_revenue_view_no_prefix(self):
@@ -136,7 +141,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 5)
+        self.assertEqual(len(source_views), 6)
         self.assertIn("stripe.revenue_item_revenue_view", [s.name for s in source_views])
 
     def test_revenue_view_prefix_with_underscores(self):
@@ -146,7 +151,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 5)
+        self.assertEqual(len(source_views), 6)
         self.assertIn("stripe.prefix_with_underscores.revenue_item_revenue_view", [s.name for s in source_views])
 
     def test_revenue_view_prefix_with_empty_string(self):
@@ -156,7 +161,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 5)
+        self.assertEqual(len(source_views), 6)
         self.assertIn("stripe.revenue_item_revenue_view", [s.name for s in source_views])
 
     def test_revenue_all_views(self):
@@ -240,7 +245,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         views = build_all_revenue_analytics_views(self.team, self.timings)
         # Expect 5 stripe-backed views for this source
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 5)
+        self.assertEqual(len(source_views), 6)
         timings_keys = self.timings.to_dict().keys()
         self.assertIn("./for_events", timings_keys)
         self.assertIn("./for_schema_sources", timings_keys)
@@ -248,6 +253,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         names = [view.name for view in source_views]
         self.assertIn("stripe.charge_revenue_view", names)
         self.assertIn("stripe.customer_revenue_view", names)
+        self.assertIn("stripe.mrr_revenue_view", names)
         self.assertIn("stripe.product_revenue_view", names)
         self.assertIn("stripe.revenue_item_revenue_view", names)  # Already exists from the setup
         self.assertIn("stripe.subscription_revenue_view", names)
@@ -260,6 +266,10 @@ class TestRevenueAnalyticsViews(BaseTest):
         customer_views = [v for v in source_views if isinstance(v, RevenueAnalyticsCustomerView)]
         self.assertEqual(len(customer_views), 1)
         self.assertEqual(customer_views[0].name, "stripe.customer_revenue_view")
+
+        mrr_views = [v for v in source_views if isinstance(v, RevenueAnalyticsMRRView)]
+        self.assertEqual(len(mrr_views), 1)
+        self.assertEqual(mrr_views[0].name, "stripe.mrr_revenue_view")
 
         product_views = [v for v in source_views if isinstance(v, RevenueAnalyticsProductView)]
         self.assertEqual(len(product_views), 1)

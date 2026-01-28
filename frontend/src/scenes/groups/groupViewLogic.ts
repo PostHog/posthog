@@ -8,7 +8,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { GroupTypeIndex } from '~/types'
 
 import type { groupViewLogicType } from './groupViewLogicType'
 
@@ -27,7 +26,7 @@ export const groupViewLogic = kea<groupViewLogicType>([
     actions(() => ({
         setSaveGroupViewModalOpen: (isOpen: boolean) => ({ isOpen }),
         setGroupViewName: (name: string) => ({ name }),
-        saveGroupView: (href: string, groupTypeIndex: GroupTypeIndex) => ({ href, groupTypeIndex }),
+        saveGroupView: (href: string, groupTypeIndex: number) => ({ href, groupTypeIndex }),
     })),
     reducers(() => ({
         saveGroupViewModalOpen: [

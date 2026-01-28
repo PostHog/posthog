@@ -2,6 +2,7 @@ import os
 import json
 
 import pytest
+from unittest import mock
 
 from django.test import override_settings
 
@@ -9,11 +10,13 @@ import pyarrow as pa
 
 from posthog.models import Team
 from posthog.models.organization import Organization
+from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsIsMccAccountConfig, GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_schemas,
     google_ads_source,
 )
+from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
 
 SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS = pytest.mark.skipif(
     "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS" not in os.environ
@@ -185,3 +188,158 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
         source = google_ads_source(cfg, resource_name=resource, team_id=team.id)
 
         _ = list(source.items())
+
+
+class TestGoogleAdsSourceValidation:
+    def setup_method(self):
+        self.source = GoogleAdsSource()
+        self.team_id = 1
+
+    @pytest.mark.parametrize(
+        "customer_id,expected_valid",
+        [
+            ("123-456-7890", True),
+            ("000-000-0000", True),
+            ("999-999-9999", True),
+            ("1234567890", False),
+            ("123-456-789", False),
+            ("123-4567-890", False),
+            ("12-3456-7890", False),
+            ("abc-def-ghij", False),
+            ("", True),  # Empty is valid at config level, caught by required field validation
+        ],
+    )
+    def test_validate_config_customer_id_format(self, customer_id, expected_valid):
+        job_inputs = {"customer_id": customer_id, "google_ads_integration_id": "1"}
+
+        is_valid, errors = self.source.validate_config(job_inputs)
+
+        if expected_valid:
+            assert "Please enter a valid Google Ads customer ID" not in " ".join(errors)
+        else:
+            assert any("Please enter a valid Google Ads customer ID" in error for error in errors)
+            assert is_valid is False
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_success(self, mock_client):
+        mock_customer_service = mock.MagicMock()
+        mock_customer_service.list_accessible_customers.return_value.resource_names = ["customers/1234567890"]
+        mock_client.return_value.get_service.return_value = mock_customer_service
+
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is True
+        assert error is None
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_invalid_customer_id(self, mock_client):
+        mock_customer_service = mock.MagicMock()
+        mock_customer_service.list_accessible_customers.return_value.resource_names = ["customers/9999999999"]
+        mock_client.return_value.get_service.return_value = mock_customer_service
+
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "is not correct" in error
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_access_token_scope_insufficient(self, mock_client):
+        mock_client.return_value.get_service.side_effect = Exception(
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes"
+        )
+
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "Insufficient permissions" in error
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_not_ads_user(self, mock_client):
+        mock_client.return_value.get_service.side_effect = Exception(
+            "NOT_ADS_USER: The Google account is not associated with any Ads accounts"
+        )
+
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "not associated with any Google Ads accounts" in error
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_generic_error(self, mock_client):
+        mock_client.return_value.get_service.side_effect = Exception("Some unexpected error occurred")
+
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "Error validating credentials" in error
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_mcc_success(self, mock_client):
+        mock_ga_service = mock.MagicMock()
+        mock_response = [mock.MagicMock()]
+        mock_ga_service.search.return_value = mock_response
+        mock_client.return_value.get_service.return_value = mock_ga_service
+
+        config = GoogleAdsSourceConfig(
+            customer_id="123-456-7890",
+            google_ads_integration_id=1,
+            is_mcc_account=GoogleAdsIsMccAccountConfig(enabled=True, mcc_client_id="999-888-7777"),
+        )
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is True
+        assert error is None
+        mock_ga_service.search.assert_called_once()
+        call_kwargs = mock_ga_service.search.call_args[1]
+        assert call_kwargs["customer_id"] == "1234567890"
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_mcc_customer_not_found(self, mock_client):
+        mock_ga_service = mock.MagicMock()
+        mock_ga_service.search.side_effect = Exception("CUSTOMER_NOT_FOUND: Customer not found")
+        mock_client.return_value.get_service.return_value = mock_ga_service
+
+        config = GoogleAdsSourceConfig(
+            customer_id="123-456-7890",
+            google_ads_integration_id=1,
+            is_mcc_account=GoogleAdsIsMccAccountConfig(enabled=True, mcc_client_id="999-888-7777"),
+        )
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "is not accessible" in error
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_mcc_permission_denied(self, mock_client):
+        mock_ga_service = mock.MagicMock()
+        mock_ga_service.search.side_effect = Exception("USER_PERMISSION_DENIED: User does not have permission")
+        mock_client.return_value.get_service.return_value = mock_ga_service
+
+        config = GoogleAdsSourceConfig(
+            customer_id="123-456-7890",
+            google_ads_integration_id=1,
+            is_mcc_account=GoogleAdsIsMccAccountConfig(enabled=True, mcc_client_id="999-888-7777"),
+        )
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "is not accessible" in error

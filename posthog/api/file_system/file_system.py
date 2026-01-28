@@ -1,28 +1,37 @@
 import re
 import shlex
-from typing import Any, Optional, cast
+import builtins
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
+from drf_spectacular.utils import extend_schema
+from loginas.utils import is_impersonated_session
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system.deletion import (
+    HOG_FUNCTION_TYPES,
+    delete_file_system_object,
+    is_file_system_type_registered,
+    undo_delete as undo_delete_object,
+)
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models.activity_logging.model_activity import is_impersonated_session
-from posthog.models.file_system.file_system import FileSystem, join_path, split_path
+from posthog.models.file_system.file_system import FileSystem, create_or_update_file, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.utils import str_to_bool
 
-HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
+DELETE_PREVIEW_ENTRY_LIMIT = 200
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -108,6 +117,16 @@ class FileSystemViewLogListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, min_value=1)
 
 
+class UndoDeleteItemSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    ref = serializers.CharField()
+    path = serializers.CharField(required=False, allow_blank=True)
+
+
+class UndoDeleteRequestSerializer(serializers.Serializer):
+    items = UndoDeleteItemSerializer(many=True)
+
+
 def tokenize_search(search: str) -> list[str]:
     """Tokenize the search query while tolerating unmatched single quotes."""
 
@@ -130,6 +149,7 @@ def tokenize_search(search: str) -> list[str]:
             return search.split()
 
 
+@extend_schema(tags=["core"])
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")
@@ -137,7 +157,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
 
-    def _apply_search_to_queryset(self, queryset: QuerySet, search: str) -> QuerySet:
+    def _basename_regex(self, value: str) -> str:
+        return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
+
+    def _apply_search_to_queryset(self, queryset: QuerySet, search: str, *, basename_only: bool = False) -> QuerySet:
         """
         Supported token formats
         -----------------------
@@ -200,8 +223,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     #   ([^/]|\\.)*value([^/]|\\.)*
                     #   $                 ← end-of-string  (marks “last” segment)
                     # ────────────────────────────────────────────────────────────
-                    regex = rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
-                    q = Q(path__iregex=regex)
+                    q = Q(path__iregex=self._basename_regex(value))
 
                 elif field in ("user", "author"):
                     #  user:me  → files created by the current user
@@ -229,7 +251,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     q = Q(ref=value)
                 else:  # unknown prefix → search for the full token in path and type
                     q = Q(path__icontains=token) | Q(type__icontains=token)
-            elif "/" in token:
+            elif "/" in token and not basename_only:
                 # ────────────────────────────────────────────────────────────
                 # Plain free-text token
                 #
@@ -246,8 +268,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 regex = sep_pattern.join(re.escape(part) for part in token.split("/"))
                 q = Q(path__iregex=regex) | Q(type__iregex=regex)
             else:
-                # plain free-text token: search in path or type
-                q = Q(path__icontains=token) | Q(type__icontains=token)
+                if basename_only:
+                    q = Q(path__iregex=self._basename_regex(token))
+                else:
+                    # plain free-text token: search in path or type
+                    q = Q(path__icontains=token) | Q(type__icontains=token)
 
             combined_q &= ~q if negated else q
 
@@ -285,6 +310,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         created_at__gt = self.request.query_params.get("created_at__gt")
         created_at__lt = self.request.query_params.get("created_at__lt")
         search_param = self.request.query_params.get("search")
+        search_name_only = str_to_bool(self.request.query_params.get("search_name_only"))
 
         if depth_param is not None:
             try:
@@ -307,7 +333,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if created_at__lt:
             queryset = queryset.filter(created_at__lt=created_at__lt)
         if search_param:
-            queryset = self._apply_search_to_queryset(queryset, search_param)
+            queryset = self._apply_search_to_queryset(queryset, search_param, basename_only=search_name_only)
 
         if self.user_access_control:
             queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
@@ -368,26 +394,160 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response
 
+    def _ensure_can_delete(self, entry: FileSystem) -> None:
+        stack: list[FileSystem] = [entry]
+        seen: set[str] = set()
+        entries_to_check: list[FileSystem] = []
+
+        while stack:
+            current = stack.pop()
+            key = f"{current.id}"
+            if key in seen:
+                continue
+            seen.add(key)
+
+            if current.shortcut:
+                continue
+
+            if current.type == "folder":
+                descendants = FileSystem.objects.filter(path__startswith=f"{current.path}/")
+                descendants = self._scope_by_project_and_environment(descendants)
+                if self.user_access_control:
+                    descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
+                stack.extend(descendants)
+                continue
+
+            entries_to_check.append(current)
+
+        if not entries_to_check:
+            return None
+
+        ids_to_remove = [entry.id for entry in entries_to_check]
+
+        for current in entries_to_check:
+            remaining = (
+                FileSystem.objects.filter(team=current.team, type=current.type, ref=current.ref, shortcut=False)
+                .exclude(id__in=ids_to_remove)
+                .count()
+            )
+
+            if not is_file_system_type_registered(current.type):
+                continue
+
+            if remaining == 0 and not current.ref:
+                raise serializers.ValidationError(
+                    {"detail": f"Cannot delete type '{current.type}' without a reference."}
+                )
+
+        return None
+
+    def _delete_file_system_entry(self, entry: FileSystem) -> builtins.list[dict[str, Any]]:
+        deleted_objects: list[dict[str, Any]] = []
+
+        if entry.shortcut:
+            entry.delete()
+            return deleted_objects
+
+        if entry.type == "folder":
+            descendants = FileSystem.objects.filter(path__startswith=f"{entry.path}/")
+            descendants = self._scope_by_project_and_environment(descendants)
+            if self.user_access_control:
+                descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
+            for child in descendants.order_by("depth", "path"):
+                deleted_objects.extend(self._delete_file_system_entry(child))
+            entry.delete()
+            return deleted_objects
+
+        remaining = (
+            FileSystem.objects.filter(team=entry.team, type=entry.type, ref=entry.ref, shortcut=False)
+            .exclude(id=entry.id)
+            .count()
+        )
+
+        if not is_file_system_type_registered(entry.type):
+            raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{entry.type}'."})
+
+        if remaining > 0:
+            entry.delete()
+            return deleted_objects
+
+        if not entry.ref:
+            raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
+
+        entry_path = entry.path
+        result = delete_file_system_object(
+            entry,
+            user=self.request.user,
+            request=self.request,
+            team=self.team,
+            organization=getattr(self, "organization", None),
+        )
+
+        deleted_objects.append(
+            {
+                "type": result.type,
+                "ref": result.ref,
+                "mode": result.mode,
+                "undo": result.undo,
+                "path": entry_path,
+                "can_undo": result.can_undo and bool(result.ref),
+            }
+        )
+        return deleted_objects
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        original_path = instance.path
+        instance_created_by = instance.created_by
+        deleted_objects: list[dict[str, Any]]
+
+        with transaction.atomic():
+            self._ensure_can_delete(instance)
+            deleted_objects = self._delete_file_system_entry(instance)
+
         if instance.type == "folder":
-            path = instance.path
-            qs = FileSystem.objects.filter(path__startswith=f"{path}/")
-            qs = self._scope_by_project_and_environment(qs)
-            if self.user_access_control:
-                qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
-            with transaction.atomic():
-                qs.delete()
-                instance.delete()
-            # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
-            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{path}/"))
+            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
             first_leftover = leftovers.first()
             if first_leftover:
-                self._assure_parent_folders(first_leftover.path, instance.created_by, first_leftover.team)
-        else:
-            instance.delete()
+                created_by = first_leftover.created_by or instance_created_by or cast(User, self.request.user)
+                self._assure_parent_folders(first_leftover.path, created_by, first_leftover.team)
+
+        if deleted_objects:
+            return Response({"deleted": deleted_objects}, status=status.HTTP_200_OK)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=False)
+    def undo_delete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = UndoDeleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        items = serializer.validated_data["items"]
+        undo_results: list[dict[str, str]] = []
+
+        with transaction.atomic():
+            for item in items:
+                try:
+                    restored_instance = undo_delete_object(
+                        type_string=item["type"],
+                        ref=item["ref"],
+                        restore_path=item.get("path"),
+                        user=request.user,
+                        request=request,
+                        team=self.team,
+                        organization=getattr(self, "organization", None),
+                    )
+                except ValueError:
+                    import logging
+
+                    logging.exception(
+                        "Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref")
+                    )
+                    raise serializers.ValidationError({"detail": "An internal error occurred during undo delete."})
+                self._restore_file_system_path(restored_instance, item)
+                undo_results.append({"type": item["type"], "ref": item["ref"]})
+
+        return Response({"undone": undo_results}, status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -521,12 +681,23 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.type != "folder":
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+        qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/").order_by("depth", "path")
         qs = self._scope_by_project_and_environment(qs)
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
-        return Response({"count": qs.count()}, status=status.HTTP_200_OK)
+        total_count = qs.count()
+        preview_entries = list(qs[:DELETE_PREVIEW_ENTRY_LIMIT])
+        serializer = self.get_serializer(preview_entries, many=True)
+
+        return Response(
+            {
+                "count": total_count,
+                "entries": serializer.data,
+                "has_more": total_count > len(preview_entries),
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(methods=["GET", "POST"], detail=False, url_path="log_view")
     def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -590,14 +761,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not path_param:
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(path__startswith=f"{path_param}/")
+        qs = FileSystem.objects.filter(path__startswith=f"{path_param}/").order_by("depth", "path")
         qs = self._scope_by_project_and_environment(qs)
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
-        return Response({"count": qs.count()}, status=status.HTTP_200_OK)
+        total_count = qs.count()
+        preview_entries = list(qs[:DELETE_PREVIEW_ENTRY_LIMIT])
+        serializer = self.get_serializer(preview_entries, many=True)
 
-    def _assure_parent_folders(self, path: str, created_by: User, team: Optional[Team] = None) -> None:
+        return Response(
+            {
+                "count": total_count,
+                "entries": serializer.data,
+                "has_more": total_count > len(preview_entries),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def _assure_parent_folders(self, path: str, created_by: User, team: Team | None = None) -> None:
         """
         Ensure that all parent folders for the given path exist for the provided team.
         For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
@@ -616,6 +798,44 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     type="folder",
                     created_by=created_by,
                 )
+
+    def _restore_file_system_path(self, instance: Any, payload: dict[str, Any]) -> None:
+        restore_path = payload.get("path")
+        if restore_path is None:
+            return
+
+        team = getattr(instance, "team", None) if instance is not None else None
+        team = team or self.team
+
+        created_by = getattr(instance, "created_by", None) if instance is not None else None
+        request_user = self.request.user if isinstance(self.request.user, User) else None
+        created_by_user = created_by if isinstance(created_by, User) else request_user
+        if created_by_user is None:
+            return
+
+        self._assure_parent_folders(restore_path, created_by_user, team)
+
+        update_count = FileSystem.objects.filter(team=team, type=payload["type"], ref=payload["ref"]).update(
+            path=restore_path,
+            depth=len(split_path(restore_path)),
+        )
+
+        if update_count == 0 and hasattr(instance, "get_file_system_representation"):
+            fs_data: FileSystemRepresentation = instance.get_file_system_representation()
+            segments = split_path(restore_path)
+            folder_path = "/".join(segments[:-1]) if len(segments) > 1 else ""
+            name = segments[-1] if segments else fs_data.name
+            create_or_update_file(
+                team=team,
+                base_folder=folder_path or fs_data.base_folder,
+                name=name,
+                file_type=fs_data.type,
+                ref=fs_data.ref,
+                href=fs_data.href,
+                meta=fs_data.meta,
+                created_at=fs_data.meta.get("created_at"),
+                created_by_id=fs_data.meta.get("created_by"),
+            )
 
     def _retroactively_fix_folders_and_depth(self, user: User) -> None:
         """

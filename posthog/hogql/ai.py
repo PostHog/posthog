@@ -211,9 +211,9 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         {
             "prompt": prompt,
             "response": candidate_sql or error,
-            "result": ("valid_hogql" if generated_valid_hogql else "invalid_hogql")
-            if candidate_sql
-            else "prompt_unclear",
+            "result": (
+                ("valid_hogql" if generated_valid_hogql else "invalid_hogql") if candidate_sql else "prompt_unclear"
+            ),
             "attempt_count": attempt_count,
             "prompt_tokens_last": prompt_tokens_last,
             "completion_tokens_last": completion_tokens_last,
@@ -228,15 +228,16 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         raise PromptUnclear(error)
 
 
-def hit_openai(messages, user) -> tuple[str, int, int]:
+def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
-    result = openai_client.chat.completions.create(
+    result = openai_client.chat.completions.create(  # type: ignore
         model="gpt-4.1-mini",
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
+        posthog_properties=posthog_properties,
     )
 
     content: str = ""
@@ -2111,6 +2112,11 @@ Here is the taxonomy for event properties:
             "label": "Feature flag request ID",
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+        },
+        "$feature_flag_evaluated_at": {
+            "label": "Feature flag evaluated at",
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": ["1732051200000"],
         },
         "$feature_flag_version": {
             "label": "Feature flag version",

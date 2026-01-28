@@ -47,7 +47,9 @@ interface LemonInputPropsBase
     /** @deprecated Use `disabledReason` instead and provide a reason. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string | null | false
+    disabledReason?: React.ReactNode | null | false
+    /** Whether the disabled reason tooltip is interactive (e.g., contains a link) */
+    disabledReasonInteractive?: boolean
     /** Whether input field is full width. Cannot be used in conjuction with `autoWidth`. */
     fullWidth?: boolean
     /** Whether input field should be as wide as its content. Cannot be used in conjuction with `fullWidth`. */
@@ -83,6 +85,12 @@ export interface LemonInputPropsNumber
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
+// Delay for interactive tooltips to close after mouse leave.
+// This allows some grace period in case the user moves the
+// cursor out of the tooltip briefly while intending to
+// interact with it.
+export const INTERACTIVE_CLOSE_DELAY_MS = 750
+
 export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function LemonInput(
     {
         className,
@@ -104,6 +112,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         inputRef,
         disabled,
         disabledReason,
+        disabledReasonInteractive,
         badgeText,
         ...props
     },
@@ -164,11 +173,16 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     if (stopPropagation) {
                         e.stopPropagation()
                     }
-                    if (type === 'number') {
-                        onChange?.(0)
-                    } else {
-                        onChange?.('')
+                    if (onChange) {
+                        if (type === 'number') {
+                            // @ts-expect-error - onChange is typed as never, force it to match the right one
+                            onChange(0)
+                        } else {
+                            // @ts-expect-error - onChange is typed as never, force it to match the right one
+                            onChange('')
+                        }
                     }
+
                     focus()
                 }}
             />
@@ -176,12 +190,16 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
     }
 
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
-
     return (
-        <Tooltip title={disabledReason ?? undefined}>
+        <Tooltip
+            title={disabledReason ?? undefined}
+            interactive={disabledReasonInteractive}
+            closeDelayMs={disabledReasonInteractive ? INTERACTIVE_CLOSE_DELAY_MS : undefined}
+        >
             <span
                 className={clsx(
                     'LemonInput',
+                    'input-like',
                     status !== 'default' && `LemonInput--status-${status}`,
                     type && `LemonInput--type-${type}`,
                     size && `LemonInput--${size}`,
@@ -207,10 +225,15 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (type === 'number') {
-                            onChange?.(event.currentTarget.valueAsNumber)
-                        } else {
-                            onChange?.(event.currentTarget.value ?? '')
+
+                        if (onChange) {
+                            if (type === 'number') {
+                                // @ts-expect-error - onChange is typed as never, force it to match the right one
+                                onChange(event.currentTarget.valueAsNumber)
+                            } else {
+                                // @ts-expect-error - onChange is typed as never, force it to match the right one
+                                onChange(event.currentTarget.value ?? '')
+                            }
                         }
                     }}
                     onFocus={(event) => {

@@ -88,3 +88,9 @@ export const Minute: Story = BasicTemplate.bind({})
 Minute.args = {
     granularity: 'minute',
 }
+
+export const Minute24Hour: Story = BasicTemplate.bind({})
+Minute24Hour.args = {
+    granularity: 'minute',
+    use24HourFormat: true,
+}

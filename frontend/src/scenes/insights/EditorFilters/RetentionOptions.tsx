@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 
@@ -30,7 +31,7 @@ export function RetentionOptions(): JSX.Element {
             <div className="flex items-center gap-2">
                 <div>When users return at least</div>
                 <MinimumOccurrencesInput />
-                <div>time{minimumOccurrences === 1 ? '' : 's'} in an interval</div>
+                <div>{pluralize(minimumOccurrences, 'time', 'times', false)} in an interval</div>
             </div>
             <div className="flex items-center gap-2">
                 <div>Mean calculation logic</div>

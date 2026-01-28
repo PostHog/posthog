@@ -1,5 +1,7 @@
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -30,6 +32,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Feature flags`,
+            intents: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS, ProductKey.EARLY_ACCESS_FEATURES],
             category: 'Features',
             type: 'feature_flag',
             href: urls.featureFlags(),

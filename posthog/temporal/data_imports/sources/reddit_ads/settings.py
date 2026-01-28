@@ -45,7 +45,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         ],
         partition_keys=["created_at"],
         partition_mode="datetime",
-        partition_format="month",
+        partition_format="week",
         partition_size=1,
     ),
     "ad_groups": EndpointConfig(
@@ -75,7 +75,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         ],
         partition_keys=["created_at"],
         partition_mode="datetime",
-        partition_format="month",
+        partition_format="week",
         partition_size=1,
     ),
     "ads": EndpointConfig(
@@ -105,7 +105,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         ],
         partition_keys=["created_at"],
         partition_mode="datetime",
-        partition_format="month",
+        partition_format="week",
         partition_size=1,
     ),
     "campaign_report": EndpointConfig(
@@ -175,7 +175,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         ],
         partition_keys=["date"],
         partition_mode="datetime",
-        partition_format="month",
+        partition_format="week",
         partition_size=1,
     ),
     "ad_group_report": EndpointConfig(
@@ -244,7 +244,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         ],
         partition_keys=["date"],
         partition_mode="datetime",
-        partition_format="month",
+        partition_format="week",
         partition_size=1,
     ),
     "ad_report": EndpointConfig(
@@ -314,7 +314,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         ],
         partition_keys=["date"],
         partition_mode="datetime",
-        partition_format="month",
+        partition_format="week",
         partition_size=1,
     ),
 }

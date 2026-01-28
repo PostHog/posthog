@@ -9,7 +9,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AvailableFeature, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
 import type { userLogicType } from './userLogicType'
@@ -25,6 +26,7 @@ export const userLogic = kea<userLogicType>([
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
+        upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
             user,
             successCallback,
@@ -36,6 +38,7 @@ export const userLogic = kea<userLogicType>([
         deleteUser: true,
         updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
         updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
+        updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -76,7 +79,7 @@ export const userLogic = kea<userLogicType>([
                     }
                     try {
                         const response = await api.update<UserType>('api/users/@me/', user)
-                        successCallback && successCallback()
+                        successCallback?.()
                         return response
                     } catch (error: any) {
                         console.error(error)
@@ -120,6 +123,21 @@ export const userLogic = kea<userLogicType>([
                         return values.user
                     }
                 },
+                upgradeImpersonation: async ({ reason }) => {
+                    try {
+                        await api.create('admin/impersonation/upgrade/', { reason })
+                        actions.loadUser()
+                        lemonToast.success('Upgraded to read-write impersonation')
+
+                        // optimistically update user to read-write rather than
+                        // waiting for `loadUser` to complete
+                        return values.user ? { ...values.user, is_impersonated_read_only: false } : null
+                    } catch (error: any) {
+                        console.error(error)
+                        lemonToast.error('Failed to upgrade impersonation')
+                        return values.user
+                    }
+                },
             },
         ],
     })),
@@ -137,6 +155,14 @@ export const userLogic = kea<userLogicType>([
                     last_name: user?.last_name || '',
                     email: user?.email || '',
                 }),
+            },
+        ],
+        isImpersonationUpgradeInProgress: [
+            false,
+            {
+                upgradeImpersonation: () => true,
+                upgradeImpersonationSuccess: () => false,
+                upgradeImpersonationFailure: () => false,
             },
         ],
     }),
@@ -271,6 +297,21 @@ export const userLogic = kea<userLogicType>([
                     project_weekly_digest_disabled: projectWeeklyDigestSettings,
                 },
             })
+        },
+        updateDataPipelineErrorThreshold: async ({ threshold }, breakpoint) => {
+            await breakpoint(500)
+
+            if (isNaN(threshold) || threshold < 0 || threshold > 100) {
+                return
+            }
+
+            values.user?.notification_settings &&
+                actions.updateUser({
+                    notification_settings: {
+                        ...values.user?.notification_settings,
+                        data_pipeline_error_threshold: threshold / 100,
+                    },
+                })
         },
     })),
     selectors({

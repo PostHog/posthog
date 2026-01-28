@@ -5,16 +5,17 @@ import { useMemo } from 'react'
 import { IconAI } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-import { ProductKey } from '~/types'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 5
 
 function useSurveyAnalysisMaxTool(): ReturnType<typeof useMaxTool> {
-    const { survey, isSurveyAnalysisMaxToolEnabled, formattedOpenEndedResponses } = useValues(surveyLogic)
+    const { survey, formattedOpenEndedResponses } = useValues(surveyLogic)
 
     const maxToolContext = useMemo(
         () => ({
@@ -26,16 +27,17 @@ function useSurveyAnalysisMaxTool(): ReturnType<typeof useMaxTool> {
     )
 
     const shouldShowMaxAnalysisTool = useMemo(() => {
-        if (!isSurveyAnalysisMaxToolEnabled) {
-            return false
-        }
         const totalResponses = formattedOpenEndedResponses.reduce((acc, curr) => acc + curr.responses.length, 0)
         return totalResponses >= NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL
-    }, [isSurveyAnalysisMaxToolEnabled, formattedOpenEndedResponses])
+    }, [formattedOpenEndedResponses])
 
     return useMaxTool({
         identifier: 'analyze_survey_responses',
         context: maxToolContext,
+        contextDescription: {
+            text: survey.name,
+            icon: iconForType('survey'),
+        },
         active: shouldShowMaxAnalysisTool,
         initialMaxPrompt: `Analyze the survey responses for the survey "${survey.name}"`,
         callback(toolOutput) {

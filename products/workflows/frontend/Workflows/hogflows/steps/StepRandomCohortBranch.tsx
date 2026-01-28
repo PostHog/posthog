@@ -5,11 +5,13 @@ import { useMemo } from 'react'
 import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { useDebouncedNameInputs } from './utils'
 
 export function StepRandomCohortBranchConfiguration({
     node,
@@ -22,7 +24,18 @@ export function StepRandomCohortBranchConfiguration({
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
 
-    const nodeEdges = edgesByActionId[action.id]
+    const nodeEdges = edgesByActionId[action.id] ?? []
+
+    const setCohorts = (
+        cohorts: Extract<HogFlowAction, { type: 'random_cohort_branch' }>['config']['cohorts']
+    ): void => {
+        setWorkflowAction(action.id, {
+            ...action,
+            config: { ...action.config, cohorts },
+        })
+    }
+
+    const { localNames: localCohortNames, handleNameChange } = useDebouncedNameInputs(cohorts, setCohorts)
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
@@ -38,15 +51,6 @@ export function StepRandomCohortBranchConfiguration({
 
         return [branchEdges.sort((a, b) => (a.index ?? 0) - (b.index ?? 0)), nonBranchEdges]
     }, [nodeEdges, action.id])
-
-    const setCohorts = (
-        cohorts: Extract<HogFlowAction, { type: 'random_cohort_branch' }>['config']['cohorts']
-    ): void => {
-        setWorkflowAction(action.id, {
-            ...action,
-            config: { ...action.config, cohorts },
-        })
-    }
 
     const addCohort = (): void => {
         const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
@@ -74,7 +78,7 @@ export function StepRandomCohortBranchConfiguration({
     }
 
     const updateCohortPercentage = (index: number, percentage: number): void => {
-        setCohorts(cohorts.map((cohort, i) => (i === index ? { percentage } : cohort)))
+        setCohorts(cohorts.map((cohort, i) => (i === index ? { ...cohort, percentage } : cohort)))
     }
 
     const normalizePercentages = (): void => {
@@ -84,9 +88,9 @@ export function StepRandomCohortBranchConfiguration({
         }
         const base = Math.floor(100 / count)
         const remainder = 100 - base * count
-        const normalized = cohorts.map((_, i) => {
+        const normalized = cohorts.map((cohort, i) => {
             // Distribute remainder to the first cohorts
-            return { percentage: base + (i < remainder ? 1 : 0) }
+            return { ...cohort, percentage: base + (i < remainder ? 1 : 0) }
         })
         setCohorts(normalized)
     }
@@ -103,6 +107,13 @@ export function StepRandomCohortBranchConfiguration({
                         <LemonLabel>Cohort {index + 1}</LemonLabel>
                         <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCohort(index)} />
                     </div>
+
+                    <LemonInput
+                        value={localCohortNames[index] || ''}
+                        onChange={(value) => handleNameChange(index, value)}
+                        placeholder={`Cohort #${index + 1}`}
+                        size="small"
+                    />
 
                     <div className="flex items-center gap-2">
                         <input

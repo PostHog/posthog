@@ -3,7 +3,7 @@ use tracing::error;
 
 use crate::{
     error::CapturedError,
-    experimental::{query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
@@ -19,8 +19,13 @@ pub struct Cli {
     /// Disable non-zero exit codes on errors. Use with caution.
     #[arg(long, default_value = "false")]
     no_fail: bool,
+
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
+
+    /// Set the number of requests per minute for the Posthog API Client.
+    #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
+    rate_limit: Option<usize>,
 
     #[command(subcommand)]
     command: Commands,
@@ -62,6 +67,12 @@ pub enum ExpCommand {
     Query {
         #[command(subcommand)]
         cmd: QueryCommand,
+    },
+
+    /// Manage PostHog endpoints as YAML files. Pull endpoints from PostHog, or push changes from your YAML files.
+    Endpoints {
+        #[command(subcommand)]
+        cmd: EndpointCommand,
     },
 
     #[command(about = "Upload hermes sourcemaps to PostHog")]
@@ -118,7 +129,11 @@ impl Cli {
 
     fn run_impl(self) -> Result<(), CapturedError> {
         if !matches!(self.command, Commands::Login) {
-            init_context(self.host.clone(), self.skip_ssl_verification)?;
+            init_context(
+                self.host.clone(),
+                self.skip_ssl_verification,
+                self.rate_limit,
+            )?;
         }
 
         match self.command {
@@ -148,6 +163,9 @@ impl Cli {
                 }
                 ExpCommand::Query { cmd } => {
                     crate::experimental::query::command::query_command(&cmd)?
+                }
+                ExpCommand::Endpoints { cmd } => {
+                    cmd.run()?;
                 }
                 ExpCommand::Hermes { cmd } => match cmd {
                     HermesSubcommand::Inject(args) => {

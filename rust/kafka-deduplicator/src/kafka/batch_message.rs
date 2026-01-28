@@ -4,7 +4,7 @@ use crate::kafka::types::Partition;
 
 use anyhow::anyhow;
 use anyhow::Result;
-use rdkafka::message::{BorrowedMessage, Headers, Message};
+use rdkafka::message::{BorrowedMessage, Message, OwnedHeaders};
 use serde::Deserialize;
 
 pub struct Batch<T> {
@@ -127,11 +127,33 @@ pub struct KafkaMessage<T> {
     /// Message timestamp
     pub timestamp: SystemTime,
 
-    /// Optional headers as key-value pairs
-    pub headers: Option<Vec<(String, Option<Vec<u8>>)>>,
+    /// Original headers from inbound message (for republishing)
+    pub original_headers: Option<OwnedHeaders>,
+
+    pub original_payload: Option<Vec<u8>>,
 }
 
 impl<T> KafkaMessage<T> {
+    pub fn new(
+        topic_partition: Partition,
+        offset: i64,
+        key: Option<Vec<u8>>,
+        message: Option<T>,
+        timestamp: SystemTime,
+        original_headers: Option<OwnedHeaders>,
+        original_payload: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            topic_partition,
+            offset,
+            key,
+            message,
+            timestamp,
+            original_headers,
+            original_payload,
+        }
+    }
+
     /// Extract message from borrowed Kafka message efficiently
     pub fn from_borrowed_message<'a>(msg: &'a BorrowedMessage<'a>) -> Result<Self>
     where
@@ -151,18 +173,16 @@ impl<T> KafkaMessage<T> {
             key: msg.key().map(|k| k.to_vec()),
             message: None,
             timestamp: resolved_timestamp,
-            headers: msg.headers().map(|headers| {
-                headers
-                    .iter()
-                    .map(|h| (h.key.to_owned(), h.value.map(|v| v.to_vec())))
-                    .collect()
-            }),
+            original_headers: Some(msg.headers().map(|h| h.detach()).unwrap_or_default()),
+            original_payload: msg.payload().map(|p| p.to_vec()),
         };
 
-        match msg.payload() {
+        match &out.original_payload {
             Some(payload) => {
                 match serde_json::from_slice::<T>(payload) {
-                    Ok(hydrated_payload) => out.message = Some(hydrated_payload),
+                    Ok(hydrated_payload) => {
+                        out.message = Some(hydrated_payload);
+                    }
                     Err(e) => {
                         return Err(anyhow!("Failed to deserialize message: {e}"));
                     }
@@ -176,47 +196,22 @@ impl<T> KafkaMessage<T> {
         Ok(out)
     }
 
+    // Convenience method for republishing the original event to downstream topic
+    pub fn to_original_contents(&self) -> (&[u8], Option<&OwnedHeaders>) {
+        (
+            self.original_payload.as_deref().unwrap_or(&[]),
+            self.original_headers.as_ref(),
+        )
+    }
+
+    // Convenience method to get the Partition associated with the message
+    pub fn get_topic_partition(&self) -> Partition {
+        self.topic_partition.clone()
+    }
+
     /// Get the message key as a UTF-8 string if possible
     pub fn key_as_str(&self) -> Option<Result<&str, std::str::Utf8Error>> {
         self.key.as_ref().map(|k| std::str::from_utf8(k))
-    }
-
-    /// Get a specific header value as raw bytes if key is present
-    pub fn get_header(&self, key: &str) -> Option<&Vec<u8>> {
-        for elem in self.headers.iter().flatten() {
-            if elem.0 == key {
-                return elem.1.as_ref();
-            }
-        }
-
-        None
-    }
-
-    /// Get a specific header value as a UTF-8 string if possible.
-    /// Assumes the header is missing or the value is empty or
-    /// not UTF-8 if None is returned
-    pub fn get_header_as_str(&self, key: &str) -> Option<&str> {
-        match self
-            .get_header(key)
-            .map(|v| std::str::from_utf8(v).unwrap_or_default())
-        {
-            Some(s) if !s.is_empty() => Some(s),
-            _ => None,
-        }
-    }
-
-    pub fn get_header_as_i32(&self, key: &str) -> Option<i32> {
-        self.get_header_as_str(key)
-            .and_then(|s| s.parse::<i32>().ok())
-    }
-
-    pub fn get_header_as_i64(&self, key: &str) -> Option<i64> {
-        self.get_header_as_str(key)
-            .and_then(|s| s.parse::<i64>().ok())
-    }
-
-    pub fn get_topic_partition(&self) -> Partition {
-        self.topic_partition.clone()
     }
 
     pub fn get_offset(&self) -> i64 {
@@ -234,14 +229,31 @@ impl<T> KafkaMessage<T> {
     pub fn take_message(&mut self) -> Option<T> {
         self.message.take()
     }
+
+    /// Create a simple KafkaMessage for testing purposes
+    #[cfg(test)]
+    pub fn new_for_test(partition: Partition, offset: i64, message: T) -> Self {
+        Self {
+            topic_partition: partition,
+            offset,
+            key: None,
+            message: Some(message),
+            timestamp: SystemTime::now(),
+            original_headers: None,
+            original_payload: None,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use common_types::CapturedEvent;
+
     use time::OffsetDateTime;
     use uuid::Uuid;
+
+    use rdkafka::message::{Header, Headers};
 
     #[tokio::test]
     async fn test_kafka_message_utilities() {
@@ -261,12 +273,23 @@ mod tests {
         let payload = format!(
             r#"{{"uuid": "{event_uuid}", "event": "{event_name}", "distinct_id": "{distinct_id}", "token": "{token}","properties": {{}}}}"#
         );
-        let headers = vec![
-            ("header1".to_string(), Some(b"value1".to_vec())),
-            ("header2".to_string(), None),
-            ("some_number".to_string(), Some(b"123456789".to_vec())),
-            ("another_number".to_string(), Some(b"123".to_vec())),
-        ];
+        let headers = OwnedHeaders::new()
+            .insert(Header {
+                key: "header1",
+                value: Some(b"value1"),
+            })
+            .insert(Header {
+                key: "header2",
+                value: Some(b""),
+            })
+            .insert(Header {
+                key: "some_number",
+                value: Some(b"123456789"),
+            })
+            .insert(Header {
+                key: "another_number",
+                value: Some(b"123"),
+            });
 
         // Create a mock KafkaMessage for testing
         let message = KafkaMessage::<CapturedEvent> {
@@ -276,6 +299,7 @@ mod tests {
             message: Some(CapturedEvent {
                 uuid: event_uuid,
                 distinct_id: distinct_id.to_string(),
+                session_id: None,
                 ip: ip.clone(),
                 now: now_rfc3339.clone(),
                 token: token.clone(),
@@ -288,7 +312,8 @@ mod tests {
                 historical_migration: false,
             }),
             timestamp: std::time::SystemTime::now(),
-            headers: Some(headers),
+            original_headers: Some(headers), // stub orig headers for testing
+            original_payload: Some(Vec::new()), // stub orig payload for testing
         };
 
         // Test string conversion methods
@@ -296,18 +321,12 @@ mod tests {
         assert_eq!(message.key_as_str().unwrap().unwrap(), &key_str);
 
         // Test header access
-        assert!(message.get_header("header1").is_some());
-        assert_eq!(message.get_header_as_str("header1").unwrap(), "value1");
-        assert!(message.get_header("header2").is_none());
-        assert!(message.get_header("nonexistent").is_none());
-        assert_eq!(
-            message.get_header_as_i32("another_number").unwrap(),
-            123_i32
-        );
-        assert_eq!(
-            message.get_header_as_i64("some_number").unwrap(),
-            123456789_i64
-        );
+        assert!(message.original_headers.is_some());
+        let headers = message.original_headers.as_ref().unwrap();
+        assert!(headers.get(0).key == "header1");
+        assert!(headers.get(1).key == "header2");
+        assert!(headers.get(2).key == "some_number");
+        assert!(headers.get(3).key == "another_number");
 
         // Test message access
         assert!(message.get_message().is_some());

@@ -14,7 +14,7 @@ import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 import type { groupsListLogicType } from './groupsListLogicType'
 
 export interface GroupsListLogicProps {
-    groupTypeIndex: GroupTypeIndex
+    groupTypeIndex: GroupTypeIndex | number
 }
 
 const INITIAL_SORTING = [] as string[]

@@ -7,7 +7,7 @@ from posthog.models import Dashboard
 
 from products.dashboards.backend.max_tools import EditCurrentDashboardTool
 
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
+from ee.hogai.chat_agent.dashboards.nodes import DashboardCreationNode
 from ee.hogai.utils.types.base import InsightQuery
 
 

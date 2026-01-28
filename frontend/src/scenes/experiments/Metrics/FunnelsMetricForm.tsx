@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { AnyEntityNode, ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -77,7 +77,7 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                         { actions, events, data_warehouse } as any,
                         true,
                         MathAvailability.None
-                    )
+                    ) as AnyEntityNode[]
 
                     if (!currentMetric.uuid) {
                         return

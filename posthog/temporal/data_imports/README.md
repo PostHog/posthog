@@ -48,10 +48,7 @@ import time
 
 schema_ids = ['...'] # Schema ID of the tables you want to resync
 
-s3 = s3fs.S3FileSystem(
-    key=os.environ["AIRBYTE_BUCKET_KEY"],
-    secret=os.environ["AIRBYTE_BUCKET_SECRET"],
-)
+s3 = s3fs.S3FileSystem()
 
 for index, schema_id in enumerate(schema_ids):
     schema = ExternalDataSchema.objects.get(id=schema_id)
@@ -83,10 +80,7 @@ import time
 
 schema_ids = ['...'] # Schema ID of the tables you want to resync
 
-s3 = s3fs.S3FileSystem(
-    key=os.environ["AIRBYTE_BUCKET_KEY"],
-    secret=os.environ["AIRBYTE_BUCKET_SECRET"],
-)
+s3 = s3fs.S3FileSystem()
 
 for index, schema_id in enumerate(schema_ids):
     schema = ExternalDataSchema.objects.get(id=schema_id)

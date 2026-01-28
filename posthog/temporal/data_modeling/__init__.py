@@ -1,3 +1,11 @@
+from posthog.temporal.data_modeling.activities import (
+    create_data_modeling_job_activity,
+    fail_materialization_activity,
+    get_dag_structure_activity,
+    materialize_view_activity,
+    prepare_queryable_table_activity,
+    succeed_materialization_activity,
+)
 from posthog.temporal.data_modeling.run_workflow import (
     RunWorkflow,
     build_dag_activity,
@@ -9,9 +17,16 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
+from posthog.temporal.data_modeling.workflows import ExecuteDAGWorkflow, MaterializeViewWorkflow
 
-WORKFLOWS = [RunWorkflow]
+WORKFLOWS = [RunWorkflow, MaterializeViewWorkflow, ExecuteDAGWorkflow]
 ACTIVITIES = [
+    create_data_modeling_job_activity,
+    get_dag_structure_activity,
+    fail_materialization_activity,
+    materialize_view_activity,
+    prepare_queryable_table_activity,
+    succeed_materialization_activity,
     finish_run_activity,
     start_run_activity,
     build_dag_activity,

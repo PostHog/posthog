@@ -1,6 +1,7 @@
 REDIS_TTL_SECONDS: int = 12 * 60 * 60  # 12h
 SALESFORCE_ACCOUNTS_CACHE_KEY: str = "salesforce-enrichment:global:all_accounts"
 HARMONIC_BASE_URL: str = "https://api.harmonic.ai"
+YC_INVESTOR_NAME: str = "y combinator"
 HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s
 HARMONIC_REQUEST_TIMEOUT_SECONDS: int = 30
 HARMONIC_BATCH_SIZE: int = 100
@@ -38,6 +39,14 @@ mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
                 lastFundingType
                 lastFundingTotal
                 fundingStage
+                investors {
+                    ... on Company {
+                        name
+                    }
+                    ... on Person {
+                        fullName
+                    }
+                }
             }
             tractionMetrics {
                 webTraffic {
@@ -75,6 +84,17 @@ mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
                         metricValue
                     }
                 }
+            }
+            tags {
+                type
+                displayValue
+                dateAdded
+                isPrimaryTag
+            }
+            tagsV2 {
+                type
+                displayValue
+                dateAdded
             }
         }
     }
