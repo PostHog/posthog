@@ -33,7 +33,7 @@ export function withLogging<Props>(handler: FetchHandler<Props>) {
         const url = new URL(request.url)
         const headers: Record<string, string> = {}
         request.headers.forEach((value, key) => {
-            headers[key] = key.toLowerCase() === 'authorization' ? value.slice(0, 20) + '...' : value
+            headers[key] = key.toLowerCase() === 'authorization' && value.length > 20 ? value.slice(0, 20) + '...' : value
         })
 
         log.extend({
