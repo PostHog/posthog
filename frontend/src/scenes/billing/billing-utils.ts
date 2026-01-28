@@ -310,26 +310,6 @@ export const convertAmountToUsage = (
     return Math.round(usage)
 }
 
-export const getUpgradeProductLink = ({
-    product,
-    redirectPath,
-}: {
-    product?: BillingProductV2Type
-    redirectPath?: string
-}): string => {
-    let url = '/api/billing/activate?'
-    if (redirectPath) {
-        url += `redirect_path=${encodeURIComponent(redirectPath)}&`
-    }
-
-    url += `products=all_products:`
-    if (product && product.type) {
-        url += `&intent_product=${product.type}`
-    }
-
-    return url
-}
-
 export const convertLargeNumberToWords = (
     // The number to convert
     num: number | null,
