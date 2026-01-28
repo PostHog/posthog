@@ -21,6 +21,7 @@ use crate::{
     types::{OutputErrProps, RawErrProps},
 };
 
+// Actual errors - invalid requests or processing failures
 #[derive(Debug, Error)]
 pub enum ProcessEventError {
     #[error("Failed to parse event: {0}")]
@@ -31,8 +32,6 @@ pub enum ProcessEventError {
     TeamIdMismatch { path: i32, payload: i32 },
     #[error("Failed to process event: {0}")]
     ProcessingError(#[from] UnhandledError),
-    #[error("Issue is suppressed: {0}")]
-    Suppressed(Uuid),
 }
 
 impl ProcessEventError {
@@ -42,24 +41,11 @@ impl ProcessEventError {
             ProcessEventError::EmptyExceptionList => StatusCode::BAD_REQUEST,
             ProcessEventError::TeamIdMismatch { .. } => StatusCode::BAD_REQUEST,
             ProcessEventError::ProcessingError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            ProcessEventError::Suppressed(_) => StatusCode::OK,
         }
     }
 
     fn to_json(&self) -> Json<Value> {
-        match self {
-            ProcessEventError::InvalidRequest(err) => Json(json!({ "error": err.to_string() })),
-            ProcessEventError::EmptyExceptionList => {
-                Json(json!({ "error": "Exception list cannot be empty" }))
-            }
-            ProcessEventError::TeamIdMismatch { path, payload } => Json(
-                json!({ "error": format!("Team ID mismatch: path team_id {} does not match payload team_id {}", path, payload) }),
-            ),
-            ProcessEventError::ProcessingError(err) => Json(json!({ "error": err.to_string() })),
-            ProcessEventError::Suppressed(issue_id) => {
-                Json(json!({ "suppressed": true, "issue_id": issue_id.to_string() }))
-            }
-        }
+        Json(json!({ "error": self.to_string() }))
     }
 }
 
@@ -69,7 +55,16 @@ impl IntoResponse for ProcessEventError {
     }
 }
 
-impl IntoResponse for OutputErrProps {
+// Successful outcomes - both are valid responses to a well-formed request
+#[derive(Debug, Serialize)]
+pub struct ProcessEventResponse {
+    issue_id: Uuid,
+    issue_status: IssueStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event: Option<OutputErrProps>,
+}
+
+impl IntoResponse for ProcessEventResponse {
     fn into_response(self) -> axum::response::Response {
         (StatusCode::OK, Json(self)).into_response()
     }
@@ -94,7 +89,7 @@ pub async fn process_event(
     Path(team_id): Path<i32>,
     State(ctx): State<Arc<AppContext>>,
     Json(event): Json<ResolvedExceptionEvent>,
-) -> Result<OutputErrProps, ProcessEventError> {
+) -> Result<ProcessEventResponse, ProcessEventError> {
     // Validate that team_id in path matches team_id in payload
     if team_id != event.team_id {
         return Err(ProcessEventError::TeamIdMismatch {
@@ -123,6 +118,10 @@ pub async fn process_event(
         &event.error_properties,
     )
     .await?;
+
+    // Release connection back to pool before resolve_issue acquires its own
+    drop(conn);
+
     let fingerprinted = event.error_properties.to_fingerprinted(fingerprint);
 
     // Extract name and description for the issue
@@ -130,6 +129,7 @@ pub async fn process_event(
         .proposed_issue_name
         .clone()
         .unwrap_or_else(|| fingerprinted.exception_list[0].exception_type.clone());
+
     let description = fingerprinted
         .proposed_issue_description
         .clone()
@@ -156,9 +156,17 @@ pub async fn process_event(
 
     // Check if issue is suppressed
     if matches!(issue.status, IssueStatus::Suppressed) {
-        return Err(ProcessEventError::Suppressed(issue.id));
+        return Ok(ProcessEventResponse {
+            issue_id: issue.id,
+            issue_status: issue.status,
+            event: None,
+        });
     }
 
     // Return output
-    Ok(fingerprinted.to_output(issue.id))
+    Ok(ProcessEventResponse {
+        issue_id: issue.id,
+        issue_status: issue.status,
+        event: Some(fingerprinted.to_output(issue.id)),
+    })
 }
