@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { Counter } from 'prom-client'
 
 import { parseJSON } from '~/utils/json-parse'
 
@@ -25,6 +26,11 @@ const toKey = (args: PushSubscriptionGetArgs): string => {
         args.provider ?? 'all',
     ])
 }
+
+const getDistinctIdsForSamePersonCounter = new Counter({
+    name: 'cdp_push_subscription_get_distinct_ids_for_same_person_total',
+    help: 'Total number of getDistinctIdsForSamePerson calls',
+})
 
 const fromKey = (key: string): PushSubscriptionGetArgs => {
     // Parse JSON-encoded key to safely handle distinctIds containing colons or other special characters
@@ -310,6 +316,7 @@ export class PushSubscriptionsManagerService {
     }
 
     public async getDistinctIdsForSamePerson(teamId: number, distinctId: string): Promise<string[]> {
+        getDistinctIdsForSamePersonCounter.inc()
         const queryString = `SELECT DISTINCT distinct_id
             FROM posthog_persondistinctid
             WHERE team_id = $1 
@@ -321,7 +328,7 @@ export class PushSubscriptionsManagerService {
               )`
 
         const { rows } = await this.postgres.query<{ distinct_id: string }>(
-            PostgresUse.COMMON_READ,
+            PostgresUse.PERSONS_READ,
             queryString,
             [teamId, distinctId],
             'getDistinctIdsForSamePerson'
@@ -439,7 +446,6 @@ export class PushSubscriptionsManagerService {
             let subscription = subscriptions.length > 0 ? subscriptions[0] : null
 
             if (!subscription) {
-                // TODOdin: track time we take for these lookups?
                 const relatedDistinctIds = await this.getDistinctIdsForSamePerson(hogFunction.team_id, distinctId)
 
                 if (relatedDistinctIds.length > 0) {
