@@ -8,6 +8,7 @@ import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
+import { getCustomIcon } from './customIconRegistry'
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
@@ -104,7 +105,13 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
-        const icon = iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
+        // Check for custom icon component first (e.g., badges), then fall back to static icon
+        const CustomIcon = getCustomIcon(item.type)
+        const icon = CustomIcon ? (
+            <CustomIcon />
+        ) : (
+            iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
+        )
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
