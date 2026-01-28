@@ -4,6 +4,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { CustomerProfileScope, GroupTypeIndex } from '~/types'
 
@@ -34,9 +35,10 @@ export const DEFAULT_GROUP_PROFILE_SIDEBAR: JSONContent[] = [
 
 export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
     { type: 'ph-usage-metrics', index: 0, attrs: { title: 'Usage metrics' } },
-    { type: 'ph-llm-trace', index: 1, attrs: { title: 'LLM traces' } },
-    { type: 'ph-zendesk-tickets', index: 2, attrs: { title: 'Zendesk tickets' } },
-    { type: 'ph-issues', index: 3, attrs: { title: 'Issues' } },
+    { type: NotebookNodeType.Query, index: 1, attrs: { title: 'Events' } },
+    { type: 'ph-llm-trace', index: 2, attrs: { title: 'LLM traces' } },
+    { type: 'ph-zendesk-tickets', index: 3, attrs: { title: 'Zendesk tickets' } },
+    { type: 'ph-issues', index: 4, attrs: { title: 'Issues' } },
 ]
 
 export type CustomerProfileAttrs = {
@@ -358,6 +360,13 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                 },
             }
         default:
-            return node
+            return {
+                ...node,
+                attrs: {
+                    ...node.attrs,
+                    nodeId,
+                    children,
+                },
+            }
     }
 }
