@@ -92,7 +92,6 @@ async function waitForPageReady(page, urlToRender, waitForCssSelector) {
 async function detectRecordingResolution(browser, urlToRender, waitForCssSelector, defaultWidth, defaultHeight) {
     log('Starting resolution detection...')
     const page = await browser.newPage()
-    // TODO: Check the logic here
     await page.setViewport({ width: defaultWidth, height: defaultHeight })
     try {
         await waitForPageReady(page, urlToRender, waitForCssSelector)
