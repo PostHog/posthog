@@ -11,6 +11,7 @@ from typing import Any
 from .client import PostHogClient
 from .config import Config
 from .results import TestResult, TestSuiteResult
+from .slack import send_slack_notification
 
 
 @dataclass
@@ -147,8 +148,12 @@ def run_tests(
     finally:
         client.shutdown()
 
-    return TestSuiteResult(
+    suite_result = TestSuiteResult(
         results=results,
         total_duration_seconds=time.time() - start_time,
         environment=config.to_safe_dict(),
     )
+
+    send_slack_notification(config, suite_result)
+
+    return suite_result
