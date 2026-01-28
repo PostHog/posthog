@@ -48,8 +48,8 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
             // Skipping buffers, keeping windows and gaps
             .filter((segment) => segment.kind !== 'buffer' && segment.kind !== 'gap')
             .map((segment) => ({
-                ts_from_s: Math.floor((segment.startTimestamp - recordingStartTimestamp) / 1000),
-                ts_to_s: Math.floor((segment.endTimestamp - recordingStartTimestamp) / 1000),
+                ts_from_s: (segment.startTimestamp - recordingStartTimestamp) / 1000,
+                ts_to_s: (segment.endTimestamp - recordingStartTimestamp) / 1000,
                 active: segment.isActive ?? true,
             }))
             // Ensure to keep only periods with >0 duration

@@ -200,7 +200,7 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
                 const tsFromS = period.ts_from_s
                 if (tsFromS !== undefined && segmentStartTimestamps[tsFromS] !== undefined) {
                     const rawTimestamp = segmentStartTimestamps[tsFromS]
-                    period.recording_ts_from_s = Math.round(rawTimestamp * playbackSpeed)
+                    period.recording_ts_from_s = rawTimestamp * playbackSpeed
                 }
             }
         }
