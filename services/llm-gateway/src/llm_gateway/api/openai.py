@@ -141,7 +141,7 @@ async def _handle_transcription(
 
     return await handle_transcription_request(
         file_tuple=file_tuple,
-        model=model,
+        model=_normalize_model_name(model),
         user=user,
         language=language,
         product=product,
@@ -152,7 +152,7 @@ async def _handle_transcription(
 async def audio_transcriptions(
     user: RateLimitedUser,
     file: Annotated[UploadFile, File()],
-    model: Annotated[str, Form()] = "whisper-1",
+    model: Annotated[str, Form()] = "gpt-4o-transcribe",
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     return await _handle_transcription(file, model, user, language)
@@ -163,7 +163,7 @@ async def audio_transcriptions_with_product(
     user: RateLimitedUser,
     product: str,
     file: Annotated[UploadFile, File()],
-    model: Annotated[str, Form()] = "whisper-1",
+    model: Annotated[str, Form()] = "gpt-4o-transcribe",
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     validate_product(product)

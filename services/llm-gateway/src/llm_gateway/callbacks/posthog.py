@@ -19,11 +19,13 @@ def _replace_binary_content(data: Any) -> Any:
     match data:
         case None | int() | float() | bool():
             return data
-        case str():
+        case str() if "b'\\x" in data or 'b"\\x' in data:
             try:
                 return _replace_binary_content(ast.literal_eval(data))
             except (ValueError, SyntaxError):
                 return data
+        case str():
+            return data
         case bytes():
             return {"type": "binary", "size_bytes": len(data)}
         case tuple():
