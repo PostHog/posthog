@@ -1195,7 +1195,7 @@ describe('Hog Executor', () => {
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                     inputs_schema: [
                         {
-                            type: 'push_subscription_distinct_id',
+                            type: 'push_subscription',
                             platform: 'android',
                             key: 'device_token',
                             label: 'Device Token',
@@ -1372,7 +1372,7 @@ describe('Hog Executor', () => {
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                     inputs_schema: [
                         {
-                            type: 'push_subscription_distinct_id',
+                            type: 'push_subscription',
                             platform: 'android',
                             key: 'device_token',
                             label: 'Device Token',

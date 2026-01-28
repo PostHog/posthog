@@ -130,7 +130,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "integration_field",
             "email",
             "native_email",
-            "push_subscription_distinct_id",
+            "push_subscription",
         ]
     )
     key = serializers.CharField()
@@ -199,7 +199,7 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
-        elif item_type == "push_subscription_distinct_id":
+        elif item_type == "push_subscription":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": f"Value must be a string."})
         elif item_type == "email" or item_type == "native_email":
@@ -226,7 +226,7 @@ class InputsItemSerializer(serializers.Serializer):
                         "json",
                         "email",
                         "native_email",
-                        "push_subscription_distinct_id",
+                        "push_subscription",
                     ]:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property

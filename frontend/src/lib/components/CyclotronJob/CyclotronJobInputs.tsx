@@ -468,7 +468,7 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
-        case 'push_subscription_distinct_id':
+        case 'push_subscription':
             return (
                 <CyclotronJobTemplateInput
                     input={input}

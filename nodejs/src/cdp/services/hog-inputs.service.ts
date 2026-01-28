@@ -40,7 +40,7 @@ export class HogInputsService {
         // TODO: Load the values from the integrationManager
 
         const hasPushSubscriptionInputs = hogFunction.inputs_schema?.some(
-            (schema) => schema.type === 'push_subscription_distinct_id'
+            (schema) => schema.type === 'push_subscription'
         )
 
         const integrationInputs = await this.loadIntegrationInputs(hogFunction)
@@ -64,7 +64,7 @@ export class HogInputsService {
         if (hasPushSubscriptionInputs) {
             const inputsToLoad: Record<string, { rawValue: string; schema: HogFunctionInputSchemaType }> = {}
             hogFunction.inputs_schema?.forEach((schema) => {
-                if (schema.type === 'push_subscription_distinct_id') {
+                if (schema.type === 'push_subscription') {
                     const input = hogFunction.inputs?.[schema.key]
                     const value = input?.value
                     if (value && typeof value === 'string') {
