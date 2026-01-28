@@ -4,6 +4,7 @@ import time
 import inspect
 import traceback
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,10 +29,11 @@ class TestCase:
 
 def discover_tests() -> list[TestCase]:
     """Discover all test cases in the tests package."""
-    from .tests.capture import test_basic_capture
+    from .tests.capture import test_basic_capture, test_event_properties_capture
 
     test_modules = [
         test_basic_capture,
+        test_event_properties_capture,
     ]
 
     tests: list[TestCase] = []
@@ -137,9 +139,10 @@ def run_tests(
         if test_filter:
             tests = [t for t in tests if test_filter(t)]
 
-        for test_case in tests:
-            result = run_single_test(test_case, client, config)
-            results.append(result)
+        with ThreadPoolExecutor() as executor:
+            futures = {executor.submit(run_single_test, test_case, client, config): test_case for test_case in tests}
+            for future in as_completed(futures):
+                results.append(future.result())
 
     finally:
         client.shutdown()

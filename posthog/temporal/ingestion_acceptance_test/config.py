@@ -11,7 +11,7 @@ class Config(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="POSTHOG_",
+        env_prefix="INGESTION_ACCEPTANCE_TEST_",
         frozen=True,
     )
 

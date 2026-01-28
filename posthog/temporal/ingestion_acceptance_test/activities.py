@@ -14,12 +14,12 @@ async def run_ingestion_acceptance_tests() -> dict:
     """Run ingestion acceptance tests and return results.
 
     Configuration is loaded from environment variables:
-    - POSTHOG_API_HOST
-    - POSTHOG_PROJECT_API_KEY
-    - POSTHOG_PROJECT_ID
-    - POSTHOG_PERSONAL_API_KEY
-    - POSTHOG_EVENT_TIMEOUT_SECONDS (optional, default 30)
-    - POSTHOG_POLL_INTERVAL_SECONDS (optional, default 2.0)
+    - INGESTION_ACCEPTANCE_TEST_API_HOST
+    - INGESTION_ACCEPTANCE_TEST_PROJECT_API_KEY
+    - INGESTION_ACCEPTANCE_TEST_PROJECT_ID
+    - INGESTION_ACCEPTANCE_TEST_PERSONAL_API_KEY
+    - INGESTION_ACCEPTANCE_TEST_EVENT_TIMEOUT_SECONDS (optional, default 30)
+    - INGESTION_ACCEPTANCE_TEST_POLL_INTERVAL_SECONDS (optional, default 2.0)
 
     Returns:
         Dict containing test results with summary, individual test outcomes,
