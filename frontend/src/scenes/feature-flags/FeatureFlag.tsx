@@ -533,7 +533,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 target="_blank"
                                                 targetBlankIcon
                                             >
-                                                Learn more using evaluation runtimes
+                                                Learn more about using evaluation runtimes
                                             </Link>
                                         </div>
                                         <LemonField name="evaluation_runtime">
