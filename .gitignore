@@ -158,10 +158,11 @@ CODE_REVIEW.md
 data/seaweedfs
 data/seaweedfs/
 
-# No env files except for the example and development defaults
+# No env files except for the example, development defaults, and secrets list
 .env*
 !.env.example
 !.env.development
+!.env.secrets
 
 # Ignore Agent OS (Claude Code) files
 .claude/agents/agent-os

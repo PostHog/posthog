@@ -27,11 +27,45 @@ if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.en
     fi
 fi
 
-# Source development defaults, then user overrides
-set -o allexport
-source "$REPOSITORY_ROOT/.env.development"
-[ -f "$REPOSITORY_ROOT/.env" ] && source "$REPOSITORY_ROOT/.env"
-set +o allexport
+# Source env files respecting precedence: shell env > .env.local > .env.development
+# Only set vars that aren't already in the environment
+source_env_defaults() {
+    while IFS='=' read -r name value; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        [[ -z "${!name:-}" ]] && export "$name=$value"
+    done < "$1"
+}
+# .env.local: already in env if processed by op run, otherwise source directly
+if [[ -f "$REPOSITORY_ROOT/.env.local" ]] && [[ -z "$_POSTHOG_OP_RESOLVED" ]]; then
+    source_env_defaults "$REPOSITORY_ROOT/.env.local"
+fi
+source_env_defaults "$REPOSITORY_ROOT/.env.development"
+
+# Enforce 1Password for sensitive vars
+# Check: if a secret var is set, it must have an op:// ref in .env.local
+if [[ -f "$REPOSITORY_ROOT/.env.secrets" ]]; then
+    exposed_secrets=()
+    while IFS='=' read -r name _; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        # Is this secret var set in the environment?
+        if [[ -n "${!name:-}" ]]; then
+            # Check if .env.local has an op:// reference for it
+            if ! grep -qE "^${name}=op://" "$REPOSITORY_ROOT/.env.local" 2>/dev/null; then
+                exposed_secrets+=("$name")
+            fi
+        fi
+    done < "$REPOSITORY_ROOT/.env.secrets"
+
+    if [[ ${#exposed_secrets[@]} -gt 0 ]]; then
+        echo "🚨 Secrets detected without 1Password:"
+        printf '   %s\n' "${exposed_secrets[@]}"
+        echo ""
+        echo "These vars are listed in .env.secrets and must come from 1Password."
+        echo "Create .env.local with op:// references, e.g.:"
+        echo "   OPENAI_API_KEY=op://Private/OpenAI/api-key"
+        exit 1
+    fi
+fi
 
 # Rust build optimizations (dynamic, can't be in .env.development)
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
