@@ -473,11 +473,8 @@ const runDuckSqlCell = async ({
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
     const executionCode = buildDuckSqlCode(code, returnVariable, pageSize)
     try {
-        let stdout = ''
-        let stderr = ''
         let executionResult: PythonExecutionResult | null = null
         let kernelResponse: PythonKernelExecuteResponse | null = null
-        let didFail = false
         const codeHash = hashCodeForString(`${code}\n${resolvedReturnVariable}`)
         const exportedGlobals = [{ name: resolvedReturnVariable, type: 'DataFrame' }]
 
@@ -487,66 +484,17 @@ const runDuckSqlCell = async ({
             duckExecutionSandboxId: executionSandboxId,
         })
 
-        await api.notebooks.kernelExecuteStream(
-            notebookId,
-            {
-                code: executionCode,
-                return_variables: true,
-            },
-            {
-                onMessage: (event) => {
-                    if (event.event === 'stdout') {
-                        const payload = JSON.parse(event.data) as { text?: string }
-                        stdout = `${stdout}${payload.text ?? ''}`
-                        updateAttributes({
-                            duckExecution: buildPythonExecutionRunning(exportedGlobals, stdout, stderr),
-                        })
-                        return
-                    }
-                    if (event.event === 'stderr') {
-                        const payload = JSON.parse(event.data) as { text?: string }
-                        stderr = `${stderr}${payload.text ?? ''}`
-                        updateAttributes({
-                            duckExecution: buildPythonExecutionRunning(exportedGlobals, stdout, stderr),
-                        })
-                        return
-                    }
-                    if (event.event === 'error') {
-                        const payload = JSON.parse(event.data) as { error?: string }
-                        const message = payload.error ?? 'Failed to run SQL (duckdb) query.'
-                        executionResult = buildPythonExecutionError(message, exportedGlobals)
-                        didFail = true
-                        updateAttributes({
-                            duckExecution: executionResult,
-                            duckExecutionCodeHash: codeHash,
-                            duckExecutionSandboxId: executionSandboxId,
-                        })
-                        return
-                    }
-                    if (event.event === 'result') {
-                        kernelResponse = JSON.parse(event.data) as PythonKernelExecuteResponse
-                        executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
-                        const runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
-                        updateAttributes({
-                            duckExecution: executionResult,
-                            duckExecutionCodeHash: codeHash,
-                            duckExecutionSandboxId: runtimeSandboxId,
-                        })
-                    }
-                },
-                onError: (error) => {
-                    const message = error instanceof Error ? error.message : 'Failed to run SQL (duckdb) query.'
-                    executionResult = buildPythonExecutionError(message, exportedGlobals)
-                    didFail = true
-                    updateAttributes({
-                        duckExecution: executionResult,
-                        duckExecutionCodeHash: codeHash,
-                        duckExecutionSandboxId: executionSandboxId,
-                    })
-                    throw error
-                },
-            }
-        )
+        kernelResponse = (await api.notebooks.kernelExecute(notebookId, {
+            code: executionCode,
+            return_variables: true,
+        })) as PythonKernelExecuteResponse
+        executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+        const runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
+        updateAttributes({
+            duckExecution: executionResult,
+            duckExecutionCodeHash: codeHash,
+            duckExecutionSandboxId: runtimeSandboxId,
+        })
 
         if (!executionResult && kernelResponse) {
             executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
@@ -556,7 +504,7 @@ const runDuckSqlCell = async ({
             throw new Error('DuckDB execution did not return a result.')
         }
 
-        return { executed: !didFail, execution: executionResult }
+        return { executed: true, execution: executionResult }
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to run SQL (duckdb) query.'
         const executionResult = buildPythonExecutionError(message, [
