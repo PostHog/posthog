@@ -205,7 +205,13 @@ export type CdpConfig = {
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
+/** The lane for ingestion consumers */
+export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
+
 export type IngestionConsumerConfig = {
+    /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
+    INGESTION_LANE?: IngestionLane
+
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
     INGESTION_CONSUMER_CONSUME_TOPIC: string
@@ -251,6 +257,14 @@ export type IngestionConsumerConfig = {
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+
+    // Stateful overflow config
+    /** If true, use stateful overflow redirect with Redis. If false, use stateless MemoryRateLimiter. */
+    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
+    /** TTL in seconds for overflow flags in Redis (default: 300 = 5 minutes) */
+    INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
+    /** TTL in seconds for local cache entries (default: 60 = 1 minute) */
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -635,6 +649,13 @@ export interface EventSchemaEnforcement {
 }
 
 /** Usable Team model. */
+export interface LogsSettings {
+    capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
+}
+
 export interface Team {
     id: number
     project_id: ProjectId
@@ -657,6 +678,7 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
+    logs_settings?: LogsSettings | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

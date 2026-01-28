@@ -261,6 +261,17 @@ class BillingManager:
         except Exception as e:
             capture_exception(e, {"organization_id": organization.id})
 
+    def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate",

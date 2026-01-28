@@ -468,6 +468,11 @@ db:
                   gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
                   echo "✅ Schema restored"
             - db:migrate
+            - name: ensure-migration-defaults
+              cmd: |
+                  set -e
+                  echo "Ensuring default migration data..."
+                  python manage.py ensure_migration_defaults
         description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
         prompt: true
         services:

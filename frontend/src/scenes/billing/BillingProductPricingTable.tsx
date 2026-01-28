@@ -3,8 +3,6 @@ import { useValues } from 'kea'
 import { IconArrowRightDown, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
-import { compactNumber } from 'lib/utils'
-
 import {
     BillingProductV2AddonType,
     BillingProductV2Type,
@@ -13,7 +11,12 @@ import {
 } from '~/types'
 
 import { getTierDescription } from './BillingProduct'
-import { formatWithDecimals, isProductVariantPrimary } from './billing-utils'
+import {
+    createProductValueFormatter,
+    formatWithDecimals,
+    hasDisplayFormatting,
+    isProductVariantPrimary,
+} from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
@@ -39,9 +42,15 @@ export const BillingProductPricingTable = ({
     const showProjectedTotalWithLimitTooltip =
         'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
 
+    // Use display_unit for column header if display formatting is configured
+    const unitLabel = (hasDisplayFormatting(product) && product.display_unit) || product.unit || 'unit'
+
+    // Helper to format usage values with display formatting if configured
+    const formatUsage = createProductValueFormatter(product)
+
     const tableColumns: LemonTableColumns<BillingTableTierRow> = [
         {
-            title: `Priced per ${product.unit}`,
+            title: `Priced per ${unitLabel}`,
             dataIndex: 'volume',
             render: (_, item: BillingTableTierRow) => <h4 className="font-bold mb-0">{item.volume}</h4>,
         },
@@ -93,7 +102,7 @@ export const BillingProductPricingTable = ({
                                   ? [
                                         {
                                             productName: 'Base price',
-                                            usage: compactNumber(tier.current_usage),
+                                            usage: formatUsage(tier.current_usage),
                                             price: `$${formatWithDecimals(parseFloat(tier.unit_amount_usd || '0'))}`,
                                             total: `$${tier.current_amount_usd || '0.00'}`,
                                             projectedTotal: `$${parseFloat(
@@ -105,7 +114,9 @@ export const BillingProductPricingTable = ({
                                         ...(subscribedAddons?.map((addon) => {
                                             return {
                                                 productName: addon.name,
-                                                usage: compactNumber(addon.tiers?.[i]?.current_usage || 0),
+                                                usage: createProductValueFormatter(addon)(
+                                                    addon.tiers?.[i]?.current_usage || 0
+                                                ),
                                                 price: `$${formatWithDecimals(parseFloat(addon.tiers?.[i]?.unit_amount_usd || '0'))}`,
                                                 total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
                                                 projectedTotal: `$${parseFloat(
@@ -169,7 +180,7 @@ export const BillingProductPricingTable = ({
                                             : ''
                                     }`
                                   : 'Free',
-                          usage: compactNumber(tier.current_usage),
+                          usage: formatUsage(tier.current_usage),
                           total: `$${totalForTier.toFixed(2) || '0.00'}`,
                           projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
                           subrows: subrows,

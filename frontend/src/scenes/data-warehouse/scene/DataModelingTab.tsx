@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconGraph, IconList } from '@posthog/icons'
+import { IconDirectedGraph, IconList } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -64,7 +64,7 @@ export function DataModelingTab(): JSX.Element {
                         value={viewMode}
                         onChange={(value) => setViewMode(value)}
                         options={[
-                            { value: 'graph', icon: <IconGraph />, tooltip: 'Graph view' },
+                            { value: 'graph', icon: <IconDirectedGraph />, tooltip: 'Graph view' },
                             { value: 'list', icon: <IconList />, tooltip: 'List view' },
                         ]}
                         size="small"
@@ -92,7 +92,7 @@ export function DataModelingTab(): JSX.Element {
                     value={viewMode}
                     onChange={(value) => setViewMode(value)}
                     options={[
-                        { value: 'graph', icon: <IconGraph />, tooltip: 'Graph view' },
+                        { value: 'graph', icon: <IconDirectedGraph />, tooltip: 'Graph view' },
                         { value: 'list', icon: <IconList />, tooltip: 'List view' },
                     ]}
                     size="small"
