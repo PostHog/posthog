@@ -91,4 +91,24 @@ describe('CdpCyclotronShadowWorker', () => {
             expect.stringContaining('Function completed in'),
         ])
     })
+
+    it('should skip Kafka monitoring in processBatch', async () => {
+        const monitoringSpy = jest.spyOn(processor['hogFunctionMonitoringService'], 'queueInvocationResults')
+        const flushSpy = jest.spyOn(processor['hogFunctionMonitoringService'], 'flush')
+        processor['queueInvocationResults'] = jest.fn().mockResolvedValue(undefined)
+
+        await processor.processBatch([invocation])
+
+        expect(monitoringSpy).not.toHaveBeenCalled()
+        expect(flushSpy).not.toHaveBeenCalled()
+    })
+
+    it('should skip watcher in processBatch', async () => {
+        const watcherSpy = jest.spyOn(processor['hogWatcher'], 'observeResults')
+        processor['queueInvocationResults'] = jest.fn().mockResolvedValue(undefined)
+
+        await processor.processBatch([invocation])
+
+        expect(watcherSpy).not.toHaveBeenCalled()
+    })
 })
