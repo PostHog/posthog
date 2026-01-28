@@ -20,6 +20,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
@@ -32,6 +33,7 @@ import { groupsSceneLogic } from './groupsSceneLogic'
 export const scene: SceneExport = {
     component: GroupsScene,
     logic: groupsSceneLogic,
+    productKey: ProductKey.GROUP_ANALYTICS,
 }
 
 export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
@@ -115,7 +117,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             <Query
                 uniqueKey={`groups-query-${tabId}`}
                 attachTo={groupsSceneLogic({ tabId })}
-                query={{ ...query, hiddenColumns }}
+                query={{ ...query, hiddenColumns, showCount: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',

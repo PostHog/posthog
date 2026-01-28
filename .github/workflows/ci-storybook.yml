@@ -35,6 +35,7 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
+                        - 'rust/**'
                         - 'products/!(mcp)/**/*.ts'
                         - 'products/!(mcp)/**/*.tsx'
                         - 'products/!(mcp)/**/frontend/**'
@@ -315,6 +316,14 @@ jobs:
                   name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
                   path: frontend/__snapshots__/__failures__/
 
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
+                  path: common/storybook/junit.xml
+                  if-no-files-found: ignore
+
             - name: Configure global git diff log
               run: git config --global --add safe.directory '*'
 
@@ -457,31 +466,11 @@ jobs:
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
-            - name: Calculate running time
-              run: |
-                  gh auth login --with-token < <(echo ${{ secrets.GITHUB_TOKEN }})
-                  run_id=${GITHUB_RUN_ID}
-                  repo=${GITHUB_REPOSITORY}
-                  run_info=$(gh api repos/${repo}/actions/runs/${run_id})
-                  echo run_info: ${run_info}
-                  # name is the name of the workflow file
-                  # run_started_at is the start time of the workflow
-                  # we want to get the number of seconds between the start time and now
-                  name=$(echo ${run_info} | jq -r '.name')
-                  run_url=$(echo ${run_info} | jq -r '.url')
-                  run_started_at=$(echo ${run_info} | jq -r '.run_started_at')
-                  run_attempt=$(echo ${run_info} | jq -r '.run_attempt')
-                  start_seconds=$(date -d "${run_started_at}" +%s)
-                  now_seconds=$(date +%s)
-                  duration=$((now_seconds-start_seconds))
-                  echo running_time_duration_seconds=${duration} >> $GITHUB_ENV
-                  echo running_time_run_url=${run_url} >> $GITHUB_ENV
-                  echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
-                  echo running_time_run_id=${run_id} >> $GITHUB_ENV
-                  echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
-                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
-                  properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}

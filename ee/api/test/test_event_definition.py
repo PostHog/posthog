@@ -17,7 +17,7 @@ from posthog.models import ActivityLog, Tag, Team, User
 from posthog.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.license import AvailableFeature, License, LicenseManager
+from ee.models.license import License, LicenseManager
 
 
 @freeze_time("2020-01-02")
@@ -216,33 +216,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             },
         ]
 
-    def test_update_event_without_license(self):
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
-    def test_with_expired_license(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime(2010, 1, 19, 3, 14, 7)
-        )
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="description test")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
     def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
@@ -377,9 +350,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
-        # Clear features initially to test without INGESTION_TAXONOMY
-        self.demo_team.organization.available_product_features = []
-        self.demo_team.organization.save()
         # Create some events with hidden flag
         EnterpriseEventDefinition.objects.create(
             team=self.demo_team, project=self.demo_team.project, name="visible_event"
@@ -390,20 +360,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         EnterpriseEventDefinition.objects.create(
             team=self.demo_team, project=self.demo_team.project, name="hidden_event2", hidden=True
         )
-
-        # Test without enterprise taxonomy - hidden events should still be shown even with exclude_hidden=true
-        response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
-        assert response.status_code == status.HTTP_200_OK
-        event_names = {p["name"] for p in response.json()["results"]}
-        assert "visible_event" in event_names
-        assert "hidden_event1" in event_names
-        assert "hidden_event2" in event_names
-
-        # Test with enterprise taxonomy enabled - hidden events should be excluded when exclude_hidden=true
-        self.demo_team.organization.available_product_features = [
-            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
-        ]
-        self.demo_team.organization.save()
 
         response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
         assert response.status_code == status.HTTP_200_OK

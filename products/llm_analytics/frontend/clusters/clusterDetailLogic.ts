@@ -94,7 +94,9 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
                             LIMIT 1
                         `,
-                        { productKey: 'llm_analytics', scene: 'LLMAnalyticsCluster' }
+                        { productKey: 'llm_analytics', scene: 'LLMAnalyticsCluster' },
+                        // Run IDs and bounds are in UTC, so compare timestamps in UTC
+                        { queryParams: { modifiers: { convertToProjectTimezone: false } } }
                     )
 
                     if (!response.results?.length) {

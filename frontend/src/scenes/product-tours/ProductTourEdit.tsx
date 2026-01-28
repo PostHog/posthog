@@ -22,6 +22,7 @@ import { AnnouncementContentEditor } from './AnnouncementContentEditor'
 import { BannerContentEditor } from './BannerContentEditor'
 import { AutoShowSection } from './components/AutoShowSection'
 import { BannerCustomization } from './components/BannerCustomization'
+import { LinkedFlagField } from './components/LinkedFlagField'
 import { ProductTourCustomization } from './components/ProductTourCustomization'
 import { ProductTourStatusTag } from './components/ProductToursTable'
 import { ProductToursToolbarButton } from './components/ProductToursToolbarButton'
@@ -43,6 +44,8 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
         targetingFlagFilters,
         isProductTourFormSubmitting,
         editTab,
+        pendingToolbarOpen,
+        entityKeyword,
     } = useValues(productTourLogic({ id }))
     const { editingProductTour, setProductTourFormValue, submitProductTourForm, setEditTab } = useActions(
         productTourLogic({ id })
@@ -59,7 +62,6 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     }
 
     const conditions = productTourForm.content?.conditions || {}
-    const entityKeyword = isAnnouncement(productTour) ? 'announcement' : 'tour'
 
     return (
         <Form logic={productTourLogic} props={{ id }} formKey="productTourForm">
@@ -74,6 +76,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             <ProductToursToolbarButton
                                 tourId={id}
                                 mode={isAnnouncement(productTour) ? 'preview' : 'edit'}
+                                saveFirst
                             />
                             <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
                                 Cancel
@@ -82,7 +85,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 type="primary"
                                 size="small"
                                 onClick={() => submitProductTourForm()}
-                                loading={isProductTourFormSubmitting}
+                                loading={isProductTourFormSubmitting && !pendingToolbarOpen}
                             >
                                 Save
                             </LemonButton>
@@ -160,7 +163,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                                     ]}
                                                 />
                                                 {showUserTargeting && (
-                                                    <div className="mt-3">
+                                                    <div className="mt-3 border border-dashed rounded p-3">
                                                         <BindLogic
                                                             logic={featureFlagSceneLogic}
                                                             props={{
@@ -176,6 +179,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                                                         : 'new'
                                                                 }
                                                                 excludeTitle={true}
+                                                                hideMatchOptions={true}
                                                                 filters={
                                                                     targetingFlagFilters || DEFAULT_TARGETING_FILTERS
                                                                 }
@@ -189,17 +193,10 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                                         </BindLogic>
                                                     </div>
                                                 )}
+                                                <LinkedFlagField id={id} />
                                             </div>
 
-                                            <AutoShowSection
-                                                conditions={conditions}
-                                                onChange={(newConditions) => {
-                                                    setProductTourFormValue('content', {
-                                                        ...productTourForm.content,
-                                                        conditions: newConditions,
-                                                    })
-                                                }}
-                                            />
+                                            <AutoShowSection id={id} />
                                         </div>
                                     )}
                                 </div>

@@ -20,6 +20,7 @@ use crate::{
 pub struct CleanupResult {
     pub completed: u64,
     pub failed: u64,
+    pub canceled: u64,
     pub poisoned: u64,
     pub stalled: u64,
 }
@@ -60,10 +61,6 @@ impl Janitor {
         })
     }
 
-    pub async fn run_migrations(&self) {
-        self.inner.run_migrations().await;
-    }
-
     pub async fn run_once(&self) -> Result<CleanupResult, QueueError> {
         info!("Running janitor loop");
         let _loop_start = common_metrics::timing_guard(RUN_TIME, &self.metrics_labels);
@@ -76,15 +73,19 @@ impl Janitor {
 
         let mut completed_count = 0u64;
         let mut failed_count = 0u64;
+        let mut canceled_count = 0u64;
         for delete in &aggregated_deletes {
             if delete.state == "completed" {
                 completed_count += delete.count as u64;
             } else if delete.state == "failed" {
                 failed_count += delete.count as u64;
+            } else if delete.state == "canceled" {
+                canceled_count += delete.count as u64;
             }
         }
         common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, completed_count);
         common_metrics::inc(FAILED_COUNT, &self.metrics_labels, failed_count);
+        common_metrics::inc(CANCELED_COUNT, &self.metrics_labels, canceled_count);
 
         match send_iter_to_kafka(
             &self.kafka_producer,
@@ -156,6 +157,7 @@ impl Janitor {
         Ok(CleanupResult {
             completed: completed_count,
             failed: failed_count,
+            canceled: canceled_count,
             poisoned,
             stalled,
         })
@@ -166,6 +168,7 @@ fn aggregated_delete_to_app_metric2(delete: AggregatedDelete) -> AppMetric2 {
     let kind = match delete.state.as_str() {
         "completed" => AppMetric2Kind::Success,
         "failed" => AppMetric2Kind::Failure,
+        "canceled" => AppMetric2Kind::Canceled,
         _ => AppMetric2Kind::Unknown,
     };
 

@@ -1022,6 +1022,22 @@ export interface ChartSettingsDisplay {
     displayType?: 'auto' | 'line' | 'bar'
 }
 
+export interface HeatmapGradientStop {
+    value: number
+    color: string
+}
+
+export interface HeatmapSettings {
+    xAxisColumn?: string
+    yAxisColumn?: string
+    valueColumn?: string
+    xAxisLabel?: string
+    yAxisLabel?: string
+    gradient?: HeatmapGradientStop[]
+    gradientPreset?: string
+    gradientScaleMode?: 'absolute' | 'relative'
+}
+
 export interface YAxisSettings {
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
@@ -1046,6 +1062,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    heatmap?: HeatmapSettings
 }
 
 export interface ConditionalFormattingRule {
@@ -1130,6 +1147,8 @@ interface DataTableNodeViewProps {
     showSavedQueries?: boolean
     /** Show saved filters feature for this table (requires uniqueKey) */
     showSavedFilters?: boolean
+    /** Show table views feature for this table (requires uniqueKey) */
+    showTableViews?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -2055,7 +2074,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
-    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalType
     /** Groups aggregation - not used in Web Analytics but required for type compatibility */
     aggregation_group_type_index?: integer | null
@@ -2864,6 +2883,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'settings'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -4753,6 +4773,7 @@ export const externalDataSources = [
     'TikTokAds',
     'BingAds',
     'Shopify',
+    'SnapchatAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5158,8 +5179,9 @@ export enum ProductKey {
     MOBILE_REPLAY = 'mobile_replay',
     NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',
-    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_BATCH_EXPORTS = 'pipeline_batch_exports',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
@@ -5239,7 +5261,8 @@ export enum ProductIntentContext {
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
 
     // Surveys
-    SURVEYS_VIEWED = 'surveys_viewed', // deprecated, not used anymore
+    SURVEYS_VIEWED = 'surveys_viewed',
+    SURVEY_ADD_NEW = 'survey_add_new',
     SURVEY_CREATED = 'survey_created',
     SURVEY_LAUNCHED = 'survey_launched',
     SURVEY_VIEWED = 'survey_viewed',
@@ -5285,6 +5308,7 @@ export enum ProductIntentContext {
 
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
+    BATCH_EXPORT_CREATED = 'batch_export_created',
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',
@@ -5300,6 +5324,11 @@ export enum ProductIntentContext {
 
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
+
+    // Endpoints
+    ENDPOINT_CREATED = 'endpoint_created',
+    ENDPOINT_CREATED_FROM_INSIGHT = 'endpoint_created_from_insight',
+    ENDPOINT_CREATED_FROM_SQL_EDITOR = 'endpoint_created_from_sql_editor',
 }
 
 // Known prod_interest values from posthog.com

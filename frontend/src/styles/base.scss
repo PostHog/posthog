@@ -718,6 +718,22 @@
     --lettermark-7-text: #35416b;
     --lettermark-8-bg: #ff906e;
     --lettermark-8-text: #2a3d65;
+    --lettermark-9-bg: #5dd4db;
+    --lettermark-9-text: #1a4a4d;
+    --lettermark-10-bg: #c8e65c;
+    --lettermark-10-text: #3d4a1a;
+    --lettermark-11-bg: #e85da4;
+    --lettermark-11-text: #4a1a35;
+    --lettermark-12-bg: #e85c5c;
+    --lettermark-12-text: #4a1a1a;
+    --lettermark-13-bg: #3d7a5a;
+    --lettermark-13-text: #c8f0dc;
+    --lettermark-14-bg: #6b5bd4;
+    --lettermark-14-text: #e0ddf5;
+    --lettermark-15-bg: #98e8c8;
+    --lettermark-15-text: #1a4a3d;
+    --lettermark-16-bg: #8c3d5a;
+    --lettermark-16-text: #f0d0dc;
 
     // Modals
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
@@ -1057,10 +1073,12 @@
 }
 
 @layer base {
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
+    // allowing @import to be inside layer
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
     @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
 
-    /* stylelint-disable-next-line order/order */ // allowing @import to be first
+    // allowing @import to be first
+    /* stylelint-disable-next-line order/order */
     *,
     ::after,
     ::before,
@@ -1788,16 +1806,24 @@
         /* themeable variables */
         position: relative;
         display: inline-block;
-        color: transparent; /* hide glyphs under the cover */
+        color: transparent;
+
+        /* hide glyphs under the cover */
         cursor: pointer;
-        background: var(--color-bg-primary); /* the “black bar” */
+        background: var(--color-bg-primary);
+
+        /* the “black bar” */
         border-radius: var(--radius);
     }
 
     .hogqlx-redacted:hover,
     .hogqlx-redacted:focus-visible {
-        color: inherit; /* show the text */
-        background: transparent; /* remove the bar */
+        color: inherit;
+
+        /* show the text */
+        background: transparent;
+
+        /* remove the bar */
     }
 
     .hogqlx-redacted:focus-visible {
@@ -1933,5 +1959,29 @@
             opacity: 1;
             transform: translateY(0);
         }
+    }
+}
+
+// Setup highlight animation - used by quick start to draw attention to UI elements
+.setup-highlight-pulse {
+    position: relative !important;
+    z-index: 100 !important;
+    border-radius: var(--radius);
+    animation: setup-highlight-pulse 1s ease-in-out 3 !important;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes setup-highlight-pulse {
+    0%,
+    100% {
+        outline: 3px solid transparent;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 0 transparent;
+    }
+
+    50% {
+        outline: 3px solid var(--color-accent);
+        outline-offset: 2px;
+        box-shadow: 0 0 24px 8px var(--color-accent);
     }
 }

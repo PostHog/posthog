@@ -42,11 +42,13 @@ import {
     AssistantGenerationStatusType,
     AssistantMessage,
     AssistantMessageType,
-    AssistantTool,
     AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
+    MultiQuestionForm,
+    MultiQuestionFormAnswers,
     PENDING_APPROVAL_STATUS,
+    ResumePayload,
     RootAssistantMessage,
     SubagentUpdateEvent,
     TaskExecutionStatus,
@@ -59,7 +61,6 @@ import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContex
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import { RENDERABLE_UI_PAYLOAD_TOOLS } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import {
     getAgentModeForScene,
@@ -165,7 +166,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 conversation?: string
                 contextual_tools?: Record<string, any>
                 ui_context?: any
-                resume_payload?: { action: 'approve' | 'reject'; proposal_id: string; feedback?: string } | null
+                resume_payload?: ResumePayload | null
             },
             generationAttempt: number,
             addToThread: boolean = true
@@ -202,11 +203,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
         setPendingApproval: (proposalId: string) => ({ proposalId }),
         clearPendingApproval: true,
+        continueAfterForm: (formAnswers: MultiQuestionFormAnswers) => ({ formAnswers }),
         continueAfterApproval: (proposalId: string) => ({ proposalId }),
         continueAfterRejection: (proposalId: string, feedback?: string) => ({ proposalId, feedback }),
-        setResolvedApprovalStatus: (proposalId: string, status: 'approved' | 'rejected' | 'auto_rejected') => ({
+        setResolvedApprovalStatus: (
+            proposalId: string,
+            status: 'approved' | 'rejected' | 'auto_rejected',
+            feedback?: string
+        ) => ({
             proposalId,
             status,
+            feedback,
         }),
         addPendingApprovalData: (approval: PendingApproval) => ({ approval }),
         loadPendingApprovalsData: (approvals: PendingApproval[]) => ({ approvals }),
@@ -377,27 +384,35 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 clearPendingApproval: () => null,
                 // Also set pendingApprovalProposalId when loading a conversation with a pending approval
                 setConversation: (state, { conversation }) => {
-                    // If we already have a pending approval tracked, keep it
-                    if (state) {
+                    // Find all pending approvals from the conversation
+                    const pendingApprovals =
+                        conversation?.pending_approvals?.filter((a) => a.decision_status === 'pending') ?? []
+
+                    // If there are no pending approvals, clear the state
+                    if (pendingApprovals.length === 0) {
+                        return null
+                    }
+
+                    // If current state is still in the pending list, keep it
+                    if (state && pendingApprovals.some((a) => a.proposal_id === state)) {
                         return state
                     }
-                    // Otherwise check if the conversation has any pending approvals
-                    const pendingApproval = conversation?.pending_approvals?.find(
-                        (a) => a.decision_status === 'pending'
-                    )
-                    return pendingApproval?.proposal_id ?? null
+
+                    // Otherwise, use the first (newest) pending approval
+                    return pendingApprovals[0]?.proposal_id ?? null
                 },
             },
         ],
 
         // Track resolved approval statuses by proposalId (persists across re-renders)
         // Note: Only resolved statuses are stored here, not 'pending' (cards start in pending state)
+        // Also stores optional feedback for rejections
         resolvedApprovalStatuses: [
-            {} as Record<string, 'approved' | 'rejected' | 'auto_rejected'>,
+            {} as Record<string, { status: 'approved' | 'rejected' | 'auto_rejected'; feedback?: string }>,
             {
-                setResolvedApprovalStatus: (state, { proposalId, status }) => ({
+                setResolvedApprovalStatus: (state, { proposalId, status, feedback }) => ({
                     ...state,
-                    [proposalId]: status,
+                    [proposalId]: { status, feedback },
                 }),
             },
         ],
@@ -634,7 +649,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
                 actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
             }
-            // Note: pending approvals loading is handled in the reducer (pendingApprovalsData.setConversation)
         },
         askMax: async ({ prompt, addToThread = true, uiContext }) => {
             // Only process if this thread is the currently active one
@@ -670,7 +684,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // (pendingApprovalProposalId might get re-set during streaming even after user approved/rejected)
             let autoRejectPayload: { action: 'reject'; proposal_id: string; feedback?: string } | undefined = undefined
             const pendingProposalId = values.pendingApprovalProposalId
-            const alreadyResolved = pendingProposalId ? !!values.resolvedApprovalStatuses[pendingProposalId] : false
+            const alreadyResolved = pendingProposalId
+                ? !!values.resolvedApprovalStatuses[pendingProposalId]?.status
+                : false
             if (pendingProposalId && !alreadyResolved) {
                 autoRejectPayload = {
                     action: 'reject',
@@ -749,6 +765,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (cache.generationController) {
                 return
             }
+            // Don't reconnect if there's a pending form - user needs to fill it out first
+            if (values.multiQuestionFormPending) {
+                return
+            }
             actions.streamConversation({ conversation: id, content: null, agent_mode: values.agentMode }, 0)
         },
 
@@ -775,6 +795,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.setConversation(newConversation)
             actions.updateGlobalConversationCache(newConversation)
 
+            // Fetch the full conversation to get state fields
+            // (those which aren't included in the streaming response)
+            actions.loadConversation(values.conversation.id)
+
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
             if (values.activeThreadKey !== values.conversationId && cache.unmount) {
                 cache.unmount()
@@ -782,11 +806,25 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
-            if (payload?.doNotUpdateCurrentThread || values.autoRun || values.streamingActive) {
+            // payload is an object with doNotUpdateCurrentThread for loadConversationHistory,
+            // but it's a string (conversationId) for loadConversation
+            const doNotUpdate = typeof payload === 'object' && payload?.doNotUpdateCurrentThread
+            if (doNotUpdate || values.autoRun || values.streamingActive) {
+                return
+            }
+            // Don't auto-reconnect if there's a pending form
+            if (values.multiQuestionFormPending) {
                 return
             }
             const conversation = conversationHistory.find((c) => c.id === values.conversationId)
-            if (conversation?.status === ConversationStatus.InProgress) {
+            if (!conversation) {
+                return
+            }
+
+            // Sync conversation data
+            actions.setConversation(conversation)
+
+            if (conversation.status === ConversationStatus.InProgress) {
                 setTimeout(() => {
                     actions.reconnectToStream()
                 }, 0)
@@ -842,10 +880,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 status: 'completed',
             })
         },
+        continueAfterForm: ({ formAnswers }) => {
+            actions.streamConversation(
+                {
+                    agent_mode: values.agentMode,
+                    content: null,
+                    conversation: values.conversationId,
+                    resume_payload: { action: 'form', form_answers: formAnswers },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
         continueAfterApproval: ({ proposalId }) => {
-            // Clear the pending approval state so askMax doesn't auto-reject
-            actions.clearPendingApproval()
-            // Persist the approved status for the card to display
+            // Persist the approved status so the card can display it
+            // NOTE: We don't call clearPendingApproval() here - the component should stay
+            // mounted to show the resolved state. The alreadyResolved check in askMax
+            // prevents auto-rejection for resolved approvals.
             actions.setResolvedApprovalStatus(proposalId, 'approved')
             // Resume the conversation with the approval payload
             actions.streamConversation(
@@ -861,10 +912,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             )
         },
         continueAfterRejection: ({ proposalId, feedback }) => {
-            // Clear the pending approval state
-            actions.clearPendingApproval()
-            // Persist the rejected status for the card to display
-            actions.setResolvedApprovalStatus(proposalId, 'rejected')
+            // Persist the rejected status and feedback so the card can display it
+            // NOTE: We don't call clearPendingApproval() here - the component should stay
+            // mounted to show the resolved state with feedback. The alreadyResolved check
+            // in askMax prevents auto-rejection for resolved approvals.
+            actions.setResolvedApprovalStatus(proposalId, 'rejected', feedback)
             // Resume the conversation with the rejection payload
             actions.streamConversation(
                 {
@@ -888,11 +940,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         effectiveApprovalStatuses: [
             (s) => [s.resolvedApprovalStatuses, s.pendingApprovalsData],
-            (resolved, pendingApprovalsData): Record<string, ApprovalDecisionStatus> => {
+            (resolved, pendingApprovalsData): Record<string, { status: ApprovalDecisionStatus; feedback?: string }> => {
                 // Get statuses from pending approvals data
-                const baseStatuses: Record<string, ApprovalDecisionStatus> = {}
+                const baseStatuses: Record<string, { status: ApprovalDecisionStatus; feedback?: string }> = {}
                 for (const [proposalId, approval] of Object.entries(pendingApprovalsData)) {
-                    baseStatuses[proposalId] = approval.decision_status
+                    baseStatuses[proposalId] = { status: approval.decision_status }
                 }
 
                 // Frontend resolved statuses take precedence
@@ -938,22 +990,25 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         threadGrouped: [
-            (s) => [s.threadRaw, s.threadLoading, s.toolCallUpdateMap],
-            (thread, threadLoading, toolCallUpdateMap): ThreadMessage[] => {
+            (s) => [
+                s.threadRaw,
+                s.threadLoading,
+                s.toolCallUpdateMap,
+                s.pendingApprovalsData,
+                s.resolvedApprovalStatuses,
+            ],
+            (
+                thread,
+                threadLoading,
+                toolCallUpdateMap,
+                pendingApprovalsData,
+                resolvedApprovalStatuses
+            ): ThreadMessage[] => {
                 // Filter out messages that shouldn't be displayed
                 let processedThread: ThreadMessage[] = []
 
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
-                    // Skip AssistantToolCallMessage that don't have a renderable UI payload
-                    if (
-                        currentMessage.type === AssistantMessageType.ToolCall &&
-                        !Object.keys(currentMessage.ui_payload || {}).some((toolName) =>
-                            RENDERABLE_UI_PAYLOAD_TOOLS.includes(toolName as AssistantTool)
-                        )
-                    ) {
-                        continue
-                    }
                     // Skip empty assistant messages with no content, tool calls, or thinking
                     if (
                         currentMessage.type === AssistantMessageType.Assistant &&
@@ -969,7 +1024,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 // Enhance messages with tool call status
-                processedThread = enhanceThreadToolCalls(processedThread, thread, threadLoading, toolCallUpdateMap)
+                processedThread = enhanceThreadToolCalls(
+                    processedThread,
+                    thread,
+                    threadLoading,
+                    toolCallUpdateMap,
+                    pendingApprovalsData,
+                    resolvedApprovalStatuses
+                )
 
                 // Add thinking message if loading
                 if (threadLoading) {
@@ -998,13 +1060,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // Don't add thinking message if:
                     // 1. There are tool calls in progress, OR
                     // 2. The last message is a streaming ASSISTANT message (no ID or it starts with 'temp-') - it will show its own thinking/content
+                    // 3. There's a pending multi-question form - the form input handles the loading state
                     // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
                     const lastMessageIsStreamingAssistant =
                         finalMessageSoFar &&
                         isAssistantMessage(finalMessageSoFar) &&
                         (!finalMessageSoFar.id || finalMessageSoFar.id.startsWith('temp-'))
+                    const hasPendingForm = threadEndsWithMultiQuestionForm(processedThread)
                     const shouldAddThinkingMessage =
-                        toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant
+                        toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant && !hasPendingForm
 
                     if (shouldAddThinkingMessage) {
                         // Add thinking message to indicate processing
@@ -1041,6 +1105,46 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        // Returns the multi-question form data if one is pending
+        activeMultiQuestionForm: [
+            (s) => [s.threadRaw],
+            (threadRaw): MultiQuestionForm | null => {
+                if (!threadEndsWithMultiQuestionForm(threadRaw)) {
+                    return null
+                }
+                const lastMessage = threadRaw[threadRaw.length - 1]
+                if (!isAssistantMessage(lastMessage)) {
+                    return null
+                }
+                const formArgs = lastMessage.tool_calls?.find((tc) => tc.name === 'create_form')?.args
+                if (!formArgs || !Array.isArray(formArgs.questions)) {
+                    return null
+                }
+                return formArgs as unknown as MultiQuestionForm
+            },
+        ],
+
+        // Returns the pending dangerous operation approval data if one is pending
+        activeDangerousOperationApproval: [
+            (s) => [s.pendingApprovalProposalId, s.pendingApprovalsData, s.resolvedApprovalStatuses],
+            (pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses) => {
+                if (!pendingApprovalProposalId || resolvedApprovalStatuses[pendingApprovalProposalId]?.status) {
+                    return null
+                }
+                const approval = pendingApprovalsData[pendingApprovalProposalId]
+                if (!approval) {
+                    return null
+                }
+                return {
+                    status: 'pending_approval' as const,
+                    proposalId: approval.proposal_id,
+                    toolName: approval.tool_name,
+                    preview: approval.preview,
+                    payload: approval.payload as Record<string, any>,
+                }
+            },
+        ],
+
         inputDisabled: [
             (s) => [
                 s.formPending,
@@ -1049,6 +1153,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.dataProcessingAccepted,
                 s.isSharedThread,
                 s.isImpersonatingExistingConversation,
+                s.pendingApprovalProposalId,
+                s.resolvedApprovalStatuses,
             ],
             (
                 formPending,
@@ -1056,18 +1162,29 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 threadLoading,
                 dataProcessingAccepted,
                 isSharedThread,
-                isImpersonatingExistingConversation
-            ) =>
+                isImpersonatingExistingConversation,
+                pendingApprovalProposalId,
+                resolvedApprovalStatuses
+            ) => {
+                // Check if there's an unresolved pending approval
+                const hasPendingApproval =
+                    pendingApprovalProposalId !== null && !resolvedApprovalStatuses[pendingApprovalProposalId]?.status
+
                 // Input unavailable when:
                 // - Answer must be provided using a form returned by Max only
                 // - Answer must be provided using a multi-question form
                 // - We are awaiting user to approve or reject external AI processing data
                 // - Support agent is viewing an existing conversation without override
-                isSharedThread ||
-                formPending ||
-                multiQuestionFormPending ||
-                (threadLoading && !dataProcessingAccepted) ||
-                isImpersonatingExistingConversation,
+                // - There's a pending approval waiting for user decision
+                return (
+                    isSharedThread ||
+                    formPending ||
+                    multiQuestionFormPending ||
+                    (threadLoading && !dataProcessingAccepted) ||
+                    isImpersonatingExistingConversation ||
+                    hasPendingApproval
+                )
+            },
         ],
 
         contextDisabledReason: [
@@ -1194,6 +1311,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             !values.streamingActive &&
             !cache.generationController
         ) {
+            // Don't auto-reconnect if there's a pending form - the user needs to fill it out first
+            // The form submission will properly resume the conversation with the answers
+            if (values.multiQuestionFormPending) {
+                return
+            }
             // If the conversation is in progress and we don't have an active stream, reconnect
             setTimeout(() => {
                 actions.reconnectToStream()
@@ -1224,7 +1346,9 @@ function enhanceThreadToolCalls(
     group: ThreadMessage[],
     fullThread: ThreadMessage[],
     isLoading: boolean,
-    toolCallUpdateMap: Map<string, string[]>
+    toolCallUpdateMap: Map<string, string[]>,
+    pendingApprovalsData: Record<string, PendingApproval>,
+    resolvedApprovalStatuses: Record<string, { status: 'approved' | 'rejected' | 'auto_rejected'; feedback?: string }>
 ): ThreadMessage[] {
     // Create a map of tool_call_id -> AssistantToolCallMessage for quick lookup
     // Search in the full thread to find ToolCall messages (which are filtered from groups)
@@ -1235,6 +1359,18 @@ function enhanceThreadToolCalls(
         // This allows us to match tool call completions in stories/tests without ui_payload
         if (message.type === AssistantMessageType.ToolCall && 'tool_call_id' in message) {
             toolCallCompletions.set((message as any).tool_call_id, message)
+        }
+    }
+
+    // Create a set of tool call IDs that have pending approvals
+    // An approval is truly pending if:
+    // 1. It's in pendingApprovalsData with decision_status === 'pending', AND
+    // 2. It's NOT in resolvedApprovalStatuses (which takes precedence)
+    const toolCallsWithPendingApproval = new Set<string>()
+    for (const approval of Object.values(pendingApprovalsData)) {
+        const isResolved = resolvedApprovalStatuses[approval.proposal_id]?.status !== undefined
+        if (approval.original_tool_call_id && approval.decision_status === 'pending' && !isResolved) {
+            toolCallsWithPendingApproval.add(approval.original_tool_call_id)
         }
     }
 
@@ -1280,7 +1416,10 @@ function enhanceThreadToolCalls(
                 const isCompleted = !!toolCallCompletions.get(toolCall.id)
                 // create_form is an interactive tool - it's "completed" once rendered (waiting for user input)
                 const isInteractiveTool = toolCall.name === 'create_form'
-                const isFailed = !isCompleted && !isInteractiveTool && (!isFinalGroup || !isLoading)
+                // Tool calls with pending approvals should show as "in progress" (awaiting approval)
+                const hasPendingApproval = toolCallsWithPendingApproval.has(toolCall.id)
+                const isFailed =
+                    !isCompleted && !isInteractiveTool && !hasPendingApproval && (!isFinalGroup || !isLoading)
                 return {
                     ...toolCall,
                     status: isFailed
@@ -1354,7 +1493,7 @@ export async function onEventImplementation(
                 if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                     continue // Static tools (mode-level) don't operate via ui_payload
                 }
-                // Track pending approval proposals for auto-rejection
+                // Track pending approval proposals for auto-rejection and to disable input
                 const proposalId = toolResult?.proposalId || toolResult?.proposal_id
                 if (toolResult?.status === PENDING_APPROVAL_STATUS && proposalId) {
                     actions.setPendingApproval(proposalId)

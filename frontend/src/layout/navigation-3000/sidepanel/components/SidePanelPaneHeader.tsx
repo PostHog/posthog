@@ -31,7 +31,7 @@ export function SidePanelPaneHeader({ children, title, className, onClose }: Sid
                 className
             )}
         >
-            {!isRemovingSidePanelFlag && title ? (
+            {title ? (
                 <h3
                     className={cn('flex-1 flex items-center gap-1 font-semibold mb-0 truncate', {
                         'text-sm px-2': !modalMode,
@@ -49,7 +49,7 @@ export function SidePanelPaneHeader({ children, title, className, onClose }: Sid
                         closeSidePanel()
                         onClose?.()
                     }}
-                    tooltip="Close notebook panel"
+                    tooltip="Close side panel"
                     tooltipPlacement="bottom-end"
                     iconOnly
                     className="group"

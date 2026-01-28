@@ -1,3 +1,4 @@
+import uuid
 import logging
 from typing import Any, cast
 
@@ -22,14 +23,16 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
+from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.utils_cors import cors_response
 
+from products.product_tours.backend.constants import ProductTourEventName
 from products.product_tours.backend.models import ProductTour
 from products.product_tours.backend.prompts import TOUR_GENERATION_SYSTEM_PROMPT, TOUR_GENERATION_USER_PROMPT
 
@@ -74,8 +77,8 @@ class ProductTourSerializer(serializers.ModelSerializer):
     """Read-only serializer for ProductTour."""
 
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
-    feature_flag_key = serializers.SerializerMethodField()
     targeting_flag_filters = serializers.SerializerMethodField()
 
     class Meta:
@@ -85,7 +88,7 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "internal_targeting_flag",
-            "feature_flag_key",
+            "linked_flag",
             "targeting_flag_filters",
             "content",
             "auto_launch",
@@ -97,11 +100,6 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "archived",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
-
-    def get_feature_flag_key(self, tour: ProductTour) -> str | None:
-        if tour.internal_targeting_flag:
-            return tour.internal_targeting_flag.key
-        return None
 
     def get_targeting_flag_filters(self, tour: ProductTour) -> dict | None:
         """Return the targeting flag filters, excluding the base exclusion properties."""
@@ -137,8 +135,17 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
     """Serializer for creating and updating ProductTour."""
 
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     created_by = UserBasicSerializer(read_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
+    creation_context = serializers.ChoiceField(
+        choices=["app", "toolbar"],
+        required=False,
+        write_only=True,
+        default="app",
+        help_text="Where the tour was created/updated from",
+    )
 
     class Meta:
         model = ProductTour
@@ -147,6 +154,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "name",
             "description",
             "internal_targeting_flag",
+            "linked_flag",
+            "linked_flag_id",
             "targeting_flag_filters",
             "content",
             "auto_launch",
@@ -156,8 +165,9 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "archived",
+            "creation_context",
         ]
-        read_only_fields = ["id", "internal_targeting_flag", "created_at", "created_by", "updated_at"]
+        read_only_fields = ["id", "internal_targeting_flag", "linked_flag", "created_at", "created_by", "updated_at"]
 
     def validate_content(self, value):
         if value is None:
@@ -172,10 +182,44 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return value
 
+    def validate(self, data):
+        from posthog.models.feature_flag import FeatureFlag
+
+        linked_flag_id = data.get("linked_flag_id")
+        linked_flag = None
+        if linked_flag_id:
+            try:
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
+            except FeatureFlag.DoesNotExist:
+                raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        # Validate linkedFlagVariant if provided in content conditions
+        content = data.get("content") or {}
+        conditions = content.get("conditions") or {}
+        linked_flag_variant = conditions.get("linkedFlagVariant")
+        if linked_flag_variant and linked_flag and linked_flag_variant != "any":
+            available_variants = [variant["key"] for variant in linked_flag.variants]
+            if linked_flag_variant not in available_variants:
+                if available_variants:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' does not exist. "
+                        f"Available variants: {', '.join(available_variants)}"
+                    )
+                else:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
+                    )
+        elif linked_flag_variant and not linked_flag_id:
+            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
+
+        return data
+
     @transaction.atomic
     def create(self, validated_data):
         request = self.context["request"]
         team = self.context["get_team"]()
+
+        creation_context = validated_data.pop("creation_context", "app")
 
         validated_data["team"] = team
         validated_data["created_by"] = request.user
@@ -189,16 +233,44 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         # Create linked surveys for any survey steps
         self._sync_survey_steps(instance)
 
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(instance.id),
+            scope="ProductTour",
+            activity="created",
+            detail=Detail(name=instance.name),
+        )
+
+        report_user_action(
+            cast(User, request.user),
+            ProductTourEventName.CREATED,
+            {**instance.get_analytics_metadata(), "creation_context": creation_context},
+            team,
+        )
+
         return instance
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        request = self.context["request"]
+        team = self.context["get_team"]()
+        user = cast(User, request.user)
+
+        before_update = ProductTour.objects.get(pk=instance.pk)
+
+        creation_context = validated_data.pop("creation_context", "app")
+
         # Extract targeting_flag_filters before parent update
         # Use sentinel to distinguish "not provided" from "explicitly null"
         _NOT_PROVIDED = object()
         targeting_flag_filters = validated_data.pop("targeting_flag_filters", _NOT_PROVIDED)
 
         # Track what changed
+        before_start_date = instance.start_date
+        before_end_date = instance.end_date
         start_date_changed = "start_date" in validated_data and validated_data["start_date"] != instance.start_date
         end_date_changed = "end_date" in validated_data and validated_data["end_date"] != instance.end_date
         archived_changed = "archived" in validated_data and validated_data["archived"] != instance.archived
@@ -244,6 +316,32 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         # Sync linked surveys for any survey steps (create/update/end as needed)
         self._sync_survey_steps(instance, previous_content)
+
+        changes = changes_between("ProductTour", previous=before_update, current=instance)
+
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(instance.id),
+            scope="ProductTour",
+            activity="updated",
+            detail=Detail(changes=changes, name=instance.name),
+        )
+
+        analytics_metadata = {
+            **instance.get_analytics_metadata(),
+            "updated_by_creator": user == instance.created_by,
+            "creation_context": creation_context,
+        }
+
+        report_user_action(user, ProductTourEventName.UPDATED, analytics_metadata, team)
+
+        if before_start_date is None and instance.start_date is not None:
+            report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team)
+        elif before_end_date is None and instance.end_date is not None:
+            report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team)
 
         return instance
 
@@ -452,7 +550,6 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                 # Update existing survey
                 try:
                     survey = Survey.objects.get(id=linked_survey_id, team=instance.team)
-                    survey.name = survey_name
                     survey.questions = [survey_question]
                     # Ensure appearance has hideCancelButton set
                     survey.appearance = survey.appearance or {}
@@ -468,7 +565,6 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                     survey.enable_partial_responses = False  # Single question, no partial responses
                     survey.save(
                         update_fields=[
-                            "name",
                             "questions",
                             "appearance",
                             "start_date",
@@ -496,7 +592,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
                 survey = Survey.objects.create(
                     team=instance.team,
-                    name=survey_name,
+                    name=f"{survey_name} ({str(uuid.uuid4())[:8]})",
                     type="api",  # API type since we'll trigger it programmatically
                     questions=[survey_question],
                     appearance=survey_appearance,
@@ -535,7 +631,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "product_tour"
-    queryset = ProductTour.objects.select_related("internal_targeting_flag", "created_by").all()
+    queryset = ProductTour.objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
     authentication_classes = [TemporaryTokenAuthentication]
@@ -582,6 +678,13 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             scope="ProductTour",
             activity="deleted",
             detail=Detail(name=instance.name),
+        )
+
+        report_user_action(
+            cast(User, self.request.user),
+            ProductTourEventName.DELETED,
+            instance.get_analytics_metadata(),
+            self.team,
         )
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -694,6 +797,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
     """
 
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
+    linked_flag_key = serializers.SerializerMethodField()
     steps = serializers.SerializerMethodField()
     conditions = serializers.SerializerMethodField()
     appearance = serializers.SerializerMethodField()
@@ -705,6 +809,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
             "id",
             "name",
             "internal_targeting_flag_key",
+            "linked_flag_key",
             "steps",
             "conditions",
             "appearance",
@@ -714,6 +819,9 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
             "end_date",
         ]
         read_only_fields = fields
+
+    def get_linked_flag_key(self, tour: ProductTour) -> str | None:
+        return tour.linked_flag.key if tour.linked_flag else None
 
     def get_steps(self, tour: ProductTour) -> list:
         return tour.content.get("steps", []) if tour.content else []
@@ -735,7 +843,7 @@ def get_product_tours_response(team: Team) -> dict:
             team__project_id=team.project_id,
             archived=False,
             start_date__isnull=False,
-        ).select_related("internal_targeting_flag"),
+        ).select_related("internal_targeting_flag", "linked_flag"),
         many=True,
     ).data
 

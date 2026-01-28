@@ -205,7 +205,13 @@ export type CdpConfig = {
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
+/** The lane for ingestion consumers */
+export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
+
 export type IngestionConsumerConfig = {
+    /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
+    INGESTION_LANE?: IngestionLane
+
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
     INGESTION_CONSUMER_CONSUME_TOPIC: string
@@ -219,8 +225,6 @@ export type IngestionConsumerConfig = {
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of token or token:distinct_id to force overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether Kafka message keys should be preserved when rerouted to overflow
-    /** If true, use the joined ingestion pipeline instead of the legacy two-stage pipeline */
-    INGESTION_JOINED_PIPELINE: boolean
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
@@ -253,6 +257,14 @@ export type IngestionConsumerConfig = {
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+
+    // Stateful overflow config
+    /** If true, use stateful overflow redirect with Redis. If false, use stateless MemoryRateLimiter. */
+    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
+    /** TTL in seconds for overflow flags in Redis (default: 300 = 5 minutes) */
+    INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
+    /** TTL in seconds for local cache entries (default: 60 = 1 minute) */
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -340,6 +352,16 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: number
+    /** When true, rate limiting will drop messages that exceed the limit. When false, dry run mode (metrics only) */
+    SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: boolean
+    /** When false, skips all Redis calls for session filtering. Use to bypass Redis during outages */
+    SESSION_RECORDING_SESSION_FILTER_ENABLED: boolean
+    /** TTL in milliseconds for the in-memory session tracker cache */
+    SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
+    /** TTL in milliseconds for the in-memory session filter cache */
+    SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
 }
 
 export interface PluginsServerConfig

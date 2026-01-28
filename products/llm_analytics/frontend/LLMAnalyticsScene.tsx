@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React from 'react'
@@ -20,7 +19,6 @@ import {
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
-import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -45,7 +43,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { DashboardPlacement, EventType } from '~/types'
 
@@ -69,40 +67,29 @@ import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import {
-    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    getDefaultGenerationsColumns,
-    llmAnalyticsLogic,
-} from './llmAnalyticsLogic'
+import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { LLMPromptsScene } from './prompts/LLMPromptsScene'
 import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from './settings/TrialUsageMeter'
+import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
+import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
 import { truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
-    logic: llmAnalyticsLogic,
+    logic: llmAnalyticsSharedLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
-    const {
-        dashboardDateFilter,
-        dateFilter,
-        shouldFilterTestAccounts,
-        generationsQuery,
-        propertyFilters,
-        activeTab,
-        selectedDashboardId,
-    } = useValues(llmAnalyticsLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
+        useValues(llmAnalyticsSharedLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { generationsQuery } = useValues(llmAnalyticsGenerationsLogic)
+    const { selectedDashboardId } = useValues(llmAnalyticsDashboardLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
-
-    const useCustomizableDashboard =
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
@@ -123,7 +110,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                 </>
             )}
             {hidePropertyFilters && <div className="flex-1" />}
-            {activeTab === 'dashboard' && useCustomizableDashboard && selectedDashboardId && (
+            {activeTab === 'dashboard' && selectedDashboardId && (
                 <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
                     Edit dashboard
                 </LemonButton>
@@ -133,39 +120,10 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
     )
 }
 
-const Tiles = (): JSX.Element => {
-    const { tiles } = useValues(llmAnalyticsLogic)
-
-    return (
-        <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
-            {tiles.map(({ title, description, query, context }, i) => (
-                <QueryCard
-                    key={i}
-                    attachTo={llmAnalyticsLogic}
-                    title={title}
-                    description={description}
-                    query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
-                    context={context}
-                    sceneSource="llm-analytics"
-                    className={clsx(
-                        'h-96',
-                        /* Second row is the only one to have 2 tiles in the xl layout */
-                        i < 3 || i >= 5 ? '@4xl/dashboard:col-span-2' : '@4xl/dashboard:col-span-3'
-                    )}
-                />
-            ))}
-        </div>
-    )
-}
-
 function LLMAnalyticsDashboard(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { selectedDashboardId, availableDashboardsLoading, dashboardDateFilter, propertyFilters } =
-        useValues(llmAnalyticsLogic)
+    const { dashboardDateFilter, propertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { selectedDashboardId, availableDashboardsLoading } = useValues(llmAnalyticsDashboardLogic)
 
-    const useCustomizableDashboard =
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
     const dashboardLogicInstance = React.useMemo(
         () =>
             selectedDashboardId
@@ -195,19 +153,15 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
     return (
         <LLMAnalyticsSetupPrompt>
-            <div className="@container/dashboard">
+            <div className="@container/dashboard" data-attr="llm-analytics-costs">
                 <Filters />
 
-                {useCustomizableDashboard ? (
-                    availableDashboardsLoading || !selectedDashboardId ? (
-                        <div className="text-center p-8">
-                            <Spinner />
-                        </div>
-                    ) : (
-                        <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
-                    )
+                {availableDashboardsLoading || !selectedDashboardId ? (
+                    <div className="text-center p-8">
+                        <Spinner />
+                    </div>
                 ) : (
-                    <Tiles />
+                    <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
                 )}
             </div>
         </LLMAnalyticsSetupPrompt>
@@ -215,21 +169,12 @@ function LLMAnalyticsDashboard(): JSX.Element {
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const {
-        setDates,
-        setShouldFilterTestAccounts,
-        setPropertyFilters,
-        setGenerationsColumns,
-        toggleGenerationExpanded,
-        setGenerationsSort,
-    } = useActions(llmAnalyticsLogic)
-    const {
-        generationsQuery,
-        propertyFilters: currentPropertyFilters,
-        expandedGenerationIds,
-        loadedTraces,
-        generationsSort,
-    } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
+        useActions(llmAnalyticsGenerationsLogic)
+    const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } =
+        useValues(llmAnalyticsGenerationsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
@@ -643,7 +588,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 }
 
 export function LLMAnalyticsScene(): JSX.Element {
-    const { activeTab } = useValues(llmAnalyticsLogic)
+    const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const { push } = useActions(router)
@@ -694,7 +639,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             key: 'traces',
             label: 'Traces',
             content: (
-                <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsSetupPrompt thing="trace">
                     <LLMAnalyticsTraces />
                 </LLMAnalyticsSetupPrompt>
             ),

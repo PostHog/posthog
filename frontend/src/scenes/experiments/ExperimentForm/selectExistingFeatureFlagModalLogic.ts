@@ -49,6 +49,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         closeSelectExistingFeatureFlagModal: true,
         setFilters: (filters: Partial<FeatureFlagModalFilters>, replace?: boolean) => ({ filters, replace }),
         resetFilters: true,
+        loadFeatureFlagsForAutocomplete: true,
     }),
 
     reducers({
@@ -83,6 +84,9 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         },
         openSelectExistingFeatureFlagModal: () => {
             actions.reportExperimentFeatureFlagModalOpened()
+            actions.loadFeatureFlags()
+        },
+        loadFeatureFlagsForAutocomplete: () => {
             actions.loadFeatureFlags()
         },
         loadCurrentTeamSuccess: () => {

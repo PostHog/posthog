@@ -1,10 +1,15 @@
-import { type PublicKeyCredentialDescriptorJSON, startAuthentication } from '@simplewebauthn/browser'
+import {
+    type PublicKeyCredentialDescriptorJSON,
+    type WebAuthnError,
+    startAuthentication,
+} from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { handleLoginRedirect, loginLogic } from './loginLogic'
@@ -22,22 +27,6 @@ export interface BeginPasskeyLoginParams {
     next?: string
     email?: string
     reauth?: 'true' | 'false'
-}
-
-const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
-    NotAllowedError: 'Authentication was cancelled or timed out.',
-    SecurityError: 'Security error occurred. Please try again.',
-    AbortError: 'Authentication was cancelled.',
-}
-
-function getPasskeyErrorMessage(error: any): string {
-    // handle SimpleWebAuthn errors
-    if (error?.name && WEBAUTHN_ERROR_MESSAGES[error.name]) {
-        return WEBAUTHN_ERROR_MESSAGES[error.name]
-    }
-
-    // handle API errors
-    return error?.detail || error?.data?.error || error?.message || 'Passkey authentication failed. Please try again.'
 }
 
 export const passkeyLogic = kea<passkeyLogicType>([
@@ -120,8 +109,25 @@ export const passkeyLogic = kea<passkeyLogicType>([
                         await api.create('api/webauthn/login/complete/', assertion)
 
                         return null
-                    } catch (e: any) {
-                        actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                    } catch (e: unknown) {
+                        // Only set error if it's not a user cancellation (those are expected)
+                        if (e && typeof e === 'object' && 'name' in e) {
+                            const errorName = (e as WebAuthnError).name
+                            if (errorName !== 'NotAllowedError' && errorName !== 'AbortError') {
+                                actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                            }
+                        } else if (e && typeof e === 'object' && 'error' in e) {
+                            const nestedError = (e as { error?: WebAuthnError }).error
+                            if (
+                                nestedError?.name &&
+                                nestedError.name !== 'NotAllowedError' &&
+                                nestedError.name !== 'AbortError'
+                            ) {
+                                actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                            }
+                        } else {
+                            actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                        }
                         throw e
                     }
                 },
@@ -150,6 +156,11 @@ export const passkeyLogic = kea<passkeyLogicType>([
             }
 
             window.location.reload()
+        },
+        startPasskeyAuthenticationFailure: () => {
+            // When passkey authentication fails (user cancels, etc.), reset state
+            // This allows the normal login flow to continue (e.g., password + 2FA)
+            actions.reset()
         },
     })),
 ])

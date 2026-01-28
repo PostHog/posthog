@@ -16,7 +16,6 @@ from two_factor.urls import urlpatterns as tf_urls
 from posthog.api import (
     api_not_found,
     authentication,
-    decide,
     github,
     hog_flow_template,
     hog_function_template,
@@ -193,6 +192,7 @@ urlpatterns = [
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
+    opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -238,7 +238,6 @@ urlpatterns = [
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
-    opt_slash_path("decide", decide.get_decide),
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
