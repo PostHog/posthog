@@ -91,7 +91,6 @@ export const compareDataNodeQuery = (a: Node, b: Node, opts?: CompareQueryOpts):
     return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
 }
 
-/** Recursively checks whether any property filter in the query has an invalid RE2 regex value. */
 export const hasInvalidRegexFilter = (obj: unknown): boolean => {
     if (Array.isArray(obj)) {
         return obj.some(hasInvalidRegexFilter)
@@ -113,7 +112,6 @@ export const hasInvalidRegexFilter = (obj: unknown): boolean => {
     return false
 }
 
-/** Tests wether a query is valid to prevent unnecessary requests. */
 export const validateQuery = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
         // funnels require at least two steps
