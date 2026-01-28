@@ -7,12 +7,12 @@ import { router } from 'kea-router'
 import {
     IconBalance,
     IconCode,
+    IconFlag,
     IconGlobe,
     IconInfo,
     IconList,
     IconPlus,
     IconServer,
-    IconToggle,
     IconTrash,
 } from '@posthog/icons'
 import {
@@ -282,7 +282,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     {({ value, onChange }) => (
                                         <Tooltip
                                             title="When enabled, this flag evaluates according to your release conditions. When disabled, this flag will not be evaluated and PostHog SDKs default to returning false."
-                                            placement="right"
+                                            placement="top"
                                         >
                                             <LemonSwitch
                                                 checked={value}
@@ -355,8 +355,29 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             {/* Advanced options card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                 <LemonLabel>Advanced options</LemonLabel>
+                                <p className="text-xs text-muted mb-1">
+                                    Control where and how this flag is evaluated. Most flags work fine with the
+                                    defaults.
+                                </p>
 
-                                <LemonField name="evaluation_runtime">
+                                <LemonField
+                                    name="evaluation_runtime"
+                                    label="Evaluation runtime"
+                                    labelClassName="font-medium"
+                                    info={
+                                        <>
+                                            Controls where your feature flag can be evaluated. If you try to use a flag
+                                            in a runtime where it's not allowed (e.g., using a server-only flag in
+                                            client-side code), it won't evaluate.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-environments-optional"
+                                                target="_blank"
+                                            >
+                                                Learn more
+                                            </Link>
+                                        </>
+                                    }
+                                >
                                     <LemonSelect
                                         fullWidth
                                         options={[
@@ -401,40 +422,35 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     />
                                 </LemonField>
 
-                                <LemonField name="ensure_experience_continuity">
+                                <LemonDivider className="my-1" />
+
+                                <LemonField
+                                    name="ensure_experience_continuity"
+                                    label="Persistence"
+                                    labelClassName="font-medium"
+                                    info={
+                                        <>
+                                            If your feature flag is applied before identifying the user, use this to
+                                            ensure that the flag value remains consistent for the same user. This
+                                            requires creating profiles for anonymous users.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                target="_blank"
+                                            >
+                                                Learn more
+                                            </Link>
+                                        </>
+                                    }
+                                >
                                     {({ value, onChange }) => (
-                                        <Tooltip
-                                            title={
-                                                <>
-                                                    If your feature flag is applied before identifying the user, use
-                                                    this to ensure that the flag value remains consistent for the same
-                                                    user. Depending on your setup, this option might not always be
-                                                    suitable. This feature requires creating profiles for anonymous
-                                                    users.{' '}
-                                                    <Link
-                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                        target="_blank"
-                                                    >
-                                                        Learn more
-                                                    </Link>
-                                                </>
-                                            }
-                                            placement="right"
-                                        >
-                                            <LemonSwitch
-                                                checked={value}
-                                                onChange={onChange}
-                                                bordered
-                                                fullWidth
-                                                label={
-                                                    <span className="flex items-center">
-                                                        <span>Persist flag across authentication steps</span>
-                                                        <IconInfo className="ml-1 text-lg" />
-                                                    </span>
-                                                }
-                                                data-attr="feature-flag-persist-across-auth"
-                                            />
-                                        </Tooltip>
+                                        <LemonSwitch
+                                            checked={value}
+                                            onChange={onChange}
+                                            bordered
+                                            fullWidth
+                                            label="Persist flag across authentication steps"
+                                            data-attr="feature-flag-persist-across-auth"
+                                        />
                                     )}
                                 </LemonField>
                             </div>
@@ -496,7 +512,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     </div>
                                                 ),
                                                 value: 'boolean',
-                                                icon: <IconToggle />,
+                                                icon: <IconFlag />,
                                             },
                                             {
                                                 label: (

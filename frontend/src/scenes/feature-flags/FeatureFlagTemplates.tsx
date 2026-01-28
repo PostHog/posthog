@@ -10,7 +10,7 @@ import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 import { userLogic } from '../userLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 
-interface TemplateValues {
+export interface TemplateValues {
     key?: string
     name?: string
     active?: boolean
@@ -25,61 +25,76 @@ interface FlagTemplate {
     getValues: (currentFlag: FeatureFlagType) => TemplateValues
 }
 
+export interface ApplyTemplateResult {
+    updatedFlag: Partial<FeatureFlagType>
+    preservedFields: string[]
+}
+
+/** Pure function that merges template values into a flag, respecting user-edited fields. */
+export function mergeTemplateValues(
+    currentFlag: FeatureFlagType,
+    templateValues: TemplateValues,
+    userEditedFields: Set<string>
+): ApplyTemplateResult {
+    const preservedFields: string[] = []
+    const updates: Partial<FeatureFlagType> = { ...currentFlag }
+
+    if (templateValues.key !== undefined) {
+        if (userEditedFields.has('key')) {
+            preservedFields.push('flag key')
+        } else {
+            updates.key = currentFlag.key || templateValues.key
+        }
+    }
+
+    if (templateValues.name !== undefined) {
+        if (userEditedFields.has('name')) {
+            preservedFields.push('description')
+        } else {
+            updates.name = currentFlag.name || templateValues.name
+        }
+    }
+
+    if (templateValues.active !== undefined) {
+        if (userEditedFields.has('active')) {
+            preservedFields.push('enabled state')
+        } else {
+            updates.active = templateValues.active
+        }
+    }
+
+    if (templateValues.filters !== undefined) {
+        if (userEditedFields.has('filters')) {
+            preservedFields.push('release conditions')
+        } else {
+            updates.filters = {
+                ...currentFlag.filters,
+                ...templateValues.filters,
+            }
+        }
+    }
+
+    return { updatedFlag: updates, preservedFields }
+}
+
 interface FeatureFlagTemplatesProps {
     onTemplateApplied?: (sectionsToOpen: string[]) => void
 }
 
-export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplatesProps): JSX.Element {
+export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplatesProps): JSX.Element | null {
     const { featureFlag, featureFlagLoading, userEditedFields } = useValues(featureFlagLogic)
     const { setFeatureFlag } = useActions(featureFlagLogic)
     const { user } = useValues(userLogic)
 
     const applyTemplate = (template: FlagTemplate): void => {
-        // Read featureFlag fresh from the logic to avoid stale closures
         const currentFlag = featureFlag
         if (!currentFlag) {
             return
         }
         const templateValues = template.getValues(currentFlag)
-        const preservedFields: string[] = []
-        const updates: Partial<FeatureFlagType> = { ...currentFlag }
+        const { updatedFlag, preservedFields } = mergeTemplateValues(currentFlag, templateValues, userEditedFields)
 
-        if (templateValues.key !== undefined) {
-            if (userEditedFields.has('key')) {
-                preservedFields.push('flag key')
-            } else {
-                updates.key = currentFlag.key || templateValues.key
-            }
-        }
-
-        if (templateValues.name !== undefined) {
-            if (userEditedFields.has('name')) {
-                preservedFields.push('description')
-            } else {
-                updates.name = currentFlag.name || templateValues.name
-            }
-        }
-
-        if (templateValues.active !== undefined) {
-            if (userEditedFields.has('active')) {
-                preservedFields.push('enabled state')
-            } else {
-                updates.active = templateValues.active
-            }
-        }
-
-        if (templateValues.filters !== undefined) {
-            if (userEditedFields.has('filters')) {
-                preservedFields.push('release conditions')
-            } else {
-                updates.filters = {
-                    ...currentFlag.filters,
-                    ...templateValues.filters,
-                }
-            }
-        }
-
-        setFeatureFlag(updates as FeatureFlagType)
+        setFeatureFlag(updatedFlag as FeatureFlagType)
 
         if (preservedFields.length > 0) {
             lemonToast.info(
@@ -92,7 +107,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
     }
 
     if (!featureFlag) {
-        return <></>
+        return null
     }
 
     // Don't allow template application while the flag is still loading
