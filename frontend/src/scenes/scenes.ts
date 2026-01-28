@@ -323,6 +323,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.EmailMFAVerify]: { onlyUnauthenticated: true },
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
+    [Scene.Models]: {
+        projectBased: true,
+        name: 'Models',
+        description: 'Create and manage views and materialized views for transforming and organizing your data.',
+        defaultDocsPath: '/docs/data-warehouse/views/materialize',
+        iconType: 'sql_editor',
+    },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
     [Scene.NewTab]: {
         projectBased: true,
@@ -795,6 +802,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
+    [urls.models()]: [Scene.Models, 'models'],
     [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],

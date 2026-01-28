@@ -168,13 +168,6 @@
     "metadata": [
         { "path": "Actions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
-            "path": "Data pipelines",
-            "category": "Tools",
-            "iconType": "data_pipeline",
-            "type": "hog_function",
-            "intents": []
-        },
-        {
             "path": "Transformations",
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",
@@ -204,6 +197,7 @@
             "type": "hog_function/source",
             "intents": []
         },
+        { "path": "Models", "category": "Tools", "iconType": "sql_editor", "type": "sql", "intents": [] },
         {
             "path": "Managed viewsets",
             "category": "Unreleased",

@@ -18,14 +18,12 @@ import {
 
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
-import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 
 const REFRESH_INTERVAL = 10000
 
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
     SOURCES = 'sources',
-    VIEWS = 'views',
 }
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -33,13 +31,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables', 'views', 'databaseLoading'],
+            ['dataWarehouseTables', 'databaseLoading'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
             ['billingPeriodUTC', 'billing'],
-            dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueryMapById'],
         ],
         actions: [
             databaseTableListLogic,
@@ -208,12 +204,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.databaseLoading, s.dataWarehouseSourcesLoading],
             (databaseLoading: boolean, dataWarehouseSourcesLoading: boolean): boolean => {
                 return databaseLoading || dataWarehouseSourcesLoading
-            },
-        ],
-        materializedViews: [
-            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
-            (views, dataWarehouseSavedQueryMapById) => {
-                return views.filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
             },
         ],
         dataWarehouseProduct: [

@@ -49,6 +49,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
             '../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'
         ),
     DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
+    Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -109,6 +110,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
+    '/models': ['Models', 'models'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -237,6 +239,13 @@ export const productConfiguration: Record<string, any> = {
         description:
             'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
         iconType: 'data_warehouse',
+    },
+    Models: {
+        name: 'Models',
+        projectBased: true,
+        defaultDocsPath: '/docs/data-warehouse',
+        description: 'Create and manage views and materialized views for transforming and organizing your data.',
+        iconType: 'sql_editor',
     },
     SQLEditor: {
         projectBased: true,
@@ -461,6 +470,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataWarehouse: (): string => '/data-warehouse',
+    models: (): string => '/models',
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1057,7 +1067,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataWarehouse',
-        sceneKeys: ['DataWarehouse', 'SQLEditor'],
+        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
     },
     {
         path: 'Early access features',
@@ -1394,16 +1404,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: [],
     },
     {
-        path: 'Data pipelines',
-        category: 'Tools',
-        type: 'hog_function',
-        iconType: 'data_pipeline',
-        iconColor: ['var(--color-product-data-pipeline-light)'],
-        href: urls.dataPipelines(),
-        sceneKey: 'DataPipelines',
-        sceneKeys: ['DataPipelines'],
-    },
-    {
         path: `Destinations`,
         category: 'Pipeline',
         type: 'hog_function/destination',
@@ -1445,7 +1445,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataWarehouse', 'SQLEditor'],
+        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
     },
     {
         path: 'Marketing settings',
@@ -1455,6 +1455,16 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         sceneKey: 'WebAnalyticsMarketing',
         sceneKeys: ['WebAnalyticsMarketing'],
+    },
+    {
+        path: 'Models',
+        category: 'Tools',
+        type: 'sql',
+        iconType: 'sql_editor',
+        iconColor: ['var(--color-product-data-warehouse-light)'],
+        href: urls.models(),
+        sceneKey: 'Models',
+        sceneKeys: ['Models'],
     },
     {
         path: 'Property definitions',

@@ -55,16 +55,6 @@ export const manifest: ProductManifest = {
     ],
     treeItemsMetadata: [
         {
-            path: 'Data pipelines',
-            category: 'Tools',
-            type: 'hog_function',
-            iconType: 'data_pipeline',
-            iconColor: ['var(--color-product-data-pipeline-light)'],
-            href: urls.dataPipelines(),
-            sceneKey: 'DataPipelines',
-            sceneKeys: ['DataPipelines'],
-        },
-        {
             path: `Transformations`,
             category: 'Pipeline',
             type: 'hog_function/transformation',
