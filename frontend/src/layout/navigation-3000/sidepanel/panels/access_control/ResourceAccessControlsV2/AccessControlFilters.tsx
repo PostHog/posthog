@@ -1,3 +1,4 @@
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils'
@@ -92,6 +93,7 @@ function RolesFilter(props: {
             <LemonButton
                 type="secondary"
                 size="small"
+                sideIcon={<IconChevronDown />}
                 disabledReason={!props.canUseRoles ? 'You must upgrade your plan to use roles' : undefined}
             >
                 Role{props.selectedRoleIds.length ? ` (${props.selectedRoleIds.length})` : ''}
@@ -122,7 +124,7 @@ function MembersFilter(props: {
                 />
             }
         >
-            <LemonButton type="secondary" size="small">
+            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
                 Member{props.selectedMemberIds.length ? ` (${props.selectedMemberIds.length})` : ''}
             </LemonButton>
         </LemonDropdown>
@@ -148,7 +150,7 @@ function FeaturesFilter(props: {
                 />
             }
         >
-            <LemonButton type="secondary" size="small">
+            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
                 Feature{props.selectedResourceKeys.length ? ` (${props.selectedResourceKeys.length})` : ''}
             </LemonButton>
         </LemonDropdown>
@@ -174,7 +176,7 @@ function AccessLevelFilter(props: {
                 />
             }
         >
-            <LemonButton type="secondary" size="small">
+            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
                 Access{props.selectedRuleLevels.length ? ` (${props.selectedRuleLevels.length})` : ''}
             </LemonButton>
         </LemonDropdown>
