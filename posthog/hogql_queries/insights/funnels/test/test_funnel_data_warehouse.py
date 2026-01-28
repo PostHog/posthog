@@ -5,7 +5,14 @@ import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
-from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, DateRange, EventsNode, FunnelsQuery
+from posthog.schema import (
+    DataWarehouseNode,
+    DataWarehousePropertyFilter,
+    DateRange,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+)
 
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -264,3 +271,37 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         results = response.results
         assert results[0]["count"] == 4
         assert results[1]["count"] == 1
+
+    @snapshot_clickhouse_queries
+    def test_funnels_salesforce_lead_to_opportunity(self):
+        lead_table_name, opportunity_table_name = self.setup_salesforce_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2024-05-01"),
+            series=[
+                DataWarehouseNode(
+                    id=lead_table_name,
+                    table_name=lead_table_name,
+                    id_field="id",
+                    distinct_id_field="converted_opportunity_id",
+                    timestamp_field="created_date",
+                ),
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created_date",
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
+        )
+
+        with freeze_time("2024-06-30"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 3
