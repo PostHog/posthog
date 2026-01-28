@@ -218,6 +218,27 @@ describe('CyclotronJobQueue', () => {
             expect(queue['shadowPostgres']!.queueInvocations).toHaveBeenCalledWith(invocations)
         })
 
+        it('should not shadow write hogflow invocations', async () => {
+            const queue = buildQueue(true)
+            await queue.startAsProducer()
+
+            const invocations = [
+                {
+                    ...createInvocation(
+                        {
+                            ...createHogExecutionGlobals(),
+                            inputs: {},
+                        },
+                        exampleHogFunction
+                    ),
+                    queue: 'hogflow' as const,
+                },
+            ]
+            await queue.queueInvocations(invocations)
+
+            expect(queue['shadowPostgres']!.queueInvocations).not.toHaveBeenCalled()
+        })
+
         it('should not block on shadow write failure', async () => {
             const queue = buildQueue(true)
             await queue.startAsProducer()
