@@ -17,16 +17,17 @@ from webauthn import (
     verify_authentication_response,
     verify_registration_response,
 )
+from webauthn.authentication.verify_authentication_response import VerifiedAuthentication
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     PublicKeyCredentialCreationOptions,
     PublicKeyCredentialDescriptor,
     PublicKeyCredentialRequestOptions,
-    RegistrationCredential,
     ResidentKeyRequirement,
     UserVerificationRequirement,
 )
+from webauthn.registration.verify_registration_response import VerifiedRegistration
 
 # Challenge timeout in milliseconds (1 minute)
 CHALLENGE_TIMEOUT_MS = 60000
@@ -91,7 +92,7 @@ def generate_passkey_registration_options(
 def verify_passkey_registration_response(
     credential: dict,
     expected_challenge: bytes,
-) -> RegistrationCredential:
+) -> VerifiedRegistration:
     """
     Verify a WebAuthn registration response with secure defaults.
 
@@ -100,7 +101,7 @@ def verify_passkey_registration_response(
         expected_challenge: The challenge bytes that were sent to the browser
 
     Returns:
-        RegistrationCredential with verified credential data
+        VerifiedRegistration with verified credential data
     """
     return verify_registration_response(
         credential=credential,
@@ -139,7 +140,7 @@ def verify_passkey_authentication_response(
     expected_challenge: bytes,
     credential_public_key: bytes,
     credential_current_sign_count: int,
-):
+) -> VerifiedAuthentication:
     """
     Verify a WebAuthn authentication response with secure defaults.
 
@@ -150,7 +151,7 @@ def verify_passkey_authentication_response(
         credential_current_sign_count: The stored sign count for replay detection
 
     Returns:
-        AuthenticationCredential with verification result
+        VerifiedAuthentication with verification result
     """
     return verify_authentication_response(
         credential=credential,
