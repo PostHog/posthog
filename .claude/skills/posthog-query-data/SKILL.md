@@ -262,6 +262,10 @@ JOIN persons p ON e.person_id = p.id AND e.timestamp > p.created_at
 CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at
 ```
 
+### Syntax extensions and HogQL functions
+
+Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation, HTML tags and links, Text effects, and other](./references/hogql-extensions.md).
+
 ### Other rules
 
 - WHERE clause must come after all JOINs
