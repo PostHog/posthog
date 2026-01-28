@@ -33,7 +33,11 @@ export function Elements(): JSX.Element {
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
     const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
-    const { isSelecting: productToursSelecting, hoverElementRect: productToursHoverRect } = useValues(productToursLogic)
+    const {
+        isSelecting: productToursSelecting,
+        hoverElementRect: productToursHoverRect,
+        expandedStepRect: productToursSelectedStepRect,
+    } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
@@ -68,6 +72,7 @@ export function Elements(): JSX.Element {
                 {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
                 {productToursSelecting && productToursHoverRect && <ElementHighlight rect={productToursHoverRect} />}
+                {productToursSelectedStepRect && <ElementHighlight rect={productToursSelectedStepRect} isSelected />}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (
