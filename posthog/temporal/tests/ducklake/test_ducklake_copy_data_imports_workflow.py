@@ -195,7 +195,7 @@ async def test_prepare_data_imports_ducklake_metadata_activity_empty_schema_ids(
 def _create_mock_catalog():
     """Create a mock DuckLakeCatalog with cross-account settings."""
     mock_catalog = MagicMock()
-    mock_catalog.to_config.return_value = {
+    mock_catalog.to_public_config.return_value = {
         "DUCKLAKE_RDS_HOST": "localhost",
         "DUCKLAKE_RDS_PORT": "5432",
         "DUCKLAKE_RDS_DATABASE": "ducklake",
