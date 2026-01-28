@@ -124,6 +124,11 @@ class ExecutionTimeRecorder:
         self.histogram_attributes = histogram_attributes or {}
         self.log = log
         self._start_counter: float | None = None
+        self._status_override: str | None = None
+
+    def set_status(self, status: str) -> None:
+        """Override the status that will be recorded. Use for non-exception outcomes like SKIPPED."""
+        self._status_override = status
 
     def __enter__(self) -> typing.Self:
         self._start_counter = time.perf_counter()
@@ -139,7 +144,10 @@ class ExecutionTimeRecorder:
 
         attributes = dict(self.histogram_attributes)
 
-        if exc_value is not None:
+        if self._status_override is not None:
+            attributes["status"] = self._status_override
+            attributes["exception"] = ""
+        elif exc_value is not None:
             attributes["status"] = "FAILED"
             attributes["exception"] = str(exc_value)
         else:
@@ -214,7 +222,7 @@ class _EvalsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         with ExecutionTimeRecorder(
             "llma_eval_workflow_execution_latency",
             description="End-to-end workflow execution latency",
-        ):
+        ) as recorder:
             status = "COMPLETED"
             try:
                 result = await super().execute_workflow(input)
@@ -222,6 +230,7 @@ class _EvalsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
                 # Check if workflow was skipped
                 if isinstance(result, dict) and result.get("skipped"):
                     status = "SKIPPED"
+                    recorder.set_status(status)
                     increment_workflow_finished(status)
                     return result
 

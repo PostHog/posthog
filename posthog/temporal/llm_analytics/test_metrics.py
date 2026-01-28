@@ -60,6 +60,20 @@ class TestExecutionTimeRecorder:
             assert call_args["status"] == "COMPLETED"
             assert call_args["exception"] == ""
 
+    def test_set_status_overrides_default(self):
+        """Test that set_status overrides the default COMPLETED status"""
+        mock_meter = MagicMock()
+        mock_hist = MagicMock()
+        mock_meter.create_histogram_timedelta.return_value = mock_hist
+
+        with patch("posthog.temporal.llm_analytics.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+            with ExecutionTimeRecorder("test_histogram") as recorder:
+                recorder.set_status("SKIPPED")
+
+            call_args = mock_get.call_args[0][0]
+            assert call_args["status"] == "SKIPPED"
+            assert call_args["exception"] == ""
+
 
 class TestEvalsMetricsInterceptor:
     def test_interceptor_creates_activity_interceptor(self):
