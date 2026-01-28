@@ -39,7 +39,7 @@ Table | Description
 `system.groups` | Group entities
 `system.group_type_mappings` | Group type definitions
 `system.ingestion_warnings` | Data ingestion issues
-`system.insight_variables` | Variables used in insights
+`system.insight_variables` | SQL, dashboard, and insight variables for dynamic query filtering
 `system.insights` | Visual and textual representations of aggregated data
 `system.notebooks` | Collaborative documents with embedded insights
 `system.surveys` | Questionnaires and feedback forms
@@ -62,6 +62,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Groups](references/models-groups.md)
 - [Notebooks](references/models-notebooks.md)
 - [Surveys](references/models-surveys.md)
+- [SQL Variables](references/models-variables.md)
 
 #### Entity Relationships
 
@@ -274,17 +275,9 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 - Always handle nulls before array functions: `splitByChar(',', coalesce(field, ''))`
 - Performance: always filter `events` by timestamp
 
-### Variables (optional filters)
+### SQL Variables
 
-Use the `variables` namespace with guards:
-
-```sql
--- Optional org filter
-AND (coalesce(variables.org, '') = '' OR properties.org = variables.org)
-
--- Optional browser filter
-AND (variables.browser IS NULL OR properties.$browser = variables.browser)
-```
+Review the [reference](./references/models-variables.md) for SQL variables and dashboard filters.
 
 ### Available HogQL functions
 
