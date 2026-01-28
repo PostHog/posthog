@@ -43,7 +43,7 @@ export const BillingProductPricingTable = ({
         'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
 
     // Use display_unit for column header if display formatting is configured
-    const unitLabel = hasDisplayFormatting(product) ? product.display_unit || product.unit : product.unit
+    const unitLabel = (hasDisplayFormatting(product) && product.display_unit) || product.unit || 'unit'
 
     // Helper to format usage values with display formatting if configured
     const formatUsage = createProductValueFormatter(product)

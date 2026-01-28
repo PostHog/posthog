@@ -48,7 +48,7 @@ export const getTierDescription = (
     return i === 0
         ? tiers[i].up_to
             ? `First ${formatValue(tiers[i].up_to)}${unitLabel ? ` ${unitLabel}` : ''} / ${interval}`
-            : `All ${unitLabel || product.display_unit || product.unit + 's'}`
+            : `All ${unitLabel || product.display_unit || (product.unit ? product.unit + 's' : 'units')}`
         : tiers[i].up_to
           ? `${formatValue(tiers?.[i - 1].up_to || null)} - ${formatValue(tiers[i].up_to)}`
           : `> ${formatValue(tiers?.[i - 1].up_to || null)}`
