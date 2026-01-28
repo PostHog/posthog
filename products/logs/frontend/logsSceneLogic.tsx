@@ -10,6 +10,7 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -129,9 +130,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
             }
-            if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
-                actions.setLogsPageSize(+params.logsPageSize)
-            }
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
@@ -157,23 +155,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
-                updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
                 actions.runQuery()
-                return params
-            })
-        }
-
-        const updateUrlWithPageSize = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
-                actions.applyLogsPageSize(values.logsPageSize)
                 return params
             })
         }
@@ -195,17 +177,14 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         return {
             fetchLogsSuccess: () => clearInitialLogsLimit(),
             syncUrlAndRunQuery: () => buildUrlAndRunQuery(),
-            syncUrlWithPageSize: () => updateUrlWithPageSize(),
         }
     }),
 
     actions({
         syncUrlAndRunQuery: true,
-        syncUrlWithPageSize: true,
         runQuery: (debounce?: integer) => ({ debounce }),
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
-        applyLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
         clearLogs: true,
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
@@ -248,7 +227,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             propertyType,
         }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
-        setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
         setInitialLogsLimit: (initialLogsLimit: number | null) => ({ initialLogsLimit }),
         toggleExpandLog: (logId: string) => ({ logId }),
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
@@ -276,12 +254,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                     return [entry, ...state].slice(0, 10)
                 },
                 clearFilterHistory: () => [],
-            },
-        ],
-        logsPageSize: [
-            DEFAULT_LOGS_PAGE_SIZE,
-            {
-                setLogsPageSize: (_, { logsPageSize }) => logsPageSize,
             },
         ],
         initialLogsLimit: [
@@ -476,7 +448,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: values.initialLogsLimit ?? values.logsPageSize,
+                            limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
@@ -503,7 +475,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                     await breakpoint(300)
                     const response = await api.logs.query({
                         query: {
-                            limit: limit ?? values.logsPageSize,
+                            limit: limit ?? DEFAULT_LOGS_PAGE_SIZE,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
@@ -754,6 +726,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 posthog.capture('logs no results returned')
             } else {
                 posthog.capture('logs results returned', { count: logs.length })
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstLogs)
             }
         },
         fetchNextLogsPage: () => {
@@ -874,9 +847,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
             actions.syncUrlAndRunQuery()
         },
-        setLogsPageSize: () => {
-            actions.syncUrlWithPageSize()
-        },
         setLiveTailRunning: async ({ enabled }) => {
             if (enabled) {
                 posthog.capture('logs live tail started')
@@ -993,16 +963,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
         },
-        applyLogsPageSize: ({ logsPageSize }) => {
-            const currentCount = values.logs.length
-
-            if (logsPageSize > currentCount && values.hasMoreLogsToLoad) {
-                actions.fetchNextLogsPage(logsPageSize - currentCount)
-            } else if (logsPageSize < currentCount) {
-                actions.truncateLogs(logsPageSize)
-                actions.setHasMoreLogsToLoad(true)
-            }
-        },
         pollForNewLogs: async () => {
             if (!values.liveTailRunning || values.orderBy !== 'latest' || document.hidden) {
                 return
@@ -1017,7 +977,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 const start = Date.now()
                 const response = await api.logs.query({
                     query: {
-                        limit: values.logsPageSize,
+                        limit: DEFAULT_LOGS_PAGE_SIZE,
                         orderBy: values.orderBy,
                         dateRange: values.utcDateRange,
                         searchTerm: values.searchTerm,
@@ -1047,7 +1007,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                             ...values.logs.map((log) => ({ ...log, new: false })),
                         ]
                             .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-                            .slice(0, values.logsPageSize)
+                            .slice(0, DEFAULT_LOGS_PAGE_SIZE)
                     )
                     actions.addLogsToSparkline(newLogs)
                 } else {

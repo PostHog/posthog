@@ -41,11 +41,6 @@ import { getDefaultDisplayFrequency, getDisplayFrequencyOptions, isAnnouncement 
 
 type TourTriggerType = 'immediate' | 'event' | 'action'
 
-interface AutoShowSectionProps {
-    conditions: ProductTourDisplayConditions
-    onChange: (conditions: ProductTourDisplayConditions) => void
-}
-
 /**
  * this should probably be re-used from surveys!!
  *
@@ -57,7 +52,18 @@ interface AutoShowSectionProps {
  * xoxo,
  * @adboio
  */
-function EventTriggerContent({ conditions, onChange }: AutoShowSectionProps): JSX.Element {
+function EventTriggerContent({ id }: { id: string }): JSX.Element {
+    const { productTourForm } = useValues(productTourLogic({ id }))
+    const { setProductTourFormValue } = useActions(productTourLogic({ id }))
+
+    const conditions = productTourForm.content?.conditions || {}
+
+    const onChange = (newConditions: ProductTourDisplayConditions): void => {
+        setProductTourFormValue('content', {
+            ...productTourForm.content,
+            conditions: newConditions,
+        })
+    }
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
     const excludedObjectProperties = useMemo(() => {
@@ -182,9 +188,18 @@ function EventTriggerContent({ conditions, onChange }: AutoShowSectionProps): JS
     )
 }
 
-export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps): JSX.Element | null {
-    const { productTourForm, productTour } = useValues(productTourLogic)
-    const { setProductTourFormValue } = useActions(productTourLogic)
+export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
+    const { productTourForm, productTour, entityKeyword } = useValues(productTourLogic({ id }))
+    const { setProductTourFormValue } = useActions(productTourLogic({ id }))
+
+    const conditions = productTourForm.content?.conditions || {}
+
+    const onChange = (newConditions: ProductTourDisplayConditions): void => {
+        setProductTourFormValue('content', {
+            ...productTourForm.content,
+            conditions: newConditions,
+        })
+    }
 
     // Load recent URLs from property definitions
     const { options } = useValues(propertyDefinitionsModel)
@@ -314,7 +329,7 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
             <div>
                 <h5 className="font-semibold mb-2">
                     When to show&nbsp;
-                    <Tooltip title="Choose when to show the tour to matching users.">
+                    <Tooltip title={`Choose when to show the ${entityKeyword} to matching users.`}>
                         <IconInfo />
                     </Tooltip>
                 </h5>
@@ -325,7 +340,7 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
                     className="w-full"
                 />
 
-                {triggerType === 'event' && <EventTriggerContent conditions={conditions} onChange={onChange} />}
+                {triggerType === 'event' && <EventTriggerContent id={id} />}
 
                 {triggerType === 'action' && (
                     <div className="mt-3">
@@ -377,7 +392,9 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
                         }}
                         className="w-12"
                     />
-                    <span className="text-sm">seconds before showing the tour after the conditions are met</span>
+                    <span className="text-sm">
+                        seconds before showing the {entityKeyword} after the conditions are met
+                    </span>
                 </div>
             </div>
 

@@ -34,3 +34,4 @@ services/mcp/typescript/worker-configuration.d.ts
 frontend/src/taxonomy/core-filter-definitions-by-group.json
 frontend/dist/
 frontend/**/*LogicType.ts
+bin/validate-setup-tasks.mjs

@@ -19,7 +19,6 @@
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -33,14 +32,12 @@ export const RoleAtOrganizationEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -66,7 +63,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 export interface ExperimentHoldoutApi {
@@ -115,7 +112,6 @@ export interface PatchedExperimentHoldoutApi {
  */
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EvaluationRuntimeEnumApi = {
     server: 'server',
     client: 'client',
@@ -128,7 +124,6 @@ export const EvaluationRuntimeEnumApi = {
  */
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BucketingIdentifierEnumApi = {
     distinct_id: 'distinct_id',
     device_id: 'device_id',
@@ -160,12 +155,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
 }
 
@@ -185,7 +180,6 @@ export interface ExperimentToSavedMetricApi {
  */
 export type ExperimentTypeEnumApi = (typeof ExperimentTypeEnumApi)[keyof typeof ExperimentTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExperimentTypeEnumApi = {
     web: 'web',
     product: 'product',
@@ -200,7 +194,6 @@ export const ExperimentTypeEnumApi = {
  */
 export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ConclusionEnumApi = {
     won: 'won',
     lost: 'lost',
@@ -232,8 +225,8 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    parameters?: unknown
-    secondary_metrics?: unknown
+    parameters?: unknown | null
+    secondary_metrics?: unknown | null
     readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
     /** @nullable */
     saved_metrics_ids?: unknown[] | null
@@ -244,18 +237,18 @@ export interface ExperimentApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    type?: ExperimentTypeEnumApi | BlankEnumApi | NullEnumApi
-    exposure_criteria?: unknown
-    metrics?: unknown
-    metrics_secondary?: unknown
-    stats_config?: unknown
-    scheduling_config?: unknown
+    type?: ExperimentTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    exposure_criteria?: unknown | null
+    metrics?: unknown | null
+    metrics_secondary?: unknown | null
+    stats_config?: unknown | null
+    scheduling_config?: unknown | null
     _create_in_folder?: string
-    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi
+    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
-    primary_metrics_ordered_uuids?: unknown
-    secondary_metrics_ordered_uuids?: unknown
+    primary_metrics_ordered_uuids?: unknown | null
+    secondary_metrics_ordered_uuids?: unknown | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -295,8 +288,8 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    parameters?: unknown
-    secondary_metrics?: unknown
+    parameters?: unknown | null
+    secondary_metrics?: unknown | null
     readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]
     /** @nullable */
     saved_metrics_ids?: unknown[] | null
@@ -307,18 +300,18 @@ export interface PatchedExperimentApi {
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
-    type?: ExperimentTypeEnumApi | BlankEnumApi | NullEnumApi
-    exposure_criteria?: unknown
-    metrics?: unknown
-    metrics_secondary?: unknown
-    stats_config?: unknown
-    scheduling_config?: unknown
+    type?: ExperimentTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    exposure_criteria?: unknown | null
+    metrics?: unknown | null
+    metrics_secondary?: unknown | null
+    stats_config?: unknown | null
+    scheduling_config?: unknown | null
     _create_in_folder?: string
-    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi
+    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
-    primary_metrics_ordered_uuids?: unknown
-    secondary_metrics_ordered_uuids?: unknown
+    primary_metrics_ordered_uuids?: unknown | null
+    secondary_metrics_ordered_uuids?: unknown | null
     /**
      * The effective access level the user has for this object
      * @nullable

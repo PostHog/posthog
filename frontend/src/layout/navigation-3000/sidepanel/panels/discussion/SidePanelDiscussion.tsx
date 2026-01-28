@@ -24,29 +24,27 @@ export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Elem
     )
 }
 
-export const SidePanelDiscussion = ({ isScenePanel }: { isScenePanel?: boolean }): JSX.Element => {
+export const SidePanelDiscussion = (): JSX.Element => {
     const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
 
     const { scope, item_id } = commentsLogicProps ?? {}
 
     return (
         <div className="flex flex-col overflow-hidden flex-1">
-            {isScenePanel ? null : (
-                <SidePanelPaneHeader
-                    title={
-                        <div className="flex deprecated-space-x-2">
-                            <span>
-                                Discussion{' '}
-                                {scope ? (
-                                    <span className="font-normal text-secondary">
-                                        about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
-                                    </span>
-                                ) : null}
-                            </span>
-                        </div>
-                    }
-                />
-            )}
+            <SidePanelPaneHeader
+                title={
+                    <div className="flex deprecated-space-x-2">
+                        <span>
+                            Discussion{' '}
+                            {scope ? (
+                                <span className="font-normal text-secondary">
+                                    about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
+                                </span>
+                            ) : null}
+                        </span>
+                    </div>
+                }
+            />
 
             {commentsLogicProps && !commentsLogicProps.disabled ? (
                 <DiscussionContent logicProps={commentsLogicProps} />

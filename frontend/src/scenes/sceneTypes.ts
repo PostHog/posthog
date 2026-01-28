@@ -1,6 +1,6 @@
 import { LogicWrapper } from 'kea'
 
-import type { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 // The enum here has to match the first and only exported component of the scene.
@@ -69,6 +69,7 @@ export enum Scene {
     HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
+    InsightOptions = 'InsightOptions',
     IntegrationsRedirect = 'IntegrationsRedirect',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
@@ -178,6 +179,8 @@ export interface SceneExport<T = SceneProps> {
     component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
+    /** product key associated with this scene - used for Quick Start setup tracking */
+    productKey?: ProductKey
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
@@ -216,18 +219,6 @@ export interface SceneParams {
 
 export interface Params {
     [param: string]: any
-}
-
-/** Configuration for a tab in the scene panel */
-export interface ScenePanelTabConfig {
-    /** Unique identifier for the tab */
-    id: string
-    /** Display label for the tab */
-    label: string
-    /** Icon component for the tab */
-    Icon: React.ComponentType<{ className?: string }>
-    /** Content component to render when tab is active */
-    Content: React.ComponentType
 }
 
 export interface SceneConfig {
@@ -274,12 +265,6 @@ export interface SceneConfig {
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
-    /**
-     * Tabs to show in the scene panel.
-     * - Array of ScenePanelTabConfig for custom tabs
-     * - Function receiving scene params, returning tabs for dynamic configuration
-     */
-    scenePanelTabs?: ScenePanelTabConfig[] | ((params: SceneParams) => ScenePanelTabConfig[])
 }
 
 // Map scenes to their access control resource types

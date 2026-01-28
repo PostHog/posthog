@@ -1539,11 +1539,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         openUnsavedQuery: ({ record }) => {
             if (record.insight) {
-                sceneLogic.actions.newTab(urls.sqlEditor(undefined, undefined, record.insight.short_id))
+                sceneLogic.actions.newTab(urls.sqlEditor({ insightShortId: record.insight.short_id }))
             } else if (record.view) {
-                sceneLogic.actions.newTab(urls.sqlEditor(undefined, record.view.id))
+                sceneLogic.actions.newTab(urls.sqlEditor({ view_id: record.view.id }))
             } else {
-                sceneLogic.actions.newTab(urls.sqlEditor(record.query))
+                sceneLogic.actions.newTab(urls.sqlEditor({ query: record.query }))
             }
         },
     })),

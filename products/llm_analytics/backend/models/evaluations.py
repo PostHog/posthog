@@ -18,6 +18,7 @@ class Evaluation(UUIDTModel):
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["team", "enabled"]),
+            models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
         ]
 
     # Core fields
@@ -32,6 +33,16 @@ class Evaluation(UUIDTModel):
     output_config = models.JSONField(default=dict)
 
     conditions = models.JSONField(default=list)
+
+    # Model configuration for the LLM judge
+    model_configuration = models.ForeignKey(
+        "llm_analytics.LLMModelConfiguration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="evaluations",
+        db_index=False,
+    )
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)

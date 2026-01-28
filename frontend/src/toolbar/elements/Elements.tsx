@@ -12,8 +12,7 @@ import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
-import { StepEditor } from '~/toolbar/product-tours/StepEditor'
-import { getStepElement, productToursLogic } from '~/toolbar/product-tours/productToursLogic'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
 import { toolbarLogic } from '../bar/toolbarLogic'
@@ -34,24 +33,10 @@ export function Elements(): JSX.Element {
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
     const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
-    const {
-        isSelecting: productToursSelecting,
-        isEditing: productToursEditing,
-        hoverElementRect: productToursHoverRect,
-        selectedElementRect: productToursSelectedRect,
-        tourForm,
-        editingStepIndex,
-        editingStepType,
-        rectUpdateCounter,
-        isPreviewing: isPreviewingProductTour,
-        selectedTourId,
-    } = useValues(productToursLogic)
+    const { isSelecting: productToursSelecting, hoverElementRect: productToursHoverRect } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
-
-    // Force re-render when rectUpdateCounter changes (triggered by MutationObserver for modal open/close)
-    void rectUpdateCounter
 
     const { theme } = useValues(toolbarLogic)
 
@@ -82,60 +67,7 @@ export function Elements(): JSX.Element {
                 <ScrollDepth />
                 {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
-                {selectedTourId !== null && !isPreviewingProductTour && (
-                    <>
-                        {tourForm?.steps?.map((step, index: number) => {
-                            if (step.type !== 'element') {
-                                return null
-                            }
-                            const element = getStepElement(step)
-                            if (!element) {
-                                return null
-                            }
-                            const domRect = element.getBoundingClientRect()
-                            const rect = {
-                                x: domRect.x,
-                                y: domRect.y,
-                                width: domRect.width,
-                                height: domRect.height,
-                                top: domRect.top,
-                                left: domRect.left,
-                                right: domRect.right,
-                                bottom: domRect.bottom,
-                            }
-                            const isActive = editingStepIndex === index
-
-                            return (
-                                <ElementHighlight
-                                    key={step.id}
-                                    rect={rect}
-                                    isSelected={isActive}
-                                    stepNumber={index + 1}
-                                />
-                            )
-                        })}
-
-                        {productToursSelecting && productToursHoverRect && (
-                            <ElementHighlight rect={productToursHoverRect} />
-                        )}
-
-                        {productToursEditing && editingStepType === 'element' && (
-                            <>
-                                {productToursSelectedRect && (
-                                    <ElementHighlight rect={productToursSelectedRect} isSelected />
-                                )}
-                                <StepEditor
-                                    rect={productToursSelectedRect ?? undefined}
-                                    elementNotFound={!productToursSelectedRect}
-                                />
-                            </>
-                        )}
-
-                        {productToursEditing && (editingStepType === 'modal' || editingStepType === 'survey') && (
-                            <StepEditor />
-                        )}
-                    </>
-                )}
+                {productToursSelecting && productToursHoverRect && <ElementHighlight rect={productToursHoverRect} />}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (

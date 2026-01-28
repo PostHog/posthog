@@ -14,6 +14,7 @@ use kafka_deduplicator::kafka::{
     test_utils::TestRebalanceHandler,
     types::Partition,
 };
+use kafka_deduplicator::test_utils::create_test_coordinator;
 
 use common_types::CapturedEvent;
 
@@ -78,8 +79,10 @@ fn create_batch_kafka_consumer(
         }
     }
 
+    // Create offset tracker with coordinator
+    let coordinator = create_test_coordinator();
     let processor = Arc::new(TestProcessor { sender: chan_tx });
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
@@ -367,12 +370,12 @@ impl RebalanceHandler for RoutingRebalanceHandler {
     }
 
     async fn on_pre_rebalance(&self) -> Result<()> {
-        self.offset_tracker.set_rebalancing(true);
+        // Note: rebalancing state is now tracked by store_manager
         self.inner.on_pre_rebalance().await
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
-        self.offset_tracker.set_rebalancing(false);
+        // Note: rebalancing state is now tracked by store_manager
         self.inner.on_post_rebalance().await
     }
 }
@@ -441,8 +444,9 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
     // Create the processor that counts messages
     let processor = Arc::new(CountingProcessor::new());
 
-    // Create offset tracker
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    // Create offset tracker with coordinator
+    let coordinator = create_test_coordinator();
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
     // Create router with partition workers
     let router = Arc::new(PartitionRouter::new(

@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { hogqlQuery } from '~/queries/query'
@@ -297,6 +298,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                         actions.loadDatabase()
 
                         posthog.capture('join created')
+                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.JoinExternalData)
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }
