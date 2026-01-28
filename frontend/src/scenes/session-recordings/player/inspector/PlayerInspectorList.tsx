@@ -67,7 +67,7 @@ export function PlayerInspectorList(): JSX.Element {
             )
             markerRef.current.style.transform = `translateY(${offset}px)`
 
-            if (!syncScrollPaused) {
+            if (!syncScrollPaused && playbackIndicatorIndex >= 0) {
                 scrolledByJsFlag.current = true
                 listRef.current.scrollToRow({ index: playbackIndicatorIndex })
             }
