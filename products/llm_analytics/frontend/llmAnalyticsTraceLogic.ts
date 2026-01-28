@@ -433,6 +433,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
 
         return {
             setViewMode: buildUrl,
+            setEventId: buildUrl,
         }
     }),
 ])
