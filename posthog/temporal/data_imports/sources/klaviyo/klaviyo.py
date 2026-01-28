@@ -1,12 +1,22 @@
-from typing import Any
+from datetime import date, datetime
+from typing import Any, Optional
 
-import dlt
 import requests
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+
+
+def _format_incremental_value(value: Any) -> str:
+    """Format incremental field value as ISO string for Klaviyo API filters."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time()).isoformat()
+    return str(value)
 
 
 def get_resource(
@@ -16,6 +26,9 @@ def get_resource(
     incremental_field: str | None = None,
 ) -> EndpointResource:
     api_filter_field = incremental_field if incremental_field else "updated_at"
+    formatted_last_value = (
+        _format_incremental_value(db_incremental_field_last_value) if db_incremental_field_last_value else None
+    )
 
     resources: dict[str, EndpointResource] = {
         "email_campaigns": {
@@ -32,7 +45,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/campaigns",
                 "params": {
-                    "filter": f"and(equals(messages.channel,'email'),greater-than({api_filter_field},{db_incremental_field_last_value}))"
+                    "filter": f"and(equals(messages.channel,'email'),greater-than({api_filter_field},{formatted_last_value}))"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else "equals(messages.channel,'email')",
                 },
@@ -53,7 +66,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/campaigns",
                 "params": {
-                    "filter": f"and(equals(messages.channel,'sms'),greater-than({api_filter_field},{db_incremental_field_last_value}))"
+                    "filter": f"and(equals(messages.channel,'sms'),greater-than({api_filter_field},{formatted_last_value}))"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else "equals(messages.channel,'sms')",
                 },
@@ -74,8 +87,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/events",
                 "params": {
-                    "page[size]": 100,
-                    "filter": f"greater-than(datetime,{db_incremental_field_last_value})"
+                    "filter": f"greater-than(datetime,{formatted_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
                 },
@@ -97,7 +109,7 @@ def get_resource(
                 "path": "/flows",
                 "params": {
                     "page[size]": 50,  # Flows endpoint max is 50
-                    "filter": f"greater-than({api_filter_field},{db_incremental_field_last_value})"
+                    "filter": f"greater-than({api_filter_field},{formatted_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
                 },
@@ -118,7 +130,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/lists",
                 "params": {
-                    "filter": f"greater-than({api_filter_field},{db_incremental_field_last_value})"
+                    "filter": f"greater-than({api_filter_field},{formatted_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
                 },
@@ -151,8 +163,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": "/profiles",
                 "params": {
-                    "page[size]": 100,
-                    "filter": f"greater-than({api_filter_field},{db_incremental_field_last_value})"
+                    "filter": f"greater-than({api_filter_field},{formatted_last_value})"
                     if should_use_incremental_field and db_incremental_field_last_value
                     else None,
                 },
@@ -211,16 +222,15 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-@dlt.source(max_table_nesting=0)
 def klaviyo_source(
     api_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
+    db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
-):
+) -> SourceResponse:
     config: RESTAPIConfig = {
         "client": {
             "base_url": "https://a.klaviyo.com/api",
@@ -255,5 +265,13 @@ def klaviyo_source(
         ],
     }
 
-    for resource in rest_api_resources(config, team_id, job_id, db_incremental_field_last_value):
-        yield resource.add_map(_flatten_item)
+    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    assert len(resources) == 1
+    resource = resources[0].add_map(_flatten_item)
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=["id"],
+        partition_count=1,
+    )
