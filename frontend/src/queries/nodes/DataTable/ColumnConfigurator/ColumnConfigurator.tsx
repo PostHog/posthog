@@ -92,6 +92,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
               ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
               : { type: 'team_columns' },
         contextKey: query.contextKey,
+        showTableViews: query.showTableViews,
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
