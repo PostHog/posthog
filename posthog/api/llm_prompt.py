@@ -1,4 +1,5 @@
 import re
+from typing import cast
 
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -9,6 +10,8 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_team_action, report_user_action
+from posthog.models import User
 from posthog.models.llm_prompt import LLMPrompt
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
@@ -100,6 +103,49 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
 
         return super().get_throttles()
 
+    def perform_create(self, serializer):
+        instance = serializer.save()
+
+        report_user_action(
+            cast(User, self.request.user),
+            "llma prompt created",
+            {
+                "prompt_id": str(instance.id),
+                "prompt_name": instance.name,
+            },
+            self.team,
+        )
+
+    def perform_update(self, serializer):
+        is_being_deleted = serializer.validated_data.get("deleted") is True and not self.get_object().deleted
+
+        instance = serializer.save()
+
+        if is_being_deleted:
+            report_user_action(
+                cast(User, self.request.user),
+                "llma prompt deleted",
+                {
+                    "prompt_id": str(instance.id),
+                    "prompt_name": instance.name,
+                },
+                self.team,
+            )
+        else:
+            changed_fields = [field for field in serializer.validated_data.keys() if field != "deleted"]
+
+            if changed_fields:
+                report_user_action(
+                    cast(User, self.request.user),
+                    "llma prompt updated",
+                    {
+                        "prompt_id": str(instance.id),
+                        "prompt_name": instance.name,
+                        "changed_fields": changed_fields,
+                    },
+                    self.team,
+                )
+
     @action(
         methods=["GET"],
         detail=False,
@@ -119,6 +165,15 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
                 {"detail": f"Prompt with name '{prompt_name}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        report_team_action(
+            self.team,
+            "llma prompt fetched",
+            {
+                "prompt_id": str(prompt.id),
+                "prompt_name": prompt.name,
+            },
+        )
 
         serializer = self.get_serializer(prompt)
         return Response(serializer.data)
