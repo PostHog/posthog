@@ -87,7 +87,7 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
         }
         // Calculate ts_from_s for this segment
         const recordingStartTimestamp = recordingSegments[0].startTimestamp
-        const segmentTsFromS = Math.floor((currentSegment.startTimestamp - recordingStartTimestamp) / 1000)
+        const segmentTsFromS = (currentSegment.startTimestamp - recordingStartTimestamp) / 1000
         // Update globals to signal segment change to backend
         window.__POSTHOG_CURRENT_SEGMENT_START_TS__ = segmentTsFromS
         window.__POSTHOG_SEGMENT_COUNTER__ = (window.__POSTHOG_SEGMENT_COUNTER__ || 0) + 1
