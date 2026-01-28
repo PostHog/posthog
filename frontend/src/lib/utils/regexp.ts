@@ -47,7 +47,7 @@ const HELP_TEXT: Record<string, string> = {
     unclosed: 'Check that all brackets and parentheses are properly closed.',
 }
 
-function getHelpfulContext(re2Error: string, pattern: string): string {
+function getRE2ErrorContext(re2Error: string, pattern: string): string {
     if (re2Error.includes('invalid or unsupported Perl syntax')) {
         if (re2Error.includes('(?=') || re2Error.includes('(?!')) {
             return HELP_TEXT.lookahead
@@ -77,6 +77,6 @@ function getHelpfulContext(re2Error: string, pattern: string): string {
 
 export function formatRE2Error(error: Error, pattern: string): string {
     const re2Error = String(error.message || error)
-    const helpfulContext = getHelpfulContext(re2Error, pattern)
+    const helpfulContext = getRE2ErrorContext(re2Error, pattern)
     return helpfulContext || re2Error
 }
