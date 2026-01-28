@@ -9,12 +9,12 @@ import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
 import {
     CUSTOM_BASE_URL,
-    getAuthorizationServerUrl,
-    getBaseUrlForRegion,
     MCP_DOCS_URL,
     OAUTH_SCOPES_SUPPORTED,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
+    getAuthorizationServerUrl,
+    getBaseUrlForRegion,
     toCloudRegion,
 } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
@@ -306,7 +306,7 @@ export class MyMCP extends McpAgent<Env> {
         const context = await this.getContext()
 
         // Register prompts and resources
-        await registerPrompts(this.server, context)
+        await registerPrompts(this.server)
         await registerResources(this.server, context)
 
         // Register tools
