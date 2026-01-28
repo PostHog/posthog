@@ -70,9 +70,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
     const handleCancel = (): void => {
-        if (!isEditMode) {
-            clearDraft()
-        }
+        clearDraft()
         router.actions.push(urls.experiments())
     }
 
