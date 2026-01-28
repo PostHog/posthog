@@ -647,9 +647,6 @@ importers:
       '@types/react-transition-group':
         specifier: ^4.4.5
         version: 4.4.5
-      '@types/react-virtualized':
-        specifier: ^9.21.23
-        version: 9.21.26
       '@vitejs/plugin-react':
         specifier: ^4.7.0
         version: 4.7.0(vite@7.1.9(@types/node@22.15.17)(jiti@2.6.1)(less@3.13.1)(lightningcss@1.29.2)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.19.1)(tsx@4.20.5)(yaml@2.8.1))
@@ -932,9 +929,6 @@ importers:
       react-transition-group:
         specifier: ^4.4.5
         version: 4.4.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      react-virtualized:
-        specifier: ^9.22.5
-        version: 9.22.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react-virtualized-auto-sizer:
         specifier: ^2.0.2
         version: 2.0.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -10142,9 +10136,6 @@ packages:
   '@types/react-transition-group@4.4.5':
     resolution: {integrity: sha512-juKD/eiSM3/xZYzjuzH6ZwpP+/lejltmiS3QEzV/vmb/Q8+HfDmxu+Baga8UEMGBqV88Nbg4l2hY/K2DkyaLLA==}
 
-  '@types/react-virtualized@9.21.26':
-    resolution: {integrity: sha512-fUpUyQqF8PTrFmBZzE9PcdtPwL8xgqUdXmtrYadNgFDYwbKBl3Lz0khp+tZ7dyKIHUVDO9NDlgQx8q1+LIUk+A==}
-
   '@types/react@17.0.52':
     resolution: {integrity: sha512-vwk8QqVODi0VaZZpDXQCmEmiOuyjEFPY7Ttaw5vjM112LOq37yz1CDJGrRJwA1fYEq4Iitd5rnjd1yWAc/bT+A==}
 
@@ -18004,12 +17995,6 @@ packages:
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
-
-  react-virtualized@9.22.5:
-    resolution: {integrity: sha512-YqQMRzlVANBv1L/7r63OHa2b0ZsAaDp1UhVNEdUaXI8A5u6hTpA5NYtUueLH2rFuY/27mTGIBl7ZhqFKzw18YQ==}
-    peerDependencies:
-      react: ^15.3.0 || ^16.0.0-alpha || ^17.0.0 || ^18.0.0
-      react-dom: ^15.3.0 || ^16.0.0-alpha || ^17.0.0 || ^18.0.0
 
   react-window@2.2.5:
     resolution: {integrity: sha512-6viWvPSZvVuMIe9hrl4IIZoVfO/npiqOb03m4Z9w+VihmVzBbiudUrtUqDpsWdKvd/Ai31TCR25CBcFFAUm28w==}
@@ -30888,11 +30873,6 @@ snapshots:
     dependencies:
       '@types/react': 17.0.52
 
-  '@types/react-virtualized@9.21.26':
-    dependencies:
-      '@types/prop-types': 15.7.5
-      '@types/react': 17.0.52
-
   '@types/react@17.0.52':
     dependencies:
       '@types/prop-types': 15.7.5
@@ -40905,17 +40885,6 @@ snapshots:
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
-
-  react-virtualized@9.22.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
-    dependencies:
-      '@babel/runtime': 7.28.4
-      clsx: 1.2.1
-      dom-helpers: 5.2.1
-      loose-envify: 1.4.0
-      prop-types: 15.8.1
-      react: 18.2.0
-      react-dom: 18.2.0(react@18.2.0)
-      react-lifecycles-compat: 3.0.4
 
   react-window@2.2.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
