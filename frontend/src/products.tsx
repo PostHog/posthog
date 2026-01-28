@@ -1273,7 +1273,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Support',
         intents: [ProductKey.CONVERSATIONS],
-        category: 'Unreleased',
+        category: 'Behavior',
         href: urls.supportTickets(),
         type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
@@ -1491,7 +1491,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Support',
-        category: 'Unreleased',
+        category: 'Behavior',
         iconType: 'conversations' as FileSystemIconType,
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         href: urls.supportTickets(),

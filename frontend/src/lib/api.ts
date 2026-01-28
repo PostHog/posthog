@@ -82,7 +82,9 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingEdge,
     DataModelingJob,
+    DataModelingNode,
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
@@ -1272,6 +1274,28 @@ export class ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('data_modeling_jobs')
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
+    }
+
+    public dataModelingJobsRunning(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
+    }
+
+    public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
+    }
+
+    // # Data Modeling Nodes
+    public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
+    }
+
+    public dataModelingNode(id: DataModelingNode['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingNodes(teamId).addPathComponent(id)
+    }
+
+    // # Data Modeling Edges
+    public dataModelingEdges(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_edges')
     }
 
     // # Warehouse view link
@@ -3596,6 +3620,13 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
+        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('batch_check_exists')
+                .create({ data: { session_ids: sessionIds } })
+        },
+
         async createExternalReference(
             sessionRecordingId: SessionRecordingType['id'],
             integrationId: number,
@@ -3827,6 +3858,28 @@ const api = {
             data: { code: string; return_variables?: boolean; timeout?: number }
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+        },
+        async kernelExecuteStream(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number },
+            {
+                onMessage,
+                onError,
+                signal,
+            }: {
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                signal?: AbortSignal
+            }
+        ): Promise<void> {
+            const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute/stream').assembleFullUrl(true)
+            await api.stream(url, {
+                method: 'POST',
+                data,
+                onMessage,
+                onError,
+                signal,
+            })
         },
         async kernelDataframe(
             notebookId: NotebookType['short_id'],
@@ -4303,6 +4356,42 @@ const api = {
             ): Promise<PaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
+        },
+    },
+
+    dataModelingNodes: {
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
+        },
+        async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
+            return await new ApiRequest().dataModelingNode(nodeId).get()
+        },
+        async run(
+            nodeId: DataModelingNode['id'],
+            direction: 'upstream' | 'downstream'
+        ): Promise<{ node_ids: string[] }> {
+            return await new ApiRequest().dataModelingNode(nodeId).withAction('run').create({ data: { direction } })
+        },
+        async materialize(nodeId: DataModelingNode['id']): Promise<void> {
+            await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
+        },
+        async dagIds(): Promise<{ dag_ids: string[] }> {
+            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
+        },
+    },
+
+    dataModelingEdges: {
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
+        },
+    },
+
+    dataModelingJobs: {
+        async listRunning(): Promise<DataModelingJob[]> {
+            return await new ApiRequest().dataModelingJobsRunning().get()
+        },
+        async listRecent(): Promise<DataModelingJob[]> {
+            return await new ApiRequest().dataModelingJobsRecent().get()
         },
     },
 
@@ -5124,6 +5213,10 @@ const api = {
 
         async delete(ticketId: string): Promise<void> {
             return await new ApiRequest().conversationsTicket(ticketId).delete()
+        },
+
+        async unreadCount(): Promise<{ count: number }> {
+            return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
     },
 

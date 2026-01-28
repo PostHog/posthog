@@ -2,7 +2,6 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
-import { RenderedRows } from 'react-virtualized/dist/es/List'
 
 import api from 'lib/api'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -25,6 +24,12 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
+
+export interface RowInfo {
+    startIndex: number
+    stopIndex: number
+    overscanStopIndex: number
+}
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -96,7 +101,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         moveDown: true,
         setIndex: (index: number) => ({ index }),
         setLimit: (limit: number) => ({ limit }),
-        onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
+        onRowsRendered: (rowInfo: RowInfo) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
         expand: true,

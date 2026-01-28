@@ -361,7 +361,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
 }: {
     item: InspectorListItem
     index: number
-    onLayout: (layout: { width: number; height: number }) => void
+    onLayout?: (layout: { width: number; height: number }) => void
 }): JSX.Element {
     const hoverRef = useRef<HTMLDivElement>(null)
 
@@ -371,7 +371,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
 
     const isExpanded = expandedItems.includes(index)
 
-    const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
+    const onLayoutDebounced = useDebouncedCallback(onLayout ?? (() => {}), 500)
     const { ref, width, height } = useResizeObserver({})
 
     const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
@@ -379,7 +379,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     // Height changes should lay out immediately but width ones (browser resize can be much slower)
     useEffect(
         () => {
-            if (!width || !totalHeight) {
+            if (!onLayout || !width || !totalHeight) {
                 return
             }
             onLayoutDebounced({ width, height: totalHeight })
@@ -391,7 +391,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
 
     useEffect(
         () => {
-            if (!width || !totalHeight) {
+            if (!onLayout || !width || !totalHeight) {
                 return
             }
             onLayout({ width, height: totalHeight })

@@ -9,13 +9,19 @@ import { STEP_TYPE_ICONS, STEP_TYPE_LABELS } from 'scenes/product-tours/stepUtil
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 import { StepCard } from './StepCard'
-import { TourStep, productToursLogic } from './productToursLogic'
+import {
+    PRODUCT_TOURS_MIN_JS_VERSION,
+    TourStep,
+    hasMinProductToursVersion,
+    hasValidSelector,
+    productToursLogic,
+} from './productToursLogic'
 import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS } from './utils'
 
 const SIDEBAR_WIDTH = 320
 
 export function ProductToursSidebar(): JSX.Element | null {
-    const { userIntent } = useValues(toolbarConfigLogic)
+    const { userIntent, posthog } = useValues(toolbarConfigLogic)
     const {
         selectedTourId,
         tourForm,
@@ -75,15 +81,29 @@ export function ProductToursSidebar(): JSX.Element | null {
         if (tourFormErrors?.name) {
             return 'Enter a tour name'
         }
+
+        const hasInvalidSteps = steps.some((step) => !hasValidSelector(step))
+        if (hasInvalidSteps) {
+            return 'Some steps are missing element selection'
+        }
     }
 
     const getPreviewDisabledReason = (): string | undefined => {
+        if (posthog?.version && !hasMinProductToursVersion(posthog.version)) {
+            return `Requires posthog-js ${PRODUCT_TOURS_MIN_JS_VERSION}+`
+        }
+
         if (isPreviewing) {
             return 'Preview in progress'
         }
 
         if (stepCount === 0) {
             return 'Add at least one step'
+        }
+
+        const hasInvalidSteps = steps.some((step) => !hasValidSelector(step))
+        if (hasInvalidSteps) {
+            return 'Some steps are missing element selection'
         }
     }
 
