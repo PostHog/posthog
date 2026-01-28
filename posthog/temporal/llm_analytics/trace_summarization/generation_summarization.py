@@ -259,7 +259,7 @@ async def generate_and_save_generation_summary_activity(
     mode_enum = SummarizationMode(mode)
     model_enum = OpenAIModel(model) if model else None
 
-    summary_result = summarize(
+    summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
         text_repr=text_repr,
         team_id=team_id,
         mode=mode_enum,
