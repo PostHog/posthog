@@ -59,6 +59,7 @@ import { NewActionButton } from 'products/actions/frontend/components/NewActionB
 import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
+import { OpenURLButton } from '../CrossSellButtons/OpenURLButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
 import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
@@ -478,6 +479,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
 
                 return (
                     <div className="flex flex-row items-center justify-end">
+                        <OpenURLButton breakdownBy={breakdownBy} value={value} />
                         <ReplayButton
                             date_from={dateRange?.date_from}
                             date_to={dateRange?.date_to}
