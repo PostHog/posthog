@@ -13,11 +13,15 @@
             "new_sqlite_classes": ["MyMCP"],
             "tag": "v1",
         },
+        {
+            "renamed_classes": [{ "from": "MyMCP", "to": "MCP" }],
+            "tag": "v2",
+        },
     ],
     "durable_objects": {
         "bindings": [
             {
-                "class_name": "MyMCP",
+                "class_name": "MCP",
                 "name": "MCP_OBJECT",
             },
         ],
