@@ -7,12 +7,16 @@ import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonTable, lemonToast } from '@posthog/lemon-ui'
 
 import {
+    ActiveElement,
     Chart,
     ChartData,
+    ChartEvent,
     ChartOptions,
     ChartType,
     ChartTypeRegistry,
@@ -33,6 +37,7 @@ import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-
 import { ChartDisplayType, GraphType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { displayLogic } from '../../displayLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 
 Chart.register(annotationPlugin)
@@ -122,10 +127,40 @@ export const LineGraph = ({
     const { getTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
+    const { isShiftPressed, hoveredDatasetIndex } = useValues(displayLogic)
+    const { setIsShiftPressed, setHoveredDatasetIndex } = useActions(displayLogic)
+
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
+    const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
+
+    const handleKeyDown = (e: KeyboardEvent): void => {
+        if (e.key === 'Shift') {
+            setIsShiftPressed(true)
+        }
+    }
+    const handleKeyUp = (e: KeyboardEvent): void => {
+        if (e.key === 'Shift') {
+            setIsShiftPressed(false)
+        }
+    }
+
+    // Track shift key for single-bar hover mode in stacked charts
+    useEffect(() => {
+        if (!isStackedBarChart) {
+            return
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        window.addEventListener('keyup', handleKeyUp)
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown)
+            window.removeEventListener('keyup', handleKeyUp)
+        }
+    }, [isStackedBarChart, setIsShiftPressed])
 
     const { canvasRef } = useChart({
         getConfig: () => {
@@ -160,7 +195,12 @@ export const LineGraph = ({
                 labels: xSeriesData.data,
                 datasets: ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
                     const seriesColor = settings?.display?.color ?? getSeriesColor(index)
-                    const backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
+                    let backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
+
+                    // Dim non-hovered bars in stacked bar charts when shift is pressed
+                    if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
+                        backgroundColor = hexToRGBA(seriesColor, 0.2)
+                    }
 
                     const graphType = getGraphType(visualizationType, settings)
 
@@ -338,8 +378,8 @@ export const LineGraph = ({
                           }),
                     tooltip: {
                         enabled: false,
-                        mode: 'index',
-                        intersect: false,
+                        mode: isHighlightBarMode ? 'point' : 'index',
+                        intersect: isHighlightBarMode,
                         external({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
                             const canvas = chart.canvas
                             if (!canvas) {
@@ -359,10 +399,16 @@ export const LineGraph = ({
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
 
-                                const tooltipData = ySeriesData.map((series) => {
+                                // Filter series data based on highlight mode
+                                const filteredSeriesData = isHighlightBarMode
+                                    ? ySeriesData.filter((_, index) => index === referenceDataPoint.datasetIndex)
+                                    : ySeriesData
+
+                                const tooltipData = filteredSeriesData.map((series, index) => {
                                     const seriesName =
                                         series?.settings?.display?.label ||
                                         ('column' in series ? series.column.name : series.name)
+                                    const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
                                     return {
                                         series: seriesName,
                                         data: formatDataWithSettings(
@@ -372,14 +418,20 @@ export const LineGraph = ({
                                         rawData: series.data[referenceDataPoint.dataIndex],
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: false,
+                                        seriesIndex: seriesIndex,
                                     }
                                 })
 
-                                const tooltipTotalData = ySeriesData.filter(
+                                const tooltipTotalData = filteredSeriesData.filter(
                                     (n) => n.settings?.formatting?.style !== 'percent'
                                 )
 
-                                if (tooltipTotalData.length > 1 && chartSettings.showTotalRow !== false) {
+                                // Don't show total row when highlighting a single bar
+                                if (
+                                    tooltipTotalData.length > 1 &&
+                                    chartSettings.showTotalRow !== false &&
+                                    !isHighlightBarMode
+                                ) {
                                     const totalRawData = tooltipTotalData.reduce((acc, cur) => {
                                         acc += cur.data[referenceDataPoint.dataIndex]
                                         return acc
@@ -391,6 +443,7 @@ export const LineGraph = ({
                                         rawData: totalRawData,
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: true,
+                                        seriesIndex: -1,
                                     })
                                 }
 
@@ -449,25 +502,31 @@ export const LineGraph = ({
                                                 },
                                             ]}
                                             uppercaseHeader={false}
-                                            rowRibbonColor={(_datum, index) => {
+                                            rowRibbonColor={(_datum) => {
                                                 if (_datum.isTotalRow) {
                                                     return undefined
                                                 }
-
                                                 return (
-                                                    ySeriesData[index]?.settings?.display?.color ??
-                                                    getSeriesColor(index)
+                                                    ySeriesData[_datum.seriesIndex]?.settings?.display?.color ??
+                                                    getSeriesColor(_datum.seriesIndex)
                                                 )
                                             }}
                                             showHeader
                                         />
+                                        {isBarChart && isStackedBarChart && !isHighlightBarMode && (
+                                            <div className="text-xs text-muted p-2 border-t">
+                                                Hold Shift (⇧) to highlight individual bars
+                                            </div>
+                                        )}
                                     </div>
                                 )
                             }
 
                             const bounds = canvas.getBoundingClientRect()
-                            const horizontalBarTopOffset = 0
-                            const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
+                            const verticalBarTopOffset = isHighlightBarMode
+                                ? tooltip.caretY - tooltipEl.clientHeight / 2
+                                : 0
+                            const tooltipClientTop = bounds.top + window.pageYOffset + verticalBarTopOffset
 
                             const chartClientLeft = bounds.left + window.pageXOffset
                             const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
@@ -486,6 +545,15 @@ export const LineGraph = ({
                     mode: isBarChart ? 'point' : 'nearest',
                     axis: 'x',
                     intersect: false,
+                },
+                onHover: (_event: ChartEvent, elements: ActiveElement[]) => {
+                    // For stacked bar charts when shift is pressed, track hovered dataset to highlight only that bar
+                    if (isHighlightBarMode) {
+                        const hoveredIndex = elements.length > 0 ? elements[0].datasetIndex : null
+                        if (hoveredDatasetIndex !== hoveredIndex) {
+                            setHoveredDatasetIndex(hoveredIndex)
+                        }
+                    }
                 },
                 scales: {
                     x: {
@@ -540,7 +608,17 @@ export const LineGraph = ({
                 plugins: [dataLabelsPlugin],
             }
         },
-        deps: [xData, yData, visualizationType, goalLines, chartSettings, dashboardId, getTooltip],
+        deps: [
+            xData,
+            yData,
+            visualizationType,
+            goalLines,
+            chartSettings,
+            dashboardId,
+            getTooltip,
+            isHighlightBarMode,
+            hoveredDatasetIndex,
+        ],
     })
 
     return (
