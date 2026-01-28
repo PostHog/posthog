@@ -341,3 +341,4 @@ Use the examples below to create optimized queries.
 - [Web path stats (paths, visitors, views, bounce rate)](./references/example-web-path-stats.md)
 - [Web traffic channels (direct, organic search, etc)](./references/example-web-traffic-channels.md)
 - [Web views by devices](./references/example-web-traffic-by-device-type.md)
+- [Web overview](./references/example-web-overview.md)
