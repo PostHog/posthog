@@ -284,7 +284,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     id=lead_table_name,
                     table_name=lead_table_name,
                     id_field="id",
-                    distinct_id_field="converted_opportunity_id",
+                    distinct_id_field="coalesce(converted_opportunity_id, id)",
                     timestamp_field="created_date",
                 ),
                 DataWarehouseNode(
