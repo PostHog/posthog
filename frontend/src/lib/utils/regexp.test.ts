@@ -10,12 +10,15 @@ describe('RE2 Regex Validation', () => {
             { pattern: '\\w++', expectedSubstring: 'Possessive quantifiers' },
             { pattern: '[A-Z', expectedSubstring: 'Check that all brackets and parentheses are properly closed' },
         ])('formats errors with helpful context for $pattern', ({ pattern, expectedSubstring }) => {
+            let errorThrown = false
             try {
                 RE2JS.compile(pattern)
             } catch (error) {
+                errorThrown = true
                 const message = formatRE2Error(error as Error, pattern)
                 expect(message).toContain(expectedSubstring)
             }
+            expect(errorThrown).toBe(true)
         })
     })
 })
