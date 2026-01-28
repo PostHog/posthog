@@ -13,7 +13,7 @@ class AttioEndpointConfig:
     method: Literal["GET", "POST"] = "GET"
     default_incremental_field: str = "created_at"
     partition_key: Optional[str] = None
-    page_size: int = 100
+    page_size: int = 500
 
 
 ATTIO_ENDPOINTS: dict[str, AttioEndpointConfig] = {

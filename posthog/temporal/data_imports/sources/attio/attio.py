@@ -16,8 +16,9 @@ class AttioJSONBodyPaginator(BasePaginator):
     def __init__(self, limit: int = 100):
         super().__init__()
         self._limit = limit
-        self._offset = 0
-        self._has_next_page = True
+        self._current_offset = 0
+        self._next_offset: Optional[int] = 0
+        self._has_next_page = False
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
@@ -26,17 +27,22 @@ class AttioJSONBodyPaginator(BasePaginator):
 
             if len(returned_data) < self._limit:
                 self._has_next_page = False
+                self._next_offset = None
             else:
                 self._has_next_page = True
-                self._offset += self._limit
+                self._next_offset = self._current_offset + self._limit
         except Exception:
             self._has_next_page = False
+            self._next_offset = None
 
     def update_request(self, request: Request) -> None:
         if request.json is None:
             request.json = {}
 
-        request.json["offset"] = self._offset
+        if self._next_offset is not None:
+            self._current_offset = self._next_offset
+
+        request.json["offset"] = self._current_offset
         request.json["limit"] = self._limit
 
 
@@ -46,8 +52,9 @@ class AttioOffsetPaginator(BasePaginator):
     def __init__(self, limit: int = 100):
         super().__init__()
         self._limit = limit
-        self._offset = 0
-        self._has_next_page = True
+        self._current_offset = 0
+        self._next_offset: Optional[int] = 0
+        self._has_next_page = False
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
@@ -56,17 +63,22 @@ class AttioOffsetPaginator(BasePaginator):
 
             if len(returned_data) < self._limit:
                 self._has_next_page = False
+                self._next_offset = None
             else:
                 self._has_next_page = True
-                self._offset += self._limit
+                self._next_offset = self._current_offset + self._limit
         except Exception:
             self._has_next_page = False
+            self._next_offset = None
 
     def update_request(self, request: Request) -> None:
         if request.params is None:
             request.params = {}
 
-        request.params["offset"] = self._offset
+        if self._next_offset is not None:
+            self._current_offset = self._next_offset
+
+        request.params["offset"] = self._current_offset
         request.params["limit"] = self._limit
 
 
