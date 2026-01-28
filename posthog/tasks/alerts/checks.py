@@ -262,6 +262,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
                 "alert_id": alert.id,
                 "error": f"AlertCheckError: {err}",
                 "traceback": traceback.format_exc(),
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
@@ -270,6 +272,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             AlertCheckException(err),
             additional_properties={
                 "alert_configuration_id": alert_id,
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
@@ -304,6 +308,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         properties={
             "alert_id": alert.id,
             "calculation_interval": alert.calculation_interval,
+            "insight_id": alert.insight_id,
+            "team_id": alert.team_id,
         },
     )
 
@@ -328,6 +334,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
                 "alert_id": alert.id,
                 "error": error_message,
                 "traceback": traceback.format_exc(),
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
