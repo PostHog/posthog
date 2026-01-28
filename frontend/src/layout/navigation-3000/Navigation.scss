@@ -298,10 +298,12 @@
     right: calc(
         -1 * var(--sidebar-slider-padding) - min(1px, var(--sidebar-width))
     ); // Center around the original sidebar border
+
     bottom: 0;
     z-index: var(
         --z-notifications-popover
     ); // A bit above navbar for a nicer slider experience when the sidebar is closed
+
     width: calc(2 * var(--sidebar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
     cursor: col-resize;
     user-select: none; // Fixes inadvertent selection of scene text when resizing
