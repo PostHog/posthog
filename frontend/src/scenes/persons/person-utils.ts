@@ -1,12 +1,40 @@
 import './PersonDisplay.scss'
 
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { NUM_LETTERMARK_STYLES } from 'lib/lemon-ui/Lettermark/Lettermark'
 import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { isUUIDLike, midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
+
+/**
+ * Generates a stable color index from a string using djb2 hash.
+ * Used for consistent avatar colors based on person identifiers.
+ */
+function hashStringToColorIndex(str: string): number {
+    let hash = 5381
+    for (let i = 0; i < str.length; i++) {
+        hash = (hash * 33) ^ str.charCodeAt(i)
+    }
+    return Math.abs(hash) % NUM_LETTERMARK_STYLES
+}
+
+/**
+ * Returns a stable color index for a person based on their identifier.
+ * Uses distinct_id (or first of distinct_ids) to generate consistent colors.
+ */
+export function getPersonColorIndex(person: PersonPropType | null | undefined): number | undefined {
+    if (!person) {
+        return undefined
+    }
+    const identifier = person.distinct_id || person.distinct_ids?.[0]
+    if (!identifier) {
+        return undefined
+    }
+    return hashStringToColorIndex(identifier)
+}
 
 export type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
@@ -66,7 +94,7 @@ export function asDisplay(
 
     // Sync the logic below with the plugin server `getPersonDetails`
     const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-    const customPropertyKey = personDisplayNameProperties.find((x) => person.properties?.[x])
+    const customPropertyKey = personDisplayNameProperties.find((x: string) => person.properties?.[x])
     const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
 
     const customIdentifier: string =

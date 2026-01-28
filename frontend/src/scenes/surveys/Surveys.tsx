@@ -44,6 +44,13 @@ function NewSurveyButton(): JSX.Element {
     const { user } = useValues(userLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
+    const trackAddNewClick = (): void => {
+        addProductIntent({
+            product_type: ProductKey.SURVEYS,
+            intent_context: ProductIntentContext.SURVEY_ADD_NEW,
+        })
+    }
+
     return (
         <MaxTool
             identifier="create_survey"
@@ -100,6 +107,7 @@ function NewSurveyButton(): JSX.Element {
                         type="primary"
                         data-attr="new-survey"
                         tooltip="New survey"
+                        onClick={trackAddNewClick}
                     >
                         <span className="pr-3">New survey</span>
                     </LemonButton>
@@ -111,7 +119,6 @@ function NewSurveyButton(): JSX.Element {
 
 function Surveys(): JSX.Element {
     const { tab } = useValues(surveysLogic)
-
     const { setTab } = useActions(surveysLogic)
 
     return (
