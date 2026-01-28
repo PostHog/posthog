@@ -326,10 +326,15 @@ docker:
     # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
-        description: Stop all Docker infrastructure services
+        description: Stop Docker infrastructure services
+        services:
+            - docker
     docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
-        description: Stop all Docker services and remove volumes (complete wipe)
+        description: Stop Docker infrastructure services and remove all volumes (complete wipe)
+        services:
+            - docker
+        prompt: true
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
