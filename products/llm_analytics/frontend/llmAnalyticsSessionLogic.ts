@@ -9,8 +9,8 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
 
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import type { llmAnalyticsSessionLogicType } from './llmAnalyticsSessionLogicType'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 
 export interface LLMAnalyticsSessionDataNodeLogicParams {
     sessionId: string
@@ -41,7 +41,7 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsSessionLogic']),
 
     connect({
-        values: [llmAnalyticsLogic, ['dateFilter']],
+        values: [llmAnalyticsSharedLogic, ['dateFilter']],
     }),
 
     actions({
