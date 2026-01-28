@@ -75,58 +75,44 @@ class _NotebookBridgeParser:
     marker: str
     buffer: str = ""
 
-    def _marker_suffix_length(self) -> int:
-        if len(self.marker) <= 1:
-            return 0
-        max_len = min(len(self.buffer), len(self.marker) - 1)
-        for length in range(max_len, 0, -1):
-            if self.marker.startswith(self.buffer[-length:]):
-                return length
-        return 0
-
     def feed(self, text: str) -> tuple[str, list[str]]:
         self.buffer += text
         output_parts: list[str] = []
         payloads: list[str] = []
-
         while True:
-            marker_index = self.buffer.find(self.marker)
-            if marker_index == -1:
-                suffix_len = self._marker_suffix_length()
-                if suffix_len:
-                    output_parts.append(self.buffer[:-suffix_len])
-                    self.buffer = self.buffer[-suffix_len:]
-                else:
-                    output_parts.append(self.buffer)
-                    self.buffer = ""
-                return "".join(output_parts), payloads
+            newline_index = self.buffer.find("\n")
+            if newline_index == -1:
+                break
 
-            if marker_index > 0:
-                output_parts.append(self.buffer[:marker_index])
-                self.buffer = self.buffer[marker_index:]
+            line = self.buffer[: newline_index + 1]
+            self.buffer = self.buffer[newline_index + 1 :]
+            line_content = line[:-1]
+
+            if not line_content.startswith(self.marker):
+                output_parts.append(line)
+                continue
 
             size_start = len(self.marker)
             size_end = size_start
-            while size_end < len(self.buffer) and self.buffer[size_end].isdigit():
+            while size_end < len(line_content) and line_content[size_end].isdigit():
                 size_end += 1
-            if size_end == size_start or size_end >= len(self.buffer):
-                break
 
-            if self.buffer[size_end] != " ":
-                output_parts.append(self.buffer[: len(self.marker)])
-                self.buffer = self.buffer[len(self.marker) :]
+            if size_end == size_start or size_end >= len(line_content):
+                output_parts.append(line)
                 continue
 
-            size = int(self.buffer[size_start:size_end])
+            if line_content[size_end] != " ":
+                output_parts.append(line)
+                continue
+
+            size = int(line_content[size_start:size_end])
             payload_start = size_end + 1
             payload_end = payload_start + size
-            if len(self.buffer) < payload_end:
-                break
+            if payload_end != len(line_content):
+                output_parts.append(line)
+                continue
 
-            payloads.append(self.buffer[payload_start:payload_end])
-            self.buffer = self.buffer[payload_end:]
-            if self.buffer.startswith("\n"):
-                self.buffer = self.buffer[1:]
+            payloads.append(line_content[payload_start:payload_end])
 
         return "".join(output_parts), payloads
 

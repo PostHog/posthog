@@ -308,7 +308,7 @@ class TestKernelRuntimeService(BaseTest):
         payload_out: dict[str, Any] = {
             "type": "result",
             "status": "ok",
-            "stdout": f"before {bridge_message}after",
+            "stdout": f"before\n{bridge_message}after",
             "stderr": "",
             "result": None,
             "media": [],
@@ -339,7 +339,7 @@ class TestKernelRuntimeService(BaseTest):
                 timeout=5,
             )
 
-        assert execution_result.stdout == "before after"
+        assert execution_result.stdout == "before\nafter"
         mock_payload.assert_called_once_with(bridge_payload_json, handle)
 
     def test_execute_in_sandbox_stream_yields_output_and_result(self) -> None:
@@ -385,7 +385,7 @@ class TestKernelRuntimeService(BaseTest):
                     {
                         "type": "stream",
                         "name": "stdout",
-                        "text": f"hello {bridge_message}world",
+                        "text": f"hello\n{bridge_message}world",
                     }
                 ),
                 json.dumps({"type": "stream", "name": "stderr", "text": "oops"}),
@@ -410,7 +410,7 @@ class TestKernelRuntimeService(BaseTest):
                 )
             )
 
-        assert output[0] == {"type": "stdout", "text": "hello world"}
+        assert output[0] == {"type": "stdout", "text": "hello\nworld"}
         assert output[1] == {"type": "stderr", "text": "oops"}
         assert output[2]["type"] == "result"
         assert output[2]["data"]["stdout"] == "final"
@@ -427,19 +427,29 @@ class TestKernelRuntimeService(BaseTest):
                 [],
             ),
             (
-                "partial_marker_prefix",
+                "marker_not_at_line_start",
                 "__NOTEBOOK_BRIDGE__",
-                ["hello__NOTEBOOK", " rest"],
-                ["hello", "__NOTEBOOK rest"],
+                ['hello __NOTEBOOK_BRIDGE__41 {"call":"hogql_execute","query":"select"}\n'],
+                ['hello __NOTEBOOK_BRIDGE__41 {"call":"hogql_execute","query":"select"}\n'],
                 [],
             ),
             (
                 "payload_extraction",
                 "__NOTEBOOK_BRIDGE__",
                 [
-                    'hello__NOTEBOOK_BRIDGE__41 {"call":"hogql_execute","query":"select"}\nworld',
+                    '__NOTEBOOK_BRIDGE__41 {"call":"hogql_execute","query":"select"}\nworld\n',
                 ],
-                ["helloworld"],
+                ["world\n"],
+                ['{"call":"hogql_execute","query":"select"}'],
+            ),
+            (
+                "payload_split_across_chunks",
+                "__NOTEBOOK_BRIDGE__",
+                [
+                    '__NOTEBOOK_BRIDGE__41 {"call":"hogql_execute",',
+                    '"query":"select"}\nnext\n',
+                ],
+                ["", "next\n"],
                 ['{"call":"hogql_execute","query":"select"}'],
             ),
         ]
