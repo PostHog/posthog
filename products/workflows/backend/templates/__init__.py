@@ -132,7 +132,7 @@ def load_global_templates() -> list[dict]:
             try:
                 serializer = SimpleHogFlowTemplateSerializer(data=data)
                 if serializer.is_valid():
-                    templates.append(data)
+                    templates.append({**data, "tags": data.get("tags") or []})
                 else:
                     logger.error(f"Template validation failed for {template_file}", errors=serializer.errors)
             except Exception:

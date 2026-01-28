@@ -58,7 +58,7 @@ describe('workflowTemplatesLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.loadWorkflowTemplatesSuccess([
-                    { id: 'global-1', name: 'Official', scope: 'global' } as any,
+                    { id: 'global-1', name: 'Official', scope: 'global', tags: [] } as any,
                 ])
             }).toMatchValues({
                 availableTags: [],

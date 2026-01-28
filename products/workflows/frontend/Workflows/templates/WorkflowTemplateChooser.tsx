@@ -71,6 +71,8 @@ export function WorkflowTemplateChooser(): JSX.Element {
                         name: 'Empty workflow',
                         description: 'Create a blank workflow from scratch',
                         image_url: BlankWorkflowHog,
+                        scope: 'team',
+                        tags: [],
                     }}
                     onClick={createEmptyWorkflow}
                     index={0}
@@ -224,12 +226,11 @@ function TemplateItem({
                         {scopeTag}
                     </LemonTag>
                 )}
-                {template.tags &&
-                    template.tags.map((tag) => (
-                        <LemonTag key={tag} type="default">
-                            {tag}
-                        </LemonTag>
-                    ))}
+                {template.tags.map((tag) => (
+                    <LemonTag key={tag} type="default">
+                        {tag}
+                    </LemonTag>
+                ))}
             </div>
             <div className={clsx('px-2 py-1 grow', isHovering ? 'overflow-y-auto' : 'overflow-hidden')}>
                 <p className={clsx('text-secondary text-xs', isHovering ? '' : 'line-clamp-2')}>

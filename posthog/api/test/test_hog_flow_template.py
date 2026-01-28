@@ -255,8 +255,13 @@ class TestHogFlowTemplateAPI(APIBaseTest):
     def test_template_tags_field(self):
         """Test that tags field can be set, updated, and defaults to empty list"""
         hog_flow_data = self._create_hog_flow_data()
-        hog_flow_data["tags"] = ["ingestion", "batch"]
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+        assert response.json()["tags"] == []
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        assert template.tags == []
 
+        hog_flow_data["tags"] = ["ingestion", "batch"]
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
         assert response.status_code == 201, response.json()
         assert response.json()["tags"] == ["ingestion", "batch"]

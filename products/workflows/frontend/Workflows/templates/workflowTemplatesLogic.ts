@@ -70,10 +70,7 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
 
                 // Filter by tag
                 if (tagFilter) {
-                    filtered = filtered.filter((template) => {
-                        const tags = template.tags || []
-                        return tags.includes(tagFilter)
-                    })
+                    filtered = filtered.filter((template) => template.tags.includes(tagFilter))
                 }
 
                 // Filter by search term using Fuse
@@ -82,10 +79,7 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
                     filtered = searchResults.map((result: { item: HogFlowTemplate }) => result.item)
                     // Apply tag filter to search results if active
                     if (tagFilter) {
-                        filtered = filtered.filter((template) => {
-                            const tags = template.tags || []
-                            return tags.includes(tagFilter)
-                        })
+                        filtered = filtered.filter((template) => template.tags.includes(tagFilter))
                     }
                 }
 
@@ -97,9 +91,7 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
             (workflowTemplates: HogFlowTemplate[]): string[] => {
                 const tagSet = new Set<string>()
                 workflowTemplates.forEach((template) => {
-                    if (template.tags) {
-                        template.tags.forEach((tag) => tagSet.add(tag))
-                    }
+                    template.tags.forEach((tag) => tagSet.add(tag))
                 })
                 return Array.from(tagSet).sort()
             },

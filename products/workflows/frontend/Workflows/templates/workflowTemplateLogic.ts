@@ -37,7 +37,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 name: '',
                 description: '',
                 image_url: null as string | null,
-                tags: null as string[] | null,
+                tags: [] as string[],
                 scope: 'team' as 'team' | 'global',
             },
             errors: ({ name }: { name: string }) => ({
@@ -47,7 +47,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 name: string
                 description: string
                 image_url: string | null
-                tags: string[] | null
+                tags: string[]
                 scope: 'team' | 'global'
             }) => {
                 const workflow = values.workflow
@@ -63,7 +63,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                             name: formValues.name || workflow.name || '',
                             description: formValues.description || workflow.description || '',
                             image_url: formValues.image_url || undefined,
-                            tags: formValues.tags || undefined,
+                            tags: formValues.tags,
                             scope: formValues.scope || undefined,
                         }
 
@@ -90,7 +90,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                         name: formValues.name || workflow.name || '',
                         description: formValues.description || workflow.description || '',
                         image_url: formValues.image_url || undefined,
-                        tags: formValues.tags || undefined,
+                        tags: formValues.tags,
                         scope,
                     })
                     lemonToast.success('Workflow template created')
@@ -140,7 +140,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     name: templateForm.name || workflow.name || '',
                     description: templateForm.description || workflow.description || '',
                     image_url: templateForm.image_url || undefined,
-                    tags: templateForm.tags || undefined,
+                    tags: templateForm.tags,
                     scope: templateForm.scope || undefined,
                 }
                 const { status, ...templateWithoutStatus } = template
@@ -163,7 +163,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                             name: workflow.name,
                             description: workflow.description || '', // Use current workflow description
                             image_url: template.image_url || null,
-                            tags: template.tags || null,
+                            tags: template.tags,
                             scope: template.scope || 'team',
                         })
                     } catch (e: any) {
@@ -177,7 +177,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                         name: workflow.name || '',
                         description: workflow.description || '',
                         image_url: null,
-                        tags: null,
+                        tags: [],
                         scope: 'team',
                     })
                 }

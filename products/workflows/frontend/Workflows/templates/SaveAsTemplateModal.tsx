@@ -67,7 +67,7 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
                         <LemonField name="tags" label="Tags (optional)">
                             <LemonInputSelect
                                 mode="multiple"
-                                value={(templateForm as any).tags || []}
+                                value={templateForm.tags}
                                 onChange={(tags) => {
                                     workflowTemplateLogic(props).actions.setTemplateFormValue('tags', tags)
                                 }}
