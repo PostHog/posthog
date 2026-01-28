@@ -25,7 +25,10 @@ from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities import (
+    SESSION_VIDEO_CHUNK_DURATION_S,
+    CaptureTimingInputs,
     analyze_video_segment_activity,
+    capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     export_session_video_activity,
@@ -64,7 +67,6 @@ from ee.hogai.session_summaries.llm.consume import (
     get_llm_single_session_summary,
     stream_llm_single_session_summary,
 )
-from ee.hogai.session_summaries.session.input_data import get_team
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
@@ -73,7 +75,6 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
-from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
@@ -398,17 +399,21 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             success = True
         finally:
             duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
-            team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
-            capture_session_summary_timing(
-                distinct_id=inputs.user_distinct_id_to_log,
-                team=team,
-                session_id=inputs.session_id,
-                timing_type="overall_flow",
-                duration_seconds=duration_seconds,
-                success=success,
-                extra_properties={
-                    "video_validation_enabled": inputs.video_validation_enabled,
-                },
+            await temporalio.workflow.execute_activity(
+                capture_timing_activity,
+                CaptureTimingInputs(
+                    distinct_id=inputs.user_distinct_id_to_log,
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                    timing_type="overall_flow",
+                    duration_seconds=duration_seconds,
+                    success=success,
+                    extra_properties={
+                        "video_validation_enabled": inputs.video_validation_enabled,
+                    },
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
 
