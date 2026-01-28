@@ -43,6 +43,7 @@ class KafkaProducerForTests:
             serialized_key_size=0,
             serialized_value_size=0,
             serialized_header_size=0,
+            batch_index=0,
         )
 
         # NOTE: this is probably not the right response, but should do for now
