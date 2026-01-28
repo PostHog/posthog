@@ -12,6 +12,7 @@ import { getWaitUntilTimeWindowDescription, stepWaitUntilTimeWindowLogic } from 
 
 describe('stepWaitUntilTimeWindowLogic', () => {
     let logic: ReturnType<typeof stepWaitUntilTimeWindowLogic.build>
+    let wfLogic: ReturnType<typeof workflowLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -20,9 +21,10 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             plugins: [testUtilsPlugin],
         })
 
-        workflowLogic.mount()
+        wfLogic = workflowLogic({ id: 'new', tabId: 'default' })
+        wfLogic.mount()
 
-        logic = stepWaitUntilTimeWindowLogic({ workflowLogicProps: workflowLogic.props })
+        logic = stepWaitUntilTimeWindowLogic({ workflowLogicProps: wfLogic.props })
         logic.mount()
     })
 
@@ -49,13 +51,13 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             updated_at: Date.now(),
         } as HogFlowAction
 
-        await expectLogic(workflowLogic, () => {
-            workflowLogic.actions.setWorkflowInfo({
-                actions: [...workflowLogic.values.workflow.actions, action],
+        await expectLogic(wfLogic, () => {
+            wfLogic.actions.setWorkflowInfo({
+                actions: [...wfLogic.values.workflow.actions, action],
             })
         }).toDispatchActions(['setWorkflowInfo'])
 
-        await expectLogic(workflowLogic).toMatchValues({
+        await expectLogic(wfLogic).toMatchValues({
             workflow: partial({
                 actions: expect.arrayContaining([expect.objectContaining({ description: initialDescription })]),
             }),
