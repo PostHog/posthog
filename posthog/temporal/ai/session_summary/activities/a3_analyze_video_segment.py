@@ -198,7 +198,7 @@ async def analyze_video_segment_activity(
         )
         raise
     finally:
-        duration_seconds = time.perf_counter() - start_time
+        duration_seconds = time.time() - start_time
         team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
         capture_session_summary_timing(
             distinct_id=inputs.user_distinct_id_to_log,
