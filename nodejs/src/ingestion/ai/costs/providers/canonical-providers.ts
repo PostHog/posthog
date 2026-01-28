@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-01-26 20:01:57 UTC
+// Generated at: 2026-01-27 20:02:21 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -62,6 +62,7 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'inflection'
     | 'liquid'
+    | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mancer-int4'
     | 'minimax'
@@ -120,6 +121,7 @@ export type CanonicalProvider =
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'
+    | 'upstage'
     | 'venice-beta'
     | 'venice-fp16'
     | 'venice-fp4'
