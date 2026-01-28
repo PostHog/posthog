@@ -15,7 +15,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "attributes__updated_at",
             "type": IncrementalFieldType.DateTime,
-            "field": "attributes__updated_at",
+            "field": "updated_at",
             "field_type": IncrementalFieldType.DateTime,
         },
         {
@@ -29,7 +29,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "attributes__updated_at",
             "type": IncrementalFieldType.DateTime,
-            "field": "attributes__updated_at",
+            "field": "updated_at",
             "field_type": IncrementalFieldType.DateTime,
         },
         {
@@ -43,7 +43,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "attributes__datetime",
             "type": IncrementalFieldType.DateTime,
-            "field": "attributes__datetime",
+            "field": "datetime",
             "field_type": IncrementalFieldType.DateTime,
         },
     ],
@@ -51,7 +51,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "attributes__updated",
             "type": IncrementalFieldType.DateTime,
-            "field": "attributes__updated",
+            "field": "updated",
             "field_type": IncrementalFieldType.DateTime,
         },
         {
@@ -65,7 +65,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "attributes__updated",
             "type": IncrementalFieldType.DateTime,
-            "field": "attributes__updated",
+            "field": "updated",
             "field_type": IncrementalFieldType.DateTime,
         },
         {
@@ -79,7 +79,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "attributes__updated",
             "type": IncrementalFieldType.DateTime,
-            "field": "attributes__updated",
+            "field": "updated",
             "field_type": IncrementalFieldType.DateTime,
         },
         {

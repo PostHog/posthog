@@ -1,4 +1,3 @@
-import json
 from typing import Any, Literal
 
 from django.db.models import F
@@ -19,28 +18,6 @@ def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) 
     ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
 
 
-def _extract_nested_value(row_value: Any, nested_keys: list[str]) -> Any:
-    """Extract a value from a nested path within a JSON string or dict."""
-    if row_value is None:
-        return None
-
-    # If it's a string, try to parse as JSON
-    if isinstance(row_value, str):
-        try:
-            row_value = json.loads(row_value)
-        except (json.JSONDecodeError, TypeError):
-            return None
-
-    # Traverse the nested path
-    for key in nested_keys:
-        if isinstance(row_value, dict):
-            row_value = row_value.get(key)
-        else:
-            return None
-
-    return row_value
-
-
 def get_incremental_field_value(
     schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
 ) -> Any:
@@ -51,19 +28,10 @@ def get_incremental_field_value(
     if incremental_field_name is None:
         return None
 
-    # Check if this is a nested path (e.g., "attributes__updated_at")
-    if "__" in incremental_field_name:
-        parts = incremental_field_name.split("__")
-        column_name = normalize_column_name(parts[0])
-        nested_keys = parts[1:]
-
-        column = table[column_name]
-        values = [_extract_nested_value(val, nested_keys) for val in column.to_pylist()]
-    else:
-        column = table[normalize_column_name(incremental_field_name)]
-        values = column.to_pylist()
-
-    processed_column = pa.array([process_incremental_value(val, schema.incremental_field_type) for val in values])
+    column = table[normalize_column_name(incremental_field_name)]
+    processed_column = pa.array(
+        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
+    )
 
     if aggregate == "max":
         last_value = pc.max(processed_column)
