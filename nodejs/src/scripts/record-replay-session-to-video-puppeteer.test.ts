@@ -1,6 +1,6 @@
 const {
     scaleDimensionsIfNeeded,
-    ensurePlaybackSpeed,
+    setupUrlForPlaybackSpeed,
     waitForPageReady,
     detectRecordingResolution,
     waitForRecordingWithSegments,
@@ -46,19 +46,19 @@ describe('record-replay-session-to-video-puppeteer', () => {
         })
     })
 
-    describe('ensurePlaybackSpeed', () => {
+    describe('setupUrlForPlaybackSpeed', () => {
         it.each([
             ['https://example.com/replay', 1, 'https://example.com/replay?playerSpeed=1'],
             ['https://example.com/replay', 4, 'https://example.com/replay?playerSpeed=4'],
             ['https://example.com/replay?foo=bar', 2, 'https://example.com/replay?foo=bar&playerSpeed=2'],
             ['https://example.com/replay?playerSpeed=1', 4, 'https://example.com/replay?playerSpeed=4'],
             ['https://example.com/replay#hash', 3, 'https://example.com/replay?playerSpeed=3#hash'],
-        ])('ensurePlaybackSpeed(%s, %d) => %s', (url, speed, expected) => {
-            expect(ensurePlaybackSpeed(url, speed)).toBe(expected)
+        ])('setupUrlForPlaybackSpeed(%s, %d) => %s', (url, speed, expected) => {
+            expect(setupUrlForPlaybackSpeed(url, speed)).toBe(expected)
         })
 
         it('handles float playback speeds', () => {
-            const result = ensurePlaybackSpeed('https://example.com/replay', 1.5)
+            const result = setupUrlForPlaybackSpeed('https://example.com/replay', 1.5)
             expect(result).toBe('https://example.com/replay?playerSpeed=1.5')
         })
     })

@@ -65,7 +65,7 @@ function scaleDimensionsIfNeeded(width, height, maxSize = MAX_DIMENSION) {
 }
 
 // Speed up playback of the video if provided by the parameters
-function ensurePlaybackSpeed(urlToRender, playbackSpeed) {
+function setupUrlForPlaybackSpeed(urlToRender, playbackSpeed) {
     const url = new URL(urlToRender)
     url.searchParams.set('playerSpeed', String(playbackSpeed))
     return url.toString()
@@ -320,7 +320,7 @@ async function main() {
         log('Starting recording to:', outputPath)
         await recorder.start(outputPath)
         // Navigate and wait for page ready
-        const urlWithSpeed = ensurePlaybackSpeed(urlToRender, playbackSpeed)
+        const urlWithSpeed = setupUrlForPlaybackSpeed(urlToRender, playbackSpeed)
         await waitForPageReady(page, urlWithSpeed, waitForCssSelector)
         // Adjust viewport based on content
         let measuredWidth = null
@@ -414,7 +414,7 @@ if (require.main === module) {
 // Export functions for testing
 module.exports = {
     scaleDimensionsIfNeeded,
-    ensurePlaybackSpeed,
+    setupUrlForPlaybackSpeed,
     waitForPageReady,
     detectRecordingResolution,
     waitForRecordingWithSegments,
