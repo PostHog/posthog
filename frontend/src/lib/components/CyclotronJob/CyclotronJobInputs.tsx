@@ -404,8 +404,14 @@ function DictionaryField({
                             size="small"
                             onClick={() => {
                                 const newEntries = [...entries]
+                                const deletedId = entries[index].id
                                 newEntries.splice(index, 1)
                                 setEntries(newEntries)
+                                setTouchedEntries((prev) => {
+                                    const next = new Set(prev)
+                                    next.delete(deletedId)
+                                    return next
+                                })
                             }}
                         />
                     </div>
