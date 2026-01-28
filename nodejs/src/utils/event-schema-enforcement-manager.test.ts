@@ -58,9 +58,9 @@ describe('EventSchemaEnforcementManager', () => {
         const result = await postgres.query<{ id: string }>(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_schemapropertygroup
-                (id, team_id, name, created_at)
+                (id, team_id, name, description, created_at)
              VALUES
-                (gen_random_uuid(), $1, 'Test Group', NOW())
+                (gen_random_uuid(), $1, 'Test Group', '', NOW())
              RETURNING id`,
             [teamId],
             'create-test-property-group'
