@@ -141,6 +141,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                                             openPlayerIn={RecordingPlayerType.Modal}
                                             label={record.value}
                                             variant={ViewRecordingButtonVariant.Link}
+                                            checkRecordingExists
                                         />
                                     ) : (
                                         <span>{record.value}</span>
