@@ -30,7 +30,7 @@ def get_config() -> dict[str, str]:
     In dev mode, returns sensible localhost defaults. In production,
     requires environment variables to be set.
     """
-    if _is_dev_mode():
+    if is_dev_mode():
         return {key: os.environ.get(key, default) or default for key, default in DEFAULTS.items()}
 
     return _get_config_from_env_strict()
@@ -38,7 +38,7 @@ def get_config() -> dict[str, str]:
 
 def get_team_config(team_id: int) -> dict[str, str]:
     """Get DuckLake configuration for a specific team from DuckLakeCatalog."""
-    if _is_dev_mode():
+    if is_dev_mode():
         return get_config()
 
     catalog = get_ducklake_catalog_for_team(team_id)
@@ -49,7 +49,7 @@ def get_team_config(team_id: int) -> dict[str, str]:
     raise ValueError(f"No DuckLakeCatalog configured for team {team_id}")
 
 
-def _is_dev_mode() -> bool:
+def is_dev_mode() -> bool:
     """Check if running in development mode."""
     try:
         from django.conf import settings
@@ -74,8 +74,11 @@ def _get_config_from_env_strict() -> dict[str, str]:
 def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:
     """Look up DuckLakeCatalog for a team.
 
-    Returns None if no team-specific catalog is configured.
+    Returns None if no team-specific catalog is configured or in dev mode.
     """
+    if is_dev_mode():
+        return None
+
     from posthog.ducklake.models import DuckLakeCatalog
 
     try:
@@ -243,5 +246,6 @@ __all__ = [
     "ensure_ducklake_catalog",
     "initialize_ducklake",
     "parse_postgres_dsn",
+    "is_dev_mode",
     "run_smoke_check",
 ]

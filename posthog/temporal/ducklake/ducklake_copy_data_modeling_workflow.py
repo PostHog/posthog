@@ -11,8 +11,9 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.ducklake.common import attach_catalog, get_ducklake_catalog_for_team, get_team_config
+from posthog.ducklake.common import attach_catalog, get_config, get_ducklake_catalog_for_team, is_dev_mode
 from posthog.ducklake.storage import (
+    configure_connection,
     configure_cross_account_connection,
     ensure_ducklake_bucket_exists,
     get_deltalake_storage_options,
@@ -170,26 +171,29 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
-        catalog = get_ducklake_catalog_for_team(inputs.team_id)
-        if catalog is None:
-            logger.error("No DuckLakeCatalog configured for team", team_id=inputs.team_id)
-            raise ApplicationError(
-                f"No DuckLakeCatalog configured for team {inputs.team_id}. "
-                "Create a DuckLakeCatalog entry in Django admin before running this workflow.",
-                non_retryable=True,
-            )
-
-        config = get_team_config(inputs.team_id)
-        cross_account_dest = catalog.to_cross_account_destination()
         alias = "ducklake"
+        dev_mode = is_dev_mode()
+
+        if dev_mode:
+            config = get_config()
+        else:
+            catalog = get_ducklake_catalog_for_team(inputs.team_id)
+            if catalog is None:
+                raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
+            config = catalog.to_public_config()
+            config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
 
         with duckdb.connect() as conn:
-            logger.info(
-                "Using cross-account S3 access",
-                role_arn=cross_account_dest.role_arn,
-                bucket=cross_account_dest.bucket_name,
-            )
-            configure_cross_account_connection(conn, destinations=[cross_account_dest])
+            if dev_mode:
+                configure_connection(conn)
+            else:
+                cross_account_dest = catalog.to_cross_account_destination()
+                logger.info(
+                    "Using cross-account S3 access",
+                    role_arn=cross_account_dest.role_arn,
+                    bucket=cross_account_dest.bucket_name,
+                )
+                configure_cross_account_connection(conn, destinations=[cross_account_dest])
             ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
@@ -221,22 +225,25 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
 
     heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
     with heartbeater:
-        catalog = get_ducklake_catalog_for_team(inputs.team_id)
-        if catalog is None:
-            logger.error("No DuckLakeCatalog configured for team", team_id=inputs.team_id)
-            raise ApplicationError(
-                f"No DuckLakeCatalog configured for team {inputs.team_id}. "
-                "Create a DuckLakeCatalog entry in Django admin before running this workflow.",
-                non_retryable=True,
-            )
-
-        config = get_team_config(inputs.team_id)
-        cross_account_dest = catalog.to_cross_account_destination()
         alias = "ducklake"
+        dev_mode = is_dev_mode()
+
+        if dev_mode:
+            config = get_config()
+        else:
+            catalog = get_ducklake_catalog_for_team(inputs.team_id)
+            if catalog is None:
+                raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
+            config = catalog.to_public_config()
+            config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+
         results: list[DuckLakeCopyVerificationResult] = []
 
         with duckdb.connect() as conn:
-            configure_cross_account_connection(conn, destinations=[cross_account_dest])
+            if dev_mode:
+                configure_connection(conn)
+            else:
+                configure_cross_account_connection(conn, destinations=[catalog.to_cross_account_destination()])
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"

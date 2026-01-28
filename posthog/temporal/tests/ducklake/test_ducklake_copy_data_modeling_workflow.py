@@ -218,6 +218,10 @@ def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeypatch):
     )
 
     monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
         MagicMock(return_value=_create_mock_catalog()),
     )
@@ -308,6 +312,10 @@ def test_verify_ducklake_copy_activity_runs_queries(monkeypatch):
         MagicMock(return_value=mock_heartbeater),
     )
 
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
         MagicMock(return_value=_create_mock_catalog()),
@@ -453,6 +461,10 @@ def test_verify_ducklake_copy_activity_reports_failures(monkeypatch):
         MagicMock(return_value=mock_heartbeater),
     )
 
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
         MagicMock(return_value=_create_mock_catalog()),
@@ -606,6 +618,10 @@ def test_verify_ducklake_copy_activity_respects_tolerance(monkeypatch, observed,
     )
 
     monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
         MagicMock(return_value=_create_mock_catalog()),
     )
@@ -683,6 +699,10 @@ def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch):
     )
 
     monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
         MagicMock(return_value=_create_mock_catalog()),
     )
@@ -735,6 +755,10 @@ def test_copy_data_modeling_model_to_ducklake_activity_raises_when_no_catalog(mo
     )
 
     monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
         MagicMock(return_value=None),
     )
@@ -770,6 +794,10 @@ def test_verify_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
         MagicMock(return_value=mock_heartbeater),
     )
 
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
         MagicMock(return_value=None),
