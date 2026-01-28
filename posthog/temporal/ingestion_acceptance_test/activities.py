@@ -20,6 +20,7 @@ async def run_ingestion_acceptance_tests() -> dict:
     - INGESTION_ACCEPTANCE_TEST_PERSONAL_API_KEY
     - INGESTION_ACCEPTANCE_TEST_EVENT_TIMEOUT_SECONDS (optional, default 30)
     - INGESTION_ACCEPTANCE_TEST_POLL_INTERVAL_SECONDS (optional, default 2.0)
+    - INGESTION_ACCEPTANCE_TEST_SLACK_WEBHOOK_URL (optional, for Slack notifications)
 
     Returns:
         Dict containing test results with summary, individual test outcomes,
