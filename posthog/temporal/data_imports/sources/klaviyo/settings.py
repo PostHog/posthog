@@ -15,6 +15,7 @@ class KlaviyoEndpointConfig:
     )
     base_filter: Optional[str] = None  # e.g., "equals(messages.channel,'email')"
     page_size: Optional[int] = None  # Override default page size (100)
+    sort: Optional[str] = None  # Sort field for the endpoint
 
 
 KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
@@ -78,6 +79,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         default_incremental_field="updated",
         partition_key="created",
         page_size=50,  # Flows endpoint max is 50
+        sort="updated",
         incremental_fields=[
             {
                 "label": "updated",

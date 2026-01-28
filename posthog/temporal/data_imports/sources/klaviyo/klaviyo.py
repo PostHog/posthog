@@ -58,6 +58,8 @@ def get_resource(
         params["page[size]"] = config.page_size
     if filter_value:
         params["filter"] = filter_value
+    if config.sort:
+        params["sort"] = config.sort
 
     return {
         "name": config.name,
