@@ -15,7 +15,7 @@ def capture_session_summary_timing(
     distinct_id: str | None,
     team: Team,
     session_id: str,
-    timing_type: Literal["video_render", "transcript", "overall_flow"],
+    timing_type: Literal["video_render", "transcript", "single_session_flow", "group_session_flow"],
     duration_seconds: float,
     success: bool,
     extra_properties: dict | None = None,
