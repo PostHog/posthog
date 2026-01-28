@@ -178,7 +178,7 @@ class BaseTableType(Type):
         raise QueryError(f"Field not found: {name}")
 
 
-TableOrSelectType = Union[BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType"]
+TableOrSelectType = Union[BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType", "CTEType"]
 
 
 @dataclass(kw_only=True)
@@ -335,6 +335,29 @@ class SelectQueryAliasType(Type):
             return FieldType(name=name, table_type=self)
 
         raise ResolutionError(f"Field {name} not found on query with alias {self.alias}")
+
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        return self.select_query_type.has_child(name, context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
+        return self.select_query_type.resolve_column_constant_type(name, context)
+
+
+@dataclass(kw_only=True)
+class CTEType(Type):
+    """Type for a reference to a CTE (Common Table Expression).
+    Used when CTEs should not be expanded inline (e.g., for Postgres recursive CTEs)."""
+
+    name: str
+    cte: "CTE"
+    select_query_type: SelectQueryType | SelectSetQueryType
+
+    def get_child(self, name: str, context: HogQLContext) -> Type:
+        if name == "*":
+            return AsteriskType(table_type=self)
+        if self.select_query_type.has_child(name, context):
+            return FieldType(name=name, table_type=self)
+        raise ResolutionError(f"Field {name} not found on CTE {self.name}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)

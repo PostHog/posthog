@@ -3894,7 +3894,7 @@ class TestPostgresPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend="cpp-json")
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -3918,7 +3918,7 @@ class TestPostgresPrinter(BaseTest):
         dialect: HogQLDialect = "postgres",
     ) -> str:
         return prepare_and_print_ast(
-            parse_select(query, placeholders=placeholders),
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect,
         )[0]
@@ -4067,4 +4067,19 @@ class TestPostgresPrinter(BaseTest):
                 dialect="postgres",
                 stack=[prepared_select_query],
             ),
+        )
+
+    def test_with_recursive(self):
+        query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_with_recursive_self_referencing(self):
+        query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (n + 1) FROM nums WHERE (n < 5)) "
+            "SELECT nums.n FROM nums LIMIT 50000",
         )

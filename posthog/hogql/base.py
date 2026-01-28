@@ -27,6 +27,7 @@ class AST:
             "hog_qlxattribute": "hogqlx_attribute",
             "uuidtype": "uuid_type",
             "string_jsontype": "string_json_type",
+            "ctetype": "cte_type",
         }
 
         for old, new in replacements.items():

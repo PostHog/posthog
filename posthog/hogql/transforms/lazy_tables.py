@@ -74,6 +74,9 @@ class LazyFinder(TraversingVisitor):
             self.visited_field_type_counts[node_ref] = visited_count + 1
             self.visit(node.table_type)
 
+    def visit_cte_type(self, node: ast.CTEType):
+        pass
+
 
 class LazyTableResolver(TraversingVisitor):
     lazy_finder_counter = 0
@@ -118,6 +121,9 @@ class LazyTableResolver(TraversingVisitor):
             if len(self.field_collectors) == 0:
                 raise ResolutionError("Can't access a lazy field when not in a SelectQuery context")
             self.field_collectors[-1].append(node)
+
+    def visit_cte_type(self, node: ast.CTEType):
+        pass
 
     def visit_select_query(self, node: ast.SelectQuery):
         select_type = node.type

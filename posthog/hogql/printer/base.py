@@ -345,6 +345,12 @@ class HogQLPrinter(Visitor[str]):
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
+        elif isinstance(node.type, ast.CTEType):
+            # CTE reference - print the CTE name
+            join_strings.append(self.visit(node.type))
+            if node.alias is not None and node.alias != node.type.name:
+                join_strings.append(f"AS {self._print_identifier(node.alias)}")
+
         elif isinstance(node.type, ast.LazyTableType):
             if self.dialect == "hogql":
                 join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
@@ -922,6 +928,10 @@ class HogQLPrinter(Visitor[str]):
                 else:
                     field_sql = "person_props"
 
+        elif isinstance(type.table_type, ast.CTEType):
+            # Field on a CTE - print as cte_name.field_name
+            field_sql = f"{self.visit(type.table_type)}.{self._print_identifier(type.name)}"
+
         else:
             error = f"Can't access field '{type.name}' on a table with type '{type.table_type.__class__.__name__}'."
             if isinstance(type.table_type, ast.LazyJoinType):
@@ -1088,6 +1098,9 @@ class HogQLPrinter(Visitor[str]):
 
     def visit_asterisk_type(self, type: ast.AsteriskType):
         return "*"
+
+    def visit_cte_type(self, type: ast.CTEType):
+        raise ImpossibleASTError("Unexpected ast.CTEType. CTEs should only be used with Postgres dialect.")
 
     def visit_lazy_join_type(self, type: ast.LazyJoinType):
         raise ImpossibleASTError("Unexpected ast.LazyJoinType. Make sure LazyJoinResolver has run on the AST.")
