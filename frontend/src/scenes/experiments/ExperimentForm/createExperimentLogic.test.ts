@@ -501,4 +501,116 @@ describe('createExperimentLogic', () => {
             }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
         })
     })
+
+    describe('clearDraft', () => {
+        beforeEach(() => {
+            sessionStorage.clear()
+        })
+
+        it('clears draft and resets experiment to NEW_EXPERIMENT', async () => {
+            const tabId = 'test-tab'
+            const draftLogic = createExperimentLogic({ tabId })
+            draftLogic.mount()
+
+            await expectLogic(draftLogic, () => {
+                draftLogic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Draft Experiment',
+                    description: 'Draft Description',
+                })
+            })
+                .toDispatchActions(['setExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        name: 'Draft Experiment',
+                        description: 'Draft Description',
+                    }),
+                })
+
+            await expectLogic(draftLogic, () => {
+                draftLogic.actions.clearDraft()
+            })
+                .toDispatchActions(['clearDraft', 'resetExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        id: 'new',
+                        name: '',
+                        description: '',
+                    }),
+                    experimentErrors: {},
+                    sharedMetrics: { primary: [], secondary: [] },
+                })
+
+            draftLogic.unmount()
+        })
+
+        it('clears draft from sessionStorage', async () => {
+            const tabId = 'test-tab'
+            const storageKey = `experiment-draft-${tabId}`
+
+            // Manually write a draft to sessionStorage
+            const draft = {
+                experiment: {
+                    ...NEW_EXPERIMENT,
+                    name: 'Draft Experiment',
+                },
+                timestamp: Date.now(),
+            }
+            sessionStorage.setItem(storageKey, JSON.stringify(draft))
+            expect(sessionStorage.getItem(storageKey)).toBeTruthy()
+
+            const draftLogic = createExperimentLogic({ tabId })
+            draftLogic.mount()
+
+            await expectLogic(draftLogic, () => {
+                draftLogic.actions.clearDraft()
+            }).toFinishAllListeners()
+
+            expect(sessionStorage.getItem(storageKey)).toBeNull()
+
+            draftLogic.unmount()
+        })
+
+        it('resets to original experiment when editing an existing experiment', async () => {
+            const existingExperiment: Experiment = {
+                ...NEW_EXPERIMENT,
+                id: 456,
+                name: 'Existing Experiment',
+                description: 'Existing Description',
+            }
+
+            const editLogic = createExperimentLogic({ experiment: existingExperiment })
+            editLogic.mount()
+
+            await expectLogic(editLogic, () => {
+                editLogic.actions.setExperiment({
+                    ...existingExperiment,
+                    name: 'Modified Name',
+                    description: 'Modified Description',
+                })
+            }).toMatchValues({
+                experiment: partial({
+                    id: 456,
+                    name: 'Modified Name',
+                    description: 'Modified Description',
+                }),
+            })
+
+            await expectLogic(editLogic, () => {
+                editLogic.actions.clearDraft()
+            })
+                .toDispatchActions(['clearDraft', 'resetExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        id: 456,
+                        name: 'Existing Experiment',
+                        description: 'Existing Description',
+                    }),
+                    experimentErrors: {},
+                    sharedMetrics: { primary: [], secondary: [] },
+                })
+
+            editLogic.unmount()
+        })
+    })
 })
