@@ -47,12 +47,12 @@ class TestSummarize:
             summarize(
                 text_repr="L1: Test",
                 team_id=1,
-                model=OpenAIModel.GPT_4O,
+                model=OpenAIModel.GPT_4_1_MINI,
             )
 
             mock_openai.assert_called_once()
             call_args = mock_openai.call_args[0]
-            assert call_args[3] == OpenAIModel.GPT_4O
+            assert call_args[3] == OpenAIModel.GPT_4_1_MINI
 
     def test_mode_is_passed_through(self, mock_response):
         with patch(

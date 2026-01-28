@@ -90,11 +90,11 @@ class TestSummarizeWithOpenAI:
                 text_repr="L1: Test",
                 team_id=1,
                 mode=SummarizationMode.MINIMAL,
-                model=OpenAIModel.GPT_4O,
+                model=OpenAIModel.GPT_4_1_MINI,
             )
 
             call_kwargs = mock_client.chat.completions.create.call_args[1]
-            assert call_kwargs["model"] == OpenAIModel.GPT_4O
+            assert call_kwargs["model"] == OpenAIModel.GPT_4_1_MINI
 
     def test_uses_user_id_when_provided(self, valid_response_json):
         mock_response = MagicMock()
