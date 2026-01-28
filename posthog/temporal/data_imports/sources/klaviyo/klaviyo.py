@@ -203,6 +203,14 @@ def validate_credentials(api_key: str) -> bool:
         return False
 
 
+def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Flatten the 'attributes' object into the root level for a single item."""
+    if "attributes" in item and isinstance(item["attributes"], dict):
+        attributes = item.pop("attributes")
+        item.update(attributes)
+    return item
+
+
 @dlt.source(max_table_nesting=0)
 def klaviyo_source(
     api_key: str,
@@ -247,4 +255,5 @@ def klaviyo_source(
         ],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    for resource in rest_api_resources(config, team_id, job_id, db_incremental_field_last_value):
+        yield resource.add_map(_flatten_item)
