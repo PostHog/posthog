@@ -164,7 +164,7 @@ class TestQueryRunner(BaseTest):
                             "clicks": "clicks",
                             "source": "_metadata_launched_at",
                             "campaign": "campaignname",
-                            "currency": "USD",
+                            "currency": "const:USD",
                             "impressions": "impressions",
                         },
                     },

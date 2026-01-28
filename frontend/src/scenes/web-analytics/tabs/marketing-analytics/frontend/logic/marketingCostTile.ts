@@ -27,6 +27,12 @@ function buildCurrencyExpr(currencyField: string | undefined, baseCurrency: stri
         const code = currencyField.slice(MarketingAnalyticsConstants.ConstantValuePrefix.length)
         return `'${sanitizeCurrencyCode(code) ?? 'USD'}'`
     }
+    // Backwards compatibility: bare ISO currency codes (e.g. "USD") saved before
+    // the "const:" prefix was enforced by the frontend are treated as constants.
+    const maybeCode = sanitizeCurrencyCode(currencyField)
+    if (maybeCode) {
+        return `'${maybeCode}'`
+    }
     return sanitizeColumnName(currencyField) ?? safeFallback
 }
 

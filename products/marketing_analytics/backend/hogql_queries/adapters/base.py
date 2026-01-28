@@ -1,5 +1,6 @@
 # Base Marketing Source Adapter
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Generic, Optional, TypeVar
@@ -141,12 +142,20 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             return ast.Field(chain=parts)
         return parse_expr(field_value)
 
+    # Matches bare ISO 4217 currency codes like "USD", "EUR", "GBP"
+    _ISO_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+
     def _resolve_field_or_constant(self, field_value: str) -> ast.Expr:
         """Resolve a field value that may be a column reference or a constant.
         Values prefixed with 'const:' are treated as string constants.
+        For backwards compatibility, bare ISO currency codes (e.g. "USD")
+        saved before the frontend enforced the 'const:' prefix are also
+        treated as constants.
         """
         if field_value.startswith(self.CONSTANT_VALUE_PREFIX):
             return ast.Constant(value=field_value[len(self.CONSTANT_VALUE_PREFIX) :])
+        if self._ISO_CURRENCY_RE.match(field_value):
+            return ast.Constant(value=field_value)
         return self._resolve_field_expr(field_value)
 
     @classmethod
