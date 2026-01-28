@@ -977,6 +977,7 @@ def delete_project_data_and_notify_task(
         user_id: User who initiated the deletion (for email notification)
         project_name: Name of the deleted project (for email notification)
     """
+    from posthog.email import is_email_available
     from posthog.tasks.email import send_project_deleted_email
 
     logger.info("Starting project data deletion", team_ids=team_ids, project_name=project_name)
@@ -984,7 +985,8 @@ def delete_project_data_and_notify_task(
     try:
         _delete_team_data(team_ids, user_id)
         logger.info("Project data deletion completed", team_ids=team_ids, project_name=project_name)
-        send_project_deleted_email.delay(user_id=user_id, project_name=project_name)
+        if is_email_available():
+            send_project_deleted_email.delay(user_id=user_id, project_name=project_name)
     except Exception as e:
         logger.error(
             "Project data deletion failed", team_ids=team_ids, project_name=project_name, error=str(e), exc_info=True
@@ -1023,6 +1025,7 @@ def delete_organization_data_and_notify_task(
         organization_name: Name of the deleted organization (for email notification)
         project_names: Names of all projects in the organization (for email notification)
     """
+    from posthog.email import is_email_available
     from posthog.tasks.email import send_organization_deleted_email
 
     logger.info("Starting organization data deletion", team_ids=team_ids, organization_name=organization_name)
@@ -1030,9 +1033,10 @@ def delete_organization_data_and_notify_task(
     try:
         _delete_team_data(team_ids, user_id)
         logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
-        send_organization_deleted_email.delay(
-            user_id=user_id, organization_name=organization_name, project_names=project_names
-        )
+        if is_email_available():
+            send_organization_deleted_email.delay(
+                user_id=user_id, organization_name=organization_name, project_names=project_names
+            )
     except Exception as e:
         logger.error(
             "Organization data deletion failed",

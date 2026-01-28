@@ -526,18 +526,13 @@ def team_api_test_factory():
                 )
             assert activity == expected_activity
 
-        @patch("posthog.api.project.delete_project_data_and_notify_task")
-        @patch("posthog.api.team.delete_project_data_and_notify_task")
+        @patch("posthog.tasks.tasks.delete_project_data_and_notify_task")
         @patch("posthoganalytics.capture")
         def test_delete_team_own_second(
             self,
             mock_capture: MagicMock,
             mock_delete_task: MagicMock,
-            mock_delete_task_legacy_endpoint: MagicMock,
         ):
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_delete_task = mock_delete_task_legacy_endpoint
-
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
