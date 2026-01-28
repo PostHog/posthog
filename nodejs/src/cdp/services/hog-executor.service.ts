@@ -451,10 +451,10 @@ export class HogExecutorService {
                                 const givenCount = globals.event.properties?.$hog_function_execution_count
                                 const executionCount = typeof givenCount === 'number' ? givenCount : 0
 
-                                if (executionCount > 0) {
+                                if (executionCount > 9) {
                                     addLog(
                                         'warn',
-                                        `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
+                                        `postHogCapture was called from an event that already executed this function 10 times previously. To prevent unbounded infinite loops, the event was not captured.`
                                     )
                                     return
                                 }

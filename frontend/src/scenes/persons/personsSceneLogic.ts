@@ -19,7 +19,7 @@ import type { personsSceneLogicType } from './personsSceneLogicType'
 
 export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
 
-export const defaultQuery = {
+export const PEOPLE_LIST_DEFAULT_QUERY = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
@@ -40,7 +40,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     }),
 
     reducers({
-        query: [defaultQuery, { setQuery: (_, { query }) => query }],
+        query: [PEOPLE_LIST_DEFAULT_QUERY, { setQuery: (_, { query }) => query }],
     }),
 
     listeners({
@@ -67,7 +67,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         setQuery: () => [
             urls.persons(),
             {},
-            equal(values.query, defaultQuery) ? {} : { q: values.query },
+            equal(values.query, PEOPLE_LIST_DEFAULT_QUERY) ? {} : { q: values.query },
             { replace: true },
         ],
     })),
