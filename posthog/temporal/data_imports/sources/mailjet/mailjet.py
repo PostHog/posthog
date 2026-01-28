@@ -7,16 +7,45 @@ import requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from posthog.temporal.data_imports.sources.mailjet.settings import MAILJET_ENDPOINTS
+from posthog.temporal.data_imports.sources.mailjet.settings import MAILJET_ENDPOINTS, MailjetEndpointConfig
 
 
-def _format_incremental_value(value: Any) -> str:
-    """Format incremental field value as ISO string for Mailjet API filters."""
+def _format_incremental_value_as_unix(value: Any) -> int | None:
+    """Format incremental field value as Unix timestamp for Mailjet API FromTS filter."""
     if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return int(value.timestamp())
     if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time()).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return str(value)
+        return int(datetime.combine(value, datetime.min.time()).timestamp())
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
+def _build_params(
+    config: MailjetEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> dict[str, Any]:
+    """Build query parameters for Mailjet API request."""
+    params: dict[str, Any] = {
+        "Limit": config.page_size,
+    }
+
+    # Add sort parameter if configured
+    if config.sort:
+        params["Sort"] = config.sort
+
+    # Add incremental filter if supported and we have a last value
+    if should_use_incremental_field and config.incremental_filter_param and db_incremental_field_last_value is not None:
+        unix_timestamp = _format_incremental_value_as_unix(db_incremental_field_last_value)
+        if unix_timestamp is not None:
+            params[config.incremental_filter_param] = unix_timestamp
+
+    # Message-specific params
+    if config.name == "message":
+        params["ShowSubject"] = "true"
+
+    return params
 
 
 def get_resource(
@@ -27,12 +56,7 @@ def get_resource(
 ) -> EndpointResource:
     config = MAILJET_ENDPOINTS[name]
 
-    params: dict[str, Any] = {
-        "Limit": config.page_size,
-    }
-
-    if name == "message":
-        params["ShowSubject"] = "true"
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
     return {
         "name": config.name,
