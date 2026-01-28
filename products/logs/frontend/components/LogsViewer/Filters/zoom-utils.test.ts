@@ -75,6 +75,20 @@ describe('zoomDateRange', () => {
     })
 
     describe('edge cases', () => {
+        it('handles zero-duration range (same from/to) by using 1 minute minimum', () => {
+            const result = zoomDateRange(
+                {
+                    date_from: '2024-01-15T10:30:00.000Z',
+                    date_to: '2024-01-15T10:30:00.000Z',
+                },
+                2
+            )
+            // Original range: 0 mins, but we use 1 min minimum, center at 10:30:30
+            // Expanded by 2x should give 1 min on each side = 10:29:30 - 10:31:30
+            expect(result.date_from).toContain('2024-01-15T10:29:30')
+            expect(result.date_to).toContain('2024-01-15T10:31:30')
+        })
+
         it('handles missing date_from by defaulting to 1 hour ago', () => {
             const result = zoomDateRange({ date_from: null, date_to: null }, 2)
             // Default range: 11:00 - 12:00 (1h ago to now), center at 11:30

@@ -11,15 +11,30 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { BatchExportBackfillModalLogicProps, batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
+import {
+    BatchExportBackfillModalLogicProps,
+    batchExportBackfillModalLogic,
+    formatDateForDisplay,
+    getCalendarGranularity,
+    transformDateOnChange,
+} from './batchExportBackfillModalLogic'
+import { formatHourString } from './utils'
 
 export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicProps): JSX.Element {
-    const { timezone } = useValues(teamLogic)
     const logic = batchExportBackfillModalLogic({ id })
 
-    const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting, isEarliestBackfill } = useValues(logic)
+    const {
+        batchExportConfig,
+        isBackfillModalOpen,
+        isBackfillFormSubmitting,
+        isEarliestBackfill,
+        interval,
+        timezone,
+        dayOfWeek,
+        dayOfWeekName,
+        hourOffset,
+    } = useValues(logic)
     const { closeBackfillModal, setEarliestBackfill, unsetEarliestBackfill, setBackfillFormManualErrors } =
         useActions(logic)
 
@@ -58,58 +73,45 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
         >
             <p>
                 Backfilling a batch export will sequentially run all batch periods that fall within the range specified
-                below. The runs will export data in <b>{batchExportConfig?.interval}</b> intervals, from the start date
-                until the end date is reached.
+                below. The runs will export data in <b>{interval}</b> intervals, from the start date until the end date
+                is reached.
             </p>
+            {interval === 'day' && hourOffset !== null && (
+                <p className="text-sm text-secondary">
+                    Your batch export is configured to run at{' '}
+                    <b>
+                        {formatHourString(hourOffset)} ({timezone}) every day
+                    </b>
+                    .
+                </p>
+            )}
+            {interval === 'week' && dayOfWeek !== null && hourOffset !== null && (
+                <p className="text-sm text-secondary">
+                    Your batch export is configured to run at{' '}
+                    <b>
+                        {formatHourString(hourOffset)} ({timezone}) every week on {dayOfWeekName}
+                    </b>
+                    .
+                </p>
+            )}
             <Form
                 logic={batchExportBackfillModalLogic}
                 props={{ id: id } as BatchExportBackfillModalLogicProps}
                 formKey="backfillForm"
                 id="batch-export-backfill-form"
                 enableFormOnSubmit
-                className="deprecated-space-y-2"
+                className="flex flex-col gap-2"
             >
-                {
-                    // We will assume any dates selected are in the project's timezone and NOT in the user's local time.
-                    // So, if a user of a daily export selects "2024-08-14" they mean "2024-08-14 00:00:00 in their
-                    // project's timezone".
-                }
                 <LemonField name="start_at" label={`Start Date (${timezone})`} className="flex-1">
                     {({ value, onChange }) =>
                         !isEarliestBackfill ? (
                             <LemonCalendarSelectInput
-                                value={
-                                    value
-                                        ? batchExportConfig
-                                            ? batchExportConfig.interval === 'day'
-                                                ? value.hour(0).minute(0).second(0)
-                                                : value.tz(timezone)
-                                            : value
-                                        : value
-                                }
+                                value={formatDateForDisplay(value)}
                                 onChange={(date) => {
-                                    if (date) {
-                                        let projectDate = date.tz(timezone, true)
-
-                                        if (batchExportConfig && batchExportConfig.interval === 'day') {
-                                            projectDate = projectDate.hour(0).minute(0).second(0)
-                                        }
-
-                                        onChange(projectDate)
-                                    } else {
-                                        onChange(date)
-                                    }
+                                    onChange(transformDateOnChange(date, interval, timezone, hourOffset))
                                 }}
                                 placeholder="Select start date"
-                                granularity={
-                                    batchExportConfig
-                                        ? batchExportConfig.interval === 'hour'
-                                            ? 'hour'
-                                            : batchExportConfig.interval.endsWith('minutes')
-                                              ? 'minute'
-                                              : 'day'
-                                        : 'day'
-                                }
+                                granularity={getCalendarGranularity(interval)}
                             />
                         ) : (
                             <LemonInput value="Beginning of time" disabled />
@@ -146,38 +148,12 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                 <LemonField name="end_at" label={`End Date (${timezone})`} className="flex-1">
                     {({ value, onChange }) => (
                         <LemonCalendarSelectInput
-                            value={
-                                value
-                                    ? batchExportConfig
-                                        ? batchExportConfig.interval === 'day'
-                                            ? value.hour(0).minute(0).second(0)
-                                            : value.tz(timezone)
-                                        : value
-                                    : value
-                            }
+                            value={formatDateForDisplay(value)}
                             onChange={(date) => {
-                                if (date) {
-                                    let projectDate = date.tz(timezone, true)
-
-                                    if (batchExportConfig && batchExportConfig.interval === 'day') {
-                                        projectDate = projectDate.hour(0).minute(0).second(0)
-                                    }
-
-                                    onChange(projectDate)
-                                } else {
-                                    onChange(date)
-                                }
+                                onChange(transformDateOnChange(date, interval, timezone, hourOffset))
                             }}
                             placeholder="Select end date"
-                            granularity={
-                                batchExportConfig
-                                    ? batchExportConfig.interval === 'hour'
-                                        ? 'hour'
-                                        : batchExportConfig.interval.endsWith('minutes')
-                                          ? 'minute'
-                                          : 'day'
-                                    : 'day'
-                            }
+                            granularity={getCalendarGranularity(interval)}
                         />
                     )}
                 </LemonField>

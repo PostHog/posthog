@@ -2,6 +2,7 @@ import uuid
 import datetime
 
 import pytest
+from unittest.mock import patch
 
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
@@ -652,31 +653,85 @@ def generate_feature_request_responses():
 
 @pytest.fixture
 async def create_test_surveys(demo_org_team_user):
-    """Create test surveys for evaluation."""
+    """Create test surveys for evaluation with questions matching test data."""
     _, team, user = demo_org_team_user
 
     test_surveys = []
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    survey_names = [
-        f"Test Survey with Placeholder Data {timestamp}",
-        f"Mixed Data Survey {timestamp}",
-        f"Customer Satisfaction Survey {timestamp}",
-        f"Product Issues Survey {timestamp}",
-        f"Comprehensive Feedback Survey {timestamp}",
-        f"Support Service Survey {timestamp}",
-        f"Feature Requests Survey {timestamp}",
+
+    # Survey configs: (name, questions) - questions match the test data generators
+    survey_configs = [
+        # Test case 0: generate_test_data_responses() - 1 question
+        (
+            f"Test Survey with Placeholder Data {timestamp}",
+            [
+                {"type": "open", "question": "What do you think about our product?", "id": str(uuid.uuid4())},
+            ],
+        ),
+        # Test case 1: generate_mixed_data_responses() - 1 question
+        (
+            f"Mixed Data Survey {timestamp}",
+            [
+                {"type": "open", "question": "How can we improve our product?", "id": str(uuid.uuid4())},
+            ],
+        ),
+        # Test case 2: generate_positive_feedback_responses() - 1 question
+        (
+            f"Customer Satisfaction Survey {timestamp}",
+            [
+                {"type": "open", "question": "What do you like most about our product?", "id": str(uuid.uuid4())},
+            ],
+        ),
+        # Test case 3: generate_negative_feedback_responses() - 1 question
+        (
+            f"Product Issues Survey {timestamp}",
+            [
+                {
+                    "type": "open",
+                    "question": "What issues or problems have you encountered with our product?",
+                    "id": str(uuid.uuid4()),
+                },
+            ],
+        ),
+        # Test case 4: generate_multi_question_responses() - 2 questions
+        (
+            f"Comprehensive Feedback Survey {timestamp}",
+            [
+                {"type": "open", "question": "What do you like about our product?", "id": str(uuid.uuid4())},
+                {"type": "open", "question": "What could we improve or add?", "id": str(uuid.uuid4())},
+            ],
+        ),
+        # Test case 5: generate_service_feedback_responses() - 1 question
+        (
+            f"Support Service Survey {timestamp}",
+            [
+                {
+                    "type": "open",
+                    "question": "How would you rate our customer service experience?",
+                    "id": str(uuid.uuid4()),
+                },
+            ],
+        ),
+        # Test case 6: generate_feature_request_responses() - 1 question
+        (
+            f"Feature Requests Survey {timestamp}",
+            [
+                {
+                    "type": "open",
+                    "question": "What features would you like to see added or improved?",
+                    "id": str(uuid.uuid4()),
+                },
+            ],
+        ),
     ]
 
-    for name in survey_names:
+    for name, questions in survey_configs:
         survey = await Survey.objects.acreate(
             team=team,
             created_by=user,
             name=name,
             description=f"Test survey: {name}",
-            questions=[
-                {"type": "open", "question": "What do you think?", "id": str(uuid.uuid4())},
-                {"type": "open", "question": "Any other feedback?", "id": str(uuid.uuid4())},
-            ],
+            questions=questions,
             type="popover",
         )
         test_surveys.append(survey)
@@ -684,10 +739,23 @@ async def create_test_surveys(demo_org_team_user):
     return test_surveys
 
 
+def _extract_response_texts(formatted_responses: list[dict]) -> dict[int, list[str]]:
+    """
+    Extract response texts from formatted_responses grouped by question index.
+    Returns a dict mapping question index to list of response texts.
+    """
+    result: dict[int, list[str]] = {}
+    for idx, question_group in enumerate(formatted_responses):
+        responses = question_group.get("responses", [])
+        result[idx] = [r.get("responseText", "") for r in responses if r.get("responseText")]
+    return result
+
+
 @pytest.fixture
 async def call_survey_analysis_tool(demo_org_team_user, create_test_surveys):
     """
     This fixture creates a properly configured SurveyAnalysisTool for evaluation.
+    Mocks fetch_responses to return the test data from formatted_responses.
     """
     _, team, user = demo_org_team_user
     test_surveys = create_test_surveys
@@ -697,27 +765,37 @@ async def call_survey_analysis_tool(demo_org_team_user, create_test_surveys):
         Call the survey analysis tool with provided context and return structured output.
         """
         try:
-            # Get the right survey ID for the test case
+            # Get the right survey for the test case
             survey_index = context.get("survey_index", 0)
-            if survey_index < len(test_surveys):
-                survey = test_surveys[survey_index]
-                # Update context with real survey data
-                context = {
-                    **context,
-                    "survey_id": str(survey.id),
-                    "survey_name": survey.name,
+            if survey_index >= len(test_surveys):
+                return {
+                    "success": False,
+                    "user_message": "Survey index out of range",
+                    "artifact": None,
+                    "error": "Invalid survey_index",
                 }
+
+            survey = test_surveys[survey_index]
+            formatted_responses = context.get("formatted_responses", [])
+
+            # Extract response texts grouped by question index for mocking
+            responses_by_question = _extract_response_texts(formatted_responses)
+
+            # Mock fetch_responses to return our test data
+            def mock_fetch_responses(survey_id, question_index, question_id, start_date, end_date, team, limit=50):
+                return responses_by_question.get(question_index, [])
 
             # Create the analysis tool
             analysis_tool = SurveyAnalysisTool(
                 team=team,
                 user=user,
                 state=AssistantState(messages=[]),
-                config=RunnableConfig(configurable={"contextual_tools": {"analyze_survey_responses": context}}),
+                config=RunnableConfig(configurable={}),
             )
 
-            # Call the tool
-            result = await analysis_tool._arun_impl()
+            # Call the tool with mocked fetch_responses
+            with patch("products.surveys.backend.max_tools.fetch_responses", side_effect=mock_fetch_responses):
+                result = await analysis_tool._arun_impl(survey_id=str(survey.id))
 
             # Return structured output
             user_message, artifact = result
@@ -738,174 +816,32 @@ async def call_survey_analysis_tool(demo_org_team_user, create_test_surveys):
     return call_analysis_tool
 
 
-class TestDataDetectionScorer(LLMClassifier):
+class AnalysisPromptQualityScorer(LLMClassifier):
     """
-    Evaluate if the tool correctly identifies test/placeholder data vs genuine feedback.
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="test_data_detection",
-            prompt_template="""
-Evaluate whether the survey analysis tool correctly identified if the responses are test/placeholder data or genuine user feedback.
-
-Survey Context:
-Survey ID: {{output.artifact.survey_id}}
-Survey Name: {{output.artifact.survey_name}}
-Response Data: {{input.formatted_responses}}
-
-Analysis Output:
-User Message: {{output.user_message}}
-Success: {{output.success}}
-
-Expected Classification: {{expected.data_type}}
-
-Evaluation Criteria:
-1. **Correct Classification**: Did the tool correctly identify whether responses are test data or genuine feedback?
-2. **Test Data Patterns**: For test data, did it identify patterns like "fasdfasdf", "abc", random keystrokes?
-3. **Genuine Data Recognition**: For genuine feedback, did it avoid false positive test data detection?
-4. **Appropriate Response**: Did the tool provide appropriate analysis or recommendations based on data quality?
-5. **No Hallucination**: Did it avoid creating fictional themes from meaningless test responses?
-
-Test data indicators: Random keystrokes, repeated "abc", "hello", "asdf", "fasdfasdf", etc.
-Genuine data indicators: Coherent sentences, actual feedback, meaningful responses.
-
-How accurately did the tool detect the data type? Choose one:
-- perfect: Correctly identified data type and provided appropriate response
-- good: Mostly correct identification with minor issues
-- partial: Some correct aspects but missed key data quality indicators
-- incorrect: Completely misclassified the data type or hallucinated analysis
-""".strip(),
-            choice_scores={
-                "perfect": 1.0,
-                "good": 0.7,
-                "partial": 0.4,
-                "incorrect": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Analysis failed", "error": output.get("error", "Unknown error")},
-            )
-        return await super()._run_eval_async(output, expected, **kwargs)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Analysis failed", "error": output.get("error", "Unknown error")},
-            )
-        return super()._run_eval_sync(output, expected, **kwargs)
-
-
-class ThemeExtractionQualityScorer(LLMClassifier):
-    """
-    Evaluate the quality of theme extraction from genuine user feedback.
+    Evaluate if the tool output provides good context for the agent to analyze.
     """
 
     def __init__(self, **kwargs):
         super().__init__(
-            name="theme_extraction_quality",
+            name="analysis_prompt_quality",
             prompt_template="""
-Evaluate the quality of themes extracted from survey responses.
+Evaluate whether the tool output provides sufficient context for an AI agent to analyze the survey responses.
 
-Survey Responses: {{input.formatted_responses}}
-
-Extracted Themes: {{output.artifact.analysis.themes}}
-Analysis Insights: {{output.artifact.analysis.insights}}
-
-Expected Themes: {{expected.expected_themes}}
+Tool Output Message: {{output.user_message}}
+Input Responses: {{input.formatted_responses}}
 
 Evaluation Criteria:
-1. **Relevance**: Are the extracted themes actually present in the responses?
-2. **Completeness**: Did the analysis capture the main themes from the responses?
-3. **Accuracy**: Are the themes accurately representing what users said?
-4. **Specificity**: Are themes specific enough to be actionable, not too generic?
-5. **No Hallucination**: Are all themes based on actual response content?
+1. **Survey Context**: Does the output include the survey name and response count?
+2. **Response Clarity**: Are the responses clearly presented and readable?
+3. **Analysis Instructions**: Does the output guide the agent on what to analyze (themes, sentiment, insights)?
+4. **Completeness**: Does the output include all necessary information for meaningful analysis?
+5. **Structure**: Is the output well-structured for agent consumption?
 
-Note: Themes don't need to match expected themes exactly, but should be legitimate interpretations of the response data.
-
-How would you rate the theme extraction quality? Choose one:
-- excellent: Themes are accurate, complete, and actionable based on actual responses
-- good: Themes are mostly accurate with minor issues or omissions
-- adequate: Some good themes but missing key patterns or slightly generic
-- poor: Inaccurate themes, significant hallucination, or missed major patterns
-""".strip(),
-            choice_scores={
-                "excellent": 1.0,
-                "good": 0.75,
-                "adequate": 0.5,
-                "poor": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        # Only evaluate if we have genuine data and successful analysis
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Analysis failed", "error": output.get("error", "Unknown error")},
-            )
-
-        # Skip for test data scenarios
-        if expected and expected.get("data_type") == "test":
-            return None
-
-        return await super()._run_eval_async(output, expected, **kwargs)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Analysis failed", "error": output.get("error", "Unknown error")},
-            )
-
-        # Skip for test data scenarios
-        if expected and expected.get("data_type") == "test":
-            return None
-
-        return super()._run_eval_sync(output, expected, **kwargs)
-
-
-class RecommendationQualityScorer(LLMClassifier):
-    """
-    Evaluate the quality and actionability of recommendations.
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="recommendation_quality",
-            prompt_template="""
-Evaluate the quality of recommendations generated from survey analysis.
-
-Survey Responses: {{input.formatted_responses}}
-Generated Recommendations: {{output.artifact.analysis.recommendations}}
-
-Evaluation Criteria:
-1. **Actionability**: Are recommendations specific and actionable, not generic advice?
-2. **Relevance**: Are recommendations directly based on the survey insights?
-3. **Feasibility**: Are recommendations realistic for a product team to implement?
-4. **Prioritization**: Are the most important recommendations prioritized appropriately?
-5. **Clarity**: Are recommendations clear and well-articulated?
-
-For test data scenarios: Recommendations should acknowledge data quality issues and suggest collecting genuine feedback.
-
-How would you rate the recommendation quality? Choose one:
-- excellent: Recommendations are highly actionable, relevant, and well-prioritized
-- good: Recommendations are mostly actionable with minor issues
-- adequate: Some good recommendations but could be more specific or better prioritized
-- poor: Generic, irrelevant, or non-actionable recommendations
+How would you rate the analysis prompt quality? Choose one:
+- excellent: Output provides complete context with clear analysis instructions
+- good: Output provides most necessary context with minor gaps
+- adequate: Output has basic information but lacks clear structure or instructions
+- poor: Output is incomplete, unclear, or missing key analysis guidance
 """.strip(),
             choice_scores={
                 "excellent": 1.0,
@@ -922,7 +858,7 @@ How would you rate the recommendation quality? Choose one:
             return Score(
                 name=self._name(),
                 score=0,
-                metadata={"reason": "Analysis failed", "error": output.get("error", "Unknown error")},
+                metadata={"reason": "Retrieval failed", "error": output.get("error", "Unknown error")},
             )
         return await super()._run_eval_async(output, expected, **kwargs)
 
@@ -931,7 +867,7 @@ How would you rate the recommendation quality? Choose one:
             return Score(
                 name=self._name(),
                 score=0,
-                metadata={"reason": "Analysis failed", "error": output.get("error", "Unknown error")},
+                metadata={"reason": "Retrieval failed", "error": output.get("error", "Unknown error")},
             )
         return super()._run_eval_sync(output, expected, **kwargs)
 
@@ -939,123 +875,90 @@ How would you rate the recommendation quality? Choose one:
 @pytest.mark.django_db
 async def eval_survey_analysis(call_survey_analysis_tool, pytestconfig):
     """
-    Evaluation for survey response analysis functionality.
+    Evaluation for survey response retrieval functionality.
+    Tests that the tool correctly retrieves and formats survey responses for agent analysis.
     """
     await MaxPublicEval(
         experiment_name="survey_analysis",
         task=call_survey_analysis_tool,
         scores=[
-            TestDataDetectionScorer(),
-            ThemeExtractionQualityScorer(),
-            RecommendationQualityScorer(),
+            AnalysisPromptQualityScorer(),
         ],
         data=[
-            # Test Case 1: Clear test data detection (20 responses)
+            # Test Case 1: Small dataset (2 responses)
             EvalCase(
                 input={
                     "survey_index": 0,
                     "formatted_responses": generate_test_data_responses(),
                 },
                 expected={
-                    "data_type": "test",
-                    "should_detect_test_data": True,
+                    "response_count": 2,
                 },
-                metadata={"test_type": "test_data_detection"},
+                metadata={"test_type": "small_dataset"},
             ),
-            # Test Case 2: Mixed test and genuine data (25 responses - 60% test, 40% genuine)
+            # Test Case 2: Mixed feedback (10 responses)
             EvalCase(
                 input={
                     "survey_index": 1,
                     "formatted_responses": generate_mixed_data_responses(),
                 },
                 expected={
-                    "data_type": "mixed",
-                    "expected_themes": ["Interface/Navigation Issues", "Performance Problems"],
+                    "response_count": 10,
                 },
-                metadata={"test_type": "mixed_data"},
+                metadata={"test_type": "mixed_feedback"},
             ),
-            # Test Case 3: Genuine positive feedback (20 responses across multiple themes)
+            # Test Case 3: Positive feedback (20 responses)
             EvalCase(
                 input={
                     "survey_index": 2,
                     "formatted_responses": generate_positive_feedback_responses(),
                 },
                 expected={
-                    "data_type": "genuine",
-                    "expected_themes": [
-                        "User Interface & Design",
-                        "Performance & Reliability",
-                        "Customer Support",
-                        "Integration & Workflow",
-                    ],
+                    "response_count": 20,
                 },
                 metadata={"test_type": "positive_feedback"},
             ),
-            # Test Case 4: Genuine negative feedback (18 responses across problem areas)
+            # Test Case 4: Negative feedback (18 responses)
             EvalCase(
                 input={
                     "survey_index": 3,
                     "formatted_responses": generate_negative_feedback_responses(),
                 },
                 expected={
-                    "data_type": "genuine",
-                    "expected_themes": [
-                        "Performance & Reliability",
-                        "Customer Support Issues",
-                        "Pricing & Value Concerns",
-                        "Missing Features",
-                    ],
+                    "response_count": 18,
                 },
                 metadata={"test_type": "negative_feedback"},
             ),
-            # Test Case 5: Multiple questions with varied feedback (32 total responses)
+            # Test Case 5: Multiple questions (33 total responses across 2 questions)
             EvalCase(
                 input={
                     "survey_index": 4,
                     "formatted_responses": generate_multi_question_responses(),
                 },
                 expected={
-                    "data_type": "genuine",
-                    "expected_themes": [
-                        "Ease of Use & Design",
-                        "Reliability & Performance",
-                        "Advanced Feature Requests",
-                        "Mobile & Technical Improvements",
-                    ],
+                    "response_count": 33,
                 },
-                metadata={"test_type": "multi_question_feedback"},
+                metadata={"test_type": "multi_question"},
             ),
-            # Test Case 6: Support and service feedback (18 responses)
+            # Test Case 6: Service feedback (18 responses)
             EvalCase(
                 input={
                     "survey_index": 5,
                     "formatted_responses": generate_service_feedback_responses(),
                 },
                 expected={
-                    "data_type": "genuine",
-                    "expected_themes": [
-                        "Excellent Service",
-                        "Response Time Issues",
-                        "Knowledge Gaps",
-                        "Communication Problems",
-                    ],
+                    "response_count": 18,
                 },
                 metadata={"test_type": "service_feedback"},
             ),
-            # Test Case 7: Feature requests and product development feedback (22 responses)
+            # Test Case 7: Feature requests (22 responses)
             EvalCase(
                 input={
                     "survey_index": 6,
                     "formatted_responses": generate_feature_request_responses(),
                 },
                 expected={
-                    "data_type": "genuine",
-                    "expected_themes": [
-                        "Integration Requests",
-                        "Mobile Improvements",
-                        "Analytics & Reporting",
-                        "User Experience Enhancements",
-                    ],
+                    "response_count": 22,
                 },
                 metadata={"test_type": "feature_requests"},
             ),
