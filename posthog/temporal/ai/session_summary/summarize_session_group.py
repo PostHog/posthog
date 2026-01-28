@@ -28,6 +28,7 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai.session_summary.activities import CaptureTimingInputs, capture_timing_activity
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
@@ -578,6 +579,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SessionGroupSummaryInputs) -> str:
+        start_time = temporalio.workflow.now()
         self._total_sessions = len(inputs.session_ids)
         # Get events data from the DB (or cache)
         self._current_status.append("Fetching session data from the database")
@@ -626,6 +628,25 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             ),
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
+        await temporalio.workflow.execute_activity(
+            capture_timing_activity,
+            CaptureTimingInputs(
+                distinct_id=inputs.user_distinct_id_to_log,
+                team_id=inputs.team_id,
+                session_id=inputs.session_ids[0] if inputs.session_ids else "",
+                timing_type="overall_flow",
+                duration_seconds=duration_seconds,
+                success=True,
+                extra_properties={
+                    "workflow_type": "group",
+                    "session_count": len(inputs.session_ids),
+                    "video_validation_enabled": inputs.video_validation_enabled,
+                },
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )
         return patterns_assignments
 

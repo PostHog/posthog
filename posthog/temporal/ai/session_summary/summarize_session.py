@@ -387,34 +387,30 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
         start_time = temporalio.workflow.now()
-        success = False
-        try:
-            await temporalio.workflow.execute_activity(
-                fetch_session_data_activity,
-                inputs,
-                start_to_close_timeout=timedelta(minutes=3),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            await ensure_llm_single_session_summary(inputs)
-            success = True
-        finally:
-            duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
-            await temporalio.workflow.execute_activity(
-                capture_timing_activity,
-                CaptureTimingInputs(
-                    distinct_id=inputs.user_distinct_id_to_log,
-                    team_id=inputs.team_id,
-                    session_id=inputs.session_id,
-                    timing_type="overall_flow",
-                    duration_seconds=duration_seconds,
-                    success=success,
-                    extra_properties={
-                        "video_validation_enabled": inputs.video_validation_enabled,
-                    },
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+        await temporalio.workflow.execute_activity(
+            fetch_session_data_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        await ensure_llm_single_session_summary(inputs)
+        duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
+        await temporalio.workflow.execute_activity(
+            capture_timing_activity,
+            CaptureTimingInputs(
+                distinct_id=inputs.user_distinct_id_to_log,
+                team_id=inputs.team_id,
+                session_id=inputs.session_id,
+                timing_type="overall_flow",
+                duration_seconds=duration_seconds,
+                success=True,
+                extra_properties={
+                    "video_validation_enabled": inputs.video_validation_enabled,
+                },
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
 
 
 def calculate_video_segment_specs(
