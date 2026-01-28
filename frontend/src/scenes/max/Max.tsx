@@ -273,7 +273,7 @@ export const MaxInstance = React.memo(function MaxInstance({
         <>
             {!isRemovingSidePanelFlag ? header : null}
             <SidePanelContentContainer flagOffClassName="contents">
-                {header}
+                {isRemovingSidePanelFlag ? header : null}
                 {content}
             </SidePanelContentContainer>
         </>

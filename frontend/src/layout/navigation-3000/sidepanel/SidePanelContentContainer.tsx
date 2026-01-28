@@ -13,7 +13,7 @@ export function SidePanelContentContainer({
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
-        <div className="p-2 h-full">
+        <div className={isRemovingSidePanelFlag ? 'p-2 h-full' : 'contents'}>
             <div
                 className={cn(
                     !isRemovingSidePanelFlag && flagOffClassName,
