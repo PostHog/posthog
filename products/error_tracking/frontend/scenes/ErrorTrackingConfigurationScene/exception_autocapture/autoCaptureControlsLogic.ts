@@ -84,6 +84,7 @@ export const autoCaptureControlsLogic = kea<autoCaptureControlsLogicType>([
                     if (values.controls) {
                         const newControls: ErrorTrackingAutoCaptureControls = {
                             id: values.controls.id,
+                            library: values.controls.library,
                             match_type: values.matchType,
                             sample_rate: values.sampleRate,
                             linked_feature_flag: values.linkedFeatureFlag,
@@ -91,7 +92,7 @@ export const autoCaptureControlsLogic = kea<autoCaptureControlsLogicType>([
                             url_triggers: values.urlTriggers,
                             url_blocklist: values.urlBlocklist,
                         }
-                        return await api.errorTracking.autoCaptureControls.update(newControls)
+                        return await api.errorTracking.autoCaptureControls.update(newControls, values.controls.library)
                     }
                     return values.controls
                 },

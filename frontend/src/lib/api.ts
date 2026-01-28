@@ -3381,17 +3381,27 @@ const api = {
         },
 
         autoCaptureControls: {
-            async get(): Promise<ErrorTrackingAutoCaptureControls | null> {
-                return await new ApiRequest().errorTrackingAutoCaptureControls().get()
+            async get(library: string = 'web'): Promise<ErrorTrackingAutoCaptureControls | null> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).get()
             },
-            async create(): Promise<ErrorTrackingAutoCaptureControls> {
-                return await new ApiRequest().errorTrackingAutoCaptureControls().create()
+            async create(library: string = 'web'): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).create()
             },
-            async update(data: ErrorTrackingAutoCaptureControls): Promise<ErrorTrackingAutoCaptureControls> {
-                return await new ApiRequest().errorTrackingAutoCaptureControls().update({ data })
+            async update(
+                data: ErrorTrackingAutoCaptureControls,
+                library: string = 'web'
+            ): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest()
+                    .errorTrackingAutoCaptureControls()
+                    .withQueryString({ library })
+                    .update({ data })
             },
-            async delete(): Promise<void> {
-                return await new ApiRequest().errorTrackingAutoCaptureControls().withAction('delete_controls').delete()
+            async delete(library: string = 'web'): Promise<void> {
+                return await new ApiRequest()
+                    .errorTrackingAutoCaptureControls()
+                    .withQueryString({ library })
+                    .withAction('delete_controls')
+                    .delete()
             },
         },
 

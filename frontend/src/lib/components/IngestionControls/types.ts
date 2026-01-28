@@ -61,8 +61,11 @@ export interface LinkedFeatureFlag extends Pick<FeatureFlagBasicType, 'id' | 'ke
     variant?: string | null
 }
 
+export type ErrorTrackingLibrary = 'web'
+
 export interface ErrorTrackingAutoCaptureControls {
     id: string
+    library: ErrorTrackingLibrary
     match_type: 'any' | 'all'
     sample_rate: number
     linked_feature_flag: LinkedFeatureFlag | null

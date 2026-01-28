@@ -307,13 +307,18 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
     """
     Controls for error tracking autocapture behavior.
     Defines sample rates, feature flag linkage, and URL/event-based triggers.
+    Each team can have one set of controls per library (SDK).
     """
 
     class MatchType(models.TextChoices):
         ALL = "all"
         ANY = "any"
 
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE)
+    class Library(models.TextChoices):
+        WEB = "web"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    library = models.CharField(max_length=24, choices=Library.choices, null=False, blank=False, default=Library.WEB)
 
     match_type = models.CharField(
         max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
@@ -335,11 +340,17 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingautocapturecontrols"
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "library"], name="unique_controls_per_team_library"),
+        ]
 
 
-def get_autocapture_controls(team_id: int) -> dict | None:
-    """Get the autocapture controls for a team, formatted for API responses."""
-    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values().first()
+def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
+    """Get the autocapture controls for a team and library, formatted for API responses."""
+    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id, library=library).values().first()
     if result:
         if result.get("sample_rate") is not None:
             result["sample_rate"] = float(result["sample_rate"])
