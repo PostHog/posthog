@@ -9,11 +9,15 @@ import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-re
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { createApplyCookielessProcessingStep, createRateLimitToOverflowStep } from '../event-preprocessing'
+import {
+    createApplyCookielessProcessingStep,
+    createOverflowLaneTTLRefreshStep,
+    createRateLimitToOverflowStep,
+} from '../event-preprocessing'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
-import { MemoryRateLimiter } from '../utils/overflow-detector'
+import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createPostTeamPreprocessingSubpipeline } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
 
@@ -32,11 +36,13 @@ export interface PreprocessingPipelineConfig {
     personsStore: PersonsStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    overflowRateLimiter: MemoryRateLimiter
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
     promiseScheduler: PromiseScheduler
+    overflowRedirectService?: OverflowRedirectService
+    /** Service for refreshing TTLs on overflow lane (only set when consuming from overflow topic) */
+    overflowLaneTTLRefreshService?: OverflowRedirectService
 }
 
 export interface PreprocessingPipelineInput {
@@ -57,11 +63,12 @@ export function createPreprocessingPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
-        overflowRateLimiter,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
         promiseScheduler,
+        overflowRedirectService,
+        overflowLaneTTLRefreshService,
     } = config
 
     const pipelineConfig: PipelineConfig = {
@@ -122,12 +129,13 @@ export function createPreprocessingPipeline<
                             // Rate limit to overflow must run after cookieless, as it uses the final distinct ID
                             .pipeBatch(
                                 createRateLimitToOverflowStep(
-                                    overflowRateLimiter,
-                                    overflowEnabled,
                                     overflowTopic,
-                                    hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+                                    hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                                    overflowRedirectService
                                 )
                             )
+                            // Refresh TTLs for overflow lane events (keeps Redis flags alive)
+                            .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                             // Prefetch must run after cookieless, as cookieless changes distinct IDs
                             .pipeBatch(prefetchPersonsStep(personsStore, hub.PERSONS_PREFETCH_ENABLED))
                             // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
