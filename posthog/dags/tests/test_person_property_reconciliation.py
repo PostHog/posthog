@@ -2035,6 +2035,54 @@ class TestCompareRawUpdatesWithPersonState:
         # 123 == 123.0 in Python, so no diff is generated
         assert result == []
 
+    @patch("posthog.dags.person_property_reconciliation.PERSON_STATE_BATCH_SIZE", 2)
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_batches_large_person_lists(self, mock_sync_execute):
+        """Test that large person lists are batched to avoid query size limits.
+
+        When there are more persons than PERSON_STATE_BATCH_SIZE, the function
+        should split the queries into multiple batches and aggregate results.
+        """
+        # With batch size of 2, 5 persons should result in 3 batches
+        mock_sync_execute.side_effect = [
+            # Batch 1: persons 1-2
+            [
+                ("person-1", '{"email": "old1@example.com"}', 5),
+                ("person-2", '{"email": "old2@example.com"}', 6),
+            ],
+            # Batch 2: persons 3-4
+            [
+                ("person-3", '{"email": "old3@example.com"}', 7),
+                ("person-4", "{}", 8),  # Empty properties
+            ],
+            # Batch 3: person 5
+            [
+                ("person-5", '{"email": "old5@example.com"}', 9),
+            ],
+        ]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id=f"person-{i}",
+                set_updates={
+                    "email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), f"new{i}@example.com")
+                },
+                set_once_updates={},
+                unset_updates={},
+            )
+            for i in range(1, 6)
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        # Should have called sync_execute 3 times (one per batch)
+        assert mock_sync_execute.call_count == 3
+
+        # Should return 4 results (person-4 has empty properties so $set is excluded)
+        assert len(result) == 4
+        result_ids = {r.person_id for r in result}
+        assert result_ids == {"person-1", "person-2", "person-3", "person-5"}
+
 
 class TestGetPersonPropertyUpdatesWindowed:
     """Test the get_person_property_updates_windowed function."""
@@ -6424,8 +6472,8 @@ class TestReconciliationSchedulerSensor:
         assert isinstance(result, SensorResult)
         assert result.run_requests is not None
         assert len(result.run_requests) == 2
-        assert result.run_requests[0].run_key == "reconcile_teams_1_1000"
-        assert result.run_requests[1].run_key == "reconcile_teams_1001_2000"
+        assert result.run_requests[0].tags["reconciliation_range"] == "1-1000"
+        assert result.run_requests[1].tags["reconciliation_range"] == "1001-2000"
 
         assert result.cursor is not None
         new_cursor = json.loads(result.cursor)
@@ -6458,7 +6506,7 @@ class TestReconciliationSchedulerSensor:
         assert isinstance(result, SensorResult)
         assert result.run_requests is not None
         assert len(result.run_requests) == 1
-        assert result.run_requests[0].run_key == "reconcile_teams_1001_1500"
+        assert result.run_requests[0].tags["reconciliation_range"] == "1001-1500"
 
         assert result.cursor is not None
         new_cursor = json.loads(result.cursor)
@@ -6721,10 +6769,10 @@ class TestReconciliationSchedulerSensor:
         assert isinstance(result, SensorResult)
         assert result.run_requests is not None
         assert len(result.run_requests) == 4  # 10 teams / 3 per chunk = 4 chunks (3+3+3+1)
-        assert result.run_requests[0].run_key == "reconcile_team_ids_0_2"
-        assert result.run_requests[1].run_key == "reconcile_team_ids_3_5"
-        assert result.run_requests[2].run_key == "reconcile_team_ids_6_8"
-        assert result.run_requests[3].run_key == "reconcile_team_ids_9_9"
+        assert result.run_requests[0].tags["reconciliation_team_ids_range"] == "0-2"
+        assert result.run_requests[1].tags["reconciliation_team_ids_range"] == "3-5"
+        assert result.run_requests[2].tags["reconciliation_team_ids_range"] == "6-8"
+        assert result.run_requests[3].tags["reconciliation_team_ids_range"] == "9-9"
 
         # Verify first run config has correct team_ids chunk
         first_run_config = result.run_requests[0].run_config

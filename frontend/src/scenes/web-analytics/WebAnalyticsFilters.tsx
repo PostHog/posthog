@@ -212,23 +212,31 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                                   },
                               ]
                             : []),
-                        ...authorizedDomains.map((domain) => ({
-                            label: domain,
-                            value: domain,
-                            ...(featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
-                                ? {
-                                      icon: (
-                                          <img
-                                              src={faviconUrl(domain)}
-                                              width={16}
-                                              height={16}
-                                              alt={`${domain} favicon`}
-                                              onError={(e) => (e.currentTarget.style.display = 'none')}
-                                          />
-                                      ),
-                                  }
-                                : {}),
-                        })),
+                        ...authorizedDomains.map((domain) => {
+                            let hostname: string | null = null
+                            try {
+                                hostname = new URL(domain).hostname
+                            } catch {
+                                // skip favicon for malformed URLs
+                            }
+                            return {
+                                label: domain,
+                                value: domain,
+                                ...(hostname && featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
+                                    ? {
+                                          icon: (
+                                              <img
+                                                  src={faviconUrl(hostname)}
+                                                  width={16}
+                                                  height={16}
+                                                  alt={`${domain} favicon`}
+                                                  onError={(e) => (e.currentTarget.style.display = 'none')}
+                                              />
+                                          ),
+                                      }
+                                    : {}),
+                            }
+                        }),
                     ],
                     footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggestedAuthorizedUrlList />,
                 },

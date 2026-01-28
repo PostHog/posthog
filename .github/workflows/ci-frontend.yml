@@ -140,7 +140,7 @@ jobs:
                   # Exclude source maps and chunk files (chunk hashes change every build)
                   exclude: |
                       frontend/dist/*.js.map
-                      frontend/dist/chunk-*.js
+                      frontend/dist/chunk*.js
                   # Only show large changes
                   minimum-change-threshold: 1000
                   order-by: 'Size:desc'

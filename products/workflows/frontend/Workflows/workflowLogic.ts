@@ -28,6 +28,7 @@ import { workflowsLogic } from './workflowsLogic'
 
 export interface WorkflowLogicProps {
     id?: string
+    tabId?: string
     templateId?: string
     editTemplateId?: string
 }
@@ -37,7 +38,7 @@ export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
-const NEW_WORKFLOW: HogFlow = {
+export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
     name: 'New workflow',
     actions: [
@@ -113,8 +114,8 @@ export function sanitizeWorkflow(
 
 export const workflowLogic = kea<workflowLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
-    props({ id: 'new' } as WorkflowLogicProps),
-    key((props) => props.id || 'new'),
+    props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
+    key((props) => `workflow-${props.id || 'new'}-${props.tabId}`),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
         actions: [workflowsLogic, ['archiveWorkflow']],
