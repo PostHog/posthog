@@ -23,6 +23,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
+from posthog.hogql.database.schema.groups import GroupsTable, join_persons_with_group_n_table
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
 from posthog.hogql.database.schema.persons_revenue_analytics import (
     PersonsRevenueAnalyticsTable,
@@ -50,6 +51,38 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
         from_field=["id"],
         join_table=PersonsRevenueAnalyticsTable(),
         join_function=join_with_persons_revenue_analytics_table,
+    ),
+    # Group key fields - populated during ingestion when events have $groups
+    # These enable mixed user+group targeting in feature flags
+    "group_0_key": StringDatabaseField(name="group_0_key", nullable=False),
+    "group_0": LazyJoin(
+        from_field=["group_0_key"],
+        join_table=GroupsTable(),
+        join_function=join_persons_with_group_n_table(0),
+    ),
+    "group_1_key": StringDatabaseField(name="group_1_key", nullable=False),
+    "group_1": LazyJoin(
+        from_field=["group_1_key"],
+        join_table=GroupsTable(),
+        join_function=join_persons_with_group_n_table(1),
+    ),
+    "group_2_key": StringDatabaseField(name="group_2_key", nullable=False),
+    "group_2": LazyJoin(
+        from_field=["group_2_key"],
+        join_table=GroupsTable(),
+        join_function=join_persons_with_group_n_table(2),
+    ),
+    "group_3_key": StringDatabaseField(name="group_3_key", nullable=False),
+    "group_3": LazyJoin(
+        from_field=["group_3_key"],
+        join_table=GroupsTable(),
+        join_function=join_persons_with_group_n_table(3),
+    ),
+    "group_4_key": StringDatabaseField(name="group_4_key", nullable=False),
+    "group_4": LazyJoin(
+        from_field=["group_4_key"],
+        join_table=GroupsTable(),
+        join_function=join_persons_with_group_n_table(4),
     ),
 }
 

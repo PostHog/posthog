@@ -66,6 +66,11 @@ describe('BatchWritingPersonStore', () => {
             is_user_id: null,
             is_identified: false,
             uuid: '1',
+            group_0_key: '',
+            group_1_key: '',
+            group_2_key: '',
+            group_3_key: '',
+            group_4_key: '',
         }
 
         mockPostgres = {

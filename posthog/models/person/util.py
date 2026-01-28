@@ -106,7 +106,7 @@ if TEST:
             created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
             timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
             person_inserts.append(
-                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0)"
+                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0, '', '', '', '', '')"
             )
 
         PersonDistinctId.objects.bulk_create(distinct_ids)
@@ -160,6 +160,11 @@ def create_person(
         "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "version": version,
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "group_0_key": "",
+        "group_1_key": "",
+        "group_2_key": "",
+        "group_3_key": "",
+        "group_4_key": "",
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)

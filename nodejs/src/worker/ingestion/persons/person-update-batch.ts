@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '../../../types'
+import { InternalPerson, PersonGroupKeys, PropertiesLastOperation, PropertiesLastUpdatedAt } from '../../../types'
 
-export interface PersonUpdate {
+export interface PersonUpdate extends PersonGroupKeys {
     id: string // bigint ID from database as string
     team_id: number
     uuid: string
@@ -24,6 +24,8 @@ export interface PersonUpdate {
     original_created_at: DateTime
     /** If true, bypass batch-level filtering for person property updates (set for $identify, $set, etc.) */
     force_update?: boolean
+    /** Group keys to update (from event $groups) */
+    group_keys_to_set?: Partial<PersonGroupKeys>
 }
 
 export interface PersonPropertyUpdate {
@@ -52,6 +54,12 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         original_is_identified: person.is_identified,
         original_created_at: person.created_at,
         force_update: false, // Default to false, can be set to true by $identify/$set events
+        // Copy group keys from person
+        group_0_key: person.group_0_key || '',
+        group_1_key: person.group_1_key || '',
+        group_2_key: person.group_2_key || '',
+        group_3_key: person.group_3_key || '',
+        group_4_key: person.group_4_key || '',
     }
 }
 
@@ -69,6 +77,31 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         delete finalProperties[key]
     })
 
+    // Apply group keys to set (merge with existing)
+    let group_0_key = personUpdate.group_0_key
+    let group_1_key = personUpdate.group_1_key
+    let group_2_key = personUpdate.group_2_key
+    let group_3_key = personUpdate.group_3_key
+    let group_4_key = personUpdate.group_4_key
+
+    if (personUpdate.group_keys_to_set) {
+        if (personUpdate.group_keys_to_set.group_0_key !== undefined) {
+            group_0_key = personUpdate.group_keys_to_set.group_0_key
+        }
+        if (personUpdate.group_keys_to_set.group_1_key !== undefined) {
+            group_1_key = personUpdate.group_keys_to_set.group_1_key
+        }
+        if (personUpdate.group_keys_to_set.group_2_key !== undefined) {
+            group_2_key = personUpdate.group_keys_to_set.group_2_key
+        }
+        if (personUpdate.group_keys_to_set.group_3_key !== undefined) {
+            group_3_key = personUpdate.group_keys_to_set.group_3_key
+        }
+        if (personUpdate.group_keys_to_set.group_4_key !== undefined) {
+            group_4_key = personUpdate.group_keys_to_set.group_4_key
+        }
+    }
+
     return {
         id: personUpdate.id, // Use the actual database ID, not the UUID
         uuid: personUpdate.uuid,
@@ -80,5 +113,10 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         version: personUpdate.version,
         is_identified: personUpdate.is_identified,
         is_user_id: personUpdate.is_user_id,
+        group_0_key,
+        group_1_key,
+        group_2_key,
+        group_3_key,
+        group_4_key,
     }
 }

@@ -827,7 +827,25 @@ export type PropertiesLastUpdatedAt = Record<string, string>
 export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
 
 /** Properties shared by RawPerson and Person. */
-export interface BasePerson {
+/** Group keys for mixed user+group feature flag targeting */
+export interface PersonGroupKeys {
+    group_0_key: string
+    group_1_key: string
+    group_2_key: string
+    group_3_key: string
+    group_4_key: string
+}
+
+/** Default empty group keys for use in tests and when creating new persons */
+export const DEFAULT_PERSON_GROUP_KEYS: PersonGroupKeys = {
+    group_0_key: '',
+    group_1_key: '',
+    group_2_key: '',
+    group_3_key: '',
+    group_4_key: '',
+}
+
+export interface BasePerson extends PersonGroupKeys {
     // NOTE: id is a bigint in the DB, which pg lib returns as a string
     // We leave it as a string as dealing with the bigint type is tricky and we don't need any of its features
     id: string
@@ -885,6 +903,12 @@ export interface ClickHousePerson {
     is_deleted: number
     timestamp: string
     version: number
+    // Group keys for mixed user+group feature flag targeting
+    group_0_key: string
+    group_1_key: string
+    group_2_key: string
+    group_3_key: string
+    group_4_key: string
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4

@@ -1373,6 +1373,24 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             personUpdate.is_identified = personUpdate.is_identified || otherUpdates.is_identified
         }
 
+        // Handle group keys - update them when provided (for mixed user+group feature flag targeting)
+        // Group keys are extracted from event $groups and should be updated on the person
+        if (otherUpdates.group_0_key !== undefined) {
+            personUpdate.group_0_key = otherUpdates.group_0_key
+        }
+        if (otherUpdates.group_1_key !== undefined) {
+            personUpdate.group_1_key = otherUpdates.group_1_key
+        }
+        if (otherUpdates.group_2_key !== undefined) {
+            personUpdate.group_2_key = otherUpdates.group_2_key
+        }
+        if (otherUpdates.group_3_key !== undefined) {
+            personUpdate.group_3_key = otherUpdates.group_3_key
+        }
+        if (otherUpdates.group_4_key !== undefined) {
+            personUpdate.group_4_key = otherUpdates.group_4_key
+        }
+
         personUpdate.needs_write = true
 
         // Set force_update flag with || operator - once set to true by a $identify/$set event, it stays true
@@ -1623,6 +1641,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             properties_to_unset: personUpdate.properties_to_unset,
             original_is_identified: personUpdate.original_is_identified,
             original_created_at: personUpdate.original_created_at,
+            // Preserve group keys from the original person update
+            group_0_key: personUpdate.group_0_key,
+            group_1_key: personUpdate.group_1_key,
+            group_2_key: personUpdate.group_2_key,
+            group_3_key: personUpdate.group_3_key,
+            group_4_key: personUpdate.group_4_key,
         }
 
         return updatedPersonUpdate

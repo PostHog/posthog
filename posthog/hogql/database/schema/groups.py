@@ -44,6 +44,11 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
 
 
 def join_with_group_n_table(group_index: int):
+    """
+    Create a join function for events table to groups table.
+    Events use $group_N fields to store group keys.
+    """
+
     def join_with_group_table(
         join_to_add: LazyJoinToAdd,
         context: HogQLContext,
@@ -68,6 +73,47 @@ def join_with_group_n_table(group_index: int):
             expr=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=[join_to_add.from_table, f"$group_{group_index}"]),
+                right=ast.Field(chain=[join_to_add.to_table, "key"]),
+            ),
+            constraint_type="ON",
+        )
+
+        return join_expr
+
+    return join_with_group_table
+
+
+def join_persons_with_group_n_table(group_index: int):
+    """
+    Create a join function for persons table to groups table.
+    Persons use group_N_key fields to store group keys (populated during ingestion).
+    This enables mixed user+group targeting in feature flags.
+    """
+
+    def join_with_group_table(
+        join_to_add: LazyJoinToAdd,
+        context: HogQLContext,
+        node: SelectQuery,
+    ):
+        from posthog.hogql import ast
+
+        if not join_to_add.fields_accessed:
+            raise ResolutionError("No fields requested from groups table")
+
+        select_query = select_from_groups_table(join_to_add.fields_accessed)
+        select_query.where = ast.CompareOperation(
+            left=ast.Field(chain=["index"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=group_index),
+        )
+
+        join_expr = ast.JoinExpr(table=select_query)
+        join_expr.join_type = "LEFT JOIN"
+        join_expr.alias = join_to_add.to_table
+        join_expr.constraint = ast.JoinConstraint(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, f"group_{group_index}_key"]),
                 right=ast.Field(chain=[join_to_add.to_table, "key"]),
             ),
             constraint_type="ON",

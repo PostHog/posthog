@@ -31,7 +31,12 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     properties VARCHAR,
     is_identified Int8,
     is_deleted Int8,
-    version UInt64
+    version UInt64,
+    group_0_key VARCHAR DEFAULT '',
+    group_1_key VARCHAR DEFAULT '',
+    group_2_key VARCHAR DEFAULT '',
+    group_3_key VARCHAR DEFAULT '',
+    group_4_key VARCHAR DEFAULT ''
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -80,6 +85,11 @@ properties,
 is_identified,
 is_deleted,
 version,
+group_0_key,
+group_1_key,
+group_2_key,
+group_3_key,
+group_4_key,
 _timestamp,
 _offset
 FROM {kafka_table}
@@ -429,7 +439,7 @@ DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WH
 
 COPY_PERSONS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=PERSONS_TABLE,
-    columns_except_team_id="""id, created_at, properties, is_identified, _timestamp, _offset, is_deleted""",
+    columns_except_team_id="""id, created_at, properties, is_identified, _timestamp, _offset, is_deleted, group_0_key, group_1_key, group_2_key, group_3_key, group_4_key""",
 )
 
 COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
@@ -438,7 +448,7 @@ COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.forma
 )
 
 SELECT_PERSONS_OF_TEAM = """
-SELECT id, created_at, properties, is_identified, version
+SELECT id, created_at, properties, is_identified, version, group_0_key, group_1_key, group_2_key, group_3_key, group_4_key
 FROM {table_name}
 WHERE team_id = %(source_team_id)s
 """.format(table_name=PERSONS_TABLE)
@@ -478,11 +488,11 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, %(is_deleted)s, %(version)s
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, group_0_key, group_1_key, group_2_key, group_3_key, group_4_key) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, %(is_deleted)s, %(version)s, %(group_0_key)s, %(group_1_key)s, %(group_2_key)s, %(group_3_key)s, %(group_4_key)s
 """
 
 INSERT_PERSON_BULK_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) VALUES
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, group_0_key, group_1_key, group_2_key, group_3_key, group_4_key) VALUES
 """
 
 INSERT_PERSON_DISTINCT_ID2 = """

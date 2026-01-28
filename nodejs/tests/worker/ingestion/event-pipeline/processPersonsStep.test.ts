@@ -10,12 +10,14 @@ import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
+import { GroupTypeManager } from '../../../../src/worker/ingestion/group-type-manager'
 import { createDefaultSyncMergeMode } from '../../../../src/worker/ingestion/persons/person-merge-types'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '../../../helpers/sql'
 
 describe('processPersonsStep()', () => {
     let hub: Hub
+    let groupTypeManager: GroupTypeManager
 
     let uuid: string
     let teamId: number
@@ -30,6 +32,7 @@ describe('processPersonsStep()', () => {
         teamId = await createTeam(hub.postgres, organizationId)
         team = (await getTeam(hub, teamId))!
         uuid = new UUIDT().toString()
+        groupTypeManager = new GroupTypeManager(hub.groupRepository, hub.teamManager)
 
         pluginEvent = {
             distinct_id: 'my_id',
@@ -64,7 +67,8 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            personsStore
+            personsStore,
+            groupTypeManager
         )
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -114,7 +118,8 @@ describe('processPersonsStep()', () => {
             team,
             normalizedTimestamp,
             processPerson,
-            personsStore
+            personsStore,
+            groupTypeManager
         )
 
         expect(result.type).toBe(PipelineResultType.OK)

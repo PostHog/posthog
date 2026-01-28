@@ -1,5 +1,6 @@
 import { InternalPerson } from '../../../types'
 import { defaultRetryConfig, promiseRetry } from '../../../utils/retries'
+import { extractGroupKeysForPerson } from '../groups'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
@@ -80,6 +81,33 @@ export class PersonPropertyService {
         const otherUpdates: Partial<InternalPerson> = {}
         if (this.context.updateIsIdentified && !person.is_identified) {
             otherUpdates.is_identified = true
+        }
+
+        // Extract group keys from event for mixed user+group feature flag targeting
+        // This allows JOINing persons to groups for blast radius calculation
+        if (this.context.groupTypeManager) {
+            const groupKeys = await extractGroupKeysForPerson(
+                this.context.team.id,
+                this.context.team.project_id,
+                this.context.eventProperties,
+                this.context.groupTypeManager
+            )
+            // Only include group keys that are present in the event
+            if (groupKeys.group_0_key !== undefined) {
+                otherUpdates.group_0_key = groupKeys.group_0_key
+            }
+            if (groupKeys.group_1_key !== undefined) {
+                otherUpdates.group_1_key = groupKeys.group_1_key
+            }
+            if (groupKeys.group_2_key !== undefined) {
+                otherUpdates.group_2_key = groupKeys.group_2_key
+            }
+            if (groupKeys.group_3_key !== undefined) {
+                otherUpdates.group_3_key = groupKeys.group_3_key
+            }
+            if (groupKeys.group_4_key !== undefined) {
+                otherUpdates.group_4_key = groupKeys.group_4_key
+            }
         }
 
         // Check if we have any changes to make

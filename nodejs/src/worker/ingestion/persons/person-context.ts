@@ -4,6 +4,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
+import { GroupTypeManager } from '../group-type-manager'
 import { MergeMode } from './person-merge-types'
 import { PersonsStore } from './persons-store'
 
@@ -25,7 +26,8 @@ export class PersonContext {
         public readonly personStore: PersonsStore,
         public readonly measurePersonJsonbSize: number = 0,
         public readonly mergeMode: MergeMode,
-        public readonly updateAllProperties: boolean = false // When true, all property changes trigger person updates
+        public readonly updateAllProperties: boolean = false, // When true, all property changes trigger person updates
+        public readonly groupTypeManager?: GroupTypeManager // For resolving group keys for mixed user+group targeting
     ) {
         this.eventProperties = event.properties!
     }

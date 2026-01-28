@@ -1,8 +1,11 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
+
+if TYPE_CHECKING:
+    from posthog.hogql import ast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.filters import Filter
@@ -82,9 +85,16 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
 
 
 def _build_person_count_query(team: Team, filter: Filter):
-    """Build HogQL AST query to count distinct persons matching filters."""
+    """Build HogQL AST query to count distinct persons matching filters.
+
+    Supports mixed targeting: person properties AND group properties together.
+    Group properties are resolved via lazy joins from persons to groups tables
+    (persons.group_0, persons.group_1, etc. which were added for mixed targeting).
+    """
     from posthog.hogql import ast
     from posthog.hogql.property import property_to_expr
+
+    from posthog.models.property import PropertyGroup
 
     # Build the main SELECT with count(DISTINCT persons.id)
     select_query = ast.SelectQuery(
@@ -93,7 +103,6 @@ def _build_person_count_query(team: Team, filter: Filter):
     )
 
     # Build WHERE clause with team_id and property filters
-    # property_to_expr handles all property types including cohorts
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -102,14 +111,69 @@ def _build_person_count_query(team: Team, filter: Filter):
         )
     ]
 
-    # Add all property filters (including cohorts) via property_to_expr
-    property_expr = property_to_expr(filter.property_groups, team, scope="person")
-    where_exprs.append(property_expr)
+    # Separate person properties from group properties for mixed targeting
+    # Group properties need special handling to use the persons.group_N lazy joins
+    group_properties = [prop for prop in filter.property_groups.flat if prop.type == "group"]
+
+    # If there are no group properties, use the original filter directly to preserve structure
+    # This is important for nested property groups (like cohort conditions)
+    if not group_properties:
+        property_expr = property_to_expr(filter.property_groups, team, scope="person")
+        where_exprs.append(property_expr)
+    else:
+        # Mixed targeting: separate person and group properties
+        person_properties = [prop for prop in filter.property_groups.flat if prop.type != "group"]
+
+        # Add person property filters (including cohorts) via property_to_expr
+        if person_properties:
+            person_filter = Filter(
+                data={
+                    "properties": PropertyGroup(type=filter.property_groups.type, values=person_properties).to_dict()
+                },
+                team=team,
+            )
+            property_expr = property_to_expr(person_filter.property_groups, team, scope="person")
+            where_exprs.append(property_expr)
+
+        # Add group property filters using the persons.group_N lazy joins
+        for prop in group_properties:
+            group_idx = prop.group_type_index
+            if group_idx is None:
+                continue  # Skip invalid group properties
+
+            group_expr = _build_group_property_expr_for_person(prop, group_idx)
+            where_exprs.append(group_expr)
 
     # Combine all WHERE expressions with AND
     select_query.where = ast.And(exprs=where_exprs)
 
     return select_query
+
+
+def _build_group_property_expr_for_person(prop: Property, group_idx: int) -> "ast.Expr":
+    """Build a HogQL expression for a group property filter accessed via persons.group_N.
+
+    This allows filtering persons by properties of groups they belong to,
+    using the lazy join from persons to groups.
+    """
+    from posthog.hogql import ast
+    from posthog.hogql.property import _expr_to_compare_op
+
+    # Build the property access chain: persons.group_N.properties.{key}
+    # Note: The "persons" prefix is implicit since we're querying the persons table
+    chain = [f"group_{group_idx}", "properties", prop.key]
+    field = ast.Field(chain=chain)
+
+    operator = PropertyOperator(prop.operator) if prop.operator else PropertyOperator.EXACT
+    value = prop.value
+
+    return _expr_to_compare_op(
+        expr=field,
+        value=value,
+        operator=operator,
+        property=prop,
+        is_json_field=True,
+    )
 
 
 def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> tuple[int, int]:
