@@ -4058,7 +4058,6 @@ export interface EventDefinition {
     is_action?: boolean
     hidden?: boolean
     default_columns?: string[]
-    schema_enforcement_mode?: SchemaEnforcementMode
 }
 
 export interface EventDefinitionMetrics {

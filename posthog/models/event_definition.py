@@ -6,11 +6,6 @@ from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 
 
-class SchemaEnforcementMode(models.TextChoices):
-    ALLOW = "allow", "Allow"
-    REJECT = "reject", "Reject"
-
-
 class EventDefinition(UUIDTModel):
     team = models.ForeignKey(
         Team,
@@ -30,14 +25,6 @@ class EventDefinition(UUIDTModel):
     # DEPRECATED
     # Volume of events in the last 30 rolling days (computed asynchronously)
     volume_30_day = models.IntegerField(default=None, null=True)
-
-    # Schema enforcement mode: controls whether events are validated against schema at ingestion
-    schema_enforcement_mode = models.CharField(
-        max_length=10,
-        choices=SchemaEnforcementMode.choices,
-        default=SchemaEnforcementMode.ALLOW,
-        null=True,
-    )
 
     class Meta:
         indexes = [

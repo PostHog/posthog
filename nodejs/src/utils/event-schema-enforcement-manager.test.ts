@@ -34,22 +34,18 @@ describe('EventSchemaEnforcementManager', () => {
     })
 
     /**
-     * Creates an event definition with schema enforcement.
+     * Creates an event definition.
      * Returns the event_definition_id for further setup.
      */
-    const createEventDefinition = async (
-        teamId: number,
-        eventName: string,
-        enforcementMode: 'allow' | 'reject' = 'reject'
-    ): Promise<string> => {
+    const createEventDefinition = async (teamId: number, eventName: string): Promise<string> => {
         const result = await postgres.query<{ id: string }>(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_eventdefinition
-                (id, team_id, name, schema_enforcement_mode, created_at, last_seen_at)
+                (id, team_id, name, created_at, last_seen_at)
              VALUES
-                (gen_random_uuid(), $1, $2, $3, NOW(), NOW())
+                (gen_random_uuid(), $1, $2, NOW(), NOW())
              RETURNING id`,
-            [teamId, eventName, enforcementMode],
+            [teamId, eventName],
             'create-test-event-definition'
         )
         return result.rows[0].id
@@ -75,14 +71,18 @@ describe('EventSchemaEnforcementManager', () => {
     /**
      * Creates an event schema linking an event definition to a property group.
      */
-    const createEventSchema = async (eventDefinitionId: string, propertyGroupId: string): Promise<void> => {
+    const createEventSchema = async (
+        eventDefinitionId: string,
+        propertyGroupId: string,
+        enforcementMode: 'allow' | 'reject' = 'reject'
+    ): Promise<void> => {
         await postgres.query(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_eventschema
-                (id, event_definition_id, property_group_id, created_at)
+                (id, event_definition_id, property_group_id, enforcement_mode, created_at)
              VALUES
-                (gen_random_uuid(), $1, $2, NOW())`,
-            [eventDefinitionId, propertyGroupId],
+                (gen_random_uuid(), $1, $2, $3, NOW())`,
+            [eventDefinitionId, propertyGroupId, enforcementMode],
             'create-test-event-schema'
         )
     }
@@ -115,9 +115,9 @@ describe('EventSchemaEnforcementManager', () => {
         eventName: string,
         properties: { name: string; type: string; required: boolean }[]
     ): Promise<void> => {
-        const eventDefId = await createEventDefinition(teamId, eventName, 'reject')
+        const eventDefId = await createEventDefinition(teamId, eventName)
         const propGroupId = await createPropertyGroup(teamId)
-        await createEventSchema(eventDefId, propGroupId)
+        await createEventSchema(eventDefId, propGroupId, 'reject')
         for (const prop of properties) {
             await createProperty(propGroupId, prop.name, prop.type, prop.required)
         }
@@ -130,9 +130,9 @@ describe('EventSchemaEnforcementManager', () => {
         })
 
         it('returns empty array when schemas exist but enforcement_mode is allow', async () => {
-            const eventDefId = await createEventDefinition(teamId, 'test_event', 'allow')
+            const eventDefId = await createEventDefinition(teamId, 'test_event')
             const propGroupId = await createPropertyGroup(teamId)
-            await createEventSchema(eventDefId, propGroupId)
+            await createEventSchema(eventDefId, propGroupId, 'allow')
             await createProperty(propGroupId, 'user_id', 'String', true)
 
             const result = await schemaManager.getSchemas(teamId)
@@ -159,9 +159,9 @@ describe('EventSchemaEnforcementManager', () => {
         })
 
         it('only returns required properties, not optional ones', async () => {
-            const eventDefId = await createEventDefinition(teamId, 'test_event', 'reject')
+            const eventDefId = await createEventDefinition(teamId, 'test_event')
             const propGroupId = await createPropertyGroup(teamId)
-            await createEventSchema(eventDefId, propGroupId)
+            await createEventSchema(eventDefId, propGroupId, 'reject')
             await createProperty(propGroupId, 'required_prop', 'String', true)
             await createProperty(propGroupId, 'optional_prop', 'String', false)
 
@@ -201,14 +201,14 @@ describe('EventSchemaEnforcementManager', () => {
 
         it('merges property types when property appears in multiple property groups', async () => {
             // Create event with two property groups, each defining the same property with different types
-            const eventDefId = await createEventDefinition(teamId, 'test_event', 'reject')
+            const eventDefId = await createEventDefinition(teamId, 'test_event')
 
             const propGroup1 = await createPropertyGroup(teamId)
-            await createEventSchema(eventDefId, propGroup1)
+            await createEventSchema(eventDefId, propGroup1, 'reject')
             await createProperty(propGroup1, 'flexible_prop', 'String', true)
 
             const propGroup2 = await createPropertyGroup(teamId)
-            await createEventSchema(eventDefId, propGroup2)
+            await createEventSchema(eventDefId, propGroup2, 'reject')
             await createProperty(propGroup2, 'flexible_prop', 'Numeric', true)
 
             const result = await schemaManager.getSchemas(teamId)

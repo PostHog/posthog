@@ -51,13 +51,13 @@ export interface EventSchema {
     event_definition: string
     property_group_id: string
     property_group: SchemaPropertyGroup
+    enforcement_mode: SchemaEnforcementMode
     created_at: string
     updated_at: string
 }
 
 export interface EventDefinitionSchemaLogicProps {
     eventDefinitionId: string
-    initialSchemaEnforcementMode?: SchemaEnforcementMode
 }
 
 export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
@@ -74,7 +74,6 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
         addPropertyGroup: (propertyGroupId: string) => ({ propertyGroupId }),
         removePropertyGroup: (eventSchemaId: string) => ({ eventSchemaId }),
         updateSchemaEnforcementMode: (mode: SchemaEnforcementMode) => ({ mode }),
-        setSchemaEnforcementMode: (mode: SchemaEnforcementMode) => ({ mode }),
         setSchemaEnforcementModeUpdating: (updating: boolean) => ({ updating }),
     }),
     loaders(({ props }) => ({
@@ -93,18 +92,12 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             },
         },
     })),
-    reducers(({ props }) => ({
+    reducers(() => ({
         eventSchemas: [
             [] as EventSchema[],
             {
                 removePropertyGroup: (state, { eventSchemaId }) =>
                     state.filter((schema: EventSchema) => schema.id !== eventSchemaId),
-            },
-        ],
-        schemaEnforcementMode: [
-            props.initialSchemaEnforcementMode ?? SchemaEnforcementMode.Allow,
-            {
-                setSchemaEnforcementMode: (_, { mode }) => mode,
             },
         ],
         schemaEnforcementModeUpdating: [
@@ -122,13 +115,27 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
                 return allPropertyGroups.filter((group: SchemaPropertyGroup) => !usedGroupIds.has(group.id))
             },
         ],
+        // Derive enforcement mode from event schemas - if any have 'reject', consider it enabled
+        schemaEnforcementMode: [
+            (s) => [s.eventSchemas],
+            (eventSchemas: EventSchema[]): SchemaEnforcementMode => {
+                if (eventSchemas.length === 0) {
+                    return SchemaEnforcementMode.Allow
+                }
+                return eventSchemas.some((schema) => schema.enforcement_mode === SchemaEnforcementMode.Reject)
+                    ? SchemaEnforcementMode.Reject
+                    : SchemaEnforcementMode.Allow
+            },
+        ],
     }),
     listeners(({ actions, props, values }) => ({
         addPropertyGroup: async ({ propertyGroupId }) => {
             try {
+                // When adding a new property group, use the current enforcement mode
                 await api.eventSchemas.create({
                     event_definition: props.eventDefinitionId,
                     property_group_id: propertyGroupId,
+                    enforcement_mode: values.schemaEnforcementMode,
                 })
                 await actions.loadEventSchemas()
                 lemonToast.success('Property group added to event schema')
@@ -147,21 +154,24 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             }
         },
         updateSchemaEnforcementMode: async ({ mode }) => {
-            const previousMode = values.schemaEnforcementMode
-            actions.setSchemaEnforcementMode(mode)
+            if (values.eventSchemas.length === 0) {
+                lemonToast.info('Add a property group first to enable schema enforcement')
+                return
+            }
+
             actions.setSchemaEnforcementModeUpdating(true)
             try {
-                await api.eventDefinitions.update({
-                    eventDefinitionId: props.eventDefinitionId,
-                    eventDefinitionData: { schema_enforcement_mode: mode },
-                })
+                // Update all event schemas for this event definition
+                await Promise.all(
+                    values.eventSchemas.map((schema) => api.eventSchemas.update(schema.id, { enforcement_mode: mode }))
+                )
+                await actions.loadEventSchemas()
                 if (mode === SchemaEnforcementMode.Reject) {
                     lemonToast.success('Schema enforcement enabled. Events that fail validation will be rejected.')
                 } else {
                     lemonToast.success('Schema enforcement disabled. All events will be accepted.')
                 }
             } catch (error: any) {
-                actions.setSchemaEnforcementMode(previousMode)
                 const errorMessage = getErrorMessage(error, 'Failed to update schema enforcement mode')
                 lemonToast.error(errorMessage)
             } finally {
