@@ -44,7 +44,7 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
         dry_run=input.dry_run,
     )
 
-    config = get_config(allow_env_fallback=True)
+    config = get_config()
     tables_to_compact: list[TableInfo] = []
     compaction_results: dict = {}
 

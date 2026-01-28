@@ -11,7 +11,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.ducklake.common import attach_catalog, get_ducklake_catalog_for_team
+from posthog.ducklake.common import attach_catalog, get_ducklake_catalog_for_team, get_team_config
 from posthog.ducklake.storage import (
     configure_cross_account_connection,
     ensure_ducklake_bucket_exists,
@@ -179,7 +179,7 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
                 non_retryable=True,
             )
 
-        config = catalog.to_public_config()
+        config = get_team_config(inputs.team_id)
         cross_account_dest = catalog.to_cross_account_destination()
         alias = "ducklake"
 
@@ -191,7 +191,7 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
             )
             configure_cross_account_connection(conn, destinations=[cross_account_dest])
             ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
-            _attach_ducklake_catalog(conn, {**config, "DUCKLAKE_RDS_PASSWORD": catalog.db_password}, alias=alias)
+            _attach_ducklake_catalog(conn, config, alias=alias)
 
             qualified_schema = f"{alias}.{inputs.model.schema_name}"
             qualified_table = f"{qualified_schema}.{inputs.model.table_name}"
@@ -230,14 +230,14 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
                 non_retryable=True,
             )
 
-        config = catalog.to_public_config()
+        config = get_team_config(inputs.team_id)
         cross_account_dest = catalog.to_cross_account_destination()
         alias = "ducklake"
         results: list[DuckLakeCopyVerificationResult] = []
 
         with duckdb.connect() as conn:
             configure_cross_account_connection(conn, destinations=[cross_account_dest])
-            _attach_ducklake_catalog(conn, {**config, "DUCKLAKE_RDS_PASSWORD": catalog.db_password}, alias=alias)
+            _attach_ducklake_catalog(conn, config, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"
             format_values = {

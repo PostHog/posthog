@@ -24,38 +24,29 @@ DEFAULTS: dict[str, str] = {
 }
 
 
-def get_config(*, team_id: int | None = None, allow_env_fallback: bool = False) -> dict[str, str]:
-    """Get DuckLake configuration.
+def get_config() -> dict[str, str]:
+    """Get DuckLake configuration from environment variables.
 
-    Args:
-        team_id: Optional team ID to look up team-specific configuration.
-        allow_env_fallback: If True, allow falling back to environment variables
-            in production for global operations (e.g., compaction, backfill).
-
-    Returns:
-        Configuration dict with DUCKLAKE_* keys.
-
-    Raises:
-        ValueError: In production mode when required configuration is missing.
+    In dev mode, returns sensible localhost defaults. In production,
+    requires environment variables to be set.
     """
-    # In dev mode, always use DEFAULTS (skip database lookup)
     if _is_dev_mode():
         return {key: os.environ.get(key, default) or default for key, default in DEFAULTS.items()}
 
-    # In prod mode with team_id, require DuckLakeCatalog
-    if team_id is not None:
-        catalog = get_ducklake_catalog_for_team(team_id)
-        if catalog is not None:
-            config = catalog.to_public_config()
-            config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
-            return config
-        raise ValueError(f"No DuckLakeCatalog configured for team {team_id}")
+    return _get_config_from_env_strict()
 
-    # In prod mode without team_id, require explicit allow_env_fallback
-    if allow_env_fallback:
-        return _get_config_from_env_strict()
 
-    raise ValueError("get_config() requires team_id in production. Use allow_env_fallback=True for global operations.")
+def get_team_config(team_id: int) -> dict[str, str]:
+    """Get DuckLake configuration for a specific team from DuckLakeCatalog."""
+    if _is_dev_mode():
+        return get_config()
+
+    catalog = get_ducklake_catalog_for_team(team_id)
+    if catalog is not None:
+        config = catalog.to_public_config()
+        config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+        return config
+    raise ValueError(f"No DuckLakeCatalog configured for team {team_id}")
 
 
 def _is_dev_mode() -> bool:
@@ -247,6 +238,7 @@ __all__ = [
     "escape",
     "get_config",
     "get_ducklake_connection_string",
+    "get_team_config",
     "get_ducklake_data_path",
     "ensure_ducklake_catalog",
     "initialize_ducklake",
