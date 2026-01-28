@@ -6,25 +6,24 @@ Cohorts are groups of persons used for segmentation and targeting.
 
 ### Columns
 
-| Column               | Type              | Nullable | Description                                                                 |
-| -------------------- | ----------------- | -------- | --------------------------------------------------------------------------- |
-| `id`                 | integer           | NOT NULL | Primary key (auto-generated)                                                |
-| `name`               | varchar(400)      | NULL     | Cohort display name                                                         |
-| `description`        | varchar(1000)     | NOT NULL | Cohort description                                                          |
-| `deleted`            | boolean           | NOT NULL | Soft delete flag                                                            |
-| `filters`            | jsonb             | NULL     | Modern filter structure for cohort criteria                                 |
-| `query`              | jsonb             | NULL     | HogQL query for analytical cohorts                                          |
-| `version`            | integer           | NULL     | Current calculation version                                                 |
-| `pending_version`    | integer           | NULL     | Version being calculated                                                    |
-| `count`              | integer           | NULL     | Cached person count                                                         |
-| `created_at`         | timestamp with tz | NULL     | Creation timestamp                                                          |
-| `is_calculating`     | boolean           | NOT NULL | Whether calculation is in progress                                          |
-| `last_calculation`   | timestamp with tz | NULL     | Timestamp of last successful calculation                                    |
-| `errors_calculating` | integer           | NOT NULL | Consecutive error count                                                     |
-| `last_error_at`      | timestamp with tz | NULL     | Timestamp of last calculation error                                         |
-| `is_static`          | boolean           | NOT NULL | Static (manually uploaded) vs dynamic cohort                                |
-| `cohort_type`        | varchar(50)       | NULL     | One of: `static`, `person_property`, `behavioral`, `realtime`, `analytical` |
-| `created_by_id`      | integer           | NULL     | FK to `posthog_user.id`                                                     |
+Column | Type | Nullable | Description
+`id` | integer | NOT NULL | Primary key (auto-generated)
+`name` | varchar(400) | NULL | Cohort display name
+`description` | varchar(1000) | NOT NULL | Cohort description
+`deleted` | boolean | NOT NULL | Soft delete flag
+`filters` | jsonb | NULL | Modern filter structure for cohort criteria
+`query` | jsonb | NULL | HogQL query for analytical cohorts
+`version` | integer | NULL | Current calculation version
+`pending_version` | integer | NULL | Version being calculated
+`count` | integer | NULL | Cached person count
+`created_at` | timestamp with tz | NULL | Creation timestamp
+`is_calculating` | boolean | NOT NULL | Whether calculation is in progress
+`last_calculation` | timestamp with tz | NULL | Timestamp of last successful calculation
+`errors_calculating` | integer | NOT NULL | Consecutive error count
+`last_error_at` | timestamp with tz | NULL | Timestamp of last calculation error
+`is_static` | boolean | NOT NULL | Static (manually uploaded) vs dynamic cohort
+`cohort_type` | varchar(50) | NULL | One of: `static`, `person_property`, `behavioral`, `realtime`, `analytical`
+`created_by_id` | integer | NULL | FK to `posthog_user.id`
 
 ### HogQL Queryable Fields
 
@@ -34,13 +33,12 @@ Available via `system.cohorts`:
 
 ### Cohort Types
 
-| Type              | Description                                                             |
-| ----------------- | ----------------------------------------------------------------------- |
-| `static`          | Manually uploaded/managed list of persons                               |
-| `person_property` | Based on person properties (e.g., email contains "example.com")         |
-| `behavioral`      | Based on events performed (e.g., "viewed pricing page in last 30 days") |
-| `realtime`        | Can be evaluated in real-time (< 20M persons)                           |
-| `analytical`      | Complex queries with temporal/sequential logic via HogQL                |
+Type | Description
+`static` | Manually uploaded/managed list of persons
+`person_property` | Based on person properties (e.g., email contains "example.com")
+`behavioral` | Based on events performed (e.g., "viewed pricing page in last 30 days")
+`realtime` | Can be evaluated in real-time (< 20M persons)
+`analytical` | Complex queries with temporal/sequential logic via HogQL
 
 ### Filters Structure Examples
 
@@ -124,12 +122,11 @@ Junction table connecting cohorts to persons.
 
 ### Columns
 
-| Column      | Type    | Nullable | Description                                          |
-| ----------- | ------- | -------- | ---------------------------------------------------- |
-| `id`        | bigint  | NOT NULL | Primary key (auto-generated)                         |
-| `cohort_id` | integer | NOT NULL | FK to `posthog_cohort.id`                            |
-| `person_id` | bigint  | NOT NULL | FK to `posthog_person.id`                            |
-| `version`   | integer | NULL     | Cohort calculation version that included this person |
+Column | Type | Nullable | Description
+`id` | bigint | NOT NULL | Primary key (auto-generated)
+`cohort_id` | integer | NOT NULL | FK to `posthog_cohort.id`
+`person_id` | bigint | NOT NULL | FK to `posthog_person.id`
+`version` | integer | NULL | Cohort calculation version that included this person
 
 ### Indexes
 
@@ -152,31 +149,29 @@ Audit trail for cohort calculation jobs.
 
 ### Columns
 
-| Column        | Type              | Nullable | Description                               |
-| ------------- | ----------------- | -------- | ----------------------------------------- |
-| `id`          | uuid              | NOT NULL | Primary key                               |
-| `filters`     | jsonb             | NOT NULL | Cohort filters at calculation time        |
-| `count`       | integer           | NULL     | Number of persons in cohort (>= 0)        |
-| `started_at`  | timestamp with tz | NOT NULL | Calculation start time                    |
-| `finished_at` | timestamp with tz | NULL     | Calculation end time (NULL = in progress) |
-| `queries`     | jsonb             | NULL     | Array of query statistics                 |
-| `error`       | text              | NULL     | Full error message if failed              |
-| `error_code`  | varchar(64)       | NULL     | Categorized error code                    |
-| `cohort_id`   | integer           | NOT NULL | FK to `posthog_cohort.id`                 |
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`filters` | jsonb | NOT NULL | Cohort filters at calculation time
+`count` | integer | NULL | Number of persons in cohort (>= 0)
+`started_at` | timestamp with tz | NOT NULL | Calculation start time
+`finished_at` | timestamp with tz | NULL | Calculation end time (NULL = in progress)
+`queries` | jsonb | NULL | Array of query statistics
+`error` | text | NULL | Full error message if failed
+`error_code` | varchar(64) | NULL | Categorized error code
+`cohort_id` | integer | NOT NULL | FK to `posthog_cohort.id`
 
 ### Error Codes
 
-| Code                 | Description              |
-| -------------------- | ------------------------ |
-| `capacity`           | System busy              |
-| `interrupted`        | Socket timeout           |
-| `timeout`            | Query timeout (> 1200s)  |
-| `memory_limit`       | Memory exceeded          |
-| `query_size`         | Query too large          |
-| `invalid_regex`      | Regex compilation error  |
-| `incompatible_types` | Type mismatch            |
-| `no_properties`      | No filters defined       |
-| `validation_error`   | Generic validation error |
+Code | Description
+`capacity` | System busy
+`interrupted` | Socket timeout
+`timeout` | Query timeout (> 1200s)
+`memory_limit` | Memory exceeded
+`query_size` | Query too large
+`invalid_regex` | Regex compilation error
+`incompatible_types` | Type mismatch
+`no_properties` | No filters defined
+`validation_error` | Generic validation error
 
 ### Queries Structure
 
@@ -201,17 +196,16 @@ Represents an individual user tracked by PostHog.
 
 ### Columns
 
-| Column                       | Type              | Nullable | Description                          |
-| ---------------------------- | ----------------- | -------- | ------------------------------------ |
-| `id`                         | bigint            | NOT NULL | Primary key (auto-generated)         |
-| `uuid`                       | uuid              | NOT NULL | Unique identifier used in ClickHouse |
-| `created_at`                 | timestamp with tz | NOT NULL | Person creation timestamp            |
-| `properties`                 | jsonb             | NOT NULL | Person properties (max 640KB)        |
-| `properties_last_updated_at` | jsonb             | NULL     | Per-property update timestamps       |
-| `properties_last_operation`  | jsonb             | NULL     | Per-property operation type          |
-| `is_identified`              | boolean           | NOT NULL | Whether person has been identified   |
-| `version`                    | bigint            | NULL     | Version for ClickHouse sync          |
-| `is_user_id`                 | integer           | NULL     | Legacy user ID                       |
+Column | Type | Nullable | Description
+`id` | bigint | NOT NULL | Primary key (auto-generated)
+`uuid` | uuid | NOT NULL | Unique identifier used in ClickHouse
+`created_at` | timestamp with tz | NOT NULL | Person creation timestamp
+`properties` | jsonb | NOT NULL | Person properties (max 640KB)
+`properties_last_updated_at` | jsonb | NULL | Per-property update timestamps
+`properties_last_operation` | jsonb | NULL | Per-property operation type
+`is_identified` | boolean | NOT NULL | Whether person has been identified
+`version` | bigint | NULL | Version for ClickHouse sync
+`is_user_id` | integer | NULL | Legacy user ID
 
 ### Key Relationships
 
@@ -232,12 +226,11 @@ Maps distinct IDs (anonymous or identified) to person records.
 
 ### Columns
 
-| Column        | Type         | Nullable | Description                  |
-| ------------- | ------------ | -------- | ---------------------------- |
-| `id`          | bigint       | NOT NULL | Primary key (auto-generated) |
-| `distinct_id` | varchar(400) | NOT NULL | The distinct ID string       |
-| `version`     | bigint       | NULL     | Version for sync             |
-| `person_id`   | bigint       | NOT NULL | FK to `posthog_person.id`    |
+Column | Type | Nullable | Description
+`id` | bigint | NOT NULL | Primary key (auto-generated)
+`distinct_id` | varchar(400) | NOT NULL | The distinct ID string
+`version` | bigint | NULL | Version for sync
+`person_id` | bigint | NOT NULL | FK to `posthog_person.id`
 
 ### Important Notes
 

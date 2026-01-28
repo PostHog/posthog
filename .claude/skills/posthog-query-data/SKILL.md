@@ -27,24 +27,23 @@ Data created directly in PostHog by users - metadata about PostHog setup.
 
 All system tables are prefixed with `system.`:
 
-| Table                           | Description                                           |
-| ------------------------------- | ----------------------------------------------------- |
-| `system.actions`                | Named event combinations for filtering                |
-| `system.cohorts`                | Groups of persons for segmentation                    |
-| `system.dashboards`             | Collections of insights                               |
-| `system.dashboard_tiles`        | Links insights to dashboards with layout              |
-| `system.data_warehouse_sources` | Connected external data sources                       |
-| `system.experiments`            | A/B tests and experiments                             |
-| `system.exports`                | Export jobs                                           |
-| `system.feature_flags`          | Feature flags for controlling rollouts                |
-| `system.groups`                 | Group entities                                        |
-| `system.group_type_mappings`    | Group type definitions                                |
-| `system.ingestion_warnings`     | Data ingestion issues                                 |
-| `system.insight_variables`      | Variables used in insights                            |
-| `system.insights`               | Visual and textual representations of aggregated data |
-| `system.notebooks`              | Collaborative documents with embedded insights        |
-| `system.surveys`                | Questionnaires and feedback forms                     |
-| `system.teams`                  | Team/project settings                                 |
+Table | Description
+`system.actions` | Named event combinations for filtering
+`system.cohorts` | Groups of persons for segmentation
+`system.dashboards` | Collections of insights
+`system.dashboard_tiles` | Links insights to dashboards with layout
+`system.data_warehouse_sources` | Connected external data sources
+`system.experiments` | A/B tests and experiments
+`system.exports` | Export jobs
+`system.feature_flags` | Feature flags for controlling rollouts
+`system.groups` | Group entities
+`system.group_type_mappings` | Group type definitions
+`system.ingestion_warnings` | Data ingestion issues
+`system.insight_variables` | Variables used in insights
+`system.insights` | Visual and textual representations of aggregated data
+`system.notebooks` | Collaborative documents with embedded insights
+`system.surveys` | Questionnaires and feedback forms
+`system.teams` | Team/project settings
 
 **Example - List insights:**
 
@@ -66,16 +65,15 @@ Schema reference for PostHog's core system models, organized by domain:
 
 #### Entity Relationships
 
-| From       | Relation | To               | Join                                  |
-| ---------- | -------- | ---------------- | ------------------------------------- |
-| Dashboard  | M:N      | Insight          | via `dashboardtile`                   |
-| Experiment | 1:1      | FeatureFlag      | `feature_flag_id`                     |
-| Experiment | N:1      | Cohort           | `exposure_cohort_id`                  |
-| Survey     | N:1      | FeatureFlag      | `linked_flag_id`, `targeting_flag_id` |
-| Survey     | N:1      | Insight          | `linked_insight_id`                   |
-| Group      | N:1      | GroupTypeMapping | `group_type_index` (logical)          |
-| Cohort     | M:N      | Person           | via `cohortpeople`                    |
-| Person     | 1:N      | PersonDistinctId | `person_id`                           |
+From | Relation | To | Join
+Dashboard | M:N | Insight | via `dashboardtile`
+Experiment | 1:1 | FeatureFlag | `feature_flag_id`
+Experiment | N:1 | Cohort | `exposure_cohort_id`
+Survey | N:1 | FeatureFlag | `linked_flag_id`, `targeting_flag_id`
+Survey | N:1 | Insight | `linked_insight_id`
+Group | N:1 | GroupTypeMapping | `group_type_index` (logical)
+Cohort | M:N | Person | via `cohortpeople`
+Person | 1:N | PersonDistinctId | `person_id`
 
 All entities are scoped by a team by default. You cannot access data of another team unless you switch a team.
 
@@ -83,13 +81,12 @@ All entities are scoped by a team by default. You cannot access data of another 
 
 Data collected via the PostHog SDK - used for analytics.
 
-| Table                 | Description                                            |
-| --------------------- | ------------------------------------------------------ |
-| `events`              | Recorded events from SDKs                              |
-| `persons`             | Individuals captured by the SDK. "Person" = "user"     |
-| `groups`              | Groups of individuals (organizations, companies, etc.) |
-| `sessions`            | Session data captured by the SDK                       |
-| Data warehouse tables | Connected external data sources and custom views       |
+Table | Description
+`events` | Recorded events from SDKs
+`persons` | Individuals captured by the SDK. "Person" = "user"
+`groups` | Groups of individuals (organizations, companies, etc.)
+`sessions` | Session data captured by the SDK
+Data warehouse tables | Connected external data sources and custom views
 
 **Key concepts:**
 
@@ -243,14 +240,13 @@ properties.foo['bar-baz']
 
 ### Unsupported/changed functions
 
-| Don't use                          | Use instead                                                                                     |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `toFloat64OrNull()`, `toFloat64()` | `toFloat()`                                                                                     |
-| `toDateOrNull(timestamp)`          | `toDate(timestamp)`                                                                             |
-| `LAG()`, `LEAD()`                  | `lagInFrame()`, `leadInFrame()` with `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING` |
-| `count(*)`                         | `count()`                                                                                       |
-| `cardinality(bitmap)`              | `bitmapCardinality(bitmap)`                                                                     |
-| `split()`                          | `splitByChar()`, `splitByString()`                                                              |
+Don't use | Use instead
+`toFloat64OrNull()`, `toFloat64()` | `toFloat()`
+`toDateOrNull(timestamp)` | `toDate(timestamp)`
+`LAG()`, `LEAD()` | `lagInFrame()`, `leadInFrame()` with `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`
+`count(*)` | `count()`
+`cardinality(bitmap)` | `bitmapCardinality(bitmap)`
+`split()` | `splitByChar()`, `splitByString()`
 
 ### JOIN constraints
 
