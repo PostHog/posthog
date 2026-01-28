@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
-import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -138,7 +138,6 @@ export function OperatorValueSelect({
     }
 
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
-    const [validationError, setValidationError] = useState<string | null>(null)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
@@ -204,6 +203,9 @@ export function OperatorValueSelect({
             setCurrentOperator(defaultProperty)
         }
     }, [propertyDefinition, propertyKey, operator, operatorAllowlist, semverTargetingEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const validationError = currentOperator && value ? getValidationError(currentOperator, value, propertyKey) : null
+
     return (
         <>
             <div data-attr="taxonomic-operator">
@@ -212,14 +214,6 @@ export function OperatorValueSelect({
                         operator={currentOperator || PropertyOperator.Exact}
                         operators={operators}
                         onChange={(newOperator: PropertyOperator) => {
-                            const tentativeValidationError =
-                                newOperator && value ? getRegexValidationError(newOperator, value) : null
-                            if (tentativeValidationError) {
-                                setValidationError(tentativeValidationError)
-                                return
-                            }
-                            setValidationError(null)
-
                             setCurrentOperator(newOperator)
                             if (isOperatorCohort(newOperator)) {
                                 onChange(newOperator, value || null)
@@ -264,16 +258,6 @@ export function OperatorValueSelect({
                         value={value}
                         eventNames={eventNames}
                         onSet={(newValue: string | number | string[] | null) => {
-                            const tentativeValidationError =
-                                currentOperator && newValue
-                                    ? getValidationError(currentOperator, newValue, propertyKey)
-                                    : null
-                            if (tentativeValidationError) {
-                                setValidationError(tentativeValidationError)
-                                return
-                            }
-                            setValidationError(null)
-
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter
@@ -283,21 +267,24 @@ export function OperatorValueSelect({
                         editable={editable}
                         size={size}
                         forceSingleSelect={forceSingleSelect}
+                        validationError={validationError}
                     />
                 </div>
             )}
             {validationError && (
-                <span className="taxonomic-validation-error">
-                    {validationError}
-                    {isOperatorRegex(currentOperator) && (
-                        <>
-                            {' '}
-                            <Link to={RE2_DOCS_LINK} target="_blank">
-                                Learn more
-                            </Link>
-                        </>
-                    )}
-                </span>
+                <div className="basis-full w-full">
+                    <LemonBanner type="warning" hideIcon>
+                        {validationError}
+                        {isOperatorRegex(currentOperator) && (
+                            <>
+                                {' '}
+                                <Link to={RE2_DOCS_LINK} target="_blank">
+                                    Learn more
+                                </Link>
+                            </>
+                        )}
+                    </LemonBanner>
+                </div>
             )}
         </>
     )

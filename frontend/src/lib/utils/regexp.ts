@@ -1,6 +1,17 @@
+import { RE2JS } from 're2js'
+
 export const isValidRegexp = (regex: string): boolean => {
     try {
         new RegExp(regex)
+        return true
+    } catch {
+        return false
+    }
+}
+
+export const isValidRE2 = (regex: string): boolean => {
+    try {
+        RE2JS.compile(regex)
         return true
     } catch {
         return false
