@@ -64,6 +64,7 @@ from ee.hogai.session_summaries.llm.consume import (
     get_llm_single_session_summary,
     stream_llm_single_session_summary,
 )
+from ee.hogai.session_summaries.session.input_data import get_team
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
@@ -72,6 +73,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
+from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
@@ -383,15 +385,33 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
-        # Get summary data from the DB (caches in Redis for both LLM and video-based flows)
-        await temporalio.workflow.execute_activity(
-            fetch_session_data_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=3),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        # Generate session summary
-        await ensure_llm_single_session_summary(inputs)
+        start_time = time.perf_counter()
+        success = False
+        try:
+            # Get summary data from the DB (caches in Redis for both LLM and video-based flows)
+            await temporalio.workflow.execute_activity(
+                fetch_session_data_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            # Generate session summary
+            await ensure_llm_single_session_summary(inputs)
+            success = True
+        finally:
+            duration_seconds = time.perf_counter() - start_time
+            team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
+            capture_session_summary_timing(
+                distinct_id=inputs.user_distinct_id_to_log,
+                team=team,
+                session_id=inputs.session_id,
+                timing_type="overall_flow",
+                duration_seconds=duration_seconds,
+                success=success,
+                extra_properties={
+                    "video_validation_enabled": inputs.video_validation_enabled,
+                },
+            )
 
 
 def calculate_video_segment_specs(

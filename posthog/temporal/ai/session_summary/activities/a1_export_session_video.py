@@ -4,6 +4,7 @@ Exporting the session as a video.
 (Python modules have to start with a letter, hence the file is prefixed `a1_` instead of `1_`.)
 """
 
+import time
 import uuid
 from datetime import timedelta
 
@@ -29,6 +30,7 @@ from ee.hogai.session_summaries.constants import (
     MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
 )
 from ee.hogai.session_summaries.session.input_data import get_team
+from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +41,8 @@ VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
 @temporalio.activity.defn
 async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> int | None:
     """Export full session video and return ExportedAsset ID, or None if session is too short"""
+    start_time = time.perf_counter()
+    success = False
     try:
         # Check for existing exported asset for this session
         # TODO: Find a way to attach Gemini Files API id to the asset, with an expiration date, so we can reuse it (instead of re-uploading)
@@ -146,6 +150,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             signals_type="session-summaries",
         )
 
+        success = True
         return exported_asset.id
 
     except Exception as e:
@@ -155,3 +160,14 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             signals_type="session-summaries",
         )
         raise
+    finally:
+        duration_seconds = time.perf_counter() - start_time
+        team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
+        capture_session_summary_timing(
+            distinct_id=inputs.user_distinct_id_to_log,
+            team=team,
+            session_id=inputs.session_id,
+            timing_type="video_render",
+            duration_seconds=duration_seconds,
+            success=success,
+        )
