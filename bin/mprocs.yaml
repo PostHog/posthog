@@ -71,6 +71,17 @@ procs:
             bin/start-rust-service cyclotron-janitor
         capability: cyclotron
 
+    cyclotron-janitor-shadow:
+        shell: |-
+            bin/check_postgres_up cyclotron_shadow && \
+            bin/check_kafka_clickhouse_up && \
+            DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron_shadow \
+            BIND_PORT=3304 \
+            JANITOR_ID=shadow-janitor \
+            SHARD_ID=shadow \
+            bin/start-rust-service cyclotron-janitor
+        capability: cyclotron
+
     cymbal:
         shell: |-
             bin/check_postgres_up && \
