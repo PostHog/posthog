@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
 
+import { sessionRecordingExistsLogic } from './sessionRecordingExistsLogic'
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
 export enum ViewRecordingButtonVariant {
@@ -35,6 +36,8 @@ type ViewRecordingProps = {
     openPlayerIn?: RecordingPlayerType
     matchingEvents?: MatchedRecording[]
     hasRecording?: boolean
+    /** If true, automatically check if a recording exists for this session via batched API call */
+    checkRecordingExists?: boolean
 }
 
 export default function ViewRecordingButton({
@@ -48,6 +51,7 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     hasRecording,
+    checkRecordingExists = false,
     variant = ViewRecordingButtonVariant.Button,
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
@@ -56,6 +60,19 @@ export default function ViewRecordingButton({
         label?: ReactNode
         variant?: ViewRecordingButtonVariant
     }): JSX.Element {
+    const { checkRecordingExists: registerCheck } = useActions(sessionRecordingExistsLogic)
+    const { getRecordingExists } = useValues(sessionRecordingExistsLogic)
+
+    useEffect(() => {
+        if (checkRecordingExists && sessionId) {
+            registerCheck(sessionId)
+        }
+    }, [checkRecordingExists, sessionId, registerCheck])
+
+    if (hasRecording === undefined && checkRecordingExists && sessionId) {
+        hasRecording = getRecordingExists(sessionId)
+    }
+
     const { onClick, disabledReason, warningReason } = useRecordingButton({
         sessionId,
         recordingStatus,
@@ -106,7 +123,12 @@ export default function ViewRecordingButton({
                           ? 'Recording unavailable'
                           : null
                 }
-                className={classNames(props.className, props.loading && 'opacity-50', props.fullWidth && 'w-full')}
+                className={classNames(
+                    props.className,
+                    props.loading && 'opacity-50',
+                    props.fullWidth && 'w-full',
+                    disabledReason && 'opacity-50'
+                )}
                 data-attr={props['data-attr']}
             >
                 {props.loading ? <Spinner className="text-sm" /> : null}
