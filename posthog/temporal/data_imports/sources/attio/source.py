@@ -9,6 +9,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.attio.attio import (
+    _get_id_field_for_endpoint,
     attio_source,
     validate_credentials as validate_attio_credentials,
 )
@@ -103,10 +104,13 @@ You can generate an API key in your [Attio workspace settings](https://app.attio
         # Use created_at for all endpoints that support incremental syncing
         partition_key = "created_at" if ATTIO_INCREMENTAL_FIELDS.get(inputs.schema_name) else None
 
+        # Get the correct primary key field for this endpoint (e.g., record_id, list_id, etc.)
+        primary_key_field = _get_id_field_for_endpoint(inputs.schema_name)
+
         return SourceResponse(
             name=inputs.schema_name,
             items=lambda: items,
-            primary_keys=["id"],
+            primary_keys=[primary_key_field],
             partition_count=1,
             partition_size=1,
             partition_mode="datetime" if partition_key else None,

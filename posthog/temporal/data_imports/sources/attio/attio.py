@@ -83,6 +83,32 @@ class AttioOffsetPaginator(BasePaginator):
         request.params["limit"] = self._limit
 
 
+def _get_id_field_for_endpoint(endpoint: str) -> str:
+    """Get the nested ID field name for a given endpoint."""
+    id_field_map = {
+        "companies": "record_id",
+        "people": "record_id",
+        "deals": "record_id",
+        "users": "record_id",
+        "workspaces": "record_id",
+        "lists": "list_id",
+        "notes": "note_id",
+        "tasks": "task_id",
+        "workspace_members": "workspace_member_id",
+    }
+    return id_field_map.get(endpoint, "record_id")
+
+
+def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Flatten the nested 'id' object into the root level."""
+    if "id" in item and isinstance(item["id"], dict):
+        id_obj = item.pop("id")
+        # Merge all id fields into the root
+        for key, value in id_obj.items():
+            item[key] = value
+    return item
+
+
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     """
     Define endpoint resources for Attio API.
@@ -109,7 +135,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         return {
             "name": name,
             "table_name": name,
-            **({"primary_key": "id.record_id"} if should_use_incremental_field else {}),
+            **({"primary_key": "record_id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -133,7 +159,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         return {
             "name": "lists",
             "table_name": "lists",
-            **({"primary_key": "id.list_id"} if should_use_incremental_field else {}),
+            **({"primary_key": "list_id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -153,7 +179,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         return {
             "name": "notes",
             "table_name": "notes",
-            **({"primary_key": "id.note_id"} if should_use_incremental_field else {}),
+            **({"primary_key": "note_id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -173,7 +199,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         return {
             "name": "tasks",
             "table_name": "tasks",
-            **({"primary_key": "id.task_id"} if should_use_incremental_field else {}),
+            **({"primary_key": "task_id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -193,7 +219,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         return {
             "name": "workspace_members",
             "table_name": "workspace_members",
-            **({"primary_key": "id.workspace_member_id"} if should_use_incremental_field else {}),
+            **({"primary_key": "workspace_member_id"} if should_use_incremental_field else {}),
             "write_disposition": "replace",  # Workspace members don't have incremental support
             "endpoint": {
                 "path": "/v2/workspace_members",
@@ -253,7 +279,9 @@ def attio_source(
     }
 
     dlt_resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    yield from dlt_resources[0]
+    # Flatten the nested ID structure into the root level
+    resource = dlt_resources[0].add_map(_flatten_item)
+    yield from resource
 
 
 def validate_credentials(api_key: str) -> bool:
