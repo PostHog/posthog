@@ -173,6 +173,7 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
                 if (values.appliedPreset?.short_id === savedPreset.short_id) {
                     actions.setAppliedPreset(savedPreset)
                 }
+                actions.resetPresetForm()
             }
         },
         saveCurrentFiltersAsPresetSuccess: ({ savedPreset }) => {
