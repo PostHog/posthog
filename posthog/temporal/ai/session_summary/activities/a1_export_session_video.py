@@ -125,6 +125,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
             # Allow duplicates for testing purposes - this shouldn't happen in prod anyway
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            # Keep hard limit to avoid hanging workflows
+            execution_timeout=timedelta(hours=3),
         )
 
         logger.debug(
