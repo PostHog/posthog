@@ -119,7 +119,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                 HAVING is_deleted = 0
                   ${propertyFilters ? `AND ${propertyFilters}` : ''}
                 ORDER BY id
-                LIMIT ${limit}
+                LIMIT ${Math.min(Math.max(1, parseInt(String(limit))), 10000)}
             ) p
             LEFT JOIN (
                 SELECT
