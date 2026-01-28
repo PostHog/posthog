@@ -114,6 +114,11 @@ class _KafkaProducer:
         max_request_size=None,
         compression_type=None,
     ):
+        import sys
+        import traceback
+
+        traceback.print_stack(file=sys.stderr)
+
         if settings.TEST:
             test = True  # Set at runtime so that overriden settings.TEST is supported
         if kafka_security_protocol is None:
