@@ -607,20 +607,6 @@ const ReplayFiltersTab = ({
                         setFilters={setFilters}
                     />
                     <QuickFilterButton
-                        filterKey="$user_id"
-                        label="User ID"
-                        propertyType={PropertyFilterType.Person}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$pathname"
-                        label="Path name"
-                        propertyType={PropertyFilterType.Event}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
                         filterKey="$current_url"
                         label="Current URL"
                         propertyType={PropertyFilterType.Event}
