@@ -90,8 +90,29 @@ where
         partition: &Partition,
         cancel_token: &CancellationToken,
     ) {
+        // #region agent log
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "async_setup_single_partition:start",
+            topic = partition.topic(),
+            partition = partition.partition_number(),
+            is_cancelled = cancel_token.is_cancelled(),
+            is_owned = self.rebalance_coordinator.is_partition_owned(partition),
+            "async_setup_single_partition STARTED"
+        );
+        // #endregion
+
         // Check if cancelled before starting
         if cancel_token.is_cancelled() {
+            // #region agent log
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "async_setup_single_partition:cancelled_early",
+                topic = partition.topic(),
+                partition = partition.partition_number(),
+                "Skipping store creation - cancelled before start"
+            );
+            // #endregion
             metrics::counter!(
                 PARTITION_STORE_SETUP_SKIPPED,
                 "reason" => "cancelled",
@@ -102,6 +123,15 @@ where
 
         // Skip if partition is no longer owned (was revoked during async setup)
         if !self.rebalance_coordinator.is_partition_owned(partition) {
+            // #region agent log
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "async_setup_single_partition:not_owned",
+                topic = partition.topic(),
+                partition = partition.partition_number(),
+                "Skipping store creation - not owned"
+            );
+            // #endregion
             info!(
                 topic = partition.topic(),
                 partition = partition.partition_number(),
@@ -121,6 +151,15 @@ where
             .get(partition.topic(), partition.partition_number())
             .is_some()
         {
+            // #region agent log
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "async_setup_single_partition:store_exists",
+                topic = partition.topic(),
+                partition = partition.partition_number(),
+                "Skipping store creation - store already exists"
+            );
+            // #endregion
             metrics::counter!(
                 REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                 "result" => "skipped",
@@ -257,6 +296,16 @@ where
             .await
         {
             Ok(_) => {
+                // #region agent log
+                info!(
+                    tag = "[DEBUG_PARTITION_TRACKING]",
+                    location = "async_setup_single_partition:store_created",
+                    topic = partition.topic(),
+                    partition = partition.partition_number(),
+                    active_store_count = self.store_manager.get_active_store_count(),
+                    "Store created successfully"
+                );
+                // #endregion
                 // Track if this is a fallback to empty store after checkpoint failure
                 if let Some(reason) = checkpoint_failure_reason {
                     metrics::counter!(
@@ -273,6 +322,16 @@ where
                 }
             }
             Err(e) => {
+                // #region agent log
+                info!(
+                    tag = "[DEBUG_PARTITION_TRACKING]",
+                    location = "async_setup_single_partition:store_failed",
+                    topic = partition.topic(),
+                    partition = partition.partition_number(),
+                    error = %e,
+                    "Store creation FAILED"
+                );
+                // #endregion
                 error!(
                     topic = partition.topic(),
                     partition = partition.partition_number(),
@@ -303,6 +362,33 @@ where
             .map(Partition::from)
             .collect();
 
+        // #region agent log
+        let partition_list: Vec<String> = partition_infos
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let owned_before: Vec<String> = self
+            .rebalance_coordinator
+            .get_owned_partitions()
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let stores_before: Vec<String> = self
+            .store_manager
+            .stores()
+            .iter()
+            .map(|e| format!("{}:{}", e.key().topic(), e.key().partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "setup_assigned_partitions:start",
+            new_partitions = ?partition_list,
+            owned_before = ?owned_before,
+            stores_before = ?stores_before,
+            "setup_assigned_partitions (SYNC) STARTED"
+        );
+        // #endregion
+
         info!(
             partition_count = partition_infos.len(),
             caller = "assign_callback",
@@ -313,6 +399,15 @@ where
         // This prevents wasted work when partitions are rapidly reassigned.
         {
             let mut token = self.current_rebalance_token.lock().unwrap();
+            // #region agent log
+            let was_cancelled = token.is_cancelled();
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "setup_assigned_partitions:cancel_token",
+                was_already_cancelled = was_cancelled,
+                "Cancelling previous rebalance token"
+            );
+            // #endregion
             token.cancel();
             // Create a new token for this rebalance
             *token = CancellationToken::new();
@@ -337,6 +432,22 @@ where
         // Increment rebalancing counter SYNCHRONOUSLY before async work is queued
         // This ensures no gap where orphan cleanup could run
         self.rebalance_coordinator.start_rebalancing();
+
+        // #region agent log
+        let owned_after: Vec<String> = self
+            .rebalance_coordinator
+            .get_owned_partitions()
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "setup_assigned_partitions:end",
+            owned_after = ?owned_after,
+            is_rebalancing = self.rebalance_coordinator.is_rebalancing(),
+            "setup_assigned_partitions (SYNC) COMPLETED"
+        );
+        // #endregion
     }
 
     fn setup_revoked_partitions(&self, partitions: &TopicPartitionList) {
@@ -345,6 +456,33 @@ where
             .into_iter()
             .map(Partition::from)
             .collect();
+
+        // #region agent log
+        let partition_list: Vec<String> = partition_infos
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let owned_before: Vec<String> = self
+            .rebalance_coordinator
+            .get_owned_partitions()
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let stores_before: Vec<String> = self
+            .store_manager
+            .stores()
+            .iter()
+            .map(|e| format!("{}:{}", e.key().topic(), e.key().partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "setup_revoked_partitions:start",
+            revoked_partitions = ?partition_list,
+            owned_before = ?owned_before,
+            stores_before = ?stores_before,
+            "setup_revoked_partitions (SYNC) STARTED"
+        );
+        // #endregion
 
         info!(
             partition_count = partition_infos.len(),
@@ -364,6 +502,28 @@ where
             self.store_manager
                 .unregister_store(partition.topic(), partition.partition_number());
         }
+
+        // #region agent log
+        let owned_after: Vec<String> = self
+            .rebalance_coordinator
+            .get_owned_partitions()
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let stores_after: Vec<String> = self
+            .store_manager
+            .stores()
+            .iter()
+            .map(|e| format!("{}:{}", e.key().topic(), e.key().partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "setup_revoked_partitions:end",
+            owned_after = ?owned_after,
+            stores_after = ?stores_after,
+            "setup_revoked_partitions (SYNC) COMPLETED"
+        );
+        // #endregion
 
         debug!(
             unregistered_count = partition_infos.len(),
@@ -399,6 +559,27 @@ where
             .map(Partition::from)
             .collect();
 
+        // #region agent log
+        let incremental_list: Vec<String> = partition_infos
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let owned_at_start = self.rebalance_coordinator.get_owned_partitions();
+        let owned_list: Vec<String> = owned_at_start
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "async_setup_assigned_partitions:start",
+            incremental_partitions = ?incremental_list,
+            all_owned_at_start = ?owned_list,
+            is_cancelled = cancel_token.is_cancelled(),
+            active_stores = self.store_manager.get_active_store_count(),
+            "async_setup_assigned_partitions STARTED"
+        );
+        // #endregion
+
         debug!(
             incremental_partitions = partition_infos.len(),
             current_owned = self.rebalance_coordinator.get_owned_partitions().len(),
@@ -411,6 +592,14 @@ where
         // 1. New rebalance's sync callback already updated ownership
         // 2. New rebalance's async_setup will resume ALL owned partitions
         if cancel_token.is_cancelled() {
+            // #region agent log
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "async_setup_assigned_partitions:cancelled_before_start",
+                incremental_partitions = ?incremental_list,
+                "Async setup cancelled BEFORE starting"
+            );
+            // #endregion
             info!("Async setup cancelled before starting - new rebalance will handle resume");
             metrics::counter!(REBALANCE_ASYNC_SETUP_CANCELLED).increment(1);
             return Ok(());
@@ -423,8 +612,27 @@ where
             .map(|p| self.async_setup_single_partition(p, &cancel_token));
         join_all(setup_futures).await;
 
+        // #region agent log
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "async_setup_assigned_partitions:after_store_creation",
+            active_stores = self.store_manager.get_active_store_count(),
+            is_cancelled = cancel_token.is_cancelled(),
+            "After store creation loop"
+        );
+        // #endregion
+
         // Check if cancelled during setup
         if cancel_token.is_cancelled() {
+            // #region agent log
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "async_setup_assigned_partitions:cancelled_during",
+                incremental_partitions = ?incremental_list,
+                active_stores = self.store_manager.get_active_store_count(),
+                "Async setup cancelled DURING execution"
+            );
+            // #endregion
             info!("Async setup cancelled during execution - new rebalance will handle resume");
             metrics::counter!(REBALANCE_ASYNC_SETUP_CANCELLED).increment(1);
             return Ok(());
@@ -437,6 +645,13 @@ where
 
         // If no owned partitions, skip sending Resume
         if owned_partitions.is_empty() {
+            // #region agent log
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "async_setup_assigned_partitions:no_owned",
+                "No owned partitions to resume"
+            );
+            // #endregion
             info!("No owned partitions to resume");
             metrics::counter!(REBALANCE_RESUME_SKIPPED_NO_OWNED).increment(1);
             return Ok(());
@@ -447,6 +662,37 @@ where
         for p in &owned_partitions {
             resume_tpl.add_partition(p.topic(), p.partition_number());
         }
+
+        // #region agent log
+        let resume_list: Vec<String> = owned_partitions
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let stores_list: Vec<String> = self
+            .store_manager
+            .stores()
+            .iter()
+            .map(|e| format!("{}:{}", e.key().topic(), e.key().partition_number()))
+            .collect();
+        let missing_stores: Vec<String> = owned_partitions
+            .iter()
+            .filter(|p| {
+                self.store_manager
+                    .get(p.topic(), p.partition_number())
+                    .is_none()
+            })
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "async_setup_assigned_partitions:before_resume",
+            partitions_to_resume = ?resume_list,
+            active_stores = ?stores_list,
+            missing_stores = ?missing_stores,
+            missing_count = missing_stores.len(),
+            "About to send Resume command"
+        );
+        // #endregion
 
         info!(
             owned_count = owned_partitions.len(),

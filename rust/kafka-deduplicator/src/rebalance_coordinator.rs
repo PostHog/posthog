@@ -158,6 +158,27 @@ impl RebalanceCoordinator {
         metrics::gauge!(OWNED_PARTITIONS_COUNT).set(total_owned as f64);
         metrics::counter!(PARTITION_OWNERSHIP_ADDED).increment(added_count as u64);
 
+        // #region agent log
+        let partition_list: Vec<String> = partitions
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let all_owned: Vec<String> = self
+            .owned_partitions
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "add_owned_partitions",
+            added_count = added_count,
+            total_owned = total_owned,
+            partitions_added = ?partition_list,
+            all_owned_after = ?all_owned,
+            "add_owned_partitions called"
+        );
+        // #endregion
+
         if added_count > 0 {
             info!(
                 added_count = added_count,
@@ -188,6 +209,27 @@ impl RebalanceCoordinator {
         metrics::gauge!(OWNED_PARTITIONS_COUNT).set(total_owned as f64);
         metrics::counter!(PARTITION_OWNERSHIP_REMOVED).increment(removed_count as u64);
 
+        // #region agent log
+        let partition_list: Vec<String> = partitions
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        let all_owned: Vec<String> = self
+            .owned_partitions
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "remove_owned_partitions",
+            removed_count = removed_count,
+            total_owned = total_owned,
+            partitions_removed = ?partition_list,
+            all_owned_after = ?all_owned,
+            "remove_owned_partitions called"
+        );
+        // #endregion
+
         if removed_count > 0 {
             info!(
                 removed_count = removed_count,
@@ -202,7 +244,23 @@ impl RebalanceCoordinator {
     /// Returns a Vec copy of all owned partitions. Use this to determine
     /// which partitions to resume after async setup completes.
     pub fn get_owned_partitions(&self) -> Vec<Partition> {
-        self.owned_partitions.iter().map(|p| p.clone()).collect()
+        let result: Vec<Partition> = self.owned_partitions.iter().map(|p| p.clone()).collect();
+
+        // #region agent log
+        let partition_list: Vec<String> = result
+            .iter()
+            .map(|p| format!("{}:{}", p.topic(), p.partition_number()))
+            .collect();
+        info!(
+            tag = "[DEBUG_PARTITION_TRACKING]",
+            location = "get_owned_partitions",
+            count = result.len(),
+            partitions = ?partition_list,
+            "get_owned_partitions called"
+        );
+        // #endregion
+
+        result
     }
 
     /// Check if a specific partition is currently owned.
