@@ -1,4 +1,5 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -84,6 +85,7 @@ function findEventWithParents(
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
     props({} as TraceDataLogicProps),
+    key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
         values: [
             llmAnalyticsTraceLogic,
@@ -289,6 +291,14 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             },
         ],
     }),
+
+    subscriptions(({ props }) => ({
+        trace: (trace: LLMTrace | undefined) => {
+            if (trace?.createdAt && props.traceId) {
+                llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
+            }
+        },
+    })),
 ])
 
 export interface TraceTreeNode {
