@@ -62,6 +62,8 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
+    RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
+
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
@@ -105,8 +107,7 @@ class Subscription(models.Model):
         # The rrule property accesses multiple fields (frequency, count, interval, etc).
         # If ANY field is deferred, accessing it triggers refresh_from_db which creates
         # a new instance with OTHER fields deferred, causing infinite recursion.
-        rrule_fields = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
-        if not (self.get_deferred_fields() & rrule_fields):
+        if not (self.get_deferred_fields() & self.RRULE_FIELDS):
             self._rrule = self.rrule
 
     def save(self, *args, **kwargs) -> None:
