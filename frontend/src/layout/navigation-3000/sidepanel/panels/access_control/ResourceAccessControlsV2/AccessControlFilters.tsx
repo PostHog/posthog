@@ -20,7 +20,7 @@ export interface AccessControlFiltersProps {
     canUseRoles: boolean
 }
 
-export function AccessControlFilters(props: AccessControlFiltersProps): React.ReactNode {
+export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Element | null {
     if (props.activeTab === 'defaults') {
         return null
     }
