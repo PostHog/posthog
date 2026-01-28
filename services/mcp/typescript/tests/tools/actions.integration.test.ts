@@ -27,6 +27,7 @@ describe('Actions', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        annotations: [],
     }
 
     beforeAll(async () => {
