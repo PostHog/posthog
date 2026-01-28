@@ -363,29 +363,6 @@ export const batchExportsDestroy = async (projectId: string, id: string, options
     })
 }
 
-/**
- * Trigger a backfill for a BatchExport.
-
-Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
- */
-export const getBatchExportsBackfillCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/batch_exports/${id}/backfill/`
-}
-
-export const batchExportsBackfillCreate = async (
-    projectId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsBackfillCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
-    })
-}
-
 export const getBatchExportsLogsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/batch_exports/${id}/logs/`
 }
@@ -592,29 +569,6 @@ export const batchExportsDestroy2 = async (
     return apiMutator<void>(getBatchExportsDestroy2Url(organizationId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-/**
- * Trigger a backfill for a BatchExport.
-
-Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
- */
-export const getBatchExportsBackfillCreate2Url = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/backfill/`
-}
-
-export const batchExportsBackfillCreate2 = async (
-    organizationId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsBackfillCreate2Url(organizationId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -1039,29 +993,6 @@ export const batchExportsDestroy3 = async (projectId: string, id: string, option
     return apiMutator<void>(getBatchExportsDestroy3Url(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-/**
- * Trigger a backfill for a BatchExport.
-
-Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
- */
-export const getBatchExportsBackfillCreate3Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${id}/backfill/`
-}
-
-export const batchExportsBackfillCreate3 = async (
-    projectId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsBackfillCreate3Url(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
     })
 }
 

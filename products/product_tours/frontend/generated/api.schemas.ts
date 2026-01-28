@@ -140,8 +140,7 @@ export interface ProductTourApi {
     name: string
     description?: string
     readonly internal_targeting_flag: MinimalFeatureFlagApi
-    /** @nullable */
-    readonly feature_flag_key: string | null
+    readonly linked_flag: MinimalFeatureFlagApi
     /**
      * Return the targeting flag filters, excluding the base exclusion properties.
      * @nullable
@@ -189,6 +188,9 @@ export interface ProductTourSerializerCreateUpdateOnlyApi {
     name: string
     description?: string
     readonly internal_targeting_flag: MinimalFeatureFlagApi
+    readonly linked_flag: MinimalFeatureFlagApi
+    /** @nullable */
+    linked_flag_id?: number | null
     targeting_flag_filters?: unknown | null
     content?: unknown
     auto_launch?: boolean
@@ -216,6 +218,9 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
     name?: string
     description?: string
     readonly internal_targeting_flag?: MinimalFeatureFlagApi
+    readonly linked_flag?: MinimalFeatureFlagApi
+    /** @nullable */
+    linked_flag_id?: number | null
     targeting_flag_filters?: unknown | null
     content?: unknown
     auto_launch?: boolean

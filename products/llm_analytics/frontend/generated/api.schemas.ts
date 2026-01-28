@@ -188,6 +188,32 @@ export const OutputTypeEnumApi = {
     boolean: 'boolean',
 } as const
 
+/**
+ * * `openai` - Openai
+ * `anthropic` - Anthropic
+ * `gemini` - Gemini
+ */
+export type Provider53dEnumApi = (typeof Provider53dEnumApi)[keyof typeof Provider53dEnumApi]
+
+export const Provider53dEnumApi = {
+    openai: 'openai',
+    anthropic: 'anthropic',
+    gemini: 'gemini',
+} as const
+
+/**
+ * Nested serializer for model configuration.
+ */
+export interface ModelConfigurationApi {
+    provider: Provider53dEnumApi
+    /** @maxLength 100 */
+    model: string
+    /** @nullable */
+    provider_key_id?: string | null
+    /** @nullable */
+    readonly provider_key_name: string | null
+}
+
 export interface EvaluationApi {
     readonly id: string
     /** @maxLength 400 */
@@ -199,6 +225,7 @@ export interface EvaluationApi {
     output_type: OutputTypeEnumApi
     output_config?: unknown
     conditions?: unknown
+    model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly created_by: UserBasicApi
@@ -344,16 +371,6 @@ export interface ClusteringRunRequestApi {
 }
 
 /**
- * * `openai` - Openai
- */
-export type LLMProviderKeyProviderEnumApi =
-    (typeof LLMProviderKeyProviderEnumApi)[keyof typeof LLMProviderKeyProviderEnumApi]
-
-export const LLMProviderKeyProviderEnumApi = {
-    openai: 'openai',
-} as const
-
-/**
  * * `unknown` - Unknown
  * `ok` - Ok
  * `invalid` - Invalid
@@ -370,7 +387,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: LLMProviderKeyProviderEnumApi
+    provider: Provider53dEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -396,7 +413,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: LLMProviderKeyProviderEnumApi
+    provider?: Provider53dEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi

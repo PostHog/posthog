@@ -382,6 +382,20 @@ export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
 }
 
 /**
+ * List available models for a provider.
+ */
+export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/models/`
+}
+
+export const llmAnalyticsModelsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsModelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Validate LLM provider API keys without persisting them
  */
 export const getLlmAnalyticsProviderKeyValidationsCreateUrl = (projectId: string) => {
