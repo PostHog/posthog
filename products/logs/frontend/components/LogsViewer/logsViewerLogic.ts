@@ -102,6 +102,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Row height recomputation (triggered by child components when content changes)
         recomputeRowHeights: (logIds?: string[]) => ({ logIds }),
+        debouncedRecomputeRowHeights: (logIds?: string[]) => ({ logIds }),
 
         // Multi-select
         toggleSelectLog: (logId: string) => ({ logId }),
@@ -245,7 +246,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         recomputeRowHeightsRequest: [
             null as { logIds?: string[]; timestamp: number } | null,
             {
-                recomputeRowHeights: (_, { logIds }) => ({ logIds, timestamp: Date.now() }),
+                debouncedRecomputeRowHeights: (_, { logIds }) => ({ logIds, timestamp: Date.now() }),
             },
         ],
 
@@ -382,6 +383,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        recomputeRowHeights: async ({ logIds }, breakpoint) => {
+            await breakpoint(30) // Debounce 30ms
+            actions.debouncedRecomputeRowHeights(logIds)
+        },
         setLogs: ({ logs }) => {
             if (logs.length === 0) {
                 actions.resetCursor()
