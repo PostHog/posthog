@@ -226,6 +226,8 @@ WHERE g.event = '$ai_generation'
 - All queries are limited to 100 rows, so you should use LIMIT and OFFSET for pagination.
 - You should cherry-pick `properties` of events, persons, or groups, so we don't get OOMs.
 
+---
+
 ## HogQL Differences from Standard SQL
 
 ### Property access
