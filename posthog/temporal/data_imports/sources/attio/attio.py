@@ -3,19 +3,15 @@ from typing import Any, Optional
 import requests
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
 class AttioJSONBodyPaginator(BasePaginator):
-    """
-    Custom paginator for Attio POST endpoints that require pagination in the JSON body.
-
-    Attio POST endpoints (like /v2/objects/{object}/records/query) expect offset and limit
-    in the request body, not as query parameters.
-    """
+    """Paginator for Attio POST endpoints that require pagination in the JSON body."""
 
     def __init__(self, limit: int = 100):
         super().__init__()
@@ -24,7 +20,6 @@ class AttioJSONBodyPaginator(BasePaginator):
         self._has_next_page = True
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        """Update pagination state based on response data."""
         try:
             response_data = response.json()
             returned_data = response_data.get("data", [])
@@ -38,7 +33,6 @@ class AttioJSONBodyPaginator(BasePaginator):
             self._has_next_page = False
 
     def update_request(self, request: Request) -> None:
-        """Update the request JSON body with pagination parameters."""
         if request.json is None:
             request.json = {}
 
@@ -47,12 +41,7 @@ class AttioJSONBodyPaginator(BasePaginator):
 
 
 class AttioOffsetPaginator(BasePaginator):
-    """
-    Custom paginator for Attio GET endpoints.
-
-    Attio's API doesn't return a 'total' field, so we determine if there are more pages
-    by checking if the returned data count equals the limit.
-    """
+    """Paginator for Attio GET endpoints using offset-based pagination."""
 
     def __init__(self, limit: int = 100):
         super().__init__()
@@ -61,7 +50,6 @@ class AttioOffsetPaginator(BasePaginator):
         self._has_next_page = True
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        """Update pagination state based on response data."""
         try:
             response_data = response.json()
             returned_data = response_data.get("data", [])
@@ -75,7 +63,6 @@ class AttioOffsetPaginator(BasePaginator):
             self._has_next_page = False
 
     def update_request(self, request: Request) -> None:
-        """Update the request query params with pagination parameters."""
         if request.params is None:
             request.params = {}
 
@@ -83,153 +70,60 @@ class AttioOffsetPaginator(BasePaginator):
         request.params["limit"] = self._limit
 
 
-def _get_id_field_for_endpoint(endpoint: str) -> str:
-    """Get the nested ID field name for a given endpoint."""
-    id_field_map = {
-        "companies": "record_id",
-        "people": "record_id",
-        "deals": "record_id",
-        "users": "record_id",
-        "workspaces": "record_id",
-        "lists": "list_id",
-        "notes": "note_id",
-        "tasks": "task_id",
-        "workspace_members": "workspace_member_id",
-    }
-    return id_field_map.get(endpoint, "record_id")
-
-
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     """Flatten the nested 'id' object into the root level."""
     if "id" in item and isinstance(item["id"], dict):
         id_obj = item.pop("id")
-        # Merge all id fields into the root
         for key, value in id_obj.items():
             item[key] = value
     return item
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
-    """
-    Define endpoint resources for Attio API.
+    """Build an EndpointResource from the endpoint configuration."""
+    config = ATTIO_ENDPOINTS[name]
 
-    Attio API structure:
-    - Objects (companies, people, deals, users, workspaces) use /v2/objects/{object}/records/query (POST)
-    - Lists use /v2/lists (GET)
-    - Notes use /v2/notes (GET)
-    - Tasks use /v2/tasks (GET)
-    - Workspace members use /v2/workspace_members (GET)
-    """
-
-    # Common configuration for object records (companies, people, deals, users, workspaces)
-    # These all use a POST request to query records with filtering and sorting
-    object_endpoints = {
-        "companies": "companies",
-        "people": "people",
-        "deals": "deals",
-        "users": "users",
-        "workspaces": "workspaces",
+    endpoint_config: dict[str, Any] = {
+        "path": config.path,
+        "data_selector": "data",
     }
 
-    if name in object_endpoints:
-        return {
-            "name": name,
-            "table_name": name,
-            **({"primary_key": "record_id"} if should_use_incremental_field else {}),
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "path": f"/v2/objects/{object_endpoints[name]}/records/query",
-                "method": "POST",
-                "data_selector": "data",
-                "json": {
-                    "sorts": [{"attribute": "created_at", "direction": "asc"}],
-                },
-                "paginator": AttioJSONBodyPaginator(limit=100),
-            },
-            "table_format": "delta",
-        }
+    if config.method == "POST":
+        endpoint_config["method"] = "POST"
+        endpoint_config["json"] = {"sorts": [{"attribute": "created_at", "direction": "asc"}]}
+        endpoint_config["paginator"] = AttioJSONBodyPaginator(limit=config.page_size)
+    else:
+        endpoint_config["paginator"] = AttioOffsetPaginator(limit=config.page_size)
 
-    # Lists endpoint
-    if name == "lists":
-        return {
-            "name": "lists",
-            "table_name": "lists",
-            **({"primary_key": "list_id"} if should_use_incremental_field else {}),
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "path": "/v2/lists",
-                "data_selector": "data",
-                "paginator": AttioOffsetPaginator(limit=100),
-            },
-            "table_format": "delta",
+    return {
+        "name": config.name,
+        "table_name": config.name,
+        **({"primary_key": config.primary_key} if should_use_incremental_field else {}),
+        "write_disposition": {
+            "disposition": "merge",
+            "strategy": "upsert",
         }
+        if should_use_incremental_field
+        else "replace",
+        "endpoint": endpoint_config,
+        "table_format": "delta",
+    }
 
-    # Notes endpoint
-    if name == "notes":
-        return {
-            "name": "notes",
-            "table_name": "notes",
-            **({"primary_key": "note_id"} if should_use_incremental_field else {}),
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "path": "/v2/notes",
-                "data_selector": "data",
-                "paginator": AttioOffsetPaginator(limit=100),
+
+def validate_credentials(api_key: str) -> bool:
+    """Validate Attio API credentials by making a test request."""
+    try:
+        res = requests.get(
+            "https://api.attio.com/v2/self",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json",
             },
-            "table_format": "delta",
-        }
-
-    # Tasks endpoint
-    if name == "tasks":
-        return {
-            "name": "tasks",
-            "table_name": "tasks",
-            **({"primary_key": "task_id"} if should_use_incremental_field else {}),
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "path": "/v2/tasks",
-                "data_selector": "data",
-                "paginator": AttioOffsetPaginator(limit=100),
-            },
-            "table_format": "delta",
-        }
-
-    # Workspace members endpoint
-    if name == "workspace_members":
-        return {
-            "name": "workspace_members",
-            "table_name": "workspace_members",
-            **({"primary_key": "workspace_member_id"} if should_use_incremental_field else {}),
-            "write_disposition": "replace",  # Workspace members don't have incremental support
-            "endpoint": {
-                "path": "/v2/workspace_members",
-                "data_selector": "data",
-                "paginator": AttioOffsetPaginator(limit=100),
-            },
-            "table_format": "delta",
-        }
-
-    raise ValueError(f"Unknown Attio endpoint: {name}")
+            timeout=10,
+        )
+        return res.status_code == 200
+    except Exception:
+        return False
 
 
 def attio_source(
@@ -237,22 +131,11 @@ def attio_source(
     endpoint: str,
     team_id: int,
     job_id: str,
-    logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
-):
-    """
-    Main source function for Attio data import.
-
-    Args:
-        api_key: Attio API key
-        endpoint: Name of the endpoint to sync (e.g., "companies", "people", etc.)
-        team_id: PostHog team ID
-        job_id: Job ID for this import
-        logger: Logger instance
-        db_incremental_field_last_value: Last value of the incremental field from previous sync
-        should_use_incremental_field: Whether to use incremental syncing
-    """
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> SourceResponse:
+    """Main source function for Attio data import."""
+    endpoint_config = ATTIO_ENDPOINTS[endpoint]
 
     config: RESTAPIConfig = {
         "client": {
@@ -278,31 +161,18 @@ def attio_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    dlt_resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    # Flatten the nested ID structure into the root level
-    resource = dlt_resources[0].add_map(_flatten_item)
-    yield from resource
+    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    assert len(resources) == 1
+    resource = resources[0].add_map(_flatten_item)
 
-
-def validate_credentials(api_key: str) -> bool:
-    """
-    Validate Attio API credentials by making a test request.
-
-    Args:
-        api_key: Attio API key
-
-    Returns:
-        True if credentials are valid, False otherwise
-    """
-    try:
-        res = requests.get(
-            "https://api.attio.com/v2/self",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Accept": "application/json",
-            },
-            timeout=10,
-        )
-        return res.status_code == 200
-    except Exception:
-        return False
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=[endpoint_config.primary_key],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="month" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        sort_mode="asc",
+    )

@@ -9,14 +9,10 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.attio.attio import (
-    _get_id_field_for_endpoint,
     attio_source,
     validate_credentials as validate_attio_credentials,
 )
-from posthog.temporal.data_imports.sources.attio.settings import (
-    ENDPOINTS as ATTIO_ENDPOINTS,
-    INCREMENTAL_FIELDS as ATTIO_INCREMENTAL_FIELDS,
-)
+from posthog.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -68,12 +64,12 @@ You can generate an API key in your [Attio workspace settings](https://app.attio
     def get_schemas(self, config: AttioSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
-                name=endpoint,
+                name=endpoint_config.name,
                 supports_incremental=False,
-                supports_append=ATTIO_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=ATTIO_INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_append=len(endpoint_config.incremental_fields) > 0,
+                incremental_fields=endpoint_config.incremental_fields,
             )
-            for endpoint in ATTIO_ENDPOINTS
+            for endpoint_config in ATTIO_ENDPOINTS.values()
         ]
 
     def validate_credentials(
@@ -88,7 +84,7 @@ You can generate an API key in your [Attio workspace settings](https://app.attio
             return False, str(e)
 
     def source_for_pipeline(self, config: AttioSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        items = attio_source(
+        return attio_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
@@ -97,24 +93,4 @@ You can generate an API key in your [Attio workspace settings](https://app.attio
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            logger=inputs.logger,
-        )
-
-        # Determine partition key based on endpoint
-        # Use created_at for all endpoints that support incremental syncing
-        partition_key = "created_at" if ATTIO_INCREMENTAL_FIELDS.get(inputs.schema_name) else None
-
-        # Get the correct primary key field for this endpoint (e.g., record_id, list_id, etc.)
-        primary_key_field = _get_id_field_for_endpoint(inputs.schema_name)
-
-        return SourceResponse(
-            name=inputs.schema_name,
-            items=lambda: items,
-            primary_keys=[primary_key_field],
-            partition_count=1,
-            partition_size=1,
-            partition_mode="datetime" if partition_key else None,
-            partition_format="month",
-            partition_keys=[partition_key] if partition_key else None,
-            sort_mode="asc",
         )
