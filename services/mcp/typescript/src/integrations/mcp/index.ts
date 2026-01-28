@@ -6,6 +6,7 @@ import { ApiClient } from '@/api/client'
 import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
+import { RequestLogger, withLogging } from '@/integrations/mcp/utils/logging'
 import type { AnalyticsEvent } from '@/lib/analytics'
 import {
     CUSTOM_BASE_URL,
@@ -326,147 +327,153 @@ const responseHandler = async (response: Response): Promise<Response> => {
     return response
 }
 
-export default {
-    async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-        const url = new URL(request.url)
+const handleRequest = async (
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext<RequestProperties>,
+    log: RequestLogger
+): Promise<Response> => {
+    const url = new URL(request.url)
+    log.extend({ route: url.pathname })
 
-        if (url.pathname === '/') {
-            return new Response(
-                `<p>Welcome to the PostHog MCP Server. For setup and usage instructions, see: <a href="${MCP_DOCS_URL}">${MCP_DOCS_URL}</a></p>`,
-                {
-                    headers: {
-                        'content-type': 'text/html',
-                    },
-                }
-            )
-        }
+    if (url.pathname === '/') {
+        return new Response(
+            `<p>Welcome to the PostHog MCP Server. For setup and usage instructions, see: <a href="${MCP_DOCS_URL}">${MCP_DOCS_URL}</a></p>`,
+            { headers: { 'content-type': 'text/html' } }
+        )
+    }
 
-        // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
-        // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
-        const hostnameRegion = getRegionFromHostname(request)
-        const queryRegion = url.searchParams.get('region')
-        const effectiveRegion = hostnameRegion || queryRegion
+    // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
+    // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
+    const hostnameRegion = getRegionFromHostname(request)
+    const queryRegion = url.searchParams.get('region')
+    const effectiveRegion = hostnameRegion || queryRegion
+    log.extend({ region: effectiveRegion })
 
-        // OAuth Authorization Server Metadata (RFC 8414)
-        // Claude Code fetches this endpoint directly from the MCP server URL instead of
-        // following the authorization_servers from the protected resource metadata.
-        // See: https://github.com/anthropics/claude-code/issues/2267
-        //
-        // We redirect to the correct PostHog region's OAuth metadata endpoint.
-        if (url.pathname === '/.well-known/oauth-authorization-server') {
-            const authServer = getAuthorizationServerUrl(effectiveRegion)
-            return Response.redirect(`${authServer}/.well-known/oauth-authorization-server`, 302)
-        }
+    // OAuth Authorization Server Metadata (RFC 8414)
+    // Claude Code fetches this endpoint directly from the MCP server URL instead of
+    // following the authorization_servers from the protected resource metadata.
+    // See: https://github.com/anthropics/claude-code/issues/2267
+    //
+    // We redirect to the correct PostHog region's OAuth metadata endpoint.
+    if (url.pathname === '/.well-known/oauth-authorization-server') {
+        const authServer = getAuthorizationServerUrl(effectiveRegion)
+        const redirectTo = `${authServer}/.well-known/oauth-authorization-server`
 
-        // OAuth Protected Resource Metadata (RFC 9728)
-        // This endpoint tells MCP clients where to authenticate to get tokens.
-        //
-        // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
-        // between the host and the path. For example:
-        // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
-        // - Resource: https://mcp.posthog.com/sse → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/sse
-        //
-        // OAuth flow for MCP:
-        // 1. Client connects to MCP server without a token
-        // 2. MCP returns 401 with WWW-Authenticate header pointing to this metadata endpoint
-        // 3. Client fetches this metadata to discover the authorization server
-        // 4. Client performs OAuth flow with PostHog (US or EU based on region param)
-        // 5. Client reconnects to MCP with the access token
-        const wellKnownPrefix = '/.well-known/oauth-protected-resource'
-        if (url.pathname.startsWith(wellKnownPrefix)) {
-            // Extract the resource path from after the well-known prefix
-            // e.g., /.well-known/oauth-protected-resource/mcp → /mcp
-            const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
+        log.extend({ redirectTo })
+        return Response.redirect(redirectTo, 302)
+    }
 
-            const resourceUrl = getPublicUrl(request)
-            resourceUrl.pathname = resourcePath
-            resourceUrl.search = ''
+    // OAuth Protected Resource Metadata (RFC 9728)
+    // This endpoint tells MCP clients where to authenticate to get tokens.
+    //
+    // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
+    // between the host and the path. For example:
+    // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
+    // - Resource: https://mcp.posthog.com/sse → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/sse
+    //
+    // OAuth flow for MCP:
+    // 1. Client connects to MCP server without a token
+    // 2. MCP returns 401 with WWW-Authenticate header pointing to this metadata endpoint
+    // 3. Client fetches this metadata to discover the authorization server
+    // 4. Client performs OAuth flow with PostHog (US or EU based on region param)
+    // 5. Client reconnects to MCP with the access token
+    const wellKnownPrefix = '/.well-known/oauth-protected-resource'
+    if (url.pathname.startsWith(wellKnownPrefix)) {
+        // Extract the resource path from after the well-known prefix
+        // e.g., /.well-known/oauth-protected-resource/mcp → /mcp
+        const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
+        const resourceUrl = getPublicUrl(request)
+        resourceUrl.pathname = resourcePath
+        resourceUrl.search = ''
 
-            // Determine authorization server based on hostname or region param.
-            // CUSTOM_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
-            const authorizationServer = getAuthorizationServerUrl(effectiveRegion)
+        // Determine authorization server based on hostname or region param.
+        // CUSTOM_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
+        const authorizationServer = getAuthorizationServerUrl(effectiveRegion)
 
-            return new Response(
-                JSON.stringify({
-                    resource: resourceUrl.toString().replace(/\/$/, ''),
-                    authorization_servers: [authorizationServer],
-                    scopes_supported: OAUTH_SCOPES_SUPPORTED,
-                    bearer_methods_supported: ['header'],
-                }),
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Cache-Control': 'public, max-age=3600',
-                    },
-                }
-            )
-        }
-
-        const token = request.headers.get('Authorization')?.split(' ')[1]
-
-        const sessionId = url.searchParams.get('sessionId')
-
-        if (!token) {
-            // Return 401 with WWW-Authenticate header per RFC 9728.
-            // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
-            // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
-            // between the host and the resource path:
-            // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-            // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
-            const metadataUrl = getPublicUrl(request)
-            metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
-            metadataUrl.search = ''
-            if (effectiveRegion) {
-                metadataUrl.searchParams.set('region', effectiveRegion)
+        return new Response(
+            JSON.stringify({
+                resource: resourceUrl.toString().replace(/\/$/, ''),
+                authorization_servers: [authorizationServer],
+                scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                bearer_methods_supported: ['header'],
+            }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'public, max-age=3600',
+                },
             }
+        )
+    }
 
-            return new Response(
-                `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-                {
-                    status: 401,
-                    headers: {
-                        'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"`,
-                    },
-                }
-            )
+    const token = request.headers.get('Authorization')?.split(' ')[1]
+    const sessionId = url.searchParams.get('sessionId')
+
+    if (!token) {
+        // Return 401 with WWW-Authenticate header per RFC 9728.
+        // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
+        // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
+        // between the host and the resource path:
+        // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
+        // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
+        const metadataUrl = getPublicUrl(request)
+        metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
+        metadataUrl.search = ''
+        if (effectiveRegion) {
+            metadataUrl.searchParams.set('region', effectiveRegion)
         }
 
-        if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
-            return new Response(
-                `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-                {
-                    status: 401,
-                }
-            )
-        }
+        log.extend({ authError: 'no_token' })
+        return new Response(
+            `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
+            {
+                status: 401,
+                headers: { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"` },
+            }
+        )
+    }
 
-        Object.assign(ctx.props, {
-            apiToken: token,
-            userHash: hash(token),
-            sessionId: sessionId || undefined,
-        })
+    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
+        log.extend({ authError: 'invalid_token_format' })
+        return new Response(
+            `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
+            { status: 401 }
+        )
+    }
 
-        // Search params are used to build up the list of available tools. If no features are provided, all tools are available.
-        // If features are provided, only tools matching those features will be available.
-        // Features are provided as a comma-separated list in the "features" query parameter.
-        // Example: ?features=org,insights
-        const featuresParam = url.searchParams.get('features')
-        const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
+    Object.assign(ctx.props, {
+        apiToken: token,
+        userHash: hash(token),
+        sessionId: sessionId || undefined,
+    })
 
-        // Region param is used to route API calls to the correct PostHog instance (US or EU).
-        // This is set by the wizard based on user's cloud region selection during MCP setup.
-        const regionParam = url.searchParams.get('region') || undefined
+    // Search params are used to build up the list of available tools. If no features are provided, all tools are available.
+    // If features are provided, only tools matching those features will be available.
+    // Features are provided as a comma-separated list in the "features" query parameter.
+    // Example: ?features=org,insights
+    const featuresParam = url.searchParams.get('features')
+    const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
 
-        Object.assign(ctx.props, { features, region: regionParam })
+    // Region param is used to route API calls to the correct PostHog instance (US or EU).
+    // This is set by the wizard based on user's cloud region selection during MCP setup.
+    const regionParam = url.searchParams.get('region') || undefined
 
-        if (url.pathname.startsWith('/mcp')) {
-            return MyMCP.serve('/mcp').fetch(request, env, ctx).then(responseHandler)
-        }
+    Object.assign(ctx.props, { features, region: regionParam })
+    log.extend({ features })
 
-        if (url.pathname.startsWith('/sse')) {
-            return MyMCP.serveSSE('/sse').fetch(request, env, ctx).then(responseHandler)
-        }
+    if (url.pathname.startsWith('/mcp')) {
+        return MyMCP.serve('/mcp').fetch(request, env, ctx).then(responseHandler)
+    }
 
-        return new Response('Not found', { status: 404 })
-    },
+    if (url.pathname.startsWith('/sse')) {
+        return MyMCP.serveSSE('/sse').fetch(request, env, ctx).then(responseHandler)
+    }
+
+    log.extend({ error: 'route_not_found' })
+    return new Response('Not found', { status: 404 })
+}
+
+export default {
+    fetch: withLogging(handleRequest),
 }
