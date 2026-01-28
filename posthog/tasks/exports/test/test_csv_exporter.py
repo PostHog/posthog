@@ -1533,6 +1533,7 @@ class TestCSVExporter(APIBaseTest):
     def test_excel_writer_raises_column_limit_exceeded(self) -> None:
         writer = ExcelWriter()
         # Create more columns than openpyxl supports (18,278 max)
+        # See: https://foss.heptapod.net/openpyxl/openpyxl/-/blob/a345f3975f06450193646a53a5caaf081730e9ea/openpyxl/utils/cell.py#L93
         columns = [f"col_{i}" for i in range(18300)]
 
         with pytest.raises(ExcelColumnLimitExceeded) as exc_info:
