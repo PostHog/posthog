@@ -73,11 +73,7 @@ function setupUrlForPlaybackSpeed(urlToRender, playbackSpeed) {
 
 // Wait for the UI and snapshots to load to be ready for the recording
 async function waitForPageReady(page, urlToRender, waitForCssSelector) {
-    try {
-        await page.goto(urlToRender, { waitUntil: 'load', timeout: 30000 })
-    } catch (e) {
-        log('Navigation timeout (continuing):', e.message)
-    }
+    await page.goto(urlToRender, { waitUntil: 'load', timeout: 30000 })
     try {
         await page.waitForSelector(waitForCssSelector, { visible: true, timeout: 20000 })
     } catch (e) {
