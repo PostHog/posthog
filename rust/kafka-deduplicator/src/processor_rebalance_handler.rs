@@ -318,21 +318,23 @@ where
             "Async setup starting - spawning tasks for owned partitions"
         );
 
-        // Spawn setup tasks for partitions that don't have one yet
-        // If a task already exists (from a prior overlapping rebalance), we'll just wait for it
+        // Spawn setup tasks for partitions that don't have one yet.
+        // Uses atomic two-phase registration to prevent race conditions where overlapping
+        // rebalances could both spawn tasks for the same partition.
         for partition in &owned_partitions {
+            let cancel_token = CancellationToken::new();
+            // Atomically claim the partition - if another rebalance already claimed it, skip
             if self
                 .rebalance_coordinator
-                .get_setup_task(partition)
-                .is_none()
+                .try_claim_partition_setup(partition, cancel_token.clone())
             {
-                // No task exists - spawn one with its own per-partition cancellation token
-                let cancel_token = CancellationToken::new();
+                // We claimed it - now spawn the task and finalize registration
                 let handle =
                     self.spawn_partition_setup_task(partition.clone(), cancel_token.clone());
                 self.rebalance_coordinator
-                    .register_setup_task(partition, handle, cancel_token);
+                    .finalize_partition_setup(partition, handle);
             }
+            // If claim failed, another rebalance already owns this partition's setup
         }
 
         // Wait for ALL owned partition tasks to complete

@@ -53,8 +53,13 @@ type SharedTaskHandle =
 ///
 /// The `Shared` future allows multiple async_setup calls to await the same task.
 /// The `CancellationToken` allows cancelling ONLY this partition's download on revoke.
+///
+/// Two-phase registration: `handle` is None when claimed but task not yet spawned,
+/// then set via `finalize_partition_setup()` after the task is spawned.
+/// This prevents race conditions where overlapping rebalances could spawn duplicate tasks.
 struct PartitionSetupTask {
-    handle: SharedTaskHandle,
+    /// None = claimed but task not yet spawned, Some = task spawned and awaitable
+    handle: Option<SharedTaskHandle>,
     cancel_token: CancellationToken,
 }
 
@@ -250,44 +255,70 @@ impl RebalanceCoordinator {
 
     // ============================================
     // PER-PARTITION SETUP TASK MANAGEMENT
+    //
+    // Two-phase registration prevents race conditions in overlapping rebalances:
+    // 1. try_claim_partition_setup() - atomically claims a partition for setup
+    // 2. finalize_partition_setup() - attaches the task handle after spawning
     // ============================================
 
-    /// Register a setup task for a partition.
+    /// Atomically claim a partition for setup.
     ///
-    /// Returns true if the task was registered, false if a task already exists for this partition.
-    /// The handle is converted to `Shared` so multiple callers can await it.
-    pub fn register_setup_task(
+    /// Returns true if claimed successfully, false if a task already exists (claimed or finalized).
+    /// After claiming, caller MUST call `finalize_partition_setup()` with the spawned task handle.
+    ///
+    /// This two-phase approach prevents race conditions where overlapping rebalances could
+    /// both pass a "no task exists" check and spawn duplicate tasks.
+    pub fn try_claim_partition_setup(
         &self,
         partition: &Partition,
-        handle: JoinHandle<()>,
         cancel_token: CancellationToken,
     ) -> bool {
+        match self.partition_setup_tasks.entry(partition.clone()) {
+            Entry::Vacant(e) => {
+                // Claim the slot with handle=None (task not yet spawned)
+                e.insert(PartitionSetupTask {
+                    handle: None,
+                    cancel_token,
+                });
+                true
+            }
+            Entry::Occupied(_) => false, // Already claimed or finalized
+        }
+    }
+
+    /// Attach the task handle after spawning.
+    ///
+    /// Must be called after `try_claim_partition_setup()` returns true.
+    /// Converts the JoinHandle to a Shared future so multiple callers can await it.
+    pub fn finalize_partition_setup(&self, partition: &Partition, handle: JoinHandle<()>) {
         use futures::future::FutureExt;
 
         // Helper function to discard JoinHandle result (must be fn, not closure, for type matching)
         fn discard_result(_: Result<(), tokio::task::JoinError>) {}
 
-        match self.partition_setup_tasks.entry(partition.clone()) {
-            Entry::Vacant(e) => {
-                // Map the JoinHandle result to () so it's Clone (required for Shared)
-                let shared_handle = handle.map(discard_result as fn(_) -> ()).shared();
-                e.insert(PartitionSetupTask {
-                    handle: shared_handle,
-                    cancel_token,
-                });
-                true
-            }
-            Entry::Occupied(_) => false, // Task already exists
+        if let Some(mut task) = self.partition_setup_tasks.get_mut(partition) {
+            // Map the JoinHandle result to () so it's Clone (required for Shared)
+            let shared_handle = handle.map(discard_result as fn(_) -> ()).shared();
+            task.handle = Some(shared_handle);
         }
     }
 
-    /// Get the setup task handle for a partition (if any).
+    /// Get the setup task handle for a partition (if finalized).
     ///
     /// Returns a clone of the Shared handle that can be awaited by multiple callers.
+    /// Returns None if no task exists OR if task is claimed but not yet finalized.
     pub fn get_setup_task(&self, partition: &Partition) -> Option<SharedTaskHandle> {
         self.partition_setup_tasks
             .get(partition)
-            .map(|t| t.handle.clone())
+            .and_then(|t| t.handle.clone())
+    }
+
+    /// Check if a partition has a claimed or finalized setup task.
+    ///
+    /// Returns true if the partition has been claimed (even if not yet finalized).
+    /// Use this to check if setup is in progress before spawning a new task.
+    pub fn has_setup_task(&self, partition: &Partition) -> bool {
+        self.partition_setup_tasks.contains_key(partition)
     }
 
     /// Cancel and remove setup tasks for revoked partitions.
@@ -542,5 +573,128 @@ mod tests {
         // Empty unowned query
         let unowned = coordinator.get_unowned_partitions(&[]);
         assert!(unowned.is_empty());
+    }
+
+    // ============================================
+    // TWO-PHASE TASK REGISTRATION TESTS
+    // ============================================
+
+    #[test]
+    fn test_try_claim_partition_setup_success() {
+        let coordinator = RebalanceCoordinator::new();
+        let p0 = Partition::new("topic".to_string(), 0);
+        let token = CancellationToken::new();
+
+        // First claim should succeed
+        assert!(coordinator.try_claim_partition_setup(&p0, token));
+
+        // has_setup_task should return true (claimed)
+        assert!(coordinator.has_setup_task(&p0));
+
+        // get_setup_task should return None (not yet finalized)
+        assert!(coordinator.get_setup_task(&p0).is_none());
+    }
+
+    #[test]
+    fn test_try_claim_partition_setup_already_claimed() {
+        let coordinator = RebalanceCoordinator::new();
+        let p0 = Partition::new("topic".to_string(), 0);
+        let token1 = CancellationToken::new();
+        let token2 = CancellationToken::new();
+
+        // First claim succeeds
+        assert!(coordinator.try_claim_partition_setup(&p0, token1));
+
+        // Second claim fails (already claimed)
+        assert!(!coordinator.try_claim_partition_setup(&p0, token2));
+    }
+
+    #[tokio::test]
+    async fn test_finalize_partition_setup() {
+        let coordinator = RebalanceCoordinator::new();
+        let p0 = Partition::new("topic".to_string(), 0);
+        let token = CancellationToken::new();
+
+        // Claim the partition
+        assert!(coordinator.try_claim_partition_setup(&p0, token));
+        assert!(coordinator.get_setup_task(&p0).is_none()); // Not yet finalized
+
+        // Spawn a simple task
+        let handle = tokio::spawn(async { /* do nothing */ });
+
+        // Finalize with the handle
+        coordinator.finalize_partition_setup(&p0, handle);
+
+        // Now get_setup_task should return Some
+        assert!(coordinator.get_setup_task(&p0).is_some());
+
+        // Can await the task
+        let task = coordinator.get_setup_task(&p0).unwrap();
+        task.await;
+    }
+
+    #[test]
+    fn test_cancel_claimed_but_not_finalized_task() {
+        let coordinator = RebalanceCoordinator::new();
+        let p0 = Partition::new("topic".to_string(), 0);
+        let token = CancellationToken::new();
+
+        // Claim but don't finalize
+        assert!(coordinator.try_claim_partition_setup(&p0, token.clone()));
+        assert!(!token.is_cancelled());
+
+        // Cancel should work even on claimed-but-not-finalized tasks
+        coordinator.cancel_setup_tasks(std::slice::from_ref(&p0));
+
+        // Token should be cancelled
+        assert!(token.is_cancelled());
+
+        // Task should be removed
+        assert!(!coordinator.has_setup_task(&p0));
+    }
+
+    #[test]
+    fn test_overlapping_rebalances_cannot_claim_same_partition() {
+        // Simulates the race condition we're preventing:
+        // Two overlapping rebalances both try to claim the same partition
+        let coordinator = RebalanceCoordinator::new();
+        let p0 = Partition::new("topic".to_string(), 0);
+
+        // Rebalance A claims p0
+        let token_a = CancellationToken::new();
+        assert!(
+            coordinator.try_claim_partition_setup(&p0, token_a),
+            "Rebalance A should claim p0"
+        );
+
+        // Rebalance B tries to claim p0 - should fail
+        let token_b = CancellationToken::new();
+        assert!(
+            !coordinator.try_claim_partition_setup(&p0, token_b),
+            "Rebalance B should NOT be able to claim p0 (already claimed by A)"
+        );
+
+        // Only A's claim exists
+        assert!(coordinator.has_setup_task(&p0));
+    }
+
+    #[tokio::test]
+    async fn test_complete_setup_task_removes_entry() {
+        let coordinator = RebalanceCoordinator::new();
+        let p0 = Partition::new("topic".to_string(), 0);
+        let token = CancellationToken::new();
+
+        // Claim and finalize
+        assert!(coordinator.try_claim_partition_setup(&p0, token));
+        let handle = tokio::spawn(async { /* do nothing */ });
+        coordinator.finalize_partition_setup(&p0, handle);
+
+        assert!(coordinator.has_setup_task(&p0));
+
+        // Complete removes the entry
+        coordinator.complete_setup_task(&p0);
+
+        assert!(!coordinator.has_setup_task(&p0));
+        assert!(coordinator.get_setup_task(&p0).is_none());
     }
 }
