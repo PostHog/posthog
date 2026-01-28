@@ -8,6 +8,7 @@ import polars as pl
 import dagster
 from dagster import AssetKey, JsonMetadataValue, MetadataValue
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
@@ -25,25 +26,24 @@ PLO_TEAM_ID = 2
 TRUNCATABLE_FIELDS = ["users"]
 
 
-def get_plo_team() -> "Team":
-    """Fetch the internal team used for PLO HogQL queries, with a descriptive error if missing."""
-    try:
-        return Team.objects.get(id=PLO_TEAM_ID)
-    except Team.DoesNotExist:
-        raise Team.DoesNotExist(
-            f"PLO pipeline requires Team(id={PLO_TEAM_ID}) to exist. "
-            "This team is used to execute HogQL queries for the product-led outbound pipeline."
-        )
-
-
 BASE_COLUMNS = [
+    "business_model",
+    "company_tags",
+    "company_type",
     "domain",
     "headcount",
-    "total_mrr",
-    "company_type",
+    "headcount_engineering",
+    "icp_score",
+    "industry",
+    "last_3m_avg_mrr",
+    "organization_created_at",
     "organization_id",
     "organization_name",
-    "organization_created_at",
+    "peak_arr",
+    "peak_mrr",
+    "trailing_12m_revenue",
+    "vitally_churned_at",
+    "vitally_owner",
 ]
 
 SIGNAL_COLUMNS = ["multi_product_count", "event_growth_pct", "new_user_count", "new_products"]
@@ -129,25 +129,25 @@ def compute_event_growth(team_df: pl.DataFrame) -> dict[str, float | None]:
         return {}
 
     team_ids = team_df["team_id"].to_list()
-    team = get_plo_team()
+    team = Team.objects.get(id=PLO_TEAM_ID)
 
-    team_id_list = ", ".join(str(t) for t in team_ids)
-    query = f"""
+    query = """
         SELECT
             properties.$team_id as team_id,
             countIf(timestamp >= now() - interval 30 day) as current_count,
             countIf(timestamp >= now() - interval 60 day AND timestamp < now() - interval 30 day) as prior_count
         FROM events
-        WHERE properties.$team_id IN ({team_id_list})
+        WHERE properties.$team_id IN {team_ids}
           AND timestamp >= now() - interval 60 day
         GROUP BY team_id
-    """  # nosemgrep: hogql-fstring-audit -- team_ids are internal integers from ClickHouse, not user input
+    """
 
     response = execute_hogql_query(
         query=query,
         team=team,
         query_type="plo_event_growth",
         limit_context=LimitContext.SAVED_QUERY,
+        placeholders={"team_ids": ast.Tuple(exprs=[ast.Constant(value=t) for t in team_ids])},
     )
 
     # Build team_id → org_id mapping
@@ -198,31 +198,32 @@ def compute_new_product_this_month(team_df: pl.DataFrame) -> dict[str, str]:
         return {}
 
     team_ids = team_df["team_id"].to_list()
-    team = get_plo_team()
+    team = Team.objects.get(id=PLO_TEAM_ID)
 
-    # Gather all product events to check
     all_events = [ev for ev, _ in PRODUCT_EVENT_MAP.values()]
-    event_list = ", ".join(f"'{e}'" for e in all_events)
-    team_id_list = ", ".join(str(t) for t in team_ids)
 
-    query = f"""
+    query = """
         SELECT
             properties.$team_id as team_id,
             event,
             countIf(timestamp >= toStartOfMonth(now())) as this_month,
             countIf(timestamp >= toStartOfMonth(now()) - interval 1 month AND timestamp < toStartOfMonth(now())) as prior_month
         FROM events
-        WHERE properties.$team_id IN ({team_id_list})
-          AND event IN ({event_list})
+        WHERE properties.$team_id IN {team_ids}
+          AND event IN {events}
           AND timestamp >= toStartOfMonth(now()) - interval 1 month
         GROUP BY team_id, event
-    """  # nosemgrep: hogql-fstring-audit -- team_ids are internal integers, events are hardcoded constants
+    """
 
     response = execute_hogql_query(
         query=query,
         team=team,
         query_type="plo_new_product",
         limit_context=LimitContext.SAVED_QUERY,
+        placeholders={
+            "team_ids": ast.Tuple(exprs=[ast.Constant(value=t) for t in team_ids]),
+            "events": ast.Tuple(exprs=[ast.Constant(value=e) for e in all_events]),
+        },
     )
 
     # Build team_id → (org_id, flags) mapping
@@ -323,7 +324,7 @@ def plo_base_targets(
     """Fetch base targets from the ProductLed_Outbound saved query."""
     context.log.info("Querying ProductLed_Outbound saved query")
 
-    team = get_plo_team()
+    team = Team.objects.get(id=PLO_TEAM_ID)
     query = f"""
         SELECT {", ".join(BASE_COLUMNS)}
         FROM ProductLed_Outbound
@@ -339,13 +340,23 @@ def plo_base_targets(
         context.log.info("No data found in ProductLed_Outbound")
         return pl.DataFrame(
             schema={
+                "business_model": pl.Utf8,
+                "company_tags": pl.Utf8,
+                "company_type": pl.Utf8,
                 "domain": pl.Utf8,
                 "headcount": pl.Int64,
-                "total_mrr": pl.Int64,
-                "company_type": pl.Utf8,
+                "headcount_engineering": pl.Int64,
+                "icp_score": pl.Int64,
+                "industry": pl.Utf8,
+                "last_3m_avg_mrr": pl.Float64,
+                "organization_created_at": pl.Utf8,
                 "organization_id": pl.Utf8,
                 "organization_name": pl.Utf8,
-                "organization_created_at": pl.Utf8,
+                "peak_arr": pl.Float64,
+                "peak_mrr": pl.Float64,
+                "trailing_12m_revenue": pl.Float64,
+                "vitally_churned_at": pl.Utf8,
+                "vitally_owner": pl.Utf8,
             }
         )
 

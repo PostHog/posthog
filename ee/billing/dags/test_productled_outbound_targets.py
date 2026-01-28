@@ -10,7 +10,6 @@ from dagster import JsonMetadataValue
 from parameterized import parameterized
 
 from ee.billing.dags.productled_outbound_targets import (
-    PLO_TEAM_ID,
     TEAM_PRODUCT_SCHEMA,
     build_team_product_df,
     compute_event_growth,
@@ -21,7 +20,6 @@ from ee.billing.dags.productled_outbound_targets import (
     fetch_org_users,
     filter_qualified,
     get_plo_prior_hashes,
-    get_plo_team,
     plo_base_targets,
     plo_daily_schedule,
     plo_qualified_to_clay,
@@ -29,26 +27,81 @@ from ee.billing.dags.productled_outbound_targets import (
 )
 
 
-class TestGetPloTeam:
-    @patch("ee.billing.dags.productled_outbound_targets.Team")
-    def test_raises_descriptive_error_when_team_missing(self, mock_team_model):
-        from posthog.models import Team as RealTeam
+def make_base_row(**overrides) -> dict:
+    """Create a base row dict with all BASE_COLUMNS, applying overrides."""
+    defaults = {
+        "business_model": None,
+        "company_tags": None,
+        "company_type": "startup",
+        "domain": "test.com",
+        "headcount": 100,
+        "headcount_engineering": None,
+        "icp_score": None,
+        "industry": None,
+        "last_3m_avg_mrr": 5000.0,
+        "organization_created_at": "2023-01-01",
+        "organization_id": "org-1",
+        "organization_name": "Test Corp",
+        "peak_arr": None,
+        "peak_mrr": None,
+        "trailing_12m_revenue": None,
+        "vitally_churned_at": None,
+        "vitally_owner": None,
+    }
+    defaults.update(overrides)
+    return defaults
 
-        mock_team_model.objects.get.side_effect = RealTeam.DoesNotExist()
-        mock_team_model.DoesNotExist = RealTeam.DoesNotExist
 
-        with pytest.raises(RealTeam.DoesNotExist, match=f"Team\\(id={PLO_TEAM_ID}\\)"):
-            get_plo_team()
+def make_base_schema() -> dict:
+    """Return the schema dict for empty base DataFrames."""
+    return {
+        "business_model": pl.Utf8,
+        "company_tags": pl.Utf8,
+        "company_type": pl.Utf8,
+        "domain": pl.Utf8,
+        "headcount": pl.Int64,
+        "headcount_engineering": pl.Int64,
+        "icp_score": pl.Int64,
+        "industry": pl.Utf8,
+        "last_3m_avg_mrr": pl.Float64,
+        "organization_created_at": pl.Utf8,
+        "organization_id": pl.Utf8,
+        "organization_name": pl.Utf8,
+        "peak_arr": pl.Float64,
+        "peak_mrr": pl.Float64,
+        "trailing_12m_revenue": pl.Float64,
+        "vitally_churned_at": pl.Utf8,
+        "vitally_owner": pl.Utf8,
+    }
 
 
 class TestPloBaseTargets:
     @patch("ee.billing.dags.productled_outbound_targets.execute_hogql_query")
-    @patch("ee.billing.dags.productled_outbound_targets.get_plo_team")
-    def test_returns_dataframe_with_results(self, mock_plo_team, mock_hogql):
-        mock_plo_team.return_value = MagicMock()
+    @patch("ee.billing.dags.productled_outbound_targets.Team")
+    def test_returns_dataframe_with_results(self, mock_team, mock_hogql):
+        mock_team.objects.get.return_value = MagicMock()
         mock_response = MagicMock()
+        # Return a row with all BASE_COLUMNS in order
         mock_response.results = [
-            ("acme.com", 100, 5000, "startup", "org-1", "Acme Inc", datetime(2023, 1, 1)),
+            (
+                "saas",  # business_model
+                "tech",  # company_tags
+                "startup",  # company_type
+                "acme.com",  # domain
+                100,  # headcount
+                20,  # headcount_engineering
+                75,  # icp_score
+                "Software",  # industry
+                5000.0,  # last_3m_avg_mrr
+                datetime(2023, 1, 1),  # organization_created_at
+                "org-1",  # organization_id
+                "Acme Inc",  # organization_name
+                60000.0,  # peak_arr
+                5000.0,  # peak_mrr
+                55000.0,  # trailing_12m_revenue
+                None,  # vitally_churned_at
+                "owner@acme.com",  # vitally_owner
+            ),
         ]
         mock_hogql.return_value = mock_response
 
@@ -59,12 +112,12 @@ class TestPloBaseTargets:
         assert len(df) == 1
         assert df["domain"][0] == "acme.com"
         assert df["organization_id"][0] == "org-1"
-        mock_plo_team.assert_called_once()
+        mock_team.objects.get.assert_called_once()
 
     @patch("ee.billing.dags.productled_outbound_targets.execute_hogql_query")
-    @patch("ee.billing.dags.productled_outbound_targets.get_plo_team")
-    def test_returns_empty_dataframe_when_no_results(self, mock_plo_team, mock_hogql):
-        mock_plo_team.return_value = MagicMock()
+    @patch("ee.billing.dags.productled_outbound_targets.Team")
+    def test_returns_empty_dataframe_when_no_results(self, mock_team, mock_hogql):
+        mock_team.objects.get.return_value = MagicMock()
         mock_response = MagicMock()
         mock_response.results = []
         mock_hogql.return_value = mock_response
@@ -195,9 +248,9 @@ class TestComputeEventGrowth:
         ]
     )
     @patch("ee.billing.dags.productled_outbound_targets.execute_hogql_query")
-    @patch("ee.billing.dags.productled_outbound_targets.get_plo_team")
-    def test_event_growth(self, name, hogql_results, team_df, expected, mock_plo_team, mock_hogql):
-        mock_plo_team.return_value = MagicMock()
+    @patch("ee.billing.dags.productled_outbound_targets.Team")
+    def test_event_growth(self, name, hogql_results, team_df, expected, mock_team, mock_hogql):
+        mock_team.objects.get.return_value = MagicMock()
         mock_response = MagicMock()
         mock_response.results = hogql_results
         mock_hogql.return_value = mock_response
@@ -336,9 +389,9 @@ class TestComputeNewProductThisMonth:
         ]
     )
     @patch("ee.billing.dags.productled_outbound_targets.execute_hogql_query")
-    @patch("ee.billing.dags.productled_outbound_targets.get_plo_team")
-    def test_new_product(self, name, hogql_results, team_df, expected, mock_plo_team, mock_hogql):
-        mock_plo_team.return_value = MagicMock()
+    @patch("ee.billing.dags.productled_outbound_targets.Team")
+    def test_new_product(self, name, hogql_results, team_df, expected, mock_team, mock_hogql):
+        mock_team.objects.get.return_value = MagicMock()
         mock_response = MagicMock()
         mock_response.results = hogql_results
         mock_hogql.return_value = mock_response
@@ -384,17 +437,8 @@ class TestFilterQualified:
         ]
     )
     def test_filter_qualified(self, name, row_data, should_pass):
-        base = {
-            "domain": "test.com",
-            "headcount": 100,
-            "total_mrr": 5000,
-            "company_type": "startup",
-            "organization_id": "org-1",
-            "organization_name": "Test Corp",
-            "organization_created_at": "2023-01-01",
-        }
-        base.update(row_data)
-        df = pl.DataFrame([base])
+        row = make_base_row(**row_data)
+        df = pl.DataFrame([row])
 
         result = filter_qualified(df)
 
@@ -406,21 +450,20 @@ class TestFilterQualified:
 
 class TestDataframeToPloClayPayload:
     def test_converts_to_payload_with_users(self):
-        df = pl.DataFrame(
+        row = make_base_row(
+            domain="acme.com",
+            organization_id="org-1",
+            organization_name="Acme Inc",
+        )
+        row.update(
             {
-                "domain": ["acme.com"],
-                "headcount": [100],
-                "total_mrr": [5000],
-                "company_type": ["startup"],
-                "organization_id": ["org-1"],
-                "organization_name": ["Acme Inc"],
-                "organization_created_at": ["2023-01-01"],
-                "multi_product_count": [3],
-                "event_growth_pct": [50.0],
-                "new_user_count": [2],
-                "new_products": ["session_recording"],
+                "multi_product_count": 3,
+                "event_growth_pct": 50.0,
+                "new_user_count": 2,
+                "new_products": "session_recording",
             }
         )
+        df = pl.DataFrame([row])
         org_users = {
             "org-1": [
                 {
@@ -443,21 +486,20 @@ class TestDataframeToPloClayPayload:
         assert payload[0]["users"] == org_users["org-1"]
 
     def test_converts_to_payload_with_no_users(self):
-        df = pl.DataFrame(
+        row = make_base_row(
+            domain="acme.com",
+            organization_id="org-1",
+            organization_name="Acme Inc",
+        )
+        row.update(
             {
-                "domain": ["acme.com"],
-                "headcount": [100],
-                "total_mrr": [5000],
-                "company_type": ["startup"],
-                "organization_id": ["org-1"],
-                "organization_name": ["Acme Inc"],
-                "organization_created_at": ["2023-01-01"],
-                "multi_product_count": [3],
-                "event_growth_pct": [50.0],
-                "new_user_count": [2],
-                "new_products": ["session_recording"],
+                "multi_product_count": 3,
+                "event_growth_pct": 50.0,
+                "new_user_count": 2,
+                "new_products": "session_recording",
             }
         )
+        df = pl.DataFrame([row])
 
         payload = dataframe_to_plo_clay_payload(df, {})
 
@@ -482,21 +524,20 @@ class TestPloQualifiedToClay:
         batch_result.skipped_count = 0
         clay_webhook.create_batches.return_value = batch_result
 
-        enriched_df = pl.DataFrame(
+        row = make_base_row(
+            domain="acme.com",
+            organization_id="org-1",
+            organization_name="Acme Inc",
+        )
+        row.update(
             {
-                "domain": ["acme.com"],
-                "headcount": [100],
-                "total_mrr": [5000],
-                "company_type": ["startup"],
-                "organization_id": ["org-1"],
-                "organization_name": ["Acme Inc"],
-                "organization_created_at": ["2023-01-01"],
-                "multi_product_count": [3],
-                "event_growth_pct": [50.0],
-                "new_user_count": [2],
-                "new_products": ["session_recording"],
+                "multi_product_count": 3,
+                "event_growth_pct": 50.0,
+                "new_user_count": 2,
+                "new_products": "session_recording",
             }
         )
+        enriched_df = pl.DataFrame([row])
 
         plo_qualified_to_clay(context, clay_webhook, enriched_df)
 
@@ -510,21 +551,20 @@ class TestPloQualifiedToClay:
     def test_skips_unchanged_rows(self, mock_prior_hashes, mock_fetch_users):
         from posthog.dags.common.utils import compute_dataframe_hashes
 
-        enriched_df = pl.DataFrame(
+        row = make_base_row(
+            domain="acme.com",
+            organization_id="org-1",
+            organization_name="Acme Inc",
+        )
+        row.update(
             {
-                "domain": ["acme.com"],
-                "headcount": [100],
-                "total_mrr": [5000],
-                "company_type": ["startup"],
-                "organization_id": ["org-1"],
-                "organization_name": ["Acme Inc"],
-                "organization_created_at": ["2023-01-01"],
-                "multi_product_count": [3],
-                "event_growth_pct": [50.0],
-                "new_user_count": [2],
-                "new_products": ["session_recording"],
+                "multi_product_count": 3,
+                "event_growth_pct": 50.0,
+                "new_user_count": 2,
+                "new_products": "session_recording",
             }
         )
+        enriched_df = pl.DataFrame([row])
 
         # Pre-compute the hash so the row appears unchanged
         qualified = filter_qualified(enriched_df)
@@ -550,21 +590,23 @@ class TestPloQualifiedToClay:
         context = dagster.build_asset_context()
         clay_webhook = MagicMock()
 
-        enriched_df = pl.DataFrame(
+        row = make_base_row(
+            domain="loser.com",
+            headcount=10,
+            company_type="smb",
+            organization_id="org-x",
+            organization_name="Loser Co",
+            organization_created_at="2023-06-01",
+        )
+        row.update(
             {
-                "domain": ["loser.com"],
-                "headcount": [10],
-                "total_mrr": [100],
-                "company_type": ["smb"],
-                "organization_id": ["org-x"],
-                "organization_name": ["Loser Co"],
-                "organization_created_at": ["2023-06-01"],
-                "multi_product_count": [1],
-                "event_growth_pct": [5.0],
-                "new_user_count": [0],
-                "new_products": [""],
+                "multi_product_count": 1,
+                "event_growth_pct": 5.0,
+                "new_user_count": 0,
+                "new_products": "",
             }
         )
+        enriched_df = pl.DataFrame([row])
 
         plo_qualified_to_clay(context, clay_webhook, enriched_df)
 
@@ -641,17 +683,23 @@ class TestQualifySignals:
         mock_users.return_value = {"org-1": 5}
         mock_product.return_value = {"org-1": "session_recording"}
 
-        base_df = pl.DataFrame(
-            {
-                "domain": ["acme.com", "beta.io"],
-                "headcount": [100, 50],
-                "total_mrr": [5000, 1000],
-                "company_type": ["startup", "smb"],
-                "organization_id": ["org-1", "org-2"],
-                "organization_name": ["Acme", "Beta"],
-                "organization_created_at": ["2023-01-01", "2023-06-01"],
-            }
+        row1 = make_base_row(
+            domain="acme.com",
+            headcount=100,
+            company_type="startup",
+            organization_id="org-1",
+            organization_name="Acme",
+            organization_created_at="2023-01-01",
         )
+        row2 = make_base_row(
+            domain="beta.io",
+            headcount=50,
+            company_type="smb",
+            organization_id="org-2",
+            organization_name="Beta",
+            organization_created_at="2023-06-01",
+        )
+        base_df = pl.DataFrame([row1, row2])
 
         context = dagster.build_asset_context()
         result = cast(pl.DataFrame, qualify_signals(context, base_df))
@@ -675,17 +723,7 @@ class TestQualifySignals:
         assert row_2["new_products"] == ""
 
     def test_returns_empty_with_signal_columns_when_no_base_targets(self):
-        base_df = pl.DataFrame(
-            schema={
-                "domain": pl.Utf8,
-                "headcount": pl.Int64,
-                "total_mrr": pl.Int64,
-                "company_type": pl.Utf8,
-                "organization_id": pl.Utf8,
-                "organization_name": pl.Utf8,
-                "organization_created_at": pl.Utf8,
-            }
-        )
+        base_df = pl.DataFrame(schema=make_base_schema())
 
         context = dagster.build_asset_context()
         result = cast(pl.DataFrame, qualify_signals(context, base_df))
@@ -733,17 +771,8 @@ class TestFilterQualifiedBoundaries:
         ]
     )
     def test_filter_qualified_boundary(self, name, row_data, should_pass):
-        base = {
-            "domain": "test.com",
-            "headcount": 100,
-            "total_mrr": 5000,
-            "company_type": "startup",
-            "organization_id": "org-1",
-            "organization_name": "Test Corp",
-            "organization_created_at": "2023-01-01",
-        }
-        base.update(row_data)
-        df = pl.DataFrame([base])
+        row = make_base_row(**row_data)
+        df = pl.DataFrame([row])
 
         result = filter_qualified(df)
 
@@ -771,21 +800,16 @@ class TestEmptyDataFramePaths:
         mock_membership.objects.filter.assert_not_called()
 
     def test_dataframe_to_plo_clay_payload_empty_dataframe(self):
-        df = pl.DataFrame(
-            schema={
-                "domain": pl.Utf8,
-                "headcount": pl.Int64,
-                "total_mrr": pl.Int64,
-                "company_type": pl.Utf8,
-                "organization_id": pl.Utf8,
-                "organization_name": pl.Utf8,
-                "organization_created_at": pl.Utf8,
+        schema = make_base_schema()
+        schema.update(
+            {
                 "multi_product_count": pl.Int64,
                 "event_growth_pct": pl.Float64,
                 "new_user_count": pl.Int64,
                 "new_products": pl.Utf8,
             }
         )
+        df = pl.DataFrame(schema=schema)
 
         payload = dataframe_to_plo_clay_payload(df, {})
 
