@@ -1,10 +1,86 @@
 from typing import Any, Optional
 
 import requests
+from dlt.sources.helpers.requests import Request, Response
+from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+
+
+class AttioJSONBodyPaginator(BasePaginator):
+    """
+    Custom paginator for Attio POST endpoints that require pagination in the JSON body.
+
+    Attio POST endpoints (like /v2/objects/{object}/records/query) expect offset and limit
+    in the request body, not as query parameters.
+    """
+
+    def __init__(self, limit: int = 100):
+        super().__init__()
+        self._limit = limit
+        self._offset = 0
+        self._has_next_page = True
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        """Update pagination state based on response data."""
+        try:
+            response_data = response.json()
+            returned_data = response_data.get("data", [])
+
+            if len(returned_data) < self._limit:
+                self._has_next_page = False
+            else:
+                self._has_next_page = True
+                self._offset += self._limit
+        except Exception:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        """Update the request JSON body with pagination parameters."""
+        if request.json is None:
+            request.json = {}
+
+        request.json["offset"] = self._offset
+        request.json["limit"] = self._limit
+
+
+class AttioOffsetPaginator(BasePaginator):
+    """
+    Custom paginator for Attio GET endpoints.
+
+    Attio's API doesn't return a 'total' field, so we determine if there are more pages
+    by checking if the returned data count equals the limit.
+    """
+
+    def __init__(self, limit: int = 100):
+        super().__init__()
+        self._limit = limit
+        self._offset = 0
+        self._has_next_page = True
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        """Update pagination state based on response data."""
+        try:
+            response_data = response.json()
+            returned_data = response_data.get("data", [])
+
+            if len(returned_data) < self._limit:
+                self._has_next_page = False
+            else:
+                self._has_next_page = True
+                self._offset += self._limit
+        except Exception:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        """Update the request query params with pagination parameters."""
+        if request.params is None:
+            request.params = {}
+
+        request.params["offset"] = self._offset
+        request.params["limit"] = self._limit
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -14,7 +90,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     Attio API structure:
     - Objects (companies, people, deals, users, workspaces) use /v2/objects/{object}/records/query (POST)
     - Lists use /v2/lists (GET)
-    - List entries use /v2/lists/{list_id}/entries (POST to query)
     - Notes use /v2/notes (GET)
     - Tasks use /v2/tasks (GET)
     - Workspace members use /v2/workspace_members (GET)
@@ -46,25 +121,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "method": "POST",
                 "data_selector": "data",
                 "json": {
-                    "limit": 100,
-                    "sorts": [{"attribute": "created_at", "direction": "asc"}]
-                    if should_use_incremental_field
-                    else [],
-                    "filter": {
-                        "created_at": {
-                            "type": "incremental",
-                            "cursor_path": "created_at",
-                            "initial_value": "1970-01-01T00:00:00Z",
-                        }
-                    }
-                    if should_use_incremental_field
-                    else {},
+                    "sorts": [{"attribute": "created_at", "direction": "asc"}],
                 },
-                "paginator": {
-                    "type": "offset",
-                    "limit": 100,
-                    "offset_param": "offset",
-                },
+                "paginator": AttioJSONBodyPaginator(limit=100),
             },
             "table_format": "delta",
         }
@@ -84,55 +143,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "path": "/v2/lists",
                 "data_selector": "data",
-                "params": {
-                    "limit": 100,
-                },
-                "paginator": {
-                    "type": "offset",
-                    "limit": 100,
-                    "offset_param": "offset",
-                },
-            },
-            "table_format": "delta",
-        }
-
-    # List entries - this is more complex as we need to query all lists first
-    # For now, we'll just get entries without filtering by list
-    if name == "list_entries":
-        return {
-            "name": "list_entries",
-            "table_name": "list_entries",
-            **({"primary_key": "id.entry_id"} if should_use_incremental_field else {}),
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "path": "/v2/entries/query",
-                "method": "POST",
-                "data_selector": "data",
-                "json": {
-                    "limit": 100,
-                    "sorts": [{"attribute": "created_at", "direction": "asc"}]
-                    if should_use_incremental_field
-                    else [],
-                    "filter": {
-                        "created_at": {
-                            "type": "incremental",
-                            "cursor_path": "created_at",
-                            "initial_value": "1970-01-01T00:00:00Z",
-                        }
-                    }
-                    if should_use_incremental_field
-                    else {},
-                },
-                "paginator": {
-                    "type": "offset",
-                    "limit": 100,
-                    "offset_param": "offset",
-                },
+                "paginator": AttioOffsetPaginator(limit=100),
             },
             "table_format": "delta",
         }
@@ -152,14 +163,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "path": "/v2/notes",
                 "data_selector": "data",
-                "params": {
-                    "limit": 100,
-                },
-                "paginator": {
-                    "type": "offset",
-                    "limit": 100,
-                    "offset_param": "offset",
-                },
+                "paginator": AttioOffsetPaginator(limit=100),
             },
             "table_format": "delta",
         }
@@ -179,14 +183,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "path": "/v2/tasks",
                 "data_selector": "data",
-                "params": {
-                    "limit": 100,
-                },
-                "paginator": {
-                    "type": "offset",
-                    "limit": 100,
-                    "offset_param": "offset",
-                },
+                "paginator": AttioOffsetPaginator(limit=100),
             },
             "table_format": "delta",
         }
@@ -201,14 +198,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "endpoint": {
                 "path": "/v2/workspace_members",
                 "data_selector": "data",
-                "params": {
-                    "limit": 100,
-                },
-                "paginator": {
-                    "type": "offset",
-                    "limit": 100,
-                    "offset_param": "offset",
-                },
+                "paginator": AttioOffsetPaginator(limit=100),
             },
             "table_format": "delta",
         }

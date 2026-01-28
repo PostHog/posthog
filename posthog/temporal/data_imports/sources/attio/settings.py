@@ -8,7 +8,6 @@ ENDPOINTS = [
     "users",
     "workspaces",
     "lists",
-    "list_entries",
     "notes",
     "tasks",
     "workspace_members",
@@ -50,14 +49,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
     "workspaces": [
-        {
-            "label": "Created at",
-            "type": IncrementalFieldType.DateTime,
-            "field": "created_at",
-            "field_type": IncrementalFieldType.DateTime,
-        }
-    ],
-    "list_entries": [
         {
             "label": "Created at",
             "type": IncrementalFieldType.DateTime,

@@ -8,18 +8,18 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.generated_configs import AttioSourceConfig
-from posthog.temporal.data_imports.sources.attio.settings import (
-    ENDPOINTS as ATTIO_ENDPOINTS,
-    INCREMENTAL_FIELDS as ATTIO_INCREMENTAL_FIELDS,
-)
 from posthog.temporal.data_imports.sources.attio.attio import (
     attio_source,
     validate_credentials as validate_attio_credentials,
 )
+from posthog.temporal.data_imports.sources.attio.settings import (
+    ENDPOINTS as ATTIO_ENDPOINTS,
+    INCREMENTAL_FIELDS as ATTIO_INCREMENTAL_FIELDS,
+)
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.generated_configs import AttioSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
