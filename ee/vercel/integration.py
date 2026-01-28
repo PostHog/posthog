@@ -300,13 +300,11 @@ class VercelIntegration:
             if existing_user:
                 user = existing_user
                 user_created = False
-                if VercelIntegration._user_has_any_vercel_mapping(existing_user):
-                    VercelIntegration._add_user_to_organization(
-                        existing_user, organization, OrganizationMembership.Level.OWNER
-                    )
-                    should_create_mapping = True
-                else:
-                    should_create_mapping = False
+                # Always add existing user to the new organization - they're installing so they should be a member
+                VercelIntegration._add_user_to_organization(
+                    existing_user, organization, OrganizationMembership.Level.OWNER
+                )
+                should_create_mapping = True
             else:
                 user, user_created = VercelIntegration._find_or_create_user_by_email(
                     email=config.account.contact.email,
