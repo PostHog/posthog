@@ -17,7 +17,7 @@ class IncrementalFieldType(StrEnum):
 class IncrementalField(typing.TypedDict):
     label: str  # Label shown in the UI
     type: IncrementalFieldType  # Field type shown in the UI
-    field: str | list[str]  # Actual DB field accessed (string or array for nested fields)
+    field: str  # Actual DB field accessed
     field_type: IncrementalFieldType  # Actual DB type of the field
 
 

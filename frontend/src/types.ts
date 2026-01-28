@@ -5281,7 +5281,7 @@ export type IncrementalFieldType = 'integer' | 'numeric' | 'datetime' | 'date' |
 export interface IncrementalField {
     label: string // the field name shown in the UI
     type: IncrementalFieldType // the field type shown in the UI
-    field: string | string[] // the actual database field name (string or array for nested fields)
+    field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
 }
 
