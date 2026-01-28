@@ -279,9 +279,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                                             </>
                                         ) : null}
                                     </div>
-                                    <PlayerFrameMetaOverlay />
-                                    {/* TODO: Return after tests */}
-                                    {/* {showMetadataFooter ? <PlayerFrameMetaOverlay /> : null} */}
+                                    {showMetadataFooter ? <PlayerFrameMetaOverlay /> : null}
                                     {!hidePlayerElements ? <PlayerController /> : null}
                                 </div>
                             </div>
