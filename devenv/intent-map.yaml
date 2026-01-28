@@ -188,5 +188,3 @@ always_required:
     - capture
     - feature-flags
     - property-defs-rs
-    # Migrations
-    - migrate-persons-db
