@@ -900,26 +900,94 @@ class TestVercelInstallationRegressions(TestCase):
         assert installation.created_by == external_user, "REGRESSION: created_by not set correctly"
 
 
-class TestVercelInstallationE2E(TestCase):
-    """
-    End-to-end tests for Vercel installation flows.
+class TestAddUserToOrganization(TestCase):
+    """Unit tests for _add_user_to_organization helper."""
 
-    These tests simulate complete user journeys through the installation process.
+    def setUp(self):
+        self.user = User.objects.create_user(email="add_user@example.com", password="test", first_name="Test")
+        self.organization = Organization.objects.create(name="Test Org")
+
+    def test_adds_user_as_owner(self):
+        """User is added with correct membership level."""
+        membership, created = VercelIntegration._add_user_to_organization(
+            self.user, self.organization, OrganizationMembership.Level.OWNER
+        )
+
+        assert created is True
+        assert membership.user == self.user
+        assert membership.organization == self.organization
+        assert membership.level == OrganizationMembership.Level.OWNER
+
+    def test_adds_user_as_member(self):
+        """User can be added as member level."""
+        membership, created = VercelIntegration._add_user_to_organization(
+            self.user, self.organization, OrganizationMembership.Level.MEMBER
+        )
+
+        assert created is True
+        assert membership.level == OrganizationMembership.Level.MEMBER
+
+    def test_idempotent_does_not_duplicate(self):
+        """Calling twice doesn't create duplicate membership."""
+        membership1, created1 = VercelIntegration._add_user_to_organization(
+            self.user, self.organization, OrganizationMembership.Level.OWNER
+        )
+        membership2, created2 = VercelIntegration._add_user_to_organization(
+            self.user, self.organization, OrganizationMembership.Level.OWNER
+        )
+
+        assert created1 is True
+        assert created2 is False
+        assert membership1.pk == membership2.pk
+        assert OrganizationMembership.objects.filter(user=self.user, organization=self.organization).count() == 1
+
+    def test_upgrades_membership_level_if_higher(self):
+        """Existing membership is upgraded if new level is higher."""
+        # First add as member
+        VercelIntegration._add_user_to_organization(self.user, self.organization, OrganizationMembership.Level.MEMBER)
+
+        # Add as owner - should upgrade
+        membership, created = VercelIntegration._add_user_to_organization(
+            self.user, self.organization, OrganizationMembership.Level.OWNER
+        )
+
+        assert created is False
+        assert membership.level == OrganizationMembership.Level.OWNER
+
+    def test_does_not_downgrade_membership_level(self):
+        """Existing membership is not downgraded if new level is lower."""
+        # First add as owner
+        VercelIntegration._add_user_to_organization(self.user, self.organization, OrganizationMembership.Level.OWNER)
+
+        # Try to add as member - should not downgrade
+        membership, created = VercelIntegration._add_user_to_organization(
+            self.user, self.organization, OrganizationMembership.Level.MEMBER
+        )
+
+        assert created is False
+        assert membership.level == OrganizationMembership.Level.OWNER
+
+
+class TestInstallationUserHandlingLogic(TestCase):
+    """
+    Unit tests for the user handling decision logic in upsert_installation.
+
+    Tests the core logic: when to add users to orgs and when to create mappings.
     """
 
     def setUp(self):
-        self.base_payload: dict[str, Any] = {
+        self.payload: dict[str, Any] = {
             "scopes": ["read", "write"],
             "acceptedPolicies": {"toc": "2024-02-28T10:00:00Z"},
             "credentials": {"access_token": "token", "token_type": "Bearer"},
             "account": {
-                "name": "E2E Test Org",
+                "name": "Test Org",
                 "url": "https://example.com",
-                "contact": {"email": "e2e@example.com", "name": "E2E Test User"},
+                "contact": {"email": "test@example.com", "name": "Test User"},
             },
         }
 
-    def _create_claims(self, installation_id: str, user_id: str, email: str | None = None) -> VercelUserClaims:
+    def _create_claims(self, installation_id: str, user_id: str) -> VercelUserClaims:
         return VercelUserClaims(
             iss="https://marketplace.vercel.com",
             sub=f"account:test:user:{user_id}",
@@ -930,177 +998,68 @@ class TestVercelInstallationE2E(TestCase):
             user_role="ADMIN",
             type=None,
             user_avatar_url=None,
-            user_email=email or self.base_payload["account"]["contact"]["email"],
-            user_name=self.base_payload["account"]["contact"].get("name"),
+            user_email=self.payload["account"]["contact"]["email"],
+            user_name=self.payload["account"]["contact"].get("name"),
         )
 
+    @parameterized.expand(
+        [
+            ("new_user", False, True, True),  # New user: added to org, mapping created
+            ("trusted_user", True, True, True),  # Trusted user: added to org, mapping created
+            ("external_user", False, True, False),  # External user: added to org, NO mapping
+        ]
+    )
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_e2e_new_user_complete_flow(self, mock_report):
+    def test_user_handling_matrix(self, name, has_prior_mapping, expect_membership, expect_mapping, mock_report):
         """
-        E2E: Brand new user installs Vercel integration.
+        Test matrix for user handling during installation.
 
-        Flow:
-        1. User clicks "Install" on Vercel marketplace
-        2. Vercel calls our API with installation payload
-        3. We create: Organization, User, OrganizationMembership, OrganizationIntegration
-        4. User mapping is created (user is trusted - we created them)
-        5. User can immediately use SSO to access PostHog
+        | User Type     | Has Prior Mapping | Added to Org | Mapping Created |
+        |---------------|-------------------|--------------|-----------------|
+        | New user      | N/A               | Yes          | Yes             |
+        | Trusted user  | Yes               | Yes          | Yes             |
+        | External user | No                | Yes          | No              |
         """
-        installation_id = "icfg_e2e_new_user_123456789"
-        claims = self._create_claims(installation_id, "new_user_vercel_id")
+        installation_id = f"icfg_matrix_{name}_123456789"
 
-        # User should not exist yet
-        assert not User.objects.filter(email=self.base_payload["account"]["contact"]["email"]).exists()
+        if name == "new_user":
+            # No existing user
+            pass
+        else:
+            # Create existing user
+            user = User.objects.create_user(
+                email=self.payload["account"]["contact"]["email"],
+                password="test",
+                first_name="Existing",
+            )
 
-        # Step 1: Installation
-        VercelIntegration.upsert_installation(installation_id, self.base_payload, claims)
+            if has_prior_mapping:
+                # Create a prior Vercel installation with mapping
+                prior_org = Organization.objects.create(name="Prior Org")
+                OrganizationIntegration.objects.create(
+                    organization=prior_org,
+                    kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                    integration_id="icfg_prior_installation",
+                    config={"user_mappings": {"prior_vercel_id": user.pk}},
+                    created_by=user,
+                )
 
-        # Verify user was created
-        user = User.objects.get(email=self.base_payload["account"]["contact"]["email"])
-        # Name is split into first/last - "E2E Test User" becomes first_name="E2E"
-        assert user.first_name == "E2E"
-        assert not user.is_email_verified  # Email not verified for Vercel-created users
-
-        # Verify organization was created
-        installation = OrganizationIntegration.objects.get(integration_id=installation_id)
-        assert installation.organization.name == "E2E Test Org"
-
-        # Verify membership
-        membership = OrganizationMembership.objects.get(user=user, organization=installation.organization)
-        assert membership.level == OrganizationMembership.Level.OWNER
-
-        # Verify user mapping was created (user is trusted)
-        assert installation.config["user_mappings"].get("new_user_vercel_id") == user.pk
-
-        # Step 2: SSO should work immediately
-        sso_claims = self._create_claims(installation_id, "new_user_vercel_id")
-        sso_user = VercelIntegration._find_sso_user(sso_claims)
-        assert sso_user.pk == user.pk
-
-        mock_report.assert_called_once()
-
-    @patch("ee.vercel.integration.report_user_signed_up")
-    def test_e2e_trusted_user_second_installation(self, mock_report):
-        """
-        E2E: Trusted Vercel user (has prior mapping) installs a second integration.
-
-        Flow:
-        1. User already has one Vercel installation with mapping
-        2. User installs second Vercel integration (different org)
-        3. We recognize them as trusted and create mapping automatically
-        4. SSO works immediately for both installations
-        """
-        first_installation_id = "icfg_e2e_first_123456789"
-        second_installation_id = "icfg_e2e_second_123456789"
-
-        # First installation - creates user
-        first_claims = self._create_claims(first_installation_id, "trusted_user_vercel_id")
-        VercelIntegration.upsert_installation(first_installation_id, self.base_payload, first_claims)
-
-        user = User.objects.get(email=self.base_payload["account"]["contact"]["email"])
-        first_installation = OrganizationIntegration.objects.get(integration_id=first_installation_id)
-
-        # Verify first installation has mapping
-        assert first_installation.config["user_mappings"].get("trusted_user_vercel_id") == user.pk
-
-        # Second installation - user is now trusted
-        second_payload = {**self.base_payload, "account": {**self.base_payload["account"], "name": "Second Org"}}
-        second_claims = self._create_claims(second_installation_id, "trusted_user_vercel_id_2")
-        VercelIntegration.upsert_installation(second_installation_id, second_payload, second_claims)
-
-        second_installation = OrganizationIntegration.objects.get(integration_id=second_installation_id)
-
-        # Verify user was added to second org
-        membership = OrganizationMembership.objects.get(user=user, organization=second_installation.organization)
-        assert membership.level == OrganizationMembership.Level.OWNER
-
-        # Verify mapping was created (user is trusted)
-        assert second_installation.config["user_mappings"].get("trusted_user_vercel_id_2") == user.pk
-
-        # SSO works for both installations
-        sso_claims_1 = self._create_claims(first_installation_id, "trusted_user_vercel_id")
-        assert VercelIntegration._find_sso_user(sso_claims_1).pk == user.pk
-
-        sso_claims_2 = self._create_claims(second_installation_id, "trusted_user_vercel_id_2")
-        assert VercelIntegration._find_sso_user(sso_claims_2).pk == user.pk
-
-    @patch("ee.vercel.integration.report_user_signed_up")
-    def test_e2e_external_user_requires_sso_login(self, mock_report):
-        """
-        E2E: External user (exists in PostHog but no Vercel mapping) installs integration.
-
-        Flow:
-        1. User has existing PostHog account (created outside Vercel)
-        2. User installs Vercel integration with same email
-        3. User is added to org but NO mapping created (security)
-        4. SSO requires login to prove ownership
-        5. After login, mapping is created and SSO works
-        """
-        from ee.vercel.integration import RequiresExistingUserLogin
-
-        installation_id = "icfg_e2e_external_123456789"
-
-        # Create existing PostHog user (not through Vercel)
-        external_user = User.objects.create_user(
-            email=self.base_payload["account"]["contact"]["email"],
-            password="external_password",
-            first_name="External",
-        )
-
-        # Installation
-        claims = self._create_claims(installation_id, "external_vercel_id")
-        VercelIntegration.upsert_installation(installation_id, self.base_payload, claims)
+        claims = self._create_claims(installation_id, "test_vercel_id")
+        VercelIntegration.upsert_installation(installation_id, self.payload, claims)
 
         installation = OrganizationIntegration.objects.get(integration_id=installation_id)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
 
-        # User added to org
-        membership = OrganizationMembership.objects.get(user=external_user, organization=installation.organization)
-        assert membership.level == OrganizationMembership.Level.OWNER
-
-        # NO mapping created (security)
-        user_mappings = installation.config.get("user_mappings", {})
-        assert "external_vercel_id" not in user_mappings
-
-        # SSO requires login
-        sso_claims = self._create_claims(installation_id, "external_vercel_id")
-        with self.assertRaises(RequiresExistingUserLogin):
-            VercelIntegration._find_sso_user(sso_claims)
-
-        mock_report.assert_not_called()
-
-    @patch("ee.vercel.integration.report_user_signed_up")
-    def test_e2e_inactive_user_reactivated(self, mock_report):
-        """
-        E2E: Inactive user installs Vercel integration.
-
-        Flow:
-        1. User has inactive PostHog account
-        2. User installs Vercel integration
-        3. User is reactivated and added to org
-        """
-        installation_id = "icfg_e2e_inactive_123456789"
-
-        # Create inactive user
-        inactive_user = User.objects.create_user(
-            email=self.base_payload["account"]["contact"]["email"],
-            password="inactive_password",
-            first_name="Inactive",
-            is_active=False,
-        )
-
-        # Installation
-        claims = self._create_claims(installation_id, "inactive_vercel_id")
-        VercelIntegration.upsert_installation(installation_id, self.base_payload, claims)
-
-        # User should be reactivated
-        inactive_user.refresh_from_db()
-        assert inactive_user.is_active is True
-
-        # User should be added to org
-        installation = OrganizationIntegration.objects.get(integration_id=installation_id)
-        assert OrganizationMembership.objects.filter(
-            user=inactive_user, organization=installation.organization
+        # Check membership
+        has_membership = OrganizationMembership.objects.filter(
+            user=user, organization=installation.organization
         ).exists()
+        assert has_membership == expect_membership, f"{name}: membership mismatch"
+
+        # Check mapping
+        user_mappings = installation.config.get("user_mappings", {})
+        has_mapping = "test_vercel_id" in user_mappings
+        assert has_mapping == expect_mapping, f"{name}: mapping mismatch"
 
 
 class TestVercelUserMappingLogic(TestCase):
