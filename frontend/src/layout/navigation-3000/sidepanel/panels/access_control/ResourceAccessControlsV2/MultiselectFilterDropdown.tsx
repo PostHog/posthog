@@ -52,7 +52,6 @@ export function MultiSelectFilterDropdown<T extends string = string>(props: {
                                 fullWidth
                                 size="small"
                                 type="tertiary"
-                                status="stealth"
                                 onClick={() => {
                                     if (props.values.includes(option.key)) {
                                         props.setValues(props.values.filter((v) => v !== option.key))
@@ -62,7 +61,7 @@ export function MultiSelectFilterDropdown<T extends string = string>(props: {
                                 }}
                             >
                                 <div className="flex items-center gap-2">
-                                    <LemonCheckbox checked={props.values.includes(option.key)} readOnly />
+                                    <LemonCheckbox checked={props.values.includes(option.key)} />
                                     <span className="flex-1 truncate font-normal">{option.label}</span>
                                 </div>
                             </LemonButton>
