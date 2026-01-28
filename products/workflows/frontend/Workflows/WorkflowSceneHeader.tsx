@@ -76,6 +76,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     size="small"
                                     disabledReason={workflowChanged ? 'Save changes first' : undefined}
                                     className="transition-colors duration-300 ease-in-out"
+                                    data-attr="workflow-launch"
                                 >
                                     <span
                                         className={`inline-block transition-opacity duration-300 ease-in-out ${

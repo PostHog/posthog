@@ -255,7 +255,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.FEATURE_FLAGS,
 }
 
 export function OverViewTab({
@@ -507,6 +507,7 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab, loadFeatureFlags } = useActions(featureFlagsLogic)
+
     return (
         <SceneContent className="feature_flags">
             <SceneTitleSection

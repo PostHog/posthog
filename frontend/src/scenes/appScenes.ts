@@ -53,6 +53,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Heatmap]: () => import('./heatmaps/scenes/heatmap/HeatmapScene'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
+    [Scene.InsightOptions]: () => import('./insights/InsightOptions/InsightOptions'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),

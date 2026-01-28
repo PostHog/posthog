@@ -153,7 +153,7 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             user_distinct_id = cast("User", request.user).distinct_id
-            client = get_llm_client()
+            client = get_llm_client("growth")
             model = "gpt-5-mini"
 
             logger.debug(
@@ -187,6 +187,10 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise ValueError("Failed to parse LLM response")
 
             valid_products = [p for p in result.products if p in VALID_PRODUCTS][:PRODUCTS_LIMIT]
+
+            # Fallback to product_analytics if no valid products were recommended
+            if not valid_products:
+                valid_products = [Product.PRODUCT_ANALYTICS]
 
             return response.Response(
                 {

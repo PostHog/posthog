@@ -46,7 +46,6 @@ import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 export const scene: SceneExport = {
     component: Max,
     logic: maxLogic,
-    settingSectionId: 'environment-max',
 }
 
 export function Max({ tabId }: { tabId?: string }): JSX.Element {

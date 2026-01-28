@@ -11,6 +11,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar'
 import { LogsFilterBar as LogsFilterBarV2 } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
@@ -63,23 +64,25 @@ export function LogsViewer({
     onExpandTimeRange,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
-            <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
-                <LogsViewerContent
-                    loading={loading}
-                    totalLogsCount={totalLogsCount}
-                    hasMoreLogsToLoad={hasMoreLogsToLoad}
-                    orderBy={orderBy}
-                    onChangeOrderBy={onChangeOrderBy}
-                    onRefresh={onRefresh}
-                    onLoadMore={onLoadMore}
-                    sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading}
-                    onDateRangeChange={onDateRangeChange}
-                    sparklineBreakdownBy={sparklineBreakdownBy}
-                    onSparklineBreakdownByChange={onSparklineBreakdownByChange}
-                    onExpandTimeRange={onExpandTimeRange}
-                />
+        <BindLogic logic={logsViewerConfigLogic} props={{ id: tabId }}>
+            <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
+                <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
+                    <LogsViewerContent
+                        loading={loading}
+                        totalLogsCount={totalLogsCount}
+                        hasMoreLogsToLoad={hasMoreLogsToLoad}
+                        orderBy={orderBy}
+                        onChangeOrderBy={onChangeOrderBy}
+                        onRefresh={onRefresh}
+                        onLoadMore={onLoadMore}
+                        sparklineData={sparklineData}
+                        sparklineLoading={sparklineLoading}
+                        onDateRangeChange={onDateRangeChange}
+                        sparklineBreakdownBy={sparklineBreakdownBy}
+                        onSparklineBreakdownByChange={onSparklineBreakdownByChange}
+                        onExpandTimeRange={onExpandTimeRange}
+                    />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )

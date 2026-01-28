@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService, get_auth_service
-from llm_gateway.products.config import ALLOWED_PRODUCTS, check_product_access
+from llm_gateway.products.config import ALLOWED_PRODUCTS, check_product_access, resolve_product_alias
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
@@ -38,8 +38,10 @@ async def get_authenticated_user(
 def get_product_from_request(request: Request) -> str:
     path = request.url.path
     parts = path.strip("/").split("/")
-    if parts and parts[0] in ALLOWED_PRODUCTS:
-        return parts[0]
+    if parts:
+        product = resolve_product_alias(parts[0])
+        if product in ALLOWED_PRODUCTS:
+            return product
     return "llm_gateway"
 
 
