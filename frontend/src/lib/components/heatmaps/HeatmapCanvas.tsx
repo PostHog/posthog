@@ -100,20 +100,23 @@ export function HeatmapCanvas({
         }
     }, [heatmapJsData])
 
-    const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
-        heatmapsJsContainerRef.current = container
-        if (!container) {
-            return
-        }
+    const setHeatmapContainer = useCallback(
+        (container: HTMLDivElement | null): void => {
+            heatmapsJsContainerRef.current = container
+            if (!container) {
+                return
+            }
 
-        heatmapsJsRef.current = heatmapsJs.create({
-            ...heatmapConfig,
-            container,
-            gradient: heatmapJSColorGradient,
-        })
+            heatmapsJsRef.current = heatmapsJs.create({
+                ...heatmapConfig,
+                container,
+                gradient: heatmapJSColorGradient,
+            })
 
-        updateHeatmapData()
-    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
+            updateHeatmapData()
+        },
+        [updateHeatmapData, heatmapJSColorGradient]
+    )
 
     useEffect(() => {
         updateHeatmapData()
@@ -154,7 +157,6 @@ export function HeatmapCanvas({
                 isReady ? 'heatmaps-ready' : 'heatmaps-loading'
             )}
             data-attr="heatmap-canvas"
-            data-height-override={heightOverride}
         >
             {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas except when it's an export */}
             <div

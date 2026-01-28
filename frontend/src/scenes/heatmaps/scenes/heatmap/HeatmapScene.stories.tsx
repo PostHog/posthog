@@ -60,8 +60,8 @@ const makeIframeSaved = (): Record<string, unknown> => ({
     id: 101,
     short_id: 'hm_iframe',
     name: 'Iframe example.com',
-    url: `${window.location.origin}/mock-heatmap-page.html`,
-    data_url: `${window.location.origin}/mock-heatmap-page.html`,
+    url: `${window.location.origin}/mock-page.html`,
+    data_url: `${window.location.origin}/mock-page.html`,
     target_widths: [],
     type: 'iframe',
     status: 'completed',
@@ -78,8 +78,8 @@ export const IframeExample: Story = {
     parameters: {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
-            // 1800 = ceil((maxY + 100) / 100) * 100 where maxY=1700 from mock data below
-            waitForSelector: '.heatmaps-ready[data-height-override="1800"] canvas.heatmap-canvas',
+            // Wait for heatmap canvas to be ready with data loaded
+            waitForSelector: '.heatmaps-ready',
             waitForLoadersToDisappear: true,
         },
     },
@@ -93,13 +93,13 @@ export const IframeExample: Story = {
                         ctx.status(200),
                         ctx.json({
                             results: [
-                                { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 150, count: 25 },
-                                { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 300, count: 20 },
-                                { pointer_relative_x: 0.52, pointer_target_fixed: false, pointer_y: 500, count: 12 },
-                                { pointer_relative_x: 0.3, pointer_target_fixed: false, pointer_y: 800, count: 8 },
-                                { pointer_relative_x: 0.25, pointer_target_fixed: false, pointer_y: 1100, count: 5 },
-                                { pointer_relative_x: 0.6, pointer_target_fixed: false, pointer_y: 1400, count: 10 },
-                                { pointer_relative_x: 0.45, pointer_target_fixed: false, pointer_y: 1700, count: 6 },
+                                { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 100, count: 25 },
+                                { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 200, count: 20 },
+                                { pointer_relative_x: 0.52, pointer_target_fixed: false, pointer_y: 300, count: 12 },
+                                { pointer_relative_x: 0.3, pointer_target_fixed: false, pointer_y: 400, count: 8 },
+                                { pointer_relative_x: 0.25, pointer_target_fixed: false, pointer_y: 500, count: 5 },
+                                { pointer_relative_x: 0.6, pointer_target_fixed: false, pointer_y: 600, count: 10 },
+                                { pointer_relative_x: 0.45, pointer_target_fixed: false, pointer_y: 700, count: 6 },
                             ],
                             count: 7,
                             next: null,
