@@ -57,6 +57,7 @@ describe('TeamManager()', () => {
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,
+                  "logs_settings": null,
                   "name": "TEST PROJECT",
                   "organization_id": "<REPLACED-UUID-1>",
                   "person_display_name_properties": [],
