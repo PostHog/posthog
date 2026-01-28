@@ -2,6 +2,7 @@ import { EventHeaders, IncomingEventWithTeam, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import {
     createApplyPersonProcessingRestrictionsStep,
+    createFilterIpPropertiesStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
@@ -29,4 +30,5 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         .pipe(createValidateEventPropertiesStep())
         .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(createValidateEventUuidStep())
+        .pipe(createFilterIpPropertiesStep())
 }

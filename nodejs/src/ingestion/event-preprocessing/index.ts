@@ -2,6 +2,7 @@ export { createApplyCookielessProcessingStep } from './apply-cookieless-processi
 export { createApplyEventRestrictionsStep } from './apply-event-restrictions'
 export { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
 export { createDropExceptionEventsStep } from './drop-exception-events'
+export { createFilterIpPropertiesStep } from './filter-ip-properties'
 export { createParseHeadersStep } from './parse-headers'
 export { createParseKafkaMessageStep } from './parse-kafka-message'
 export { createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
