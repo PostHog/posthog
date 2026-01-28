@@ -421,10 +421,12 @@ function DictionaryField({
             >
                 Add entry
             </LemonButton>
-            <div className="flex items-center gap-2 mt-2">
-                <LemonSwitch checked={showWarnings} onChange={setShowWarnings} />
-                <LemonLabel>Show warnings</LemonLabel>
-            </div>
+            {hasIssues && (
+                <div className="flex items-center gap-2 mt-2">
+                    <LemonSwitch checked={showWarnings} onChange={setShowWarnings} />
+                    <LemonLabel>Show warnings</LemonLabel>
+                </div>
+            )}
             {hasIssues && showWarnings && (
                 <div className="text-warning text-xs">
                     {duplicateKeys.length > 0 && (
