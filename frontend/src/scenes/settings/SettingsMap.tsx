@@ -107,6 +107,7 @@ import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
+import { DiscussionMentionDestinationPreferences } from './user/DiscussionMentionDestinationPreferences'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
@@ -980,8 +981,14 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'notifications',
-                title: 'Notifications',
+                title: 'Email notifications',
                 component: <UpdateEmailPreferences />,
+            },
+            {
+                id: 'discussion-mention-destinations',
+                title: 'Other notifications',
+                description: 'Control which CDP destinations you receive discussion mention notifications from',
+                component: <DiscussionMentionDestinationPreferences />,
             },
         ],
     },
