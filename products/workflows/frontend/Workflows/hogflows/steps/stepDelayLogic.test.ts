@@ -19,7 +19,7 @@ describe('stepDelayLogic', () => {
             plugins: [testUtilsPlugin],
         })
 
-        workflowLogic.mount()
+        workflowLogic({ id: 'new', tabId: 'default' }).mount()
 
         sdLogic = stepDelayLogic({ workflowLogicProps: workflowLogic.props })
         sdLogic.mount()

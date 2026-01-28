@@ -20,7 +20,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             plugins: [testUtilsPlugin],
         })
 
-        workflowLogic.mount()
+        workflowLogic({ id: 'new', tabId: 'default' }).mount()
 
         logic = stepWaitUntilTimeWindowLogic({ workflowLogicProps: workflowLogic.props })
         logic.mount()
