@@ -134,7 +134,7 @@ export type LemonInputSelectAction = SideAction & Pick<LemonButtonPropsBase, 'ch
 export type LemonInputSelectProps<T = string> = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     LemonInputProps,
-    'autoFocus' | 'autoWidth' | 'fullWidth'
+    'autoFocus' | 'autoWidth' | 'fullWidth' | 'status'
 > & {
     options?: LemonInputSelectOption<T>[]
     value?: T[] | null
@@ -207,6 +207,7 @@ export function LemonInputSelect<T = string>({
     action,
     virtualized = false,
     sortable = false,
+    status = 'default',
 }: LemonInputSelectProps<T>): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -688,6 +689,7 @@ export function LemonInputSelect<T = string>({
         sortable,
         handleDragEnd,
         size,
+        onChange,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -991,6 +993,7 @@ export function LemonInputSelect<T = string>({
                 )}
                 data-attr={dataAttr}
                 size={size}
+                status={status}
             />
         </LemonDropdown>
     )

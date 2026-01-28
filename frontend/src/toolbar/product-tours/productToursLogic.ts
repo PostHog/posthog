@@ -47,6 +47,13 @@ export interface TourForm {
     steps: TourStep[]
 }
 
+export const PRODUCT_TOURS_MIN_JS_VERSION = '1.324.0'
+
+export function hasMinProductToursVersion(version: string): boolean {
+    const [major, minor] = version.split('.').map(Number)
+    return major > 1 || (major === 1 && minor >= 324)
+}
+
 function newTour(): TourForm {
     return {
         name: '',
@@ -560,6 +567,11 @@ export const productToursLogic = kea<productToursLogicType>([
         },
         previewTour: () => {
             const { tourForm, posthog, selectedTourId, tours } = values
+            if (posthog?.version && !hasMinProductToursVersion(posthog.version)) {
+                lemonToast.error(`Requires posthog-js ${PRODUCT_TOURS_MIN_JS_VERSION}+`)
+                return
+            }
+
             if (!tourForm || !posthog?.productTours) {
                 lemonToast.error('Unable to preview tour')
                 return

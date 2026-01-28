@@ -11,6 +11,7 @@ import {
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
+    formatDisplayUsage,
     formatProductNames,
     formatWithDecimals,
     getProration,
@@ -329,6 +330,80 @@ describe('formatWithDecimals', () => {
 
         // Negative numbers
         expect(formatWithDecimals(-0.000000625)).toEqual('-0.000000625')
+    })
+})
+
+describe('formatDisplayUsage', () => {
+    it('should return empty string for null value', () => {
+        const product = { display_divisor: 1000, display_decimals: 2, display_unit: 'GB' } as any
+        expect(formatDisplayUsage(null, product)).toEqual('')
+    })
+
+    it('should return raw formatted number when no display config is set', () => {
+        const product = {} as any
+        expect(formatDisplayUsage(1234567, product)).toEqual('1,234,567')
+        expect(formatDisplayUsage(0, product)).toEqual('0')
+    })
+
+    it('should apply divisor, decimals, and unit (MB to GB)', () => {
+        const product = { display_divisor: 1000, display_decimals: 2, display_unit: 'GB' } as any
+        expect(formatDisplayUsage(27648, product)).toEqual('27.65 GB')
+        expect(formatDisplayUsage(1000, product)).toEqual('1.00 GB')
+        expect(formatDisplayUsage(500, product)).toEqual('0.50 GB')
+    })
+
+    it('should handle divisor without decimals', () => {
+        const product = { display_divisor: 1000, display_unit: 'GB' } as any
+        expect(formatDisplayUsage(27000, product)).toEqual('27 GB')
+    })
+
+    it('should handle decimals without divisor', () => {
+        const product = { display_decimals: 2, display_unit: 'units' } as any
+        expect(formatDisplayUsage(123, product)).toEqual('123.00 units')
+    })
+
+    it('should handle unit without divisor or decimals', () => {
+        const product = { display_unit: 'items' } as any
+        expect(formatDisplayUsage(500, product)).toEqual('500 items')
+    })
+
+    it('should pluralize regular words correctly', () => {
+        const product = { display_divisor: 100, display_decimals: 2, display_unit: 'coin' } as any
+        expect(formatDisplayUsage(3567, product)).toEqual('35.67 coins')
+        expect(formatDisplayUsage(100, product)).toEqual('1.00 coin') // singular when exactly 1
+        expect(formatDisplayUsage(50, product)).toEqual('0.50 coins')
+    })
+
+    it('should not pluralize abbreviations', () => {
+        const product = { display_divisor: 1000, display_decimals: 1, display_unit: 'MB' } as any
+        expect(formatDisplayUsage(5000, product)).toEqual('5.0 MB')
+        expect(formatDisplayUsage(1000, product)).toEqual('1.0 MB')
+    })
+
+    it('should use rounded value for pluralization', () => {
+        // When raw value rounds to 1.00, should use singular
+        const product = { display_divisor: 100, display_decimals: 2, display_unit: 'coin' } as any
+        expect(formatDisplayUsage(99.95, product)).toEqual('1.00 coin') // 0.9995 rounds to 1.00
+        expect(formatDisplayUsage(100.4, product)).toEqual('1.00 coin') // 1.004 rounds to 1.00
+        expect(formatDisplayUsage(99, product)).toEqual('0.99 coins') // 0.99 doesn't round to 1
+        expect(formatDisplayUsage(101, product)).toEqual('1.01 coins') // 1.01 doesn't round to 1
+    })
+
+    it('should use compact fallback when option is set and no display config', () => {
+        const product = { display_unit: null, display_decimals: null, display_divisor: null } as any
+        // Without compactFallback: full number with commas
+        expect(formatDisplayUsage(1234567, product)).toEqual('1,234,567')
+        // With compactFallback: uses compactNumber (same as summarizeUsage)
+        expect(formatDisplayUsage(1234567, product, { compactFallback: true })).toEqual(summarizeUsage(1234567))
+        expect(formatDisplayUsage(1000, product, { compactFallback: true })).toEqual(summarizeUsage(1000))
+        expect(formatDisplayUsage(500, product, { compactFallback: true })).toEqual(summarizeUsage(500))
+    })
+
+    it('should ignore compactFallback when display config is set', () => {
+        const product = { display_divisor: 1000, display_decimals: 2, display_unit: 'GB' } as any
+        // compactFallback has no effect when display formatting is configured
+        expect(formatDisplayUsage(27648, product, { compactFallback: true })).toEqual('27.65 GB')
+        expect(formatDisplayUsage(27648, product, { compactFallback: false })).toEqual('27.65 GB')
     })
 })
 

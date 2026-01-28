@@ -1,4 +1,5 @@
 use crate::api::errors::FlagError;
+use crate::metrics::consts::FLAG_DB_OPERATIONS_PER_REQUEST;
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Instant;
@@ -248,6 +249,52 @@ impl FlagsCanonicalLogLine {
             error_code = self.error_code,
             "canonical_log_line"
         );
+    }
+
+    /// Emit DB operations metrics for observability.
+    /// This emits a histogram for each operation type with the count of operations.
+    /// Labels: team_id, operation_type
+    pub fn emit_db_operations_metrics(&self) {
+        let team_id = self
+            .team_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Emit person query count
+        if self.person_queries > 0 {
+            common_metrics::histogram(
+                FLAG_DB_OPERATIONS_PER_REQUEST,
+                &[
+                    ("team_id".to_string(), team_id.clone()),
+                    ("operation_type".to_string(), "person_query".to_string()),
+                ],
+                self.person_queries as f64,
+            );
+        }
+
+        // Emit group query count
+        if self.group_queries > 0 {
+            common_metrics::histogram(
+                FLAG_DB_OPERATIONS_PER_REQUEST,
+                &[
+                    ("team_id".to_string(), team_id.clone()),
+                    ("operation_type".to_string(), "group_query".to_string()),
+                ],
+                self.group_queries as f64,
+            );
+        }
+
+        // Emit static cohort query count
+        if self.static_cohort_queries > 0 {
+            common_metrics::histogram(
+                FLAG_DB_OPERATIONS_PER_REQUEST,
+                &[
+                    ("team_id".to_string(), team_id.clone()),
+                    ("operation_type".to_string(), "cohort_query".to_string()),
+                ],
+                self.static_cohort_queries as f64,
+            );
+        }
     }
 
     /// Populate error fields from a FlagError without emitting.
