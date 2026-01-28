@@ -241,32 +241,31 @@ class TestVercelIntegration(TestCase):
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
         assert new_installation.created_by == existing_user
 
-        # User mapping was not created for existing user (happens during SSO)
-        assert "user_mappings" not in new_installation.config or "existing_user_789" not in new_installation.config.get(
-            "user_mappings", {}
-        )
+        # User mapping is created for existing user - Vercel has verified their identity
+        assert "user_mappings" in new_installation.config
+        assert new_installation.config["user_mappings"].get("existing_user_789") == existing_user.pk
 
         # Check all other config fields match
         for key, value in self.payload.items():
             assert new_installation.config[key] == value
 
-        # Existing user was not automatically added to the organization (also happens during SSO)
+        # Existing user is added to the organization - they are installing so they should be a member
         new_org = new_installation.organization
-        assert not OrganizationMembership.objects.filter(user=existing_user, organization=new_org).exists()
+        membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
+        assert membership.level == OrganizationMembership.Level.OWNER
 
         mock_report.assert_not_called()
 
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_requires_login_for_external_existing_user(self, mock_report):
-        """Security test: External users (not created by Vercel) must prove ownership via login."""
-        from ee.vercel.integration import RequiresExistingUserLogin
+    def test_sso_works_for_existing_user_after_installation(self, mock_report):
+        """Test that SSO works for existing users who install via Vercel - Vercel has verified their identity."""
 
-        # Create an external user (not through Vercel)
-        external_user = User.objects.create_user(
+        # Create an existing PostHog user (not through Vercel)
+        existing_user = User.objects.create_user(
             email="external@example.com", password="external", first_name="External"
         )
 
-        # Now try to install Vercel integration with that email
+        # Now install Vercel integration with that email
         installation_id = self.NEW_INSTALLATION_ID
         payload = {
             **self.payload,
@@ -283,23 +282,21 @@ class TestVercelIntegration(TestCase):
 
         installation = OrganizationIntegration.objects.get(integration_id=installation_id)
 
-        # External user should NOT have mapping created (security measure)
-        assert "user_mappings" not in installation.config or "vercel_external_user" not in installation.config.get(
-            "user_mappings", {}
-        )
+        # User mapping IS created - Vercel has verified the user's identity via JWT
+        assert "user_mappings" in installation.config
+        assert installation.config["user_mappings"].get("vercel_external_user") == existing_user.pk
 
-        # External user should NOT be added to org automatically
-        assert not OrganizationMembership.objects.filter(
-            user=external_user, organization=installation.organization
-        ).exists()
+        # User IS added to org - they are installing so they should be a member
+        membership = OrganizationMembership.objects.get(user=existing_user, organization=installation.organization)
+        assert membership.level == OrganizationMembership.Level.OWNER
 
-        # SSO should require login for external user
+        # SSO should work without requiring separate login
         sso_claims = self._create_user_claims("vercel_external_user")
         sso_claims.installation_id = installation_id
         sso_claims.user_email = "external@example.com"
 
-        with self.assertRaises(RequiresExistingUserLogin):
-            VercelIntegration._find_sso_user(sso_claims)
+        sso_user = VercelIntegration._find_sso_user(sso_claims)
+        assert sso_user.pk == existing_user.pk
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):
