@@ -34,44 +34,47 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
-    // Show "Open" button when panel is closed, show "Close" button when panel is open
-    // Both should never render simultaneously to avoid Playwright strict mode violations
-    if (!scenePanelIsPresent || inPanel !== scenePanelOpenManual) {
-        return null
+    if (isRemovingSidePanelFlag) {
+        // Open Info tab if scene has panel content, otherwise default to Discussion
+        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Discussion
+        return (
+            <AppShortcut
+                name="OpenSidePanel"
+                keybind={[keyBinds.openSidePanel]}
+                intent="Open side panel"
+                interaction="click"
+            >
+                {/* Size to mimic lemon button small */}
+                <ButtonPrimitive
+                    className="size-[33px] group"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        if (sidePanelOpen) {
+                            closeSidePanel()
+                        } else {
+                            openSidePanel(defaultTab)
+                        }
+                    }}
+                    tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly
+                    active={sidePanelOpen}
+                >
+                    {sidePanelOpen ? (
+                        <IconX className="text-primary size-3 group-hover:text-primary z-10" />
+                    ) : (
+                        <IconEllipsis className="text-primary group-hover:text-primary z-10" />
+                    )}
+                </ButtonPrimitive>
+            </AppShortcut>
+        )
     }
 
-    if (isRemovingSidePanelFlag) {
-        return (
-            <>
-                <AppShortcut
-                    name="OpenSidePanel"
-                    keybind={[keyBinds.openSidePanel]}
-                    intent="Open side panel"
-                    interaction="click"
-                >
-                    {/* Size to mimc lemon button small */}
-                    <ButtonPrimitive
-                        className="-mr-2 size-[33px]"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            if (sidePanelOpen) {
-                                closeSidePanel()
-                            } else {
-                                openSidePanel(SidePanelTab.Info)
-                            }
-                        }}
-                        tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
-                        tooltipPlacement="bottom-end"
-                        tooltipCloseDelayMs={0}
-                        iconOnly
-                        active={sidePanelOpen}
-                    >
-                        <IconEllipsis className="!ml-0 size-4" />
-                    </ButtonPrimitive>
-                </AppShortcut>
-            </>
-        )
+    // Old behavior: only show when scene panel is present
+    if (!scenePanelIsPresent || inPanel !== scenePanelOpenManual) {
+        return null
     }
 
     return (
@@ -230,7 +233,7 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 pl-4 pr-2 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     className

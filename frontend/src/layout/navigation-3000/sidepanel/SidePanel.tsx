@@ -252,7 +252,7 @@ export function SidePanel({
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
                 isRemovingSidePanelFlag &&
-                    '@container/side-panel bg-surface-secondary absolute top-px right-px bottom-px h-full flex flex-col shadow-[-50px_0px__55px_-65px_rgb(0_0_0_/_25%)]',
+                    '@container/side-panel bg-surface-secondary absolute top-px right-px bottom-px h-full flex flex-col',
                 isRemovingSidePanelFlag && !sidePanelOpen && 'hidden',
                 className
             )}
@@ -381,7 +381,7 @@ export function SidePanel({
                                                             {...props}
                                                             onClick={() => openSidePanel(tab as SidePanelTab)}
                                                             tooltip={label}
-                                                            className="hover:bg-transparent group"
+                                                            className="size-[33px] @[600px]/side-panel:w-auto hover:bg-transparent group justify-center @[600px]/side-panel:justify-normal"
                                                         >
                                                             <Icon
                                                                 className={cn(
@@ -402,7 +402,7 @@ export function SidePanel({
                                                 />
                                             )
                                         })}
-                                    <Tabs.Indicator className="transform-gpu absolute top-[calc(50%-1px)] left-0 z-[-1] h-[30px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
+                                    <Tabs.Indicator className="transform-gpu absolute top-[calc(50%-1px)] left-0 z-[-1] h-[33px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
 
                                     <ButtonPrimitive
                                         onClick={() => {
