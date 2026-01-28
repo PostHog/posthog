@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.models import DataWarehouseTable
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource, ExternalDataSourceType
@@ -12,54 +14,51 @@ from products.data_warehouse.backend.models.modeling import (
     get_parents_from_model_query,
 )
 
-
-@pytest.mark.parametrize(
-    "query,parents",
-    [
-        ("select * from events, persons", {"events", "persons"}),
-        ("select * from some_random_view", {"some_random_view"}),
-        (
-            "with cte as (select * from events), cte2 as (select * from cte), cte3 as (select 1) select * from cte2",
-            {"events"},
-        ),
-        ("select 1", set()),
-        (
-            """
-            select *
-            from (
-              select 1 as id, *
-              from events
-              inner join (
-                select * from
-                (
-                  select number
-                  from numbers(10)
-                )
-              ) num on events.id = num.number
+GET_PARENTS_TEST_CASES = [
+    ("select events.*, persons.* from events, persons", {"events", "persons"}),
+    ("select * from some_random_view", {"some_random_view"}),
+    (
+        "with cte as (select * from events), cte2 as (select * from cte), cte3 as (select 1) select * from cte2",
+        {"events"},
+    ),
+    ("select 1", set()),
+    (
+        """
+        select *
+        from (
+          select 1 as id, events.*, num.*
+          from events
+          inner join (
+            select * from
+            (
+              select number
+              from numbers(10)
             )
-            """,
-            {"events", "numbers"},
-        ),
-        ("select * from (select * from (select * from (select * from events)))", {"events"}),
-        (
-            """
-            select *
-            from (
-              select number from numbers(5)
-              union all
-              select event from events
-            )
-            """,
-            {"numbers", "events"},
-        ),
-    ],
-)
-def test_get_parents_from_model_query(query: str, parents: set[str]):
-    """Test parents are correctly parsed from sample queries."""
-    assert parents == get_parents_from_model_query(query)
+          ) num on events.id = num.number
+        )
+        """,
+        {"events", "numbers"},
+    ),
+    ("select * from (select * from (select * from (select * from events)))", {"events"}),
+    (
+        """
+        select *
+        from (
+          select number from numbers(5)
+          union all
+          select event from events
+        )
+        """,
+        {"numbers", "events"},
+    ),
+]
 
 
 class TestModelPath(BaseTest):
+    @parameterized.expand(GET_PARENTS_TEST_CASES)
+    def test_get_parents_from_model_query(self, query: str, parents: set[str]):
+        assert parents == get_parents_from_model_query(query, self.team)
+
     def test_create_from_static_query(self):
         """Test creation of a model path from a query that returns a static set of rows."""
         query = "SELECT 1 AS a, 2 AS b, NOW() AS c"

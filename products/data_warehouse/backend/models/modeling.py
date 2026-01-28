@@ -90,33 +90,37 @@ LabelTreeField.register_lookup(LabelQuery)
 LabelTreeField.register_lookup(LabelQueryArray)
 
 
-def get_parents_from_model_query(model_query: str) -> set[str]:
+def get_parents_from_model_query(model_query: str, team: Team) -> set[str]:
     """Get parents from a given query.
 
     The parents of a query are any names in the `FROM` clause of the query.
     """
+    from posthog.hogql.context import HogQLContext
+    from posthog.hogql.printer.utils import prepare_ast_for_printing
 
     hogql_query = parse_select(model_query)
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        enable_select_queries=True,
+    )
+    prepared_ast = prepare_ast_for_printing(
+        node=hogql_query,
+        context=context,
+        dialect="hogql",
+    )
+    if prepared_ast is None:
+        return set()
 
-    if isinstance(hogql_query, ast.SelectSetQuery):
-        queries = list(extract_select_queries(hogql_query))
+    if isinstance(prepared_ast, ast.SelectSetQuery):
+        queries = list(extract_select_queries(prepared_ast))
     else:
-        queries = [hogql_query]
+        queries = [prepared_ast]
 
-    parents = set()
-    ctes = set()
+    parents: set[str] = set()
 
     while queries:
         query = queries.pop()
-
-        if query.ctes is not None:
-            for name, cte in query.ctes.items():
-                ctes.add(name)
-
-                if isinstance(cte.expr, ast.SelectSetQuery):
-                    queries.extend(list(extract_select_queries(cte.expr)))
-                elif isinstance(cte.expr, ast.SelectQuery):
-                    queries.append(cte.expr)
 
         join = query.select_from
 
@@ -142,7 +146,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
             else:
                 raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
-            if parent_name not in ctes and isinstance(parent_name, str):
+            if isinstance(parent_name, str):
                 parents.add(parent_name)
 
             join = join.next_join
@@ -381,7 +385,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
     def get_or_create_query_parent_paths(self, query: str, team: Team) -> list["DataWarehouseModelPath"]:
         """Get a list of model paths for a query's parents, creating root nodes if they do not exist."""
         parent_paths = []
-        for parent in get_parents_from_model_query(query):
+        for parent in get_parents_from_model_query(query, team):
             try:
                 parent_query = (
                     DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=parent).get()
@@ -455,7 +459,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         This may lead to duplicate paths, so we have to defer constraints, until the end of
         the transaction and clean them up.
         """
-        parents = get_parents_from_model_query(query)
+        parents = get_parents_from_model_query(query, team)
         posthog_table_names = self.get_hogql_database(team).get_posthog_table_names()
 
         base_params = {
