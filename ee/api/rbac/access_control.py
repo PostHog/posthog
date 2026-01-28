@@ -57,7 +57,6 @@ class UserAccessInfoSerializer(serializers.Serializer):
 
 class AccessControlSerializer(serializers.ModelSerializer):
     access_level = serializers.CharField(allow_null=True)
-    organization_member = OrganizationMemberField(queryset=OrganizationMembership.objects.all())
 
     class Meta:
         model = AccessControl
@@ -72,6 +71,16 @@ class AccessControlSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
+
+    def build_relational_field(self, field_name, relation_info):
+        """Override to customize error messages for organization_member field"""
+        field_class, field_kwargs = super().build_relational_field(field_name, relation_info)
+
+        if field_name == "organization_member":
+            # Inject our custom field class with better error messages
+            field_class = OrganizationMemberField
+
+        return field_class, field_kwargs
 
     def validate_resource(self, resource):
         if resource not in API_SCOPE_OBJECTS:
