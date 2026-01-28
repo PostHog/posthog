@@ -774,6 +774,21 @@ class Team(UUIDTClassicModel):
             ),
         )
 
+        self._notify_vercel_of_token_rotation()
+
+    def _notify_vercel_of_token_rotation(self) -> None:
+        """Push updated API token to Vercel integrations if configured."""
+        try:
+            from ee.vercel.integration import VercelIntegration
+
+            VercelIntegration.push_secrets_to_vercel(self)
+        except ImportError:
+            pass
+        except Exception:
+            import structlog
+
+            structlog.get_logger(__name__).exception("vercel_token_push_failed", team_id=self.id, integration="vercel")
+
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 

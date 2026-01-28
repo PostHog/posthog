@@ -187,6 +187,20 @@ class VercelAPIClient:
             refresh_token=json_data.get("refresh_token"),
         )
 
+    def update_resource_secrets(
+        self, integration_config_id: str, resource_id: str, secrets: list[dict[str, Any]]
+    ) -> ExperimentationResult:
+        """Push updated secrets to Vercel for a resource."""
+        url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}/secrets"
+        return self._crud_operation(
+            "PUT",
+            url,
+            "Successfully updated resource secrets",
+            {"integration_config_id": integration_config_id, "resource_id": resource_id},
+            {},
+            json={"secrets": secrets},
+        )
+
     def sso_token_exchange(
         self,
         code: str,

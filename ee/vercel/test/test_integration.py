@@ -1109,3 +1109,93 @@ class TestVercelUserMappingLogic(TestCase):
         )
 
         assert VercelIntegration._user_has_any_vercel_mapping(self.user)
+
+
+class TestPushSecretsToVercel(TestCase):
+    """Tests for pushing secrets to Vercel when API token is rotated."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email="secrets@example.com", password="test", first_name="Test")
+        self.organization = Organization.objects.create(name="Secrets Test Org")
+        self.user.join(organization=self.organization, level=OrganizationMembership.Level.OWNER)
+
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.resource = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"productId": "posthog", "name": "Test Resource"},
+            created_by=self.user,
+        )
+
+        self.installation = OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_secrets_test_123456789",
+            config={
+                "billing_plan_id": "posthog-usage-based",
+                "credentials": {"access_token": "test_token", "token_type": "Bearer"},
+            },
+            created_by=self.user,
+        )
+
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_push_secrets_to_vercel_calls_api(self, mock_client_class):
+        mock_client = Mock()
+        mock_client.update_resource_secrets.return_value = Mock(success=True)
+        mock_client_class.return_value = mock_client
+
+        VercelIntegration.push_secrets_to_vercel(self.team)
+
+        mock_client.update_resource_secrets.assert_called_once()
+        call_args = mock_client.update_resource_secrets.call_args
+        assert call_args[1]["integration_config_id"] == self.installation.integration_id
+        assert call_args[1]["resource_id"] == str(self.resource.pk)
+
+        secrets = call_args[1]["secrets"]
+        assert len(secrets) == 2
+        assert any(s["name"] == "POSTHOG_PROJECT_API_KEY" for s in secrets)
+        assert any(s["name"] == "POSTHOG_HOST" for s in secrets)
+
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_push_secrets_sends_current_api_token(self, mock_client_class):
+        mock_client = Mock()
+        mock_client.update_resource_secrets.return_value = Mock(success=True)
+        mock_client_class.return_value = mock_client
+
+        VercelIntegration.push_secrets_to_vercel(self.team)
+
+        call_args = mock_client.update_resource_secrets.call_args
+        secrets = call_args[1]["secrets"]
+        api_key_secret = next(s for s in secrets if s["name"] == "POSTHOG_PROJECT_API_KEY")
+        assert api_key_secret["value"] == self.team.api_token
+
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_push_secrets_does_nothing_without_vercel_resource(self, mock_client_class):
+        team_without_vercel = Team.objects.create(organization=self.organization, name="No Vercel Team")
+
+        VercelIntegration.push_secrets_to_vercel(team_without_vercel)
+
+        mock_client_class.assert_not_called()
+
+    @patch("ee.vercel.integration.capture_exception")
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_push_secrets_handles_api_error_gracefully(self, mock_client_class, mock_capture):
+        mock_client = Mock()
+        mock_client.update_resource_secrets.return_value = Mock(success=False, error="API error")
+        mock_client_class.return_value = mock_client
+
+        VercelIntegration.push_secrets_to_vercel(self.team)
+
+        mock_capture.assert_called_once()
+
+    @patch("ee.vercel.integration.capture_exception")
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_push_secrets_handles_exception_gracefully(self, mock_client_class, mock_capture):
+        mock_client = Mock()
+        mock_client.update_resource_secrets.side_effect = Exception("Network error")
+        mock_client_class.return_value = mock_client
+
+        VercelIntegration.push_secrets_to_vercel(self.team)
+
+        mock_capture.assert_called_once()
