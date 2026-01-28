@@ -4,6 +4,7 @@ from typing import Literal
 import temporalio
 
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 
@@ -20,8 +21,8 @@ class CaptureTimingInputs:
 
 
 @temporalio.activity.defn
-def capture_timing_activity(inputs: CaptureTimingInputs) -> None:
-    team = Team.objects.get(id=inputs.team_id)
+async def capture_timing_activity(inputs: CaptureTimingInputs) -> None:
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
     capture_session_summary_timing(
         distinct_id=inputs.distinct_id,
         team=team,
