@@ -10,6 +10,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { logsViewerColumnLogic } from 'products/logs/frontend/components/LogsViewer/columns/logsViewerColumnLogic'
+
 import { AttributeColumnConfig, LogsOrderBy, ParsedLogMessage } from '../../types'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import type { logsViewerLogicType } from './logsViewerLogicType'
@@ -39,7 +41,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
     props({} as LogsViewerLogicProps),
     key((props) => props.tabId),
-    connect(() => ({
+    connect((props: LogsViewerLogicProps) => ({
         values: [
             logsViewerSettingsLogic,
             ['timezone', 'wrapBody', 'prettifyJson'],
@@ -51,6 +53,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             ['setTimezone', 'setWrapBody', 'setPrettifyJson'],
             logDetailsModalLogic,
             ['openLogDetails', 'closeLogDetails'],
+            logsViewerColumnLogic({ id: props.tabId }),
+            [
+                'setColumnWidth as logsViewerColumnLogicSetColumnWidth',
+                'addAttributeColumn as logsViewerColumnLogicAddAttributeColumn',
+                'removeColumn as logsViewerColumnLogicRemoveColumn',
+                'moveColumn as logsViewerColumnLogicMoveColumn',
+            ],
         ],
     })),
 
@@ -384,7 +393,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
     listeners(({ actions, values, props }) => ({
         recomputeRowHeights: async ({ logIds }, breakpoint) => {
-            await breakpoint(30) // Debounce 30ms
+            await breakpoint(10)
             actions.debouncedRecomputeRowHeights(logIds)
         },
         setLogs: ({ logs }) => {
@@ -571,6 +580,18 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             if (attributeKey in values.attributeColumnsConfig) {
                 posthog.capture('logs column added', { attribute_key: attributeKey })
             }
+        },
+        logsViewerColumnLogicSetColumnWidth: () => {
+            actions.recomputeRowHeights()
+        },
+        logsViewerColumnLogicAddAttributeColumn: () => {
+            actions.recomputeRowHeights()
+        },
+        logsViewerColumnLogicRemoveColumn: () => {
+            actions.recomputeRowHeights()
+        },
+        logsViewerColumnLogicMoveColumn: () => {
+            actions.recomputeRowHeights()
         },
     })),
 
