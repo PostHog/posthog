@@ -8615,6 +8615,36 @@
                       created_at: {
                         hidden: False
                       },
+                      group_0: {
+                        hidden: False
+                      },
+                      group_0_key: {
+                        hidden: False
+                      },
+                      group_1: {
+                        hidden: False
+                      },
+                      group_1_key: {
+                        hidden: False
+                      },
+                      group_2: {
+                        hidden: False
+                      },
+                      group_2_key: {
+                        hidden: False
+                      },
+                      group_3: {
+                        hidden: False
+                      },
+                      group_3_key: {
+                        hidden: False
+                      },
+                      group_4: {
+                        hidden: False
+                      },
+                      group_4_key: {
+                        hidden: False
+                      },
                       id: {
                         hidden: False
                       },
