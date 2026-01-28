@@ -226,9 +226,9 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                     }
                 >
                     {activePreset ? (
-                        <span className="max-w-32 truncate">
-                            {activePreset.name}
-                            {hasUnsavedChanges && <span className="text-warning ml-1">(modified)</span>}
+                        <span className="flex items-center gap-1">
+                            <span className="max-w-32 truncate">{activePreset.name}</span>
+                            {hasUnsavedChanges && <span className="text-warning shrink-0">(modified)</span>}
                         </span>
                     ) : (
                         'Presets'
