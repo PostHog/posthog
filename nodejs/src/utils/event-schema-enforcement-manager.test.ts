@@ -58,9 +58,9 @@ describe('EventSchemaEnforcementManager', () => {
         const result = await postgres.query<{ id: string }>(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_schemapropertygroup
-                (id, team_id, name, description, created_at)
+                (id, team_id, name, description, created_at, updated_at)
              VALUES
-                (gen_random_uuid(), $1, 'Test Group', '', NOW())
+                (gen_random_uuid(), $1, 'Test Group', '', NOW(), NOW())
              RETURNING id`,
             [teamId],
             'create-test-property-group'
@@ -79,9 +79,9 @@ describe('EventSchemaEnforcementManager', () => {
         await postgres.query(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_eventschema
-                (id, event_definition_id, property_group_id, enforcement_mode, created_at)
+                (id, event_definition_id, property_group_id, enforcement_mode, created_at, updated_at)
              VALUES
-                (gen_random_uuid(), $1, $2, $3, NOW())`,
+                (gen_random_uuid(), $1, $2, $3, NOW(), NOW())`,
             [eventDefinitionId, propertyGroupId, enforcementMode],
             'create-test-event-schema'
         )
@@ -99,9 +99,9 @@ describe('EventSchemaEnforcementManager', () => {
         await postgres.query(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_schemapropertygroupproperty
-                (id, property_group_id, name, property_type, is_required, created_at)
+                (id, property_group_id, name, property_type, is_required, description, created_at, updated_at)
              VALUES
-                (gen_random_uuid(), $1, $2, $3, $4, NOW())`,
+                (gen_random_uuid(), $1, $2, $3, $4, '', NOW(), NOW())`,
             [propertyGroupId, propertyName, propertyType, isRequired],
             'create-test-property'
         )
