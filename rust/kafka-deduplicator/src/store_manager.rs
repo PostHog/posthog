@@ -899,22 +899,27 @@ impl StoreManager {
     }
 
     /// Collect all timestamp subdirectories as cleanup candidates.
-    /// Returns Vec of (topic_partition_name, full_timestamp_dir_path).
+    /// Returns Vec of (topic_partition_name, full_timestamp_dir_path, is_assigned).
     /// Does NOT filter by safety checks - that happens during the deletion loop.
-    fn collect_orphan_candidates(&self) -> Vec<(String, PathBuf)> {
+    ///
+    /// For ASSIGNED partitions: collects all timestamp subdirs EXCEPT the active store path.
+    /// For UNASSIGNED partitions: collects all timestamp subdirs.
+    fn collect_orphan_candidates(&self) -> Vec<(String, PathBuf, bool)> {
         let mut candidates = Vec::new();
 
-        // Build a set of currently assigned partition directories
-        let mut assigned_dirs = std::collections::HashSet::new();
+        // Build a map of partition_dir_name -> active store path for assigned partitions
+        let mut active_store_paths: std::collections::HashMap<String, PathBuf> =
+            std::collections::HashMap::new();
         for entry in self.stores.iter() {
             let partition = entry.key();
+            let store = entry.value();
             let dir_name = format_partition_dir(partition.topic(), partition.partition_number());
-            assigned_dirs.insert(dir_name);
+            active_store_paths.insert(dir_name, store.get_db_path().clone());
         }
 
         info!(
             "Collecting orphan candidates. Currently assigned partitions: {:?}",
-            assigned_dirs
+            active_store_paths.keys().collect::<Vec<_>>()
         );
 
         // Scan the store directory for all partition directories
@@ -932,12 +937,16 @@ impl StoreManager {
 
             let partition_dir_name = partition_entry.file_name().to_string_lossy().to_string();
 
-            // Skip if doesn't match topic_partition pattern or is assigned
-            if !partition_dir_name.contains('_') || assigned_dirs.contains(&partition_dir_name) {
+            // Skip if doesn't match topic_partition pattern (e.g., not a partition dir)
+            if !partition_dir_name.contains('_') {
                 continue;
             }
 
-            // Enumerate all timestamp subdirectories under this orphan partition
+            // Check if this partition is assigned (has an active store)
+            let active_path = active_store_paths.get(&partition_dir_name);
+            let is_assigned = active_path.is_some();
+
+            // Enumerate all timestamp subdirectories under this partition
             let partition_path = partition_entry.path();
             let Ok(timestamp_entries) = std::fs::read_dir(&partition_path) else {
                 continue;
@@ -947,9 +956,20 @@ impl StoreManager {
                 let Ok(ts_metadata) = ts_entry.metadata() else {
                     continue;
                 };
-                if ts_metadata.is_dir() {
-                    candidates.push((partition_dir_name.clone(), ts_entry.path()));
+                if !ts_metadata.is_dir() {
+                    continue;
                 }
+
+                let ts_path = ts_entry.path();
+
+                // For assigned partitions, skip the active store path
+                if let Some(active) = active_path {
+                    if &ts_path == active {
+                        continue; // Active store - never consider for deletion
+                    }
+                }
+
+                candidates.push((partition_dir_name.clone(), ts_path, is_assigned));
             }
         }
 
@@ -964,11 +984,11 @@ impl StoreManager {
     /// Returns false (NOT safe) if:
     /// - WAL files have been modified within the staleness threshold
     /// - Directory modified within staleness threshold (checkpoint import)
-    /// - The parent partition is now in the stores map (re-assigned)
+    /// - This specific timestamp path is the currently active store
     fn is_safe_to_delete_timestamp_dir(
         &self,
         timestamp_dir: &Path,
-        parent_dir_name: &str,
+        _parent_dir_name: &str,
         orphan_min_staleness: Duration,
     ) -> bool {
         let ts_dir_display = timestamp_dir.display();
@@ -1003,15 +1023,14 @@ impl StoreManager {
             }
         }
 
-        // Check 3: Double-check stores map - partition may have been re-assigned
+        // Check 3: Skip if this specific timestamp path is the currently active store
+        // (This is a defense-in-depth check - collect_orphan_candidates already filters these)
         for entry in self.stores.iter() {
-            let partition = entry.key();
-            let assigned_dir =
-                format_partition_dir(partition.topic(), partition.partition_number());
-            if assigned_dir == parent_dir_name {
+            let store = entry.value();
+            if store.get_db_path() == timestamp_dir {
                 info!(
                     path = %ts_dir_display,
-                    "Orphan safety check: parent partition now in stores map, skipping deletion"
+                    "Orphan safety check: this is an active store path, skipping deletion"
                 );
                 return false;
             }
@@ -1021,12 +1040,15 @@ impl StoreManager {
         true
     }
 
-    /// Clean up orphaned timestamp directories that don't belong to any assigned partition.
+    /// Clean up orphaned timestamp directories from both assigned and unassigned partitions.
+    ///
+    /// For ASSIGNED partitions: cleans up old timestamp subdirs (not the active store).
+    /// For UNASSIGNED partitions: cleans up all timestamp subdirs.
     ///
     /// Safety checks before deletion:
     /// 1. Skip if stores map is empty (startup race)
     /// 2. Skip if rebalancing is in progress
-    /// 3. For each candidate timestamp dir: check WAL mtime, dir mtime, and re-verify stores map
+    /// 3. For each candidate timestamp dir: check WAL mtime, dir mtime, and verify not active store
     pub fn cleanup_orphaned_directories(&self, orphan_min_staleness: Duration) -> Result<u64> {
         // Guard: skip cleanup if no stores are registered yet (startup race) or
         // all stores were just unregistered (rebalance). This prevents deleting
@@ -1043,7 +1065,8 @@ impl StoreManager {
             return Ok(0);
         }
 
-        // Collect all timestamp subdirectories under orphan partitions
+        // Collect timestamp subdirectories from both assigned and unassigned partitions
+        // (excluding active store paths for assigned partitions)
         let candidates = self.collect_orphan_candidates();
 
         if candidates.is_empty() {
@@ -1053,7 +1076,7 @@ impl StoreManager {
 
         let mut total_freed = 0u64;
 
-        for (parent_dir_name, timestamp_path) in candidates {
+        for (parent_dir_name, timestamp_path, is_assigned) in candidates {
             // Re-check rebalance mid-loop - abort to avoid deleting directories
             // that may be about to be assigned
             if self.rebalance_coordinator.is_rebalancing() {
@@ -1064,7 +1087,7 @@ impl StoreManager {
                 return Ok(total_freed);
             }
 
-            // Safety checks: WAL mtime, dir mtime, double-check stores map
+            // Safety checks: WAL mtime, dir mtime, verify not active store path
             if !self.is_safe_to_delete_timestamp_dir(
                 &timestamp_path,
                 &parent_dir_name,
@@ -1072,6 +1095,7 @@ impl StoreManager {
             ) {
                 debug!(
                     path = %timestamp_path.display(),
+                    is_assigned = is_assigned,
                     "Skipping orphan candidate - failed safety checks"
                 );
                 continue;
@@ -1081,11 +1105,22 @@ impl StoreManager {
 
             match std::fs::remove_dir_all(&timestamp_path) {
                 Ok(_) => {
+                    let partition_status = if is_assigned {
+                        "assigned"
+                    } else {
+                        "unassigned"
+                    };
                     info!(
-                        "Removed orphaned timestamp directory {} ({:.2} MB)",
-                        timestamp_path.display(),
-                        dir_size as f64 / (1024.0 * 1024.0)
+                        partition_status = partition_status,
+                        path = %timestamp_path.display(),
+                        size_mb = dir_size as f64 / (1024.0 * 1024.0),
+                        "Removed orphaned timestamp directory"
                     );
+                    metrics::counter!(
+                        CLEANUP_OPERATIONS_COUNTER,
+                        "partition_status" => partition_status
+                    )
+                    .increment(1);
                     total_freed += dir_size;
                 }
                 Err(e) => {
@@ -1934,5 +1969,157 @@ mod tests {
             result.is_err(),
             "get_store() should return error after store is unregistered"
         );
+    }
+
+    #[tokio::test]
+    async fn test_orphan_cleanup_cleans_old_timestamp_dirs_under_assigned_partition() {
+        // Test that orphan cleanup removes OLD timestamp dirs under ASSIGNED partitions,
+        // but NOT the active store path.
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+
+        // Create a store for partition 0 (this will create a timestamp subdir)
+        manager.get_or_create("test-topic", 0).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Get the active store's path
+        let active_store = manager.get("test-topic", 0).unwrap();
+        let active_path = active_store.get_db_path().clone();
+
+        // Verify active store exists
+        assert!(active_path.exists(), "Active store path should exist");
+
+        // Create an OLD timestamp subdir under the same partition (simulating a previous import)
+        let partition_dir = temp_dir.path().join("test-topic_0");
+        let old_timestamp_subdir = partition_dir.join("9999999999"); // Old timestamp
+        std::fs::create_dir_all(&old_timestamp_subdir).unwrap();
+        std::fs::write(old_timestamp_subdir.join("dummy.sst"), b"old data").unwrap();
+        assert!(
+            old_timestamp_subdir.exists(),
+            "Old timestamp dir should exist"
+        );
+
+        // Orphan cleanup should remove the OLD timestamp dir but NOT the active one
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+
+        assert!(freed > 0, "Should have freed some bytes");
+        assert!(
+            !old_timestamp_subdir.exists(),
+            "OLD timestamp dir should be removed"
+        );
+        assert!(
+            active_path.exists(),
+            "ACTIVE store path should NOT be removed"
+        );
+        assert_eq!(
+            manager.get_active_store_count(),
+            1,
+            "Store should still be registered"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_orphan_cleanup_never_deletes_active_store_path() {
+        // Defense-in-depth test: even if collect_orphan_candidates somehow includes
+        // the active store path, is_safe_to_delete_timestamp_dir should prevent deletion.
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+
+        // Create a store for partition 0
+        manager.get_or_create("test-topic", 0).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Get the active store's path
+        let active_store = manager.get("test-topic", 0).unwrap();
+        let active_path = active_store.get_db_path().clone();
+
+        // Verify active store exists
+        assert!(active_path.exists(), "Active store path should exist");
+
+        // Run orphan cleanup multiple times - should never touch active store
+        for _ in 0..3 {
+            let freed = manager
+                .cleanup_orphaned_directories(Duration::from_secs(0))
+                .unwrap();
+            assert_eq!(
+                freed, 0,
+                "Should not free anything - only active store exists"
+            );
+            assert!(
+                active_path.exists(),
+                "Active store path should NEVER be deleted"
+            );
+        }
+
+        assert_eq!(
+            manager.get_active_store_count(),
+            1,
+            "Store should still be registered"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_orphan_cleanup_handles_multiple_old_timestamps_under_assigned() {
+        // Test that multiple old timestamp dirs under an assigned partition are all cleaned up
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+
+        // Create a store for partition 0
+        manager.get_or_create("test-topic", 0).await.unwrap();
+        let active_store = manager.get("test-topic", 0).unwrap();
+        let active_path = active_store.get_db_path().clone();
+
+        // Create multiple OLD timestamp subdirs (simulating multiple failed imports)
+        let partition_dir = temp_dir.path().join("test-topic_0");
+        let old_dirs: Vec<_> = (1..=3)
+            .map(|i| {
+                let old_dir = partition_dir.join(format!("100000000{}", i));
+                std::fs::create_dir_all(&old_dir).unwrap();
+                std::fs::write(old_dir.join("dummy.sst"), b"old data").unwrap();
+                old_dir
+            })
+            .collect();
+
+        // Verify all old dirs exist
+        for old_dir in &old_dirs {
+            assert!(old_dir.exists(), "Old dir should exist: {:?}", old_dir);
+        }
+
+        // Orphan cleanup should remove ALL old timestamp dirs
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+
+        assert!(freed > 0, "Should have freed some bytes");
+
+        // All old dirs should be removed
+        for old_dir in &old_dirs {
+            assert!(
+                !old_dir.exists(),
+                "Old dir should be removed: {:?}",
+                old_dir
+            );
+        }
+
+        // Active store should still exist
+        assert!(active_path.exists(), "Active store should NOT be removed");
+        assert_eq!(manager.get_active_store_count(), 1);
     }
 }

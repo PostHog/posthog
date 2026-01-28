@@ -139,18 +139,8 @@ where
                                 "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
                             )
                             .increment(1);
-                            // Clean up our downloaded files (if download completed before cancel detected)
-                            match tokio::fs::remove_dir_all(&path).await {
-                                Ok(_) => {}
-                                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                                Err(e) => {
-                                    warn!(
-                                        "Failed to clean up cancelled checkpoint download at {}: {}",
-                                        path.display(),
-                                        e
-                                    );
-                                }
-                            }
+                            // Downloaded files will be cleaned up by the orphan directory cleaner.
+                            // No immediate cleanup needed here.
                             return;
                         }
 
@@ -487,24 +477,12 @@ where
             self.offset_tracker.clear_partition(partition);
         }
 
-        // Now safe to delete files - workers are shut down (Step 2 of two-step cleanup)
-        for partition in &partitions_to_cleanup {
-            if let Err(e) = self
-                .store_manager
-                .cleanup_store_files(partition.topic(), partition.partition_number())
-            {
-                error!(
-                    topic = partition.topic(),
-                    partition = partition.partition_number(),
-                    error = %e,
-                    "Failed to cleanup files for revoked partition"
-                );
-            }
-        }
+        // File cleanup is handled by the orphan directory cleaner, not here.
+        // This simplifies the cleanup flow and avoids race conditions with rapid revoke→assign.
 
         info!(
             cleaned_count = partitions_to_cleanup.len(),
-            "Revoked partition cleanup completed"
+            "Revoked partition cleanup completed (files will be cleaned by orphan cleaner)"
         );
 
         Ok(())
@@ -650,14 +628,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_rebalance_removes_stores_before_workers_shutdown() {
-        // This test verifies the fix for the race condition where:
-        // 1. Worker is processing messages during shutdown
-        // 2. Worker calls store_manager.get_or_create() which would create a new store
-        // 3. store_manager.remove() deletes the directory
-        // 4. Worker's write fails with "No such file or directory"
-        //
-        // The fix ensures stores are removed from the map (in setup_revoked_partitions)
+        // This test verifies that stores are removed from the map (in setup_revoked_partitions)
         // BEFORE workers are shut down (in cleanup_revoked_partitions).
+        //
+        // Note: File cleanup is now handled by the orphan directory cleaner, NOT during revoke.
+        // This prevents race conditions and simplifies the cleanup flow.
 
         let temp_dir = TempDir::new().unwrap();
         let store_config = DeduplicationStoreConfig {
@@ -701,7 +676,7 @@ mod tests {
         // Worker still exists at this point
         assert_eq!(router.worker_count(), 1);
 
-        // Async cleanup shuts down workers and deletes files
+        // Async cleanup shuts down workers (but does NOT delete files - orphan cleaner handles that)
         handler
             .cleanup_revoked_partitions(&partitions)
             .await
@@ -709,14 +684,15 @@ mod tests {
 
         // After cleanup:
         // - Worker should be shut down
-        // - Files should be deleted
+        // - Store should be unregistered from map
+        // - Files still exist (will be cleaned by orphan cleaner)
         assert_eq!(router.worker_count(), 0);
 
-        // Verify files are deleted
+        // Files are NOT immediately deleted - orphan cleaner handles this
         let partition_dir = temp_dir.path().join("test-topic_0");
         assert!(
-            !partition_dir.exists(),
-            "Partition directory should be deleted after revocation"
+            partition_dir.exists(),
+            "Partition directory still exists (orphan cleaner will handle cleanup)"
         );
     }
 
