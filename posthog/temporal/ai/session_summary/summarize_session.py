@@ -401,7 +401,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
                 distinct_id=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 session_id=inputs.session_id,
-                timing_type="overall_flow",
+                timing_type="single_session_flow",
                 duration_seconds=duration_seconds,
                 success=True,
                 extra_properties={
