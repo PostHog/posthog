@@ -120,6 +120,8 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Use system librdkafka from Confluent (2.10.1) instead of bundled version
 ENV BUILD_LIBRDKAFKA=0
+# Skip Puppeteer Chromium download - we use system Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Compile and install Node.js dependencies.
 # NOTE: we don't actually use the plugin-transpiler with the nodejs, it's just here for the build.
@@ -334,6 +336,7 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code/nodejs/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/bin /code/nodejs/bin
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/src/scripts /code/nodejs/src/scripts
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
@@ -352,6 +355,11 @@ RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
     cp -r /tmp/playwright-cache/* /ms-playwright/ && \
     chown -R posthog:posthog /ms-playwright
 USER posthog
+
+
+# Validate Puppeteer video export script
+RUN node --check /code/nodejs/src/scripts/record-replay-session-to-video-puppeteer.js
+RUN cd /code/nodejs && node -e "const p = require('puppeteer'); console.log('Puppeteer version:', p.default ? 'ESM' : p.version || 'loaded')"
 
 # Validate video export dependencies
 RUN ffmpeg -version
@@ -386,7 +394,9 @@ ENV NODE_ENV=production \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
     BUILD_LIBRDKAFKA=0 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Expose container port and run entry point script.
 EXPOSE 8000
