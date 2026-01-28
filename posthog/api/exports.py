@@ -208,6 +208,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        # Keep hard limit to avoid hanging workflows
+                        execution_timeout=timedelta(hours=3),
                     )
 
                 with VIDEO_EXPORT_SEMAPHORE:
