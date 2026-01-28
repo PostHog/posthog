@@ -1255,14 +1255,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Set all completed tasks at once to avoid conflicts
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
-        saveFeatureFlagFailure: ({ errorObject }) => {
+        saveFeatureFlagFailure: ({ error, errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 // Redirect to detail page so user can see the CR banner
                 router.actions.replace(urls.featureFlag(values.featureFlag.id))
                 actions.editFeatureFlag(false)
                 return
             }
-            // Note: Error toast is handled by the global error handler in initKea.ts
+            lemonToast.error(`Failed to save flag: ${error}`)
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
