@@ -2722,6 +2722,46 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(other_update_response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_soft_delete_deletes_alerts(self) -> None:
+        from posthog.models import AlertConfiguration
+
+        insight_id, insight = self.dashboard_api.create_insight(
+            {
+                "name": "insight with alert",
+                "query": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "BoldNumber"},
+                },
+            }
+        )
+
+        # Create an alert for this insight
+        alert_response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "name": "test alert",
+                "insight": insight_id,
+                "subscribed_users": [self.user.id],
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 1}}},
+            },
+        )
+        self.assertEqual(alert_response.status_code, status.HTTP_201_CREATED)
+        alert_id = alert_response.json()["id"]
+
+        # Verify alert exists
+        alert = AlertConfiguration.objects.get(id=alert_id)
+        self.assertTrue(alert.enabled)
+
+        # Soft-delete the insight
+        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Verify alert is now deleted
+        self.assertFalse(AlertConfiguration.objects.filter(id=alert_id).exists())
+
     def test_cancel_running_query(self) -> None:
         # There is no good way of writing a test that tests this without it being very slow
         #  Just verify it doesn't throw an error
