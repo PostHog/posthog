@@ -229,7 +229,7 @@ interface InfiniteListRowProps {
         group: TaxonomicFilterGroup,
         value: string | number | null,
         item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
-        query: string
+        originalQuery?: string
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
 }
