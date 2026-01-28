@@ -95,3 +95,21 @@ FROM system.actions
 WHERE NOT deleted
   AND JSONExtractString(steps_json, 1, 'event') = '$pageview'
 ```
+
+**Find events matching a specific action:**
+
+By action's name:
+
+```sql
+SELECT count()
+FROM events
+WHERE matchesAction('clicked homepage button')
+```
+
+By action's ID:
+
+```sql
+SELECT count()
+FROM events
+WHERE matchesAction(43)
+```
