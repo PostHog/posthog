@@ -54,15 +54,16 @@ describe('EventSchemaEnforcementManager', () => {
     /**
      * Creates a property group and returns its ID.
      */
-    const createPropertyGroup = async (teamId: number): Promise<string> => {
+    const createPropertyGroup = async (teamId: number, name?: string): Promise<string> => {
+        const groupName = name ?? `Test Group ${Date.now()}-${Math.random().toString(36).slice(2)}`
         const result = await postgres.query<{ id: string }>(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_schemapropertygroup
                 (id, team_id, name, description, created_at, updated_at)
              VALUES
-                (gen_random_uuid(), $1, 'Test Group', '', NOW(), NOW())
+                (gen_random_uuid(), $1, $2, '', NOW(), NOW())
              RETURNING id`,
-            [teamId],
+            [teamId, groupName],
             'create-test-property-group'
         )
         return result.rows[0].id
