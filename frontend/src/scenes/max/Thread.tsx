@@ -309,7 +309,6 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
     const { conversationId } = useValues(maxLogic)
     const { isDev } = useValues(preflightLogic)
     const [showUiPayloadJson, setShowUiPayloadJson] = useState(false)
-    const [showToolCallResultJson, setShowToolCallResultJson] = useState(false)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -593,7 +592,32 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                 )}
                             </>
                         )
-                    } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
+                    } else if (isAssistantToolCallMessage(message)) {
+                        // Tool call message without ui_payload - only show dev debug in dev mode
+                        if (!isDev) {
+                            return null
+                        }
+                        return (
+                            <div className="ml-5 flex flex-col gap-1">
+                                <LemonButton
+                                    size="xxsmall"
+                                    type="secondary"
+                                    icon={<IconBug />}
+                                    onClick={() => setShowUiPayloadJson(!showUiPayloadJson)}
+                                    tooltip="Development-only. Note: The JSON here is prettified"
+                                    tooltipPlacement="top-start"
+                                    className="w-fit"
+                                >
+                                    {showUiPayloadJson ? 'Hide' : 'Show'} tool call result as JSON
+                                </LemonButton>
+                                {showUiPayloadJson && (
+                                    <CodeSnippet language={Language.JSON}>
+                                        {JSON.stringify(message, null, 2)}
+                                    </CodeSnippet>
+                                )}
+                            </div>
+                        )
+                    } else if (isFailureMessage(message)) {
                         return (
                             <>
                                 <TextAnswer
@@ -602,26 +626,6 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                     interactable={!isSharedThread && isLastInGroup}
                                     isFinalGroup={isFinal}
                                 />
-                                {isDev && isAssistantToolCallMessage(message) && (
-                                    <div className="ml-5 flex flex-col gap-1">
-                                        <LemonButton
-                                            size="xxsmall"
-                                            type="secondary"
-                                            icon={<IconBug />}
-                                            onClick={() => setShowToolCallResultJson(!showToolCallResultJson)}
-                                            tooltip="Development-only. Note: The JSON here is prettified"
-                                            tooltipPlacement="top-start"
-                                            className="w-fit"
-                                        >
-                                            {showToolCallResultJson ? 'Hide' : 'Show'} above tool call result as JSON
-                                        </LemonButton>
-                                        {showToolCallResultJson && (
-                                            <CodeSnippet language={Language.JSON}>
-                                                {JSON.stringify(message, null, 2)}
-                                            </CodeSnippet>
-                                        )}
-                                    </div>
-                                )}
                             </>
                         )
                     } else if (isArtifactMessage(message)) {

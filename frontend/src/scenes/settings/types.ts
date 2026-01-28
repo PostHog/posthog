@@ -169,6 +169,8 @@ export type SettingId =
     | 'activity-log-notifications'
     | 'discussion-mention-integrations'
     | 'logs'
+    | 'logs-json-parse'
+    | 'logs-retention'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'

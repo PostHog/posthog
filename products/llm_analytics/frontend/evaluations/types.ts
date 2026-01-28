@@ -1,6 +1,15 @@
 import { AnyPropertyFilter } from '~/types'
 
+import { LLMProvider } from '../settings/llmProviderKeysLogic'
+
 export type EvaluationOutputType = 'boolean'
+
+export interface ModelConfiguration {
+    provider: LLMProvider
+    model: string
+    provider_key_id: string | null
+    provider_key_name?: string | null
+}
 
 export interface EvaluationOutputConfig {
     allows_na?: boolean
@@ -18,6 +27,7 @@ export interface EvaluationConfig {
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
+    model_configuration: ModelConfiguration | null
     total_runs: number
     last_run_at?: string
     created_at: string

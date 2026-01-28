@@ -8,10 +8,17 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini'
+
+export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    gemini: 'Google Gemini',
+}
 
 export interface LLMProviderKey {
     id: string
-    provider: 'openai'
+    provider: LLMProvider
     name: string
     state: LLMProviderKeyState
     error_message: string | null
@@ -38,10 +45,9 @@ export interface EvaluationConfig {
 }
 
 export interface CreateLLMProviderKeyPayload {
-    provider: 'openai'
+    provider: LLMProvider
     name: string
     api_key: string
-    set_as_active?: boolean
 }
 
 export interface UpdateLLMProviderKeyPayload {
@@ -100,14 +106,20 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         preValidationResult: [
             null as KeyValidationResult | null,
             {
-                preValidateKey: async ({ apiKey }: { apiKey: string }): Promise<KeyValidationResult> => {
+                preValidateKey: async ({
+                    apiKey,
+                    provider,
+                }: {
+                    apiKey: string
+                    provider: LLMProvider
+                }): Promise<KeyValidationResult> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return { state: 'error', error_message: 'No team selected' }
                     }
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
-                        { api_key: apiKey }
+                        { api_key: apiKey, provider }
                     )
                     return response
                 },
@@ -122,16 +134,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         return null
                     }
                     return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
-                },
-                setActiveKey: async ({ keyId }: { keyId: string }): Promise<EvaluationConfig | null> => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return values.evaluationConfig
-                    }
-                    return await api.create(
-                        `/api/environments/${teamId}/llm_analytics/evaluation_config/set_active_key/`,
-                        { key_id: keyId }
-                    )
                 },
             },
         ],
@@ -160,9 +162,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         payload
                     )
                     actions.setNewKeyModalOpen(false)
-                    if (payload.set_as_active) {
-                        actions.loadEvaluationConfig()
-                    }
                     return [...values.providerKeys, response]
                 },
                 updateProviderKey: async ({
@@ -214,14 +213,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     })),
 
     selectors({
-        hasActiveKey: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.active_provider_key !== null,
-        ],
-        activeKey: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.active_provider_key ?? null,
-        ],
         trialEvalsUsed: [
             (s) => [s.evaluationConfig],
             (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_evals_used ?? 0,
@@ -258,9 +249,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         },
         deleteProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to delete API key: ${error || 'Unknown error'}`)
-        },
-        setActiveKeyFailure: ({ error }) => {
-            lemonToast.error(`Failed to activate API key: ${error || 'Unknown error'}`)
         },
     })),
 

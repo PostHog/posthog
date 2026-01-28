@@ -1,7 +1,7 @@
 from llm_gateway.products.config import (
-    ARRAY_EU_APP_ID,
-    ARRAY_US_APP_ID,
     PRODUCTS,
+    TWIG_EU_APP_ID,
+    TWIG_US_APP_ID,
     WIZARD_EU_APP_ID,
     WIZARD_US_APP_ID,
     ProductConfig,
@@ -10,10 +10,10 @@ from llm_gateway.products.config import (
 )
 
 __all__ = [
-    "ARRAY_EU_APP_ID",
-    "ARRAY_US_APP_ID",
     "PRODUCTS",
     "ProductConfig",
+    "TWIG_EU_APP_ID",
+    "TWIG_US_APP_ID",
     "WIZARD_EU_APP_ID",
     "WIZARD_US_APP_ID",
     "check_product_access",

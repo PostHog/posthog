@@ -26,7 +26,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
 from posthog.batch_exports.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
@@ -68,8 +68,13 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 logger = structlog.get_logger(__name__)
 
 
-def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetime:
-    """Parse any datetime input as a proper dt.datetime.
+def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.datetime:
+    """Validate and parse a date/datetime input as a proper dt.datetime.
+
+    If the interval is daily or weekly, we expect the input to be an ISO formatted date string.
+    We then need to convert it to a datetime using the batch export's timezone and offset.
+
+    For all other intervals, we expect the input to be an ISO formatted datetime string.
 
     Args:
         date_input: The datetime input to parse.
@@ -80,21 +85,49 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
     Returns:
         The parsed dt.datetime.
     """
-    try:
-        # The Right Way (TM) to check this would be by calling isinstance, but that doesn't feel very Pythonic.
-        # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
-        # Read more here: https://github.com/python/mypy/issues/2420.
-        # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input)
-    except (TypeError, ValueError):
-        raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+    if batch_export.interval == "day" or batch_export.interval == "week":
+        try:
+            parsed_date = dt.date.fromisoformat(date_input)
+        except (TypeError, ValueError):
+            # Try to parse as a datetime string so we can give a more helpful error message
+            try:
+                parsed = dt.datetime.fromisoformat(date_input)
+                raise ValidationError(
+                    f"Input '{date_input}' is not a valid ISO formatted date. "
+                    "Daily or weekly batch export backfills expect only the date component, but a time was included."
+                )
+            except (TypeError, ValueError):
+                pass
+            raise ValidationError(f"Input '{date_input}' is not a valid ISO formatted date.")
 
-    if parsed.tzinfo is None:
-        raise ValidationError(f"Input {date_input} is naive.")
+        if batch_export.interval == "week":
+            # Validate that the provided date is on the correct day of the week, according to the batch export's day offset
+            # Python's date.isoweekday() returns 1-7 for Monday-Sunday, so we need to convert it to 0-6 for Sunday-Saturday
+            normalized_day = parsed_date.isoweekday() % 7
+            if normalized_day != batch_export.offset_day:
+                # get day of week as string
+                day_of_week = parsed_date.strftime("%A")
+                expected_day_of_week = batch_export.offset_day_name
+                assert expected_day_of_week is not None
+                raise ValidationError(
+                    f"Input {date_input} is not on the correct day of the week for this batch export. "
+                    f"{date_input} is a {day_of_week} but this batch export is configured to run "
+                    f"weekly on {expected_day_of_week}."
+                )
+
+        # If we have an offset hour, add it to the parsed datetime
+        # Also, apply the timezone to the parsed datetime
+        time_of_day = dt.time.min if batch_export.offset_hour is None else dt.time(hour=batch_export.offset_hour)
+        parsed = dt.datetime.combine(parsed_date, time_of_day).replace(tzinfo=batch_export.timezone_info)
 
     else:
-        if team is not None:
-            parsed = parsed.astimezone(team.timezone_info)
+        try:
+            parsed = dt.datetime.fromisoformat(date_input)
+        except (TypeError, ValueError):
+            raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+
+        if parsed.tzinfo is None:
+            raise ValidationError(f"Input {date_input} is naive.")
 
     return parsed
 
@@ -363,6 +396,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
     hogql_query = HogQLSelectQueryField(required=False)
+    timezone = serializers.ChoiceField(choices=TIMEZONES, required=False, allow_null=True)
+    offset_day = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=6)
+    offset_hour = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=23)
 
     class Meta:
         model = BatchExport
@@ -383,6 +419,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "hogql_query",
             "schema",
             "filters",
+            "timezone",
+            "offset_day",
+            "offset_hour",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
@@ -395,7 +434,103 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if model is not None and model != "events":
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
+        # Convert offset_day and offset_hour to interval_offset
+        interval = attrs.get("interval")
+        if interval is not None:
+            # Check if offset fields are in the request (for PATCH, distinguish between absent and None)
+            offset_day_provided = "offset_day" in attrs
+            offset_hour_provided = "offset_hour" in attrs
+            offset_day = attrs.pop("offset_day", None)
+            offset_hour = attrs.pop("offset_hour", None)
+
+            if interval == "day":
+                # For daily exports, only offset_hour is used
+                if offset_day_provided and offset_day is not None:
+                    raise serializers.ValidationError("offset_day should not be specified for daily intervals")
+
+                if offset_hour_provided:
+                    # User explicitly provided offset_hour (even if None)
+                    attrs["interval_offset"] = offset_hour * 3600 if offset_hour is not None else None
+                elif not self.partial:
+                    # PUT or new instance: default to None if not provided
+                    attrs["interval_offset"] = None
+                # otherwise if a PATCH and offset_hour is not provided, don't set interval_offset in attrs
+                # to preserve existing value
+            elif interval == "week":
+                # For weekly exports, both offset_day and offset_hour are used
+                if offset_day_provided or offset_hour_provided:
+                    day = offset_day or 0
+                    hour = offset_hour or 0
+                    attrs["interval_offset"] = day * 86400 + hour * 3600
+                elif not self.partial:
+                    # PUT or new instance: default to None if not provided
+                    attrs["interval_offset"] = None
+                # otherwise if a PATCH and offset fields not provided, don't set interval_offset in attrs
+                # to preserve existing value
+            else:
+                # For other intervals, reset interval_offset to None
+                # Also validate that offset fields are not provided
+                if offset_day_provided and offset_day is not None:
+                    raise serializers.ValidationError("offset_day is not applicable for non-daily/weekly intervals")
+                if offset_hour_provided and offset_hour is not None:
+                    raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
+                attrs["interval_offset"] = None
+
         return attrs
+
+    def validate_timezone(self, timezone: str | None) -> str | None:
+        """Validate timezone.
+
+        We set the timezone to the default value of 'UTC' if it is None.
+
+        NOTE: This only gets called if 'timezone' is provided in the request data.
+        (i.e. if we're not patching the timezone this function is not called and the timezone remains unchanged)
+        """
+
+        if timezone is None:
+            return "UTC"
+        return timezone
+
+    def validate_offset_day(self, offset_day: int | None) -> int | None:
+        """Validate offset_day based on the interval.
+
+        It should be between 0-6 (Sunday-Saturday) for weekly intervals (this is included in the IntegerField
+        validation, so we don't need to validate it here).
+        Sunday is 0 since this is what is used by Temporal and Sunday is also the default week start day in PostHog.
+
+        It should be None for all other intervals.
+        """
+        interval = self.initial_data.get("interval")
+        if interval is None and self.instance:
+            interval = self.instance.interval
+
+        if offset_day is None:
+            return None
+
+        if interval != "week":
+            raise serializers.ValidationError("offset_day is not applicable for non-weekly intervals")
+
+        return offset_day
+
+    def validate_offset_hour(self, offset_hour: int | None) -> int | None:
+        """Validate offset_hour based on the interval.
+
+        Rules:
+        1. offset_hour must be between 0-23 for daily and weekly intervals (this is included in the IntegerField
+            validation, so we don't need to validate it here).
+        2. offset_hour is not applicable for other intervals
+        """
+        interval = self.initial_data.get("interval")
+        if interval is None and self.instance:
+            interval = self.instance.interval
+
+        if offset_hour is None:
+            return None
+
+        if interval not in ("day", "week"):
+            raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
+
+        return offset_hour
 
     def validate_filters(self, filters):
         if filters is None:
@@ -816,21 +951,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": False})
 
-    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Trigger a backfill for a BatchExport.
-
-        Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
-        """
-        batch_export = self.get_object()
-        backfill_workflow_id = create_backfill(
-            self.team,
-            batch_export,
-            request.data.get("start_at"),
-            request.data.get("end_at"),
-        )
-        return response.Response({"backfill_id": backfill_workflow_id})
-
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state.
 
@@ -986,12 +1106,12 @@ def create_backfill(
     temporal = sync_connect()
 
     if start_at_input is not None:
-        start_at = validate_date_input(start_at_input, team)
+        start_at = validate_date_input(start_at_input, batch_export)
     else:
         start_at = None
 
     if end_at_input is not None:
-        end_at = validate_date_input(end_at_input, team)
+        end_at = validate_date_input(end_at_input, batch_export)
     else:
         end_at = None
 
@@ -1030,8 +1150,7 @@ def create_backfill(
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
 
     if start_at >= end_at:
-        raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
-
+        raise ValidationError("The initial backfill datetime 'start_at' must be before 'end_at'")
     if end_at > dt.datetime.now(dt.UTC):
         raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 

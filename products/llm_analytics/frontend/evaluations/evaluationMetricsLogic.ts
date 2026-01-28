@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, HogQLMathType } from '~/types'
 
-import { llmAnalyticsLogic } from '../llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { PASS_RATE_SUCCESS_THRESHOLD } from './components/EvaluationMetrics'
 import type { evaluationMetricsLogicType } from './evaluationMetricsLogicType'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -61,8 +61,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'evaluations', 'evaluationMetricsLogic']),
 
     connect({
-        values: [llmEvaluationsLogic, ['evaluations'], llmAnalyticsLogic, ['dateFilter']],
-        actions: [llmAnalyticsLogic, ['setDates']],
+        values: [llmEvaluationsLogic, ['evaluations'], llmAnalyticsSharedLogic, ['dateFilter']],
+        actions: [llmAnalyticsSharedLogic, ['setDates']],
     }),
 
     actions({

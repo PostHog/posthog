@@ -16,7 +16,6 @@
  */
 export type Platform9aaEnumApi = (typeof Platform9aaEnumApi)[keyof typeof Platform9aaEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const Platform9aaEnumApi = {
     zoom: 'zoom',
     teams: 'teams',
@@ -34,7 +33,6 @@ export const Platform9aaEnumApi = {
  */
 export type Status292EnumApi = (typeof Status292EnumApi)[keyof typeof Status292EnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const Status292EnumApi = {
     recording: 'recording',
     uploading: 'uploading',
@@ -157,7 +155,6 @@ export interface PaginatedDesktopRecordingListApi {
 export type CreateRecordingRequestPlatformEnumApi =
     (typeof CreateRecordingRequestPlatformEnumApi)[keyof typeof CreateRecordingRequestPlatformEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CreateRecordingRequestPlatformEnumApi = {
     zoom: 'zoom',
     teams: 'teams',
@@ -315,7 +312,7 @@ export interface AppendSegmentsApi {
     segments: TranscriptSegmentApi[]
 }
 
-export type EnvironmentsDesktopRecordingsListParams = {
+export type DesktopRecordingsListParams = {
     /**
      * Number of results to return per page.
      */

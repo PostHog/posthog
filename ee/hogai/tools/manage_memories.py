@@ -29,15 +29,23 @@ Use memories to:
 - Save information the user explicitly asks you to remember
 
 Always query memories when you need context about the user's product or when they reference previous discussions.
+
+Store memories pre-emptively - you don't need to be asked specifically to store them, if there's something you think is important, check if there's already a memory about it, and if there isn't, make one.
 """.strip()
 
 
 class CreateMemoryArgs(BaseModel):
+    """Store a new memory with content and optional metadata tags."""
+
+    action: Literal["create"]
     contents: str = Field(description="The content of the memory to store")
     metadata: dict | None = Field(default=None, description="Optional metadata tags for the memory")
 
 
 class QueryMemoryArgs(BaseModel):
+    """Search memories using semantic similarity and optional filters."""
+
+    action: Literal["query"]
     query_text: str = Field(description="The search query for finding relevant memories")
     metadata_filter: dict | None = Field(
         default=None, description="Filter by metadata key-value pairs, e.g. {'type': 'preference'}"
@@ -47,17 +55,31 @@ class QueryMemoryArgs(BaseModel):
 
 
 class UpdateMemoryArgs(BaseModel):
+    """Update an existing memory's content or metadata."""
+
+    action: Literal["update"]
     memory_id: str = Field(description="The ID of the memory to update")
     contents: str | None = Field(default=None, description="New content for the memory")
     metadata: dict | None = Field(default=None, description="New metadata for the memory")
 
 
+class DeleteMemoryArgs(BaseModel):
+    """Remove a memory by its ID."""
+
+    action: Literal["delete"]
+    memory_id_to_delete: str = Field(description="The ID of the memory to delete")
+
+
+class ListMetadataKeysArgs(BaseModel):
+    """Get all available metadata keys across memories."""
+
+    action: Literal["list_metadata_keys"]
+
+
 class ManageMemoriesToolArgs(BaseModel):
-    action: Literal["create", "query", "update", "list_metadata_keys"] = Field(
-        description="The action to perform: create (store new memory), query (search memories), update (modify existing), or list_metadata_keys (get available filter keys)"
-    )
-    args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | None = Field(
-        default=None, description="Arguments for the action (not needed for list_metadata_keys)"
+    args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | ListMetadataKeysArgs = Field(
+        discriminator="action",
+        description="Arguments for the memory action, with 'action' determining the operation type",
     )
 
 
@@ -75,25 +97,18 @@ class ManageMemoriesTool(MaxTool):
 
     async def _arun_impl(
         self,
-        action: Literal["create", "query", "update", "list_metadata_keys"],
-        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | None = None,
+        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | ListMetadataKeysArgs,
     ) -> tuple[str, dict[str, Any]]:
-        if action == "create":
-            if not isinstance(args, CreateMemoryArgs):
-                raise MaxToolRetryableError("CreateMemoryArgs required for create action")
+        if isinstance(args, CreateMemoryArgs):
             return await self._create_memory(args.contents, args.metadata)
-        elif action == "query":
-            if not isinstance(args, QueryMemoryArgs):
-                raise MaxToolRetryableError("QueryMemoryArgs required for query action")
+        elif isinstance(args, QueryMemoryArgs):
             return await self._query_memories(args.query_text, args.metadata_filter, args.user_only, args.limit)
-        elif action == "update":
-            if not isinstance(args, UpdateMemoryArgs):
-                raise MaxToolRetryableError("UpdateMemoryArgs required for update action")
+        elif isinstance(args, UpdateMemoryArgs):
             return await self._update_memory(args.memory_id, args.contents, args.metadata)
-        elif action == "list_metadata_keys":
+        elif isinstance(args, DeleteMemoryArgs):
+            return await self._delete_memory(args.memory_id_to_delete)
+        elif isinstance(args, ListMetadataKeysArgs):
             return await self._list_metadata_keys()
-        else:
-            raise MaxToolRetryableError(f"Unknown action: {action}")
 
     async def _create_memory(self, contents: str, metadata: dict | None) -> tuple[str, dict[str, Any]]:
         @database_sync_to_async
@@ -132,18 +147,29 @@ class ManageMemoriesTool(MaxTool):
 
         metadata_filter_sql = " AND ".join(metadata_conditions) if metadata_conditions else "1=1"
 
+        # This query isn't particularly optimal, but the universe of memories per team is going to be
+        # so small that it really doesn't need to be - we don't need to try and pick up on the vector
+        # indexes or anything, pure brute force search is fine.
         query = f"""
             SELECT
                 document_id,
                 content,
                 metadata,
                 cosineDistance(embedding, embedText({{query_text}}, {{model_name}})) as distance
-            FROM document_embeddings
-            WHERE team_id = {{team_id}}
-              AND model_name = {{model_name}}
-              AND product = 'posthog-ai'
-              AND document_type = 'memory'
-              AND ({{skip_user_filter}} OR metadata.user_id = {{user_id}})
+            FROM (
+                SELECT
+                    document_id,
+                    argMax(content, inserted_at) as content,
+                    argMax(metadata, inserted_at) as metadata,
+                    argMax(embedding, inserted_at) as embedding
+                FROM document_embeddings
+                WHERE model_name = {{model_name}}
+                  AND product = 'posthog-ai'
+                  AND document_type = 'memory'
+                GROUP BY document_id, model_name, product, document_type, rendering
+            )
+            WHERE ({{skip_user_filter}} OR JSONExtractString(metadata, 'user_id') = {{user_id}})
+              AND NOT JSONExtractBool(metadata, 'deleted')
               AND ({metadata_filter_sql})
             ORDER BY distance ASC
             LIMIT {{limit}}
@@ -160,7 +186,6 @@ class ManageMemoriesTool(MaxTool):
                 team=self._team,
                 placeholders={
                     "query_text": ast.Constant(value=query_text),
-                    "team_id": ast.Constant(value=self._team.id),
                     "model_name": ast.Constant(value=EMBEDDING_MODEL),
                     "user_id": ast.Constant(value=user_id),
                     "skip_user_filter": ast.Constant(value=skip_user_filter),
@@ -237,8 +262,31 @@ class ManageMemoriesTool(MaxTool):
             {"memory_id": str(memory.id), "action": "updated"},
         )
 
-    async def _list_metadata_keys(self) -> tuple[str, dict[str, Any]]:
+    async def _delete_memory(self, memory_id: str) -> tuple[str, dict[str, Any]]:
         @database_sync_to_async
+        def delete():
+            try:
+                memory = AgentMemory.objects.get(id=memory_id, team=self._team)
+            except AgentMemory.DoesNotExist:
+                return None
+
+            memory.metadata = {**memory.metadata, "deleted": True}
+            with transaction.atomic():
+                memory.embed(EMBEDDING_MODEL)
+                memory.delete()
+            return memory_id
+
+        deleted_id = await delete()
+        if not deleted_id:
+            raise MaxToolRetryableError(f"Memory with ID {memory_id} not found")
+
+        return (
+            f"Memory {memory_id} deleted successfully",
+            {"memory_id": deleted_id, "action": "deleted"},
+        )
+
+    async def _list_metadata_keys(self) -> tuple[str, dict[str, Any]]:
+        @database_sync_to_async(thread_sensitive=False)
         def get_keys():
             memories = AgentMemory.objects.filter(team=self._team).values_list("metadata", flat=True)
             all_keys: set[str] = set()

@@ -25,15 +25,20 @@ The assistant used the create_survey tool because:
 
 POSITIVE_EXAMPLE_ANALYZE_SURVEY = """
 User: What are users saying in the feedback survey?
-Assistant: I'll analyze the survey responses to extract themes and insights.
-*Uses analyze_survey_responses to analyze open-ended responses*
+Assistant: I'll retrieve the survey responses and analyze them for you.
+*Uses analyze_survey_responses to get the response data*
+Based on the 47 responses, here are the key themes I identified:
+1. **Performance concerns** - Users mention slow loading times (12 responses)
+2. **Feature requests** - Dark mode and mobile improvements requested (8 responses)
+3. **Positive feedback** - Users appreciate the intuitive interface (15 responses)
+Overall sentiment is mixed, with actionable recommendations to prioritize performance optimization.
 """.strip()
 
 POSITIVE_EXAMPLE_ANALYZE_SURVEY_REASONING = """
 The assistant used the analyze_survey_responses tool because:
 1. The user wants to understand feedback from survey responses
-2. The tool can extract themes, sentiment, and actionable insights from open-ended questions
-3. This is a straightforward analysis that doesn't require multiple steps
+2. The tool retrieves the open-ended responses from the survey
+3. The assistant then analyzes the responses to identify themes, sentiment, and actionable insights
 """.strip()
 
 POSITIVE_EXAMPLE_SURVEY_WITH_FLAG = """

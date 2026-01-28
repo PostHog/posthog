@@ -43,6 +43,7 @@ class NodeRole(StrEnum):
     INGESTION_MEDIUM = "medium"
     SHUFFLEHOG = "shufflehog"
     ENDPOINTS = "endpoints"
+    LOGS = "logs"
 
 
 _default_workload = Workload.ONLINE

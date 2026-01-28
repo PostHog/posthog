@@ -4,10 +4,15 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import UUIDTModel
 
 
-class LLMProviderKey(UUIDTModel):
-    class Provider(models.TextChoices):
-        OPENAI = "openai"
+class LLMProvider(models.TextChoices):
+    """Shared provider enum for all LLM-related models."""
 
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GEMINI = "gemini"
+
+
+class LLMProviderKey(UUIDTModel):
     class State(models.TextChoices):
         UNKNOWN = "unknown"
         OK = "ok"
@@ -15,7 +20,7 @@ class LLMProviderKey(UUIDTModel):
         ERROR = "error"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    provider = models.CharField(max_length=50, choices=Provider.choices)
+    provider = models.CharField(max_length=50, choices=LLMProvider.choices)
     name = models.CharField(max_length=255)
     state = models.CharField(max_length=20, choices=State.choices, default=State.UNKNOWN)
     error_message = models.TextField(null=True, blank=True)

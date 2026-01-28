@@ -1,10 +1,10 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
-import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 
 export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'> {
@@ -57,16 +57,19 @@ export function CodeEditorResizeable({
                 height: manualHeight ?? height,
             }}
         >
-            <AutoSizer disableWidth>
-                {({ height }) => (
-                    <CodeEditor
-                        {...props}
-                        className={editorClassName}
-                        height={height - 2} // Account for border
-                        originalValue={originalValue}
-                    />
-                )}
-            </AutoSizer>
+            <AutoSizer
+                disableWidth
+                renderProp={({ height }) =>
+                    height ? (
+                        <CodeEditor
+                            {...props}
+                            className={editorClassName}
+                            height={height - 2} // Account for border
+                            originalValue={originalValue}
+                        />
+                    ) : null
+                }
+            />
 
             {showDiffActions && (
                 <div className="flex absolute top-2 right-2 z-20 gap-1 p-1 bg-white rounded-lg border shadow-sm">

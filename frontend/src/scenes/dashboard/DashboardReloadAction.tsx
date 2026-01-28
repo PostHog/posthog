@@ -1,10 +1,9 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -13,7 +12,6 @@ import { dayjs } from 'lib/dayjs'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDuration } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -46,7 +44,8 @@ const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, nextAllowedDashboardRefresh, dashboardLoadData } =
         useValues(dashboardLogic)
-    const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
+    const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
+        useActions(dashboardLogic)
 
     usePageVisibilityCb((pageIsVisible) => {
         setPageVisibility(pageIsVisible)
@@ -72,8 +71,35 @@ export function DashboardReloadAction(): JSX.Element {
         }
     })
 
+    const refreshDisabledReason =
+        !itemsLoading &&
+        blockRefresh &&
+        nextAllowedDashboardRefresh &&
+        dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
+            ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
+            : ''
+
     return (
-        <div className="relative">
+        <div className="relative flex items-center gap-2">
+            {/* Status text */}
+            <span className="text-muted text-sm whitespace-nowrap">
+                {itemsLoading ? (
+                    <span className="flex items-center gap-1">
+                        <Spinner textColored className="text-sm" />
+                        {refreshMetrics.total ? (
+                            <>
+                                {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
+                                {refreshMetrics.completed} out of {refreshMetrics.total}
+                            </>
+                        ) : (
+                            <>{dashboardLoadData?.action === 'initial_load' ? 'Loading' : 'Refreshing'}...</>
+                        )}
+                    </span>
+                ) : (
+                    <LastRefreshText />
+                )}
+            </span>
+
             <AppShortcut
                 name="DashboardRefresh"
                 keybind={[keyBinds.refresh]}
@@ -82,11 +108,11 @@ export function DashboardReloadAction(): JSX.Element {
                 scope={Scene.Dashboard}
             >
                 <LemonButton
-                    onClick={() => triggerDashboardRefresh()}
+                    onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())}
                     type="secondary"
                     icon={
                         itemsLoading ? (
-                            <Spinner textColored />
+                            <IconX />
                         ) : blockRefresh &&
                           nextAllowedDashboardRefresh &&
                           dayjs(nextAllowedDashboardRefresh).isAfter(dayjs()) ? (
@@ -97,15 +123,8 @@ export function DashboardReloadAction(): JSX.Element {
                     }
                     size="small"
                     data-attr="dashboard-items-action-refresh"
-                    disabledReason={
-                        blockRefresh &&
-                        nextAllowedDashboardRefresh &&
-                        dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
-                            ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
-                            : itemsLoading
-                              ? 'Loading...'
-                              : ''
-                    }
+                    tooltip={itemsLoading ? 'Cancel refresh' : undefined}
+                    disabledReason={refreshDisabledReason}
                     sideAction={{
                         'data-attr': 'dashboard-items-action-refresh-dropdown',
                         dropdown: {
@@ -150,24 +169,10 @@ export function DashboardReloadAction(): JSX.Element {
                         },
                     }}
                 >
-                    <span className={clsx('dashboard-items-action-refresh-text')}>
-                        {itemsLoading ? (
-                            <>
-                                {refreshMetrics.total ? (
-                                    <>
-                                        {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
-                                        {refreshMetrics.completed} out of {refreshMetrics.total}
-                                    </>
-                                ) : (
-                                    <>{dashboardLoadData?.action === 'initial_load' ? 'Loading' : 'Refreshing'}...</>
-                                )}
-                            </>
-                        ) : (
-                            <LastRefreshText />
-                        )}
-                    </span>
+                    {itemsLoading ? 'Cancel' : 'Refresh'}
                 </LemonButton>
             </AppShortcut>
+
             <LemonBadge
                 size="small"
                 content={

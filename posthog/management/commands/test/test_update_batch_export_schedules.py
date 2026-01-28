@@ -41,26 +41,18 @@ DUMMY_CONFIG = {
 
 
 @pytest.fixture
-def timezone(request):
-    try:
-        return request.param
-    except AttributeError:
-        return "UTC"
-
-
-@pytest.fixture
 def organization():
     return create_organization("test")
 
 
 @pytest.fixture
-def team(organization, timezone):
-    return create_team(organization=organization, timezone=timezone)
+def team(organization):
+    return create_team(organization=organization)
 
 
 @pytest.fixture
-def team_2(organization, timezone):
-    return create_team(organization=organization, timezone=timezone)
+def team_2(organization):
+    return create_team(organization=organization)
 
 
 def _create_batch_export(team, destination_type, timezone):
@@ -72,6 +64,7 @@ def _create_batch_export(team, destination_type, timezone):
     batch_export_data = {
         "name": f"{destination_type}-batch-export",
         "interval": "hour",
+        "timezone": timezone,
     }
     destination = BatchExportDestination(**destination_data)
     batch_export = BatchExport(team=team, destination=destination, **batch_export_data)
@@ -97,7 +90,7 @@ def cleanup_temporal_schedules(temporal: TemporalClient):
             delete_temporal_schedule(temporal, str(schedule.id))
         except RPCError:
             # Assume this is fine as we are tearing down, but don't fail silently.
-            logging.warn("Schedule %s has already been deleted, ignoring.", schedule.id)
+            logging.warning("Schedule %s has already been deleted, ignoring.", schedule.id)
             continue
 
 
@@ -113,7 +106,7 @@ def _update_schedule(temporal: TemporalClient, batch_export: BatchExport, jitter
     schedule = describe_schedule(temporal, str(batch_export.id))
     new_schedule = schedule.schedule
     new_schedule.spec.jitter = jitter
-    update_schedule(temporal, str(batch_export.id), new_schedule, keep_tz=True)
+    update_schedule(temporal, str(batch_export.id), new_schedule)
     schedule = describe_schedule(temporal, str(batch_export.id))
     assert schedule.schedule.spec.jitter == jitter
 
@@ -151,9 +144,10 @@ def test_update_batch_export_schedules_for_single_batch_export(team, timezone, p
     _assert_schedule(temporal, batch_export, timezone, dt.timedelta(minutes=15), paused)
 
 
-def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_destination_type(team, timezone, temporal):
+def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_destination_type(team, temporal):
     """Test the update_batch_export_schedules command updates the schedule for all batch exports of a given destination type."""
 
+    timezone = "UTC"
     batch_export_s3_1 = _create_batch_export(team, "S3", timezone)
     batch_export_s3_2 = _create_batch_export(team, "S3", timezone)
     batch_export_snowflake = _create_batch_export(team, "Snowflake", timezone)
@@ -176,9 +170,10 @@ def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_destinat
     _assert_schedule(temporal, batch_export_snowflake, timezone, dt.timedelta(hours=6), False)
 
 
-def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_team(team, team_2, timezone, temporal):
+def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_team(team, team_2, temporal):
     """Test the update_batch_export_schedules command updates the schedule for all batch exports of a given team."""
 
+    timezone = "US/Pacific"
     batch_export_1 = _create_batch_export(team, "S3", timezone)
     batch_export_2 = _create_batch_export(team, "S3", timezone)
     batch_export_team_2 = _create_batch_export(team_2, "S3", timezone)
@@ -202,7 +197,7 @@ def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_team(tea
 
 
 def test_update_batch_export_schedules_raises_error_if_no_batch_export_id_or_destination_type_or_team_id_provided(
-    team, timezone, temporal
+    team, temporal
 ):
     """Test the update_batch_export_schedules command raises an error if no batch export id, destination type, or team id is provided."""
 
@@ -212,9 +207,10 @@ def test_update_batch_export_schedules_raises_error_if_no_batch_export_id_or_des
         )
 
 
-def test_update_batch_export_schedules_raises_error_if_no_batch_exports_found(team, timezone, temporal):
+def test_update_batch_export_schedules_raises_error_if_no_batch_exports_found(team, temporal):
     """Test the update_batch_export_schedules command raises an error if no batch exports are found."""
 
+    timezone = "UTC"
     batch_export_snowflake = _create_batch_export(team, "Snowflake", timezone)
     _update_schedule(temporal, batch_export_snowflake, dt.timedelta(hours=6))
 

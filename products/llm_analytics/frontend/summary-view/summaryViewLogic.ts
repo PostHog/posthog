@@ -103,7 +103,13 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
     loaders(({ props, values }) => ({
         summaryData: {
             __default: null as { summary: StructuredSummary; text_repr: string } | null,
-            generateSummary: async ({ mode, forceRefresh = false }: { mode: SummaryMode; forceRefresh?: boolean }) => {
+            generateSummary: async ({ mode, forceRefresh }: { mode: SummaryMode; forceRefresh?: boolean }) => {
+                // Initialize here rather than in the function signature to avoid TS2371
+                // Kea should be fixed to avoid including the default value in the function signature
+                if (forceRefresh === undefined) {
+                    forceRefresh = false
+                }
+
                 // Check data processing consent before making API call
                 if (!values.dataProcessingAccepted) {
                     throw new Error('AI data processing must be approved before generating summaries')

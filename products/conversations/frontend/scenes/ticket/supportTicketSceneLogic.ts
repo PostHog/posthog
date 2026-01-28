@@ -11,6 +11,7 @@ import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
+import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
@@ -320,15 +321,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Load session context data
                 actions.loadPerson()
 
-                // Clear any existing interval
-                if (cache.pollingInterval) {
-                    clearInterval(cache.pollingInterval)
-                }
+                // Refresh the unread count since viewing a ticket marks it as read
+                supportTicketCounterLogic.findMounted()?.actions.refreshCount()
 
-                // Start new polling interval
-                cache.pollingInterval = setInterval(() => {
-                    actions.loadMessages()
-                }, MESSAGE_POLL_INTERVAL)
+                // Start message polling using disposables pattern
+                cache.disposables.dispose('messagePolling')
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
+                        actions.loadMessages()
+                    }, MESSAGE_POLL_INTERVAL)
+                    return () => clearInterval(intervalId)
+                }, 'messagePolling')
             } catch (error) {
                 console.error('Failed to load ticket:', error)
                 lemonToast.error('Failed to load ticket')
@@ -445,8 +448,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         }
     }),
     beforeUnmount(({ cache }) => {
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-        }
+        cache.disposables.disposeAll()
     }),
 ])

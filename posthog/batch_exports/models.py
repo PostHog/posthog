@@ -1,6 +1,8 @@
 import datetime as dt
 from datetime import timedelta
+from enum import IntEnum
 from math import ceil
+from zoneinfo import ZoneInfo
 
 from django.db import models
 
@@ -18,6 +20,27 @@ from posthog.models.utils import UUIDTModel
 # this is what is used by the Team model
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
+
+
+class DayOfWeek(IntEnum):
+    """Day of the week enum for batch export schedules.
+
+    Values match Temporal's day_of_week format (0=Sunday, 6=Saturday) and is also aligns with the WeekStartDay enum in
+    the Team model.
+    """
+
+    SUNDAY = 0
+    MONDAY = 1
+    TUESDAY = 2
+    WEDNESDAY = 3
+    THURSDAY = 4
+    FRIDAY = 5
+    SATURDAY = 6
+
+    @property
+    def name_capitalized(self) -> str:
+        """Return the capitalized day name (e.g., 'Sunday', 'Monday')."""
+        return self.name.capitalize()
 
 
 class BatchExportDestination(UUIDTModel):
@@ -270,13 +293,17 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
 
         So, the values set here are quite arbitrary and are adjusted based on
         how other systems react to batch exports load.
+
+        Note that for daily and weekly exports, we allow the user to configure
+        the start hour of the export, therefore we don't want to make the jitter
+        too large.
         """
         if self.interval == "hour":
             return timedelta(minutes=15)
         elif self.interval == "day":
-            return timedelta(hours=1)
+            return timedelta(minutes=30)
         elif self.interval == "week":
-            return timedelta(days=1)
+            return timedelta(hours=1)
         elif self.interval.startswith("every"):
             # This yields 1 minute for 5 minute batch exports, which is the only
             # "every" interval in use currently.
@@ -285,6 +312,55 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             return self.interval_time_delta / 5
 
         raise ValueError(f"Invalid interval: '{self.interval}'")
+
+    @property
+    def timezone_info(self) -> ZoneInfo:
+        """Return the timezone info for this batch export."""
+        return ZoneInfo(self.timezone or "UTC")
+
+    @property
+    def offset_day(self) -> int | None:
+        """Return the offset day for this batch export.
+
+        For a weekly schedule, this is the day of the week to start at (0-6, where 0 is Sunday).
+        Sunday is 0 since this is what is used by Temporal and Sunday is also the default week start day in PostHog.
+        For all other intervals, this is None.
+        """
+        if self.interval == "week":
+            if self.interval_offset is None:
+                return int(DayOfWeek.SUNDAY)  # default to Sunday
+            day_value = self.interval_offset // (24 * 3600)
+            return int(DayOfWeek(day_value))
+        return None
+
+    @property
+    def offset_day_name(self) -> str | None:
+        """Return the offset day name for this batch export.
+
+        For a weekly schedule, this is the name of the day to start at (Sunday, Monday, etc.).
+        For all other intervals, this is None.
+        """
+        offset_day = self.offset_day
+        if offset_day is None:
+            return None
+        return DayOfWeek(offset_day).name_capitalized
+
+    @property
+    def offset_hour(self) -> int | None:
+        """Return the offset hour for this batch export.
+
+        For a daily or weekly schedule, this is the hour to start at (0-23).
+        For all other intervals, this is None.
+
+        Note: we don't support sub-hour offsets at the moment so we can assume the offset is always an
+        integer number of hours.
+        """
+        if self.interval == "day" or self.interval == "week":
+            if self.interval_offset is None:
+                return 0  # default to midnight
+            offset_in_hours = self.interval_offset // 3600
+            return offset_in_hours % 24
+        return None
 
 
 class BatchExportBackfill(UUIDTModel):

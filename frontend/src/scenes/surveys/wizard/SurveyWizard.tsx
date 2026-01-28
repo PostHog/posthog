@@ -18,6 +18,7 @@ import { SurveyQuestionBranchingType } from '~/types'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { NewSurvey } from '../constants'
 import { surveyLogic } from '../surveyLogic'
+import { doesSurveyHaveDisplayConditions } from '../utils'
 import { MaxTip } from './MaxTip'
 import { WizardStepper } from './WizardStepper'
 import { AppearanceStep } from './steps/AppearanceStep'
@@ -113,6 +114,66 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
     }
 
+    const getConditionsSummary = (): string[] => {
+        const conditions = survey.conditions
+        const summary: string[] = []
+
+        if (conditions?.url) {
+            summary.push(`URL contains "${conditions.url}"`)
+        }
+
+        if (conditions?.selector) {
+            summary.push(`Element "${conditions.selector}" is present on page`)
+        }
+
+        if (conditions?.deviceTypes && conditions.deviceTypes.length > 0) {
+            summary.push(`Device type is ${conditions.deviceTypes.join(' or ')}`)
+        }
+
+        if (conditions?.events?.values && conditions.events.values.length > 0) {
+            const eventNames = conditions.events.values.map((e) => e.name).join(', ')
+            summary.push(`User performed event: ${eventNames}`)
+        }
+
+        return summary
+    }
+
+    const showLaunchConfirmation = (onConfirm: () => void): void => {
+        const hasConditions = doesSurveyHaveDisplayConditions(survey)
+        const conditionsSummary = getConditionsSummary()
+
+        LemonDialog.open({
+            title: 'Launch this survey?',
+            content: (
+                <div className="space-y-2">
+                    {hasConditions && conditionsSummary.length > 0 ? (
+                        <>
+                            <p className="text-secondary">
+                                The survey will be shown to users who match these conditions:
+                            </p>
+                            <ul className="list-disc list-inside text-secondary">
+                                {conditionsSummary.map((condition, i) => (
+                                    <li key={i}>{condition}</li>
+                                ))}
+                            </ul>
+                        </>
+                    ) : (
+                        <p className="text-secondary">The survey will immediately start displaying to all users.</p>
+                    )}
+                </div>
+            ),
+            primaryButton: {
+                children: 'Launch',
+                type: 'primary',
+                onClick: onConfirm,
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+            },
+        })
+    }
+
     const handleLaunchClick = (): void => {
         const doLaunch = (): void => {
             launchSurvey()
@@ -128,11 +189,11 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     </p>
                 ),
                 primaryButton: {
-                    children: 'Enable & launch',
+                    children: 'Enable & continue',
                     type: 'primary',
                     onClick: () => {
                         updateCurrentTeam({ surveys_opt_in: true })
-                        doLaunch()
+                        showLaunchConfirmation(doLaunch)
                     },
                 },
                 secondaryButton: {
@@ -141,7 +202,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                 },
             })
         } else {
-            doLaunch()
+            showLaunchConfirmation(doLaunch)
         }
     }
 
@@ -242,20 +303,18 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                         <div className="flex items-center justify-end pt-4 border-t border-border">
                             <div className="flex items-center gap-2">
                                 {currentStep === 'when' && (
-                                    <>
-                                        <LemonButton type="secondary" onClick={() => setStep('appearance')}>
-                                            Customize appearance
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="secondary"
-                                            loading={surveySaving}
-                                            disabled={surveyLaunching}
-                                            onClick={handleSaveClick}
-                                        >
-                                            {isEditing ? 'Save changes' : 'Save as draft'}
-                                        </LemonButton>
-                                    </>
+                                    <LemonButton type="secondary" onClick={() => setStep('appearance')}>
+                                        Customize appearance
+                                    </LemonButton>
                                 )}
+                                <LemonButton
+                                    type="secondary"
+                                    loading={surveySaving}
+                                    disabled={surveyLaunching}
+                                    onClick={handleSaveClick}
+                                >
+                                    {isEditing ? 'Save changes' : 'Save as draft'}
+                                </LemonButton>
                                 {currentStep === 'when' ? (
                                     !isEditing && (
                                         <LemonButton
