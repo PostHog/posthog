@@ -141,7 +141,7 @@ def _build_person_count_query(team: Team, filter: Filter):
             if group_idx is None:
                 continue  # Skip invalid group properties
 
-            group_expr = _build_group_property_expr_for_person(prop, group_idx)
+            group_expr = _build_group_property_expr_for_person(prop, group_idx, team)
             where_exprs.append(group_expr)
 
     # Combine all WHERE expressions with AND
@@ -150,7 +150,7 @@ def _build_person_count_query(team: Team, filter: Filter):
     return select_query
 
 
-def _build_group_property_expr_for_person(prop: Property, group_idx: int) -> "ast.Expr":
+def _build_group_property_expr_for_person(prop: Property, group_idx: int, team: Team) -> "ast.Expr":
     """Build a HogQL expression for a group property filter accessed via persons.group_N.
 
     This allows filtering persons by properties of groups they belong to,
@@ -161,7 +161,7 @@ def _build_group_property_expr_for_person(prop: Property, group_idx: int) -> "as
 
     # Build the property access chain: persons.group_N.properties.{key}
     # Note: The "persons" prefix is implicit since we're querying the persons table
-    chain = [f"group_{group_idx}", "properties", prop.key]
+    chain: list[str | int] = [f"group_{group_idx}", "properties", prop.key]
     field = ast.Field(chain=chain)
 
     operator = PropertyOperator(prop.operator) if prop.operator else PropertyOperator.EXACT
@@ -173,6 +173,7 @@ def _build_group_property_expr_for_person(prop: Property, group_idx: int) -> "as
         operator=operator,
         property=prop,
         is_json_field=True,
+        team=team,
     )
 
 
