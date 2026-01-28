@@ -13,27 +13,16 @@ import { HogQLQueryString, hogql } from '~/queries/utils'
  * Generates a stable color index from a string using djb2 hash.
  * Used for consistent avatar colors based on person identifiers.
  */
-function hashStringToColorIndex(str: string): number {
-    let hash = 5381
-    for (let i = 0; i < str.length; i++) {
-        hash = (hash * 33) ^ str.charCodeAt(i)
-    }
-    return Math.abs(hash) % NUM_LETTERMARK_STYLES
-}
-
-/**
- * Returns a stable color index for a person based on their identifier.
- * Uses distinct_id (or first of distinct_ids) to generate consistent colors.
- */
-export function getPersonColorIndex(person: PersonPropType | null | undefined): number | undefined {
-    if (!person) {
-        return undefined
-    }
-    const identifier = person.distinct_id || person.distinct_ids?.[0]
+export function getPersonColorIndex(identifier: string | null | undefined): number | undefined {
     if (!identifier) {
         return undefined
     }
-    return hashStringToColorIndex(identifier)
+
+    let hash = 5381
+    for (let i = 0; i < identifier.length; i++) {
+        hash = (hash * 33) ^ identifier.charCodeAt(i)
+    }
+    return Math.abs(hash) % NUM_LETTERMARK_STYLES
 }
 
 export type PersonPropType =
