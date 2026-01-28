@@ -3,6 +3,8 @@ import { domToJpeg } from 'modern-screenshot'
 import { toolbarConfigLogic, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
 
+export const PRODUCT_TOURS_SIDEBAR_TRANSITION_MS = 200
+
 export interface ElementInfo {
     selector: string
     tag: string

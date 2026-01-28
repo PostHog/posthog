@@ -9,6 +9,7 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusteringActivityInputs,
     ClusteringComputeResult,
     ClusteringWorkflowInputs,
+    ClusterItem,
     ClusterLabel,
     EmitEventsActivityInputs,
     GenerateLabelsActivityInputs,
@@ -158,9 +159,14 @@ class TestActivityInputOutputModels:
 
     def test_clustering_compute_result(self):
         """Test ClusteringComputeResult structure."""
+        items = [
+            ClusterItem(trace_id="trace_1"),
+            ClusterItem(trace_id="trace_2"),
+            ClusterItem(trace_id="trace_3"),
+        ]
         result = ClusteringComputeResult(
-            clustering_run_id="1_20250108_000000",
-            trace_ids=["trace_1", "trace_2", "trace_3"],
+            clustering_run_id="1_trace_20250108_000000",
+            items=items,
             labels=[0, 0, 1],
             centroids=[[1.0, 2.0], [3.0, 4.0]],
             distances=[[0.1, 0.9], [0.2, 0.8], [0.8, 0.1]],
@@ -169,8 +175,8 @@ class TestActivityInputOutputModels:
             probabilities=[1.0, 1.0, 1.0],
         )
 
-        assert result.clustering_run_id == "1_20250108_000000"
-        assert len(result.trace_ids) == 3
+        assert result.clustering_run_id == "1_trace_20250108_000000"
+        assert len(result.items) == 3
         assert len(result.labels) == 3
         assert len(result.centroids) == 2
         assert len(result.distances) == 3
@@ -179,11 +185,17 @@ class TestActivityInputOutputModels:
 
     def test_generate_labels_activity_inputs(self):
         """Test GenerateLabelsActivityInputs structure."""
+        items = [
+            ClusterItem(trace_id="trace_1"),
+            ClusterItem(trace_id="trace_2"),
+            ClusterItem(trace_id="trace_3"),
+            ClusterItem(trace_id="trace_4"),
+        ]
         inputs = GenerateLabelsActivityInputs(
             team_id=1,
-            trace_ids=["trace_1", "trace_2", "trace_3", "trace_4"],
+            items=items,
             labels=[0, 0, 1, 1],
-            trace_metadata=[
+            item_metadata=[
                 TraceLabelingMetadata(x=-1.0, y=0.5, distance_to_centroid=0.1, rank=1),
                 TraceLabelingMetadata(x=-0.8, y=0.6, distance_to_centroid=0.2, rank=2),
                 TraceLabelingMetadata(x=1.2, y=-0.3, distance_to_centroid=0.15, rank=1),
@@ -195,10 +207,10 @@ class TestActivityInputOutputModels:
         )
 
         assert inputs.team_id == 1
-        assert len(inputs.trace_ids) == 4
+        assert len(inputs.items) == 4
         assert len(inputs.labels) == 4
-        assert len(inputs.trace_metadata) == 4
-        assert inputs.trace_metadata[0].rank == 1
+        assert len(inputs.item_metadata) == 4
+        assert inputs.item_metadata[0].rank == 1
         assert inputs.window_start == "2025-01-01T00:00:00Z"
         assert inputs.window_end == "2025-01-08T00:00:00Z"
 
@@ -217,12 +229,16 @@ class TestActivityInputOutputModels:
 
     def test_emit_events_activity_inputs(self):
         """Test EmitEventsActivityInputs structure."""
+        items = [
+            ClusterItem(trace_id="trace_1"),
+            ClusterItem(trace_id="trace_2"),
+        ]
         inputs = EmitEventsActivityInputs(
             team_id=1,
-            clustering_run_id="1_20250108_000000",
+            clustering_run_id="1_trace_20250108_000000",
             window_start="2025-01-01T00:00:00Z",
             window_end="2025-01-08T00:00:00Z",
-            trace_ids=["trace_1", "trace_2"],
+            items=items,
             labels=[0, 1],
             centroids=[[1.0, 2.0], [3.0, 4.0]],
             distances=[[0.1, 0.9], [0.8, 0.2]],
@@ -235,8 +251,8 @@ class TestActivityInputOutputModels:
         )
 
         assert inputs.team_id == 1
-        assert inputs.clustering_run_id == "1_20250108_000000"
-        assert len(inputs.trace_ids) == 2
+        assert inputs.clustering_run_id == "1_trace_20250108_000000"
+        assert len(inputs.items) == 2
         assert len(inputs.labels) == 2
         assert len(inputs.centroids) == 2
         assert len(inputs.distances) == 2

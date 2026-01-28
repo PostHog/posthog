@@ -3,9 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { urls } from 'scenes/urls'
 
@@ -52,12 +50,7 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsDashboardLogic']),
     connect({
-        values: [
-            llmAnalyticsSharedLogic,
-            ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [llmAnalyticsSharedLogic, ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters']],
     }),
 
     actions({
@@ -583,9 +576,7 @@ export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
         ],
     }),
 
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) {
-            actions.loadLLMDashboards()
-        }
+    afterMount(({ actions }) => {
+        actions.loadLLMDashboards()
     }),
 ])
