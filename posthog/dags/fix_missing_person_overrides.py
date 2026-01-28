@@ -1,4 +1,4 @@
-"""Dagster job to automatically sync person_id overrides.
+"""Dagster job to automatically fix missing person_id overrides.
 
 This job detects distinct_ids where the resolved person_id (using overrides) differs
 from the person_id in person_distinct_id2, indicating that some overrides exist but
@@ -18,8 +18,8 @@ from posthog.dags.common import JobOwners
 from posthog.models import Team
 
 
-class SyncPersonOverridesConfig(dagster.Config):
-    """Configuration for the sync person overrides job."""
+class FixMissingPersonOverridesConfig(dagster.Config):
+    """Configuration for the fix missing person overrides job."""
 
     team_id: int = pydantic.Field(description="Team ID to process")
     dry_run: bool = pydantic.Field(
@@ -47,26 +47,44 @@ def get_mismatched_person_ids(team: Team) -> list[str]:
     return [str(row[0]) for row in result.results] if result.results else []
 
 
-def get_all_distinct_ids_for_person(team_id: int, person_id: str) -> list[tuple[str, int]]:
-    """Get ALL distinct_ids mapped to a person_id in person_distinct_id2."""
+def get_missing_overrides_for_person_ids(team_id: int, person_ids: list[str]) -> list[tuple[str, str, int]]:
+    """Get all (distinct_id, person_id, version) tuples that need overrides.
+
+    For all given person_ids, finds their distinct_ids in pdi2 and filters out
+    any that already have overrides.
+
+    Returns list of (distinct_id, person_id, version) tuples that need to be inserted.
+    """
+    if not person_ids:
+        return []
+
     result = sync_execute(
         """
         SELECT
             distinct_id,
+            argMax(person_id, version) as person_id,
             max(version) as max_version
         FROM person_distinct_id2
         WHERE team_id = %(team_id)s
         GROUP BY distinct_id
-        HAVING argMax(person_id, version) = %(person_id)s
+        HAVING argMax(person_id, version) IN %(person_ids)s
           AND argMax(is_deleted, version) = 0
+          AND distinct_id NOT IN (
+              SELECT distinct_id
+              FROM person_distinct_id_overrides
+              WHERE team_id = %(team_id)s
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0
+          )
         """,
-        {"team_id": team_id, "person_id": person_id},
+        {"team_id": team_id, "person_ids": person_ids},
+        flush=False,
     )
-    return [(row[0], int(row[1])) for row in result] if result else []
+    return [(row[0], str(row[1]), int(row[2])) for row in result] if result else []
 
 
 def get_existing_override(team_id: int, distinct_id: str) -> Optional[tuple[str, int]]:
-    """Check if an override already exists."""
+    """Check if an override already exists (used for testing)."""
     result = sync_execute(
         """
         SELECT
@@ -131,24 +149,24 @@ def insert_override_batch(overrides: list[tuple[int, str, str, int]]) -> None:
 
 
 @dagster.op
-def sync_person_overrides_op(
+def fix_missing_person_overrides_op(
     context: dagster.OpExecutionContext,
-    config: SyncPersonOverridesConfig,
+    config: FixMissingPersonOverridesConfig,
 ) -> None:
     """
     Automatically detect and fix missing person_id overrides.
 
     1. Use HogQL to find person_ids where events.person_id != pdi.person_id
        (indicating some overrides exist but possibly not all)
-    2. For each affected person_id, get all their distinct_ids from pdi2
-    3. Insert overrides for any distinct_ids that don't have them yet
+    2. Get all distinct_ids for those person_ids that don't have overrides yet (single query)
+    3. Batch insert all missing overrides
     """
     team = Team.objects.get(id=config.team_id)
 
     context.log.info(f"Finding mismatched person_ids for team {config.team_id}")
     context.log.info(f"Dry run: {config.dry_run}")
 
-    # Step 1: Find person_ids with mismatches
+    # Step 1: Find person_ids with mismatches (1 HogQL query)
     mismatched_person_ids = get_mismatched_person_ids(team)
     context.log.info(f"Found {len(mismatched_person_ids)} person_ids with mismatches")
 
@@ -156,38 +174,31 @@ def sync_person_overrides_op(
         context.log.info("No mismatches found, nothing to do")
         return
 
-    # Batch of overrides to insert: (team_id, distinct_id, person_id, version)
-    pending_overrides: list[tuple[int, str, str, int]] = []
+    # Step 2: Get all missing overrides in a single query
+    missing_overrides = get_missing_overrides_for_person_ids(config.team_id, mismatched_person_ids)
+    context.log.info(f"Found {len(missing_overrides)} distinct_ids missing overrides")
 
-    for person_id in mismatched_person_ids:
-        # Step 2: Get ALL distinct_ids mapped to this person
-        all_distinct_ids = get_all_distinct_ids_for_person(config.team_id, person_id)
-        context.log.info(f"Person {person_id[:8]}... has {len(all_distinct_ids)} distinct_ids")
+    if not missing_overrides:
+        context.log.info("All distinct_ids already have overrides")
+        return
 
-        # Step 3: Collect overrides for each distinct_id that doesn't have one
-        for distinct_id, version in all_distinct_ids:
-            existing = get_existing_override(config.team_id, distinct_id)
-            if existing:
-                continue
+    # Build the batch with version > 0 so it gets picked up by the overrides MV
+    pending_overrides = [
+        (config.team_id, distinct_id, person_id, max(version, 1))
+        for distinct_id, person_id, version in missing_overrides
+    ]
 
-            # Use version > 0 so it gets picked up by the overrides MV
-            new_version = max(version, 1)
-
-            if config.dry_run:
-                context.log.info(f"  [DRY RUN] Would insert -> distinct_id={distinct_id}, person_id={person_id[:8]}...")
-            else:
-                pending_overrides.append((config.team_id, distinct_id, person_id, new_version))
-                context.log.info(f"  Queued: {distinct_id} -> {person_id[:8]}...")
-
-    # Insert all overrides at once
-    if not config.dry_run and pending_overrides:
+    if config.dry_run:
+        for distinct_id, person_id, _version in missing_overrides:
+            context.log.info(f"  [DRY RUN] Would insert -> distinct_id={distinct_id}, person_id={person_id[:8]}...")
+        context.log.info(f"[DRY RUN] Would have inserted {len(pending_overrides)} overrides")
+    else:
+        # Step 3: Batch insert all missing overrides (1 query)
         insert_override_batch(pending_overrides)
         context.log.info(f"Inserted {len(pending_overrides)} overrides")
-    elif config.dry_run:
-        context.log.info(f"[DRY RUN] Would have inserted {len(pending_overrides)} overrides")
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
-def sync_person_overrides_job():
-    """Job to automatically sync person_id overrides for a team."""
-    sync_person_overrides_op()
+def fix_missing_person_overrides_job():
+    """Job to automatically fix missing person_id overrides for a team."""
+    fix_missing_person_overrides_op()
