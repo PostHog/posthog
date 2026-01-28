@@ -26,6 +26,7 @@ import { personsSceneLogic } from './personsSceneLogic'
 export const scene: SceneExport = {
     component: PersonsScene,
     logic: personsSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
@@ -98,7 +99,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             <Query
                 uniqueKey={`persons-query-${tabId}`}
                 attachTo={personsSceneLogic({ tabId })}
-                query={{ ...query, showCount: true }}
+                query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',

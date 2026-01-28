@@ -72,7 +72,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '1.40.0',
-                level: 'error',
+                level: 'warning',
             },
         },
         {
@@ -81,7 +81,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '1.50.0',
-                level: 'error',
+                level: 'warning',
             },
         },
         {
@@ -90,7 +90,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '2.0.0',
-                level: 'error',
+                level: 'warning',
             },
         },
     ])('return a version warning if diff is great enough', async (options) => {
@@ -113,7 +113,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.83.1',
                 latestAvailableVersion: '1.84.0',
-                level: 'error',
+                level: 'warning',
             },
         },
         {
@@ -125,7 +125,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.42.0',
                 latestAvailableVersion: '1.84.0',
-                level: 'error',
+                level: 'warning',
             },
         },
     ])('when having multiple versions used, should match with the highest one', async (options) => {

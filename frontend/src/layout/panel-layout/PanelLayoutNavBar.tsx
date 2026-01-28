@@ -53,14 +53,10 @@ import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
-import { SidePanelTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
-import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
-import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
@@ -99,8 +95,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { user } = useValues(userLogic)
-    const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
@@ -516,25 +510,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         )}
                                     </ButtonPrimitive>
 
-                                    {visibleTabs.includes(SidePanelTab.Activation) && (
-                                        <ButtonPrimitive
-                                            menuItem={!isLayoutNavCollapsed}
-                                            onClick={() =>
-                                                sidePanelOpen && selectedTab === SidePanelTab.Activation
-                                                    ? closeSidePanel()
-                                                    : openSidePanel(SidePanelTab.Activation)
-                                            }
-                                            data-attr="activation-button"
-                                            tooltip={isLayoutNavCollapsed ? 'Quick start' : undefined}
-                                            tooltipPlacement="right"
-                                            iconOnly={isLayoutNavCollapsed}
-                                        >
-                                            <span>
-                                                <SidePanelActivationIcon size={16} />
-                                            </span>
-                                            {!isLayoutNavCollapsed && 'Quick start'}
-                                        </ButtonPrimitive>
-                                    )}
                                     <Link
                                         buttonProps={{
                                             menuItem: !isLayoutNavCollapsed,

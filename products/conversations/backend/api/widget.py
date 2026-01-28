@@ -37,6 +37,7 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
+    invalidate_unread_count_cache,
     set_cached_messages,
     set_cached_tickets,
 )
@@ -133,6 +134,8 @@ class WidgetMessageView(APIView):
                     ]
                 )
                 ticket.refresh_from_db()
+                # Invalidate unread count cache - customer message increases count
+                invalidate_unread_count_cache(team.id)
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -149,6 +152,8 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
             )
+            # Invalidate unread count cache - new ticket with unread message
+            invalidate_unread_count_cache(team.id)
 
         # Create message
         comment = Comment.objects.create(

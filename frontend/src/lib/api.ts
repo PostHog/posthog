@@ -82,7 +82,9 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingEdge,
     DataModelingJob,
+    DataModelingNode,
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
@@ -198,6 +200,10 @@ import {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import {
+    ColumnConfigurationApi,
+    PaginatedColumnConfigurationListApi,
+} from 'products/product_analytics/frontend/generated/api.schemas'
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
@@ -529,6 +535,15 @@ export class ApiRequest {
 
     public insightsCancel(teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('cancel')
+    }
+
+    // # Column Configurations
+    public columnConfigurations(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('column_configurations')
+    }
+
+    public columnConfigurationDetail(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.columnConfigurations(teamId).addPathComponent(id)
     }
 
     // # File System
@@ -1259,6 +1274,28 @@ export class ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('data_modeling_jobs')
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
+    }
+
+    public dataModelingJobsRunning(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
+    }
+
+    public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
+    }
+
+    // # Data Modeling Nodes
+    public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
+    }
+
+    public dataModelingNode(id: DataModelingNode['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingNodes(teamId).addPathComponent(id)
+    }
+
+    // # Data Modeling Edges
+    public dataModelingEdges(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_edges')
     }
 
     // # Warehouse view link
@@ -2592,6 +2629,54 @@ const api = {
         },
     },
 
+    columnConfigurations: {
+        async list({
+            teamId = ApiConfig.getCurrentTeamId(),
+            context_key,
+            ...params
+        }: {
+            teamId?: TeamType['id']
+            context_key?: string
+        } = {}): Promise<PaginatedColumnConfigurationListApi> {
+            return new ApiRequest()
+                .columnConfigurations(teamId)
+                .withQueryString(toParams({ context_key, ...params }))
+                .get()
+        },
+
+        async create({
+            teamId = ApiConfig.getCurrentTeamId(),
+            data,
+        }: {
+            teamId?: TeamType['id']
+            data: Partial<ColumnConfigurationApi>
+        }): Promise<ColumnConfigurationApi> {
+            return new ApiRequest().columnConfigurations(teamId).create({ data })
+        },
+
+        async update({
+            teamId = ApiConfig.getCurrentTeamId(),
+            id,
+            data,
+        }: {
+            teamId?: TeamType['id']
+            id: string
+            data: Partial<ColumnConfigurationApi>
+        }): Promise<ColumnConfigurationApi> {
+            return new ApiRequest().columnConfigurationDetail(id, teamId).update({ data })
+        },
+
+        async delete({
+            teamId = ApiConfig.getCurrentTeamId(),
+            id,
+        }: {
+            teamId?: TeamType['id']
+            id: string
+        }): Promise<void> {
+            return new ApiRequest().columnConfigurationDetail(id, teamId).delete()
+        },
+    },
+
     sessions: {
         async propertyDefinitions({
             teamId,
@@ -3535,6 +3620,13 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
+        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('batch_check_exists')
+                .create({ data: { session_ids: sessionIds } })
+        },
+
         async createExternalReference(
             sessionRecordingId: SessionRecordingType['id'],
             integrationId: number,
@@ -3858,7 +3950,7 @@ const api = {
             id: BatchExportConfiguration['id'],
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
-            return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+            return await new ApiRequest().batchExportBackfills(id).create({ data })
         },
         async listBackfills(
             id: BatchExportConfiguration['id'],
@@ -4242,6 +4334,42 @@ const api = {
             ): Promise<PaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
+        },
+    },
+
+    dataModelingNodes: {
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
+        },
+        async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
+            return await new ApiRequest().dataModelingNode(nodeId).get()
+        },
+        async run(
+            nodeId: DataModelingNode['id'],
+            direction: 'upstream' | 'downstream'
+        ): Promise<{ node_ids: string[] }> {
+            return await new ApiRequest().dataModelingNode(nodeId).withAction('run').create({ data: { direction } })
+        },
+        async materialize(nodeId: DataModelingNode['id']): Promise<void> {
+            await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
+        },
+        async dagIds(): Promise<{ dag_ids: string[] }> {
+            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
+        },
+    },
+
+    dataModelingEdges: {
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
+        },
+    },
+
+    dataModelingJobs: {
+        async listRunning(): Promise<DataModelingJob[]> {
+            return await new ApiRequest().dataModelingJobsRunning().get()
+        },
+        async listRecent(): Promise<DataModelingJob[]> {
+            return await new ApiRequest().dataModelingJobsRecent().get()
         },
     },
 
@@ -5063,6 +5191,10 @@ const api = {
 
         async delete(ticketId: string): Promise<void> {
             return await new ApiRequest().conversationsTicket(ticketId).delete()
+        },
+
+        async unreadCount(): Promise<{ count: number }> {
+            return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
     },
 

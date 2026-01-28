@@ -6,38 +6,45 @@ import { LemonButton, LemonDivider, LemonInput, LemonTextArea, Spinner, Tooltip 
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
-import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
+import { messageTemplateLogic } from './messageTemplateLogic'
+import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 
-export const scene: SceneExport<MessageTemplateLogicProps> = {
+export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
-    logic: messageTemplateLogic,
+    logic: messageTemplateSceneLogic,
     paramsToProps: ({ params: { id }, searchParams: { messageId } }) => ({
         id: id || 'new',
         messageId,
     }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
-export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element {
-    const { submitTemplate, resetTemplate, setTemplateValue, duplicateTemplate, deleteTemplate } =
-        useActions(messageTemplateLogic)
-    const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } =
-        useValues(messageTemplateLogic)
+export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Element {
+    const sceneLogic = messageTemplateSceneLogic(props)
+    const logic = messageTemplateLogic(props)
+    const { submitTemplate, resetTemplate, setTemplateValue, duplicateTemplate, deleteTemplate } = useActions(logic)
+    const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } = useValues(logic)
+
+    // Attach template logic to scene logic so it persists across tab switches
+    useAttachedLogic(logic, sceneLogic)
 
     return (
-        <Form logic={messageTemplateLogic} formKey="template">
+        <Form logic={messageTemplateLogic} formKey="template" props={props}>
             <SceneContent>
                 <SceneTitleSection
                     name={template.name}
                     resourceType={{ type: 'template' }}
                     actions={
                         <>
-                            {id !== 'new' && (
+                            {props.id !== 'new' && (
                                 <>
                                     <More
                                         size="small"
@@ -89,7 +96,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                                 disabledReason={templateChanged ? undefined : 'No changes to save'}
                                 size="small"
                             >
-                                {id === 'new' ? 'Create' : 'Save'}
+                                {props.id === 'new' ? 'Create' : 'Save'}
                             </LemonButton>
                         </>
                     }

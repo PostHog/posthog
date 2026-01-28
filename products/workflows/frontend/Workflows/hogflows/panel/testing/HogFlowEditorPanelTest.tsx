@@ -239,10 +239,10 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                     )}{' '}
                                                     <span className="text-muted">performed</span>{' '}
                                                     <span className="space-y-1 font-semibold text-md">
-                                                        {sampleGlobals?.event.event}
+                                                        {sampleGlobals?.event?.event}
                                                     </span>{' '}
-                                                    {sampleGlobals?.event.timestamp && (
-                                                        <TZLabel time={sampleGlobals.event.timestamp} />
+                                                    {sampleGlobals?.event?.timestamp && (
+                                                        <TZLabel time={sampleGlobals?.event?.timestamp} />
                                                     )}
                                                 </div>
                                                 {shouldLoadSampleGlobals ? (

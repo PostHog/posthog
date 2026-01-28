@@ -11,14 +11,16 @@
 //! It also provides sequential batch IDs per partition to ensure ordering.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::kafka::metrics_consts::OFFSET_TRACKER_OUT_OF_ORDER_BATCH;
 use crate::kafka::types::Partition;
+use crate::rebalance_coordinator::RebalanceCoordinator;
 
 /// Errors that can occur when retrieving committable offsets
 #[derive(Error, Debug)]
@@ -54,43 +56,30 @@ pub struct OffsetTracker {
     partition_state: DashMap<Partition, PartitionState>,
     /// Global counter for assigning batch IDs (unique across all partitions)
     next_batch_id: AtomicU64,
-    /// Flag indicating whether a rebalance is in progress
-    /// When true, offset commits should be skipped to avoid committing during rebalancing
-    rebalancing: AtomicBool,
-}
-
-impl Default for OffsetTracker {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// Reference to rebalance coordinator for checking rebalance state.
+    /// This is a lightweight dependency (~8 bytes) vs the full StoreManager.
+    rebalance_coordinator: Arc<RebalanceCoordinator>,
 }
 
 impl OffsetTracker {
-    pub fn new() -> Self {
+    /// Create a new offset tracker with the given rebalance coordinator.
+    ///
+    /// The coordinator is used to check if a rebalance is in progress,
+    /// which blocks offset commits to prevent committing stale offsets.
+    pub fn new(rebalance_coordinator: Arc<RebalanceCoordinator>) -> Self {
         Self {
             partition_state: DashMap::new(),
             next_batch_id: AtomicU64::new(1), // Start at 1 so 0 can mean "no batch"
-            rebalancing: AtomicBool::new(false),
+            rebalance_coordinator,
         }
     }
 
-    /// Set the rebalancing flag to prevent offset commits during rebalancing
+    /// Check if a rebalance is currently in progress.
     ///
-    /// This should be called at the start of a rebalance (before any partition changes)
-    /// and cleared after the rebalance is complete.
-    pub fn set_rebalancing(&self, rebalancing: bool) {
-        let was_rebalancing = self.rebalancing.swap(rebalancing, Ordering::SeqCst);
-        if was_rebalancing != rebalancing {
-            info!(
-                rebalancing = rebalancing,
-                "Offset tracker rebalancing state changed"
-            );
-        }
-    }
-
-    /// Check if a rebalance is currently in progress
+    /// Delegates to the rebalance coordinator's counter, which correctly
+    /// handles overlapping rebalances using increment/decrement semantics.
     pub fn is_rebalancing(&self) -> bool {
-        self.rebalancing.load(Ordering::SeqCst)
+        self.rebalance_coordinator.is_rebalancing()
     }
 
     /// Assign a new batch ID for a partition.
@@ -176,8 +165,8 @@ impl OffsetTracker {
     /// Returns `OffsetTrackerError::RebalanceInProgress` if a rebalance is currently
     /// in progress. Callers should skip committing offsets in this case.
     pub fn get_committable_offsets(&self) -> Result<HashMap<Partition, i64>, OffsetTrackerError> {
-        // Check rebalancing flag first - if true, return error to prevent commits
-        if self.rebalancing.load(Ordering::SeqCst) {
+        // Check rebalancing state first - if true, return error to prevent commits
+        if self.is_rebalancing() {
             return Err(OffsetTrackerError::RebalanceInProgress);
         }
 
@@ -295,6 +284,7 @@ impl OffsetTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::create_test_coordinator;
 
     fn test_partition(num: i32) -> Partition {
         Partition::new("test-topic".to_string(), num)
@@ -302,7 +292,8 @@ mod tests {
 
     #[test]
     fn test_assign_batch_id_is_sequential() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
 
         let id1 = tracker.assign_batch_id();
         let id2 = tracker.assign_batch_id();
@@ -315,7 +306,8 @@ mod tests {
 
     #[test]
     fn test_mark_processed_initializes_offset() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
         let batch_id = tracker.assign_batch_id();
 
@@ -326,7 +318,8 @@ mod tests {
 
     #[test]
     fn test_mark_processed_advances_offset() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
 
         let batch_id1 = tracker.assign_batch_id();
@@ -340,7 +333,8 @@ mod tests {
 
     #[test]
     fn test_mark_processed_never_goes_backwards() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
 
         let batch_id1 = tracker.assign_batch_id();
@@ -355,7 +349,8 @@ mod tests {
 
     #[test]
     fn test_multiple_partitions() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let p0 = test_partition(0);
         let p1 = test_partition(1);
         let p2 = test_partition(2);
@@ -378,7 +373,8 @@ mod tests {
 
     #[test]
     fn test_clear_partition() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let p0 = test_partition(0);
         let p1 = test_partition(1);
 
@@ -397,7 +393,8 @@ mod tests {
 
     #[test]
     fn test_clear_all() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
 
         let batch_id1 = tracker.assign_batch_id();
         let batch_id2 = tracker.assign_batch_id();
@@ -416,10 +413,10 @@ mod tests {
 
     #[test]
     fn test_concurrent_updates_same_partition() {
-        use std::sync::Arc;
         use std::thread;
 
-        let tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let tracker = Arc::new(OffsetTracker::new(coordinator));
         let partition = test_partition(0);
 
         // Pre-assign batch IDs so they're sequential
@@ -448,10 +445,10 @@ mod tests {
 
     #[test]
     fn test_concurrent_different_partitions() {
-        use std::sync::Arc;
         use std::thread;
 
-        let tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_coordinator();
+        let tracker = Arc::new(OffsetTracker::new(coordinator));
 
         // Pre-assign batch IDs
         let batch_ids: Vec<u64> = (0..10).map(|_| tracker.assign_batch_id()).collect();
@@ -487,7 +484,8 @@ mod tests {
     fn test_out_of_order_batch_processing() {
         // This tests the scenario where batches complete out of order
         // (e.g., batch 2 finishes before batch 1)
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
 
         let batch_id1 = tracker.assign_batch_id(); // 1
@@ -503,8 +501,10 @@ mod tests {
     }
 
     #[test]
-    fn test_rebalancing_flag() {
-        let tracker = OffsetTracker::new();
+    fn test_rebalancing_blocks_commits() {
+        // Test that rebalancing state (from coordinator) blocks commits
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator.clone());
         let partition = test_partition(0);
         let batch_id = tracker.assign_batch_id();
 
@@ -519,8 +519,8 @@ mod tests {
         assert!(offsets.is_ok());
         assert_eq!(offsets.unwrap().get(&partition), Some(&100));
 
-        // Start rebalancing
-        tracker.set_rebalancing(true);
+        // Start rebalancing via coordinator
+        coordinator.start_rebalancing();
         assert!(tracker.is_rebalancing());
 
         // Should get RebalanceInProgress error
@@ -530,8 +530,8 @@ mod tests {
             Err(OffsetTrackerError::RebalanceInProgress)
         ));
 
-        // End rebalancing
-        tracker.set_rebalancing(false);
+        // End rebalancing via coordinator
+        coordinator.finish_rebalancing();
         assert!(!tracker.is_rebalancing());
 
         // Should be able to get offsets again
@@ -542,7 +542,8 @@ mod tests {
 
     #[test]
     fn test_mark_committed_updates_committed_offset() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
         let batch_id = tracker.assign_batch_id();
 
@@ -563,7 +564,8 @@ mod tests {
 
     #[test]
     fn test_committed_offset_never_goes_backwards() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
         let batch_id = tracker.assign_batch_id();
 
@@ -587,7 +589,8 @@ mod tests {
 
     #[test]
     fn test_mark_produced_updates_producer_offset() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
         let batch_id = tracker.assign_batch_id();
 
@@ -608,7 +611,8 @@ mod tests {
 
     #[test]
     fn test_producer_offset_never_goes_backwards() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
         let batch_id = tracker.assign_batch_id();
 
@@ -624,7 +628,8 @@ mod tests {
 
     #[test]
     fn test_committed_and_producer_offsets_independent() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
         let batch_id = tracker.assign_batch_id();
 
@@ -644,7 +649,8 @@ mod tests {
 
     #[test]
     fn test_clear_partition_clears_all_offsets() {
-        let tracker = OffsetTracker::new();
+        let coordinator = create_test_coordinator();
+        let tracker = OffsetTracker::new(coordinator);
         let partition = test_partition(0);
         let batch_id = tracker.assign_batch_id();
 
