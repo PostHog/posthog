@@ -75,7 +75,9 @@ You can generate an API key in your [Attio workspace settings](https://app.attio
             for endpoint in ATTIO_ENDPOINTS
         ]
 
-    def validate_credentials(self, config: AttioSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: AttioSourceConfig, team_id: int, schema_name: str | None = None
+    ) -> tuple[bool, str | None]:
         try:
             if validate_attio_credentials(config.api_key):
                 return True, None
