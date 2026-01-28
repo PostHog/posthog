@@ -7,7 +7,7 @@ class SummarizationProvider(StrEnum):
     """Supported LLM providers for summarization."""
 
     OPENAI = "openai"
-    GEMINI = "gemini"
+    GEMINI = "gemini"  # Deprecated: kept for backwards compatibility until temporal code is updated
 
 
 class OpenAIModel(StrEnum):
@@ -15,12 +15,10 @@ class OpenAIModel(StrEnum):
 
     GPT_4_1_NANO = "gpt-4.1-nano"
     GPT_4_1_MINI = "gpt-4.1-mini"
-    GPT_4O_MINI = "gpt-4o-mini"
-    GPT_4O = "gpt-4o"
 
 
 class GeminiModel(StrEnum):
-    """Supported Gemini models for summarization."""
+    """Deprecated: kept for backwards compatibility until temporal code is updated."""
 
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview"
     GEMINI_2_5_FLASH = "gemini-2.5-flash"
