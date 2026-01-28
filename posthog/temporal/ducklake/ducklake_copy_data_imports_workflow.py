@@ -216,21 +216,19 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
         alias = "ducklake"
         dev_mode = is_dev_mode()
 
-        if dev_mode:
-            config = get_config()
-            cross_account_dest = None
-        else:
-            catalog = get_ducklake_catalog_for_team(inputs.team_id)
-            if catalog is None:
-                raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
-            config = catalog.to_public_config()
-            config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
-            cross_account_dest = catalog.to_cross_account_destination()
-
         with duckdb.connect() as conn:
             if dev_mode:
+                config = get_config()
                 configure_connection(conn)
             else:
+                catalog = get_ducklake_catalog_for_team(inputs.team_id)
+                if catalog is None:
+                    raise ApplicationError(
+                        f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True
+                    )
+                config = catalog.to_public_config()
+                config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+                cross_account_dest = catalog.to_cross_account_destination()
                 logger.info(
                     "Using cross-account S3 access",
                     role_arn=cross_account_dest.role_arn,
@@ -319,24 +317,21 @@ def verify_data_imports_ducklake_copy_activity(
         alias = "ducklake"
         dev_mode = is_dev_mode()
 
-        if dev_mode:
-            config = get_config()
-            cross_account_dest = None
-        else:
-            catalog = get_ducklake_catalog_for_team(inputs.team_id)
-            if catalog is None:
-                raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
-            config = catalog.to_public_config()
-            config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
-            cross_account_dest = catalog.to_cross_account_destination()
-
         results: list[DuckLakeCopyDataImportsVerificationResult] = []
 
         with duckdb.connect() as conn:
             if dev_mode:
+                config = get_config()
                 configure_connection(conn)
             else:
-                configure_cross_account_connection(conn, destinations=[cross_account_dest])
+                catalog = get_ducklake_catalog_for_team(inputs.team_id)
+                if catalog is None:
+                    raise ApplicationError(
+                        f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True
+                    )
+                config = catalog.to_public_config()
+                config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+                configure_cross_account_connection(conn, destinations=[catalog.to_cross_account_destination()])
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.ducklake_schema_name}.{inputs.model.ducklake_table_name}"
