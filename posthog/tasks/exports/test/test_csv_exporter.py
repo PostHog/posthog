@@ -1521,7 +1521,7 @@ class TestCSVExporter(APIBaseTest):
                 assert "[31mred[0mafter" in str(data_row)  # ANSI: ESC stripped, rest preserved
 
     def test_format_breakdown_value(self) -> None:
-        """Test _format_breakdown_value handles None (the actual incident case)."""
+        """Test _format_breakdown_value handles None."""
         # None was causing TypeError: can only join an iterable
         assert _format_breakdown_value(None) == ""
 
@@ -1532,13 +1532,13 @@ class TestCSVExporter(APIBaseTest):
 
     def test_excel_writer_raises_column_limit_exceeded(self) -> None:
         writer = ExcelWriter()
-        # Create more columns than Excel supports
+        # Create more columns than openpyxl supports (18,278 max)
         columns = [f"col_{i}" for i in range(18300)]
 
         with pytest.raises(ExcelColumnLimitExceeded) as exc_info:
             writer.write_header(columns)
 
-        assert "16,384 columns" in str(exc_info.value)
+        assert "18,278 columns" in str(exc_info.value)
         assert "CSV format" in str(exc_info.value)
 
     def test_excel_writer_normal_column_count_works(self) -> None:

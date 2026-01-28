@@ -63,12 +63,12 @@ class ExportCancelled(Exception):
 
 
 class ExcelColumnLimitExceeded(Exception):
-    """Raised when export data exceeds Excel's 16,384 column limit (XFD)."""
+    """Raised when export data exceeds openpyxl's 18,278 column limit (ZZZ)."""
 
     def __init__(self, message: str | None = None):
         super().__init__(
             message
-            or "Export exceeds Excel's maximum of 16,384 columns. Try exporting fewer columns or use CSV format instead."
+            or "Export exceeds the maximum of 18,278 columns. Try exporting fewer columns or use CSV format instead."
         )
 
 
