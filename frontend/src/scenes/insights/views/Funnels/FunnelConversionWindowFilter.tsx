@@ -10,7 +10,7 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { FunnelsFilter } from '~/queries/schema/schema-general'
-import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
+import { EditorFilterProps, FunnelConversionWindowTimeUnit } from '~/types'
 
 export const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
@@ -33,7 +33,10 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
         funnelWindowIntervalUnit = FunnelConversionWindowTimeUnit.Day,
     } = (insightFilter || {}) as FunnelsFilter
 
-    const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>({
+    const [localConversionWindow, setLocalConversionWindow] = useState<{
+        funnelWindowInterval: number | undefined
+        funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
+    }>({
         funnelWindowInterval,
         funnelWindowIntervalUnit,
     })
@@ -44,24 +47,27 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
             value: unit as FunnelConversionWindowTimeUnit,
         })
     )
-    const intervalBounds = TIME_INTERVAL_BOUNDS[funnelWindowIntervalUnit ?? FunnelConversionWindowTimeUnit.Day]
+    const localInterval = localConversionWindow.funnelWindowInterval
+    const localUnit = localConversionWindow.funnelWindowIntervalUnit
+    const [minBound, maxBound] = TIME_INTERVAL_BOUNDS[localUnit ?? FunnelConversionWindowTimeUnit.Day]
+
+    const isValidNumber = localInterval !== undefined && !Number.isNaN(localInterval)
+    const isOutOfBounds = isValidNumber && (localInterval < minBound || localInterval > maxBound)
+    const validationError = isOutOfBounds ? `Value must be between ${minBound} and ${maxBound}` : undefined
 
     const setConversionWindow = useDebouncedCallback((): void => {
-        if (Number.isNaN(localConversionWindow.funnelWindowInterval)) {
+        if (!isValidNumber || isOutOfBounds) {
             return
         }
 
-        if (
-            localConversionWindow.funnelWindowInterval !== funnelWindowInterval ||
-            localConversionWindow.funnelWindowIntervalUnit !== funnelWindowIntervalUnit
-        ) {
+        if (localInterval !== funnelWindowInterval || localUnit !== funnelWindowIntervalUnit) {
             updateInsightFilter(localConversionWindow)
         }
     }, 200)
 
     return (
-        <div className="flex items-center gap-2">
-            <span className="flex whitespace-nowrap">
+        <div className="flex items-start gap-2">
+            <span className="flex whitespace-nowrap h-10 items-center">
                 Conversion window limit
                 <Tooltip
                     title={
@@ -77,35 +83,37 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                     <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
             </span>
-            <div className="flex items-center gap-2">
-                <LemonInput
-                    type="number"
-                    className="max-w-20"
-                    fullWidth={false}
-                    min={intervalBounds[0]}
-                    max={intervalBounds[1]}
-                    value={localConversionWindow.funnelWindowInterval || funnelWindowInterval}
-                    onChange={(funnelWindowInterval) => {
-                        setLocalConversionWindow((state) => ({
-                            ...state,
-                            funnelWindowInterval: Number(funnelWindowInterval),
-                        }))
-                        setConversionWindow()
-                    }}
-                    onBlur={setConversionWindow}
-                    onPressEnter={setConversionWindow}
-                />
-                <LemonSelect
-                    dropdownMatchSelectWidth={false}
-                    value={localConversionWindow.funnelWindowIntervalUnit}
-                    onChange={(funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | null) => {
-                        if (funnelWindowIntervalUnit) {
-                            setLocalConversionWindow((state) => ({ ...state, funnelWindowIntervalUnit }))
+            <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                    <LemonInput
+                        type="number"
+                        className="max-w-20"
+                        fullWidth={false}
+                        status={isOutOfBounds ? 'danger' : 'default'}
+                        value={localConversionWindow.funnelWindowInterval}
+                        onChange={(value) => {
+                            setLocalConversionWindow((state) => ({
+                                ...state,
+                                funnelWindowInterval: Number(value),
+                            }))
                             setConversionWindow()
-                        }
-                    }}
-                    options={options}
-                />
+                        }}
+                        onBlur={setConversionWindow}
+                        onPressEnter={setConversionWindow}
+                    />
+                    <LemonSelect
+                        dropdownMatchSelectWidth={false}
+                        value={localConversionWindow.funnelWindowIntervalUnit}
+                        onChange={(funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | null) => {
+                            if (funnelWindowIntervalUnit) {
+                                setLocalConversionWindow((state) => ({ ...state, funnelWindowIntervalUnit }))
+                                setConversionWindow()
+                            }
+                        }}
+                        options={options}
+                    />
+                </div>
+                {validationError && <p className="text-danger text-xs m-0">{validationError}</p>}
             </div>
         </div>
     )
