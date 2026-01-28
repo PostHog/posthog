@@ -98,6 +98,8 @@ def get_parents_from_model_query(model_query: str, team: Team) -> set[str]:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.printer.utils import prepare_ast_for_printing
 
+    parents = set()
+
     hogql_query = parse_select(model_query)
     context = HogQLContext(
         team_id=team.pk,

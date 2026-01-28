@@ -24,7 +24,7 @@ GET_PARENTS_TEST_CASES = [
     ("select 1", set()),
     (
         """
-        select *
+        select events.*, num.*
         from (
           select 1 as id, events.*, num.*
           from events
@@ -50,6 +50,16 @@ GET_PARENTS_TEST_CASES = [
         )
         """,
         {"numbers", "events"},
+    ),
+    # CTE with UNION ALL at top level - the CTE should not be treated as a parent
+    (
+        """
+            WITH cte AS (SELECT * FROM events)
+            SELECT * FROM cte
+            UNION ALL
+            SELECT * FROM cte
+            """,
+        {"events"},
     ),
 ]
 

@@ -25,10 +25,9 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
-    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
-    MAX_LENGTH_BY_PROVIDER,
+    MAX_TEXT_REPR_LENGTH,
     SAMPLE_TIMEOUT_SECONDS,
     WORKFLOW_NAME,
 )
@@ -45,7 +44,7 @@ from posthog.temporal.llm_analytics.trace_summarization.models import (
 from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_items_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 
-from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
+from products.llm_analytics.backend.summarization.models import SummarizationMode
 
 logger = structlog.get_logger(__name__)
 
@@ -74,8 +73,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             window_minutes=int(inputs[5]) if len(inputs) > 5 else DEFAULT_WINDOW_MINUTES,
             window_start=inputs[6] if len(inputs) > 6 else None,
             window_end=inputs[7] if len(inputs) > 7 else None,
-            provider=SummarizationProvider(inputs[8]) if len(inputs) > 8 else DEFAULT_PROVIDER,
-            model=inputs[9] if len(inputs) > 9 else DEFAULT_MODEL,
+            model=inputs[8] if len(inputs) > 8 else DEFAULT_MODEL,
         )
 
     @staticmethod
@@ -87,9 +85,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         window_end: str,
         mode: str,
         batch_run_id: str,
-        provider: str | None,
         model: str | None,
-        max_length: int | None,
+        max_length: int,
     ) -> SummarizationActivityResult:
         """Process a single trace or generation with semaphore-controlled concurrency."""
         async with semaphore:
@@ -106,7 +103,6 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                         window_end,
                         mode,
                         batch_run_id,
-                        provider,
                         model,
                         max_length,
                     ],
@@ -126,7 +122,6 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                         window_end,
                         mode,
                         batch_run_id,
-                        provider,
                         model,
                         max_length,
                     ],
@@ -168,14 +163,11 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             batch_size=inputs.batch_size,
             mode=inputs.mode,
             window_minutes=inputs.window_minutes,
-            provider=inputs.provider,
             model=inputs.model,
             window_start=window_start,
             window_end=window_end,
         )
 
-        # Look up max_length based on provider for context window safety
-        max_length = MAX_LENGTH_BY_PROVIDER.get(inputs.provider)
         semaphore = asyncio.Semaphore(inputs.batch_size)
 
         # Sample items (traces or generations) using unified sampling
@@ -197,9 +189,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 window_end=window_end,
                 mode=inputs.mode,
                 batch_run_id=batch_run_id,
-                provider=inputs.provider,
                 model=inputs.model,
-                max_length=max_length,
+                max_length=MAX_TEXT_REPR_LENGTH,
             )
             for item in items
         ]

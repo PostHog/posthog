@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { CyclotronJobFilterEvents } from '~/types'
+import { CyclotronJobFiltersType } from '~/types'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -39,10 +39,10 @@ import { ImpactList } from './tabs/impact/ImpactList'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 
-const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFilterEvents[] = [
-    { id: '$error_tracking_issue_created', type: 'events' },
-    { id: '$error_tracking_issue_reopened', type: 'events' },
-    { id: '$error_tracking_issue_spiking', type: 'events' },
+const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
+    { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
+    { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+    { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
 ]
 
 export const scene: SceneExport = {
