@@ -33,6 +33,7 @@ class KlaviyoSource(SimpleSource[KlaviyoSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.KLAVIYO,
             label="Klaviyo",
+            betaSource=True,
             caption="""Enter your Klaviyo API key to automatically pull your Klaviyo data into the PostHog Data warehouse.
 
 You can create a private API key in your [Klaviyo account settings](https://www.klaviyo.com/settings/account/api-keys).
