@@ -246,7 +246,7 @@ export function ModeSelector(): JSX.Element | null {
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
-    const flagsModeEnabled = useFeatureFlag('PHAI_FLAGS_MODE')
+    const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
 
     const currentValue: ModeValue =
         agentMode === AgentMode.Research ? 'deep_research' : agentMode === AgentMode.Plan ? 'plan' : agentMode
