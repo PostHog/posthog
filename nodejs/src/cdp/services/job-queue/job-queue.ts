@@ -249,8 +249,12 @@ export class CyclotronJobQueue {
         ])
 
         if (this.shadowPostgres && Date.now() >= this.shadowCircuitOpenUntil) {
+            const hogInvocations = invocations.filter((x) => x.queue === 'hog')
+            if (!hogInvocations.length) {
+                return
+            }
             void this.shadowPostgres
-                .queueInvocations(invocations)
+                .queueInvocations(hogInvocations)
                 .then(() => {
                     this.shadowFailures = 0
                 })
