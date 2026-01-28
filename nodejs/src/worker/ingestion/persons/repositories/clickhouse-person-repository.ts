@@ -128,7 +128,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     any(distinct_id) as distinct_id
                 FROM person_distinct_id2
                 FINAL
-                WHERE team_id = ${teamId}
+                WHERE team_id = ${parseInt(String(teamId))}
                   AND is_deleted = 0
                 GROUP BY team_id, person_id
             ) pd ON p.team_id = pd.team_id AND p.id = pd.person_id
