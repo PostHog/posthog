@@ -103,24 +103,8 @@ pub async fn process_event(
         return Err(ProcessEventError::EmptyExceptionList);
     }
 
-    // Acquire database connection for fingerprinting
-    let mut conn = ctx
-        .posthog_pool
-        .acquire()
-        .await
-        .map_err(UnhandledError::from)?;
-
     // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules)
-    let fingerprint = resolve_fingerprint(
-        &mut conn,
-        &ctx.team_manager,
-        team_id,
-        &event.error_properties,
-    )
-    .await?;
-
-    // Release connection back to pool before resolve_issue acquires its own
-    drop(conn);
+    let fingerprint = resolve_fingerprint(&ctx, team_id, &event.error_properties).await?;
 
     let fingerprinted = event.error_properties.to_fingerprinted(fingerprint);
 
@@ -154,11 +138,13 @@ pub async fn process_event(
     )
     .await?;
 
+    dbg!(&issue);
+
     // Check if issue is suppressed
-    if matches!(issue.status, IssueStatus::Suppressed) {
+    if issue.status == IssueStatus::Suppressed {
         return Ok(ProcessEventResponse {
             issue_id: issue.id,
-            issue_status: issue.status,
+            issue_status: issue.status.to_string(),
             event: None,
         });
     }
@@ -166,7 +152,7 @@ pub async fn process_event(
     // Return output
     Ok(ProcessEventResponse {
         issue_id: issue.id,
-        issue_status: issue.status,
+        issue_status: issue.status.to_string(),
         event: Some(fingerprinted.to_output(issue.id)),
     })
 }

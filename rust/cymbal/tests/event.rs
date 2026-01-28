@@ -1,13 +1,15 @@
 use axum::{body::Body, http::Request};
-use cymbal::types::OutputErrProps;
+use cymbal::{issue_resolution::IssueStatus, types::OutputErrProps};
 use mockall::predicate;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::utils::MockS3Client;
+
 mod utils;
 
 const STORAGE_BUCKET: &str = "test-bucket";
@@ -145,10 +147,11 @@ struct ErrorResponse {
     error: String,
 }
 
-#[derive(Deserialize)]
-struct SuppressedResponse {
-    suppressed: bool,
-    issue_id: String,
+#[derive(Debug, Deserialize)]
+struct SuccessResponse {
+    issue_id: Uuid,
+    issue_status: IssueStatus,
+    event: Option<OutputErrProps>,
 }
 
 // Test helper
@@ -295,12 +298,13 @@ async fn creates_issue_with_fingerprint(db: PgPool) {
     let input = TestEventInput::new(vec![TestException::new("Error", "test error message")
         .with_stack(vec![TestFrame::js("handleClick").at("src/app.js", 42, 10)])]);
 
-    let (status, body): (_, OutputErrProps) = harness.post_event(&input).await;
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     assert!(status.is_success(), "Expected success, got {:?}", status);
-    assert!(!body.fingerprint.is_empty());
-    assert_eq!(body.types, vec!["Error"]);
-    assert_eq!(body.values, vec!["test error message"]);
+    let event = body.event.expect("Should have an event");
+    assert!(!event.fingerprint.is_empty());
+    assert_eq!(event.types, vec!["Error"]);
+    assert_eq!(event.values, vec!["test error message"]);
     assert_eq!(harness.get_issue_id().await, body.issue_id);
 }
 
@@ -313,10 +317,13 @@ async fn uses_client_fingerprint_override(db: PgPool) {
     )])
     .with_fingerprint("custom-fingerprint");
 
-    let (status, body): (_, OutputErrProps) = harness.post_event(&input).await;
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     assert!(status.is_success());
-    assert_eq!(body.fingerprint, "custom-fingerprint");
+    assert_eq!(
+        body.event.expect("Should have an event").fingerprint,
+        "custom-fingerprint"
+    );
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -325,10 +332,11 @@ async fn same_fingerprint_returns_same_issue(db: PgPool) {
     let input = TestEventInput::new(vec![TestException::new("Error", "test error")
         .with_stack(vec![TestFrame::js("foo").at("src/test.js", 10, 5)])]);
 
-    let (_, body1): (_, OutputErrProps) = harness.post_event(&input).await;
-    let (_, body2): (_, OutputErrProps) = harness.post_event(&input).await;
-
-    assert_eq!(body1.fingerprint, body2.fingerprint);
+    let (_, body1): (_, SuccessResponse) = harness.post_event(&input).await;
+    let (_, body2): (_, SuccessResponse) = harness.post_event(&input).await;
+    let event1 = body1.event.expect("Should have an event");
+    let event2 = body2.event.expect("Should have an event");
+    assert_eq!(event1.fingerprint, event2.fingerprint);
     assert_eq!(body1.issue_id, body2.issue_id);
 }
 
@@ -337,14 +345,14 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
     let harness = TestHarness::new(db);
     let input = TestEventInput::new(vec![TestException::new("SuppressedError", "will suppress")]);
 
-    let (_, created): (_, OutputErrProps) = harness.post_event(&input).await;
+    let (_, created): (_, SuccessResponse) = harness.post_event(&input).await;
     harness.suppress_issue(created.issue_id).await;
 
-    let (status, body): (_, SuppressedResponse) = harness.post_event(&input).await;
-
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    dbg!(&body);
     assert!(status.is_success());
-    assert!(body.suppressed);
-    assert_eq!(body.issue_id, created.issue_id.to_string());
+    assert_eq!(body.issue_status, IssueStatus::Suppressed);
+    assert_eq!(body.issue_id, created.issue_id);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -360,16 +368,20 @@ async fn extracts_metadata_from_exceptions(db: PgPool) {
     ])])
     .with_handled(true);
 
-    let (status, body): (_, OutputErrProps) = harness.post_event(&input).await;
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     assert!(status.is_success());
-    assert_eq!(body.types, vec!["TypeError"]);
-    assert_eq!(body.values, vec!["Cannot read property 'foo' of undefined"]);
-    assert!(body.handled);
-    assert!(body
+    let event = body.event.expect("Should have an event");
+    assert_eq!(event.types, vec!["TypeError"]);
+    assert_eq!(
+        event.values,
+        vec!["Cannot read property 'foo' of undefined"]
+    );
+    assert!(event.handled);
+    assert!(event
         .sources
         .contains(&"src/components/Button.tsx".to_string()));
-    assert!(body.sources.contains(&"src/App.tsx".to_string()));
-    assert!(body.functions.contains(&"handleClick".to_string()));
-    assert!(body.functions.contains(&"onClick".to_string()));
+    assert!(event.sources.contains(&"src/App.tsx".to_string()));
+    assert!(event.functions.contains(&"handleClick".to_string()));
+    assert!(event.functions.contains(&"onClick".to_string()));
 }

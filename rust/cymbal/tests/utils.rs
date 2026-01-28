@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
-use axum::async_trait;
 use axum::{body::Body, http::Request};
 
 use common_redis::MockRedisClient;
-use cymbal::{app_context::AppContext, config::Config, error::UnhandledError, router::get_router};
+use cymbal::{
+    app_context::AppContext, config::Config, error::UnhandledError, router::get_router,
+    symbol_store::BlobClient,
+};
 
-use cymbal::symbol_store::BlobClient;
+use axum::async_trait;
 use mockall::mock;
+use rdkafka::message::ToBytes;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -58,11 +61,9 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
         .await
         .unwrap();
 
-    let body_string = String::from_utf8(body_bytes.to_vec()).unwrap();
-
     // Deserialize the JSON into your struct
-    let body: T = serde_json::from_str(body_string.as_str())
-        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e}\nBody: {body_string}"));
+    let body: T = serde_json::from_slice(body_bytes.to_bytes())
+        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e}"));
     (status, body)
 }
 
