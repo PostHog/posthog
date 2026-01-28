@@ -24,7 +24,7 @@ import {
     IconTrends,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
@@ -140,6 +140,7 @@ export function GroupedAccessControlRuleModal(props: {
                 groupedRuleForm={groupedRulesForm}
                 onUpdate={updateLevels}
                 getLevelOptionsForResource={props.getLevelOptionsForResource}
+                canEdit={props.canEdit}
             />
         </LemonModal>
     )
@@ -187,6 +188,7 @@ function GroupedAccessControlRuleModalContent(props: {
     getLevelOptionsForResource: (
         resourceKey: APIScopeObject
     ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]
+    canEdit: boolean
 }): JSX.Element {
     const mappedLevels = props.groupedRuleForm.levels.reduce(
         (prev, mapping) => {
@@ -197,9 +199,37 @@ function GroupedAccessControlRuleModalContent(props: {
 
     return (
         <div className="space-y-4">
+            <div className="flex gap-2 items-center justify-between">
+                <div className="font-medium flex items-center gap-2">
+                    <span className="text-lg flex items-center text-muted-alt">
+                        <IconHome />
+                    </span>
+                    Project access
+                </div>
+                <div className="min-w-[8rem]">
+                    <LemonSelect
+                        dropdownPlacement="bottom-end"
+                        value={mappedLevels['project'] ?? null}
+                        disabled={props.loading || !props.canEdit}
+                        size="small"
+                        className="w-36"
+                        onChange={(newValue) => {
+                            const newLevels = [
+                                ...props.groupedRuleForm.levels.filter((mapping) => mapping.resourceKey !== 'project'),
+                                ...(newValue ? [{ resourceKey: 'project' as APIScopeObject, level: newValue }] : []),
+                            ]
+                            props.onUpdate(newLevels)
+                        }}
+                        options={props.getLevelOptionsForResource('project' as APIScopeObject)}
+                    />
+                </div>
+            </div>
+
+            <LemonDivider className="mb-4" />
+
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <h5 className="mb-2">Access</h5>
+                    <h5 className="mb-2">Features</h5>
                     <Link
                         to="#"
                         onClick={(e) => {
@@ -212,46 +242,48 @@ function GroupedAccessControlRuleModalContent(props: {
                     </Link>
                 </div>
 
-                {props.resources.map((resource) => {
-                    const tooltipText = getAccessControlTooltip(resource.key)
-                    return (
-                        <div key={resource.key} className="flex gap-2 items-center justify-between">
-                            <div className="font-medium flex items-center gap-2">
-                                <span className="text-lg flex items-center text-muted-alt">
-                                    {SCOPE_ICON_MAP[resource.key]}
-                                </span>
-                                {resource.label}
-                                {tooltipText && (
-                                    <Tooltip title={tooltipText}>
-                                        <IconInfo className="text-sm text-muted" />
-                                    </Tooltip>
-                                )}
-                            </div>
-                            <div className="min-w-[8rem]">
-                                <LemonSelect
-                                    placeholder="No override"
-                                    className="w-36"
-                                    size="small"
-                                    value={mappedLevels[resource.key] ?? null}
-                                    onChange={(newValue) => {
-                                        const newLevels = [
-                                            ...props.groupedRuleForm.levels.filter(
-                                                (mapping) => mapping.resourceKey !== resource.key
-                                            ),
-                                            ...(newValue ? [{ resourceKey: resource.key, level: newValue }] : []),
-                                        ]
+                {props.resources
+                    .filter((r) => r.key !== 'project')
+                    .map((resource) => {
+                        const tooltipText = getAccessControlTooltip(resource.key)
+                        return (
+                            <div key={resource.key} className="flex gap-2 items-center justify-between">
+                                <div className="font-medium flex items-center gap-2">
+                                    <span className="text-lg flex items-center text-muted-alt">
+                                        {SCOPE_ICON_MAP[resource.key]}
+                                    </span>
+                                    {resource.label}
+                                    {tooltipText && (
+                                        <Tooltip title={tooltipText}>
+                                            <IconInfo className="text-sm text-muted" />
+                                        </Tooltip>
+                                    )}
+                                </div>
+                                <div className="min-w-[8rem]">
+                                    <LemonSelect
+                                        placeholder="No override"
+                                        className="w-36"
+                                        size="small"
+                                        value={mappedLevels[resource.key] ?? null}
+                                        onChange={(newValue) => {
+                                            const newLevels = [
+                                                ...props.groupedRuleForm.levels.filter(
+                                                    (mapping) => mapping.resourceKey !== resource.key
+                                                ),
+                                                ...(newValue ? [{ resourceKey: resource.key, level: newValue }] : []),
+                                            ]
 
-                                        props.onUpdate(newLevels)
-                                    }}
-                                    options={[
-                                        ...(resource.key !== 'project' ? [{ value: null, label: 'No override' }] : []),
-                                        ...(props.getLevelOptionsForResource(resource.key) as any[]),
-                                    ]}
-                                />
+                                            props.onUpdate(newLevels)
+                                        }}
+                                        options={[
+                                            { value: null, label: 'No override' },
+                                            ...(props.getLevelOptionsForResource(resource.key) as any[]),
+                                        ]}
+                                    />
+                                </div>
                             </div>
-                        </div>
-                    )
-                })}
+                        )
+                    })}
             </div>
         </div>
     )

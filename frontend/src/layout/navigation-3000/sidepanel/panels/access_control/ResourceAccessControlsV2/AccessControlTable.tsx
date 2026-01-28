@@ -87,7 +87,7 @@ function getColumns(activeTab: AccessControlsTab, canEditAny: boolean, onEdit: (
     return [
         ...scopeColumns,
         {
-            title: 'Feature',
+            title: 'Access',
             key: 'resource',
             render: function RenderResource(_: any, row: AccessControlRow) {
                 const accessControlByResource = row.levels.reduce(

@@ -23,8 +23,10 @@ export function SummarizeAccessLevels({ accessControlByResource }: SummarizeAcce
         <div className="flex gap-2 flex-wrap">
             {entries.map(({ resource, level }) => (
                 <LemonTag key={resource} type="default">
-                    {capitalizeFirstLetter(pluralizeResource(resource as APIScopeObject))}:{' '}
-                    {capitalizeFirstLetter(level!)}
+                    {capitalizeFirstLetter(
+                        resource === 'project' ? resource : pluralizeResource(resource as APIScopeObject)
+                    )}
+                    : {capitalizeFirstLetter(level!)}
                 </LemonTag>
             ))}
         </div>
