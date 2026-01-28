@@ -84,7 +84,9 @@ def increment_provider_model(provider: str, model: str) -> None:
 
 
 def increment_errors(error_type: str) -> None:
-    """Track error categorization."""
+    """Track error categorization. Safe to call outside Temporal context (no-ops)."""
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
     meter = get_metric_meter({"error_type": error_type})
     counter = meter.create_counter("llma_eval_errors", "Error counts by type")
     counter.add(1)
