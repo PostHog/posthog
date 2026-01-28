@@ -3620,6 +3620,13 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
+        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('batch_check_exists')
+                .create({ data: { session_ids: sessionIds } })
+        },
+
         async createExternalReference(
             sessionRecordingId: SessionRecordingType['id'],
             integrationId: number,
@@ -5184,6 +5191,10 @@ const api = {
 
         async delete(ticketId: string): Promise<void> {
             return await new ApiRequest().conversationsTicket(ticketId).delete()
+        },
+
+        async unreadCount(): Promise<{ count: number }> {
+            return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
     },
 
