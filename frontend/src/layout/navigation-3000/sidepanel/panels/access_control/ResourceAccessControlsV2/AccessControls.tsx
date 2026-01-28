@@ -44,30 +44,28 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
     const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal, saveGroupedRules } =
         useActions(logic)
 
-    const showRolesError = activeTab === 'roles' && !canUseRoles
-
     return (
         <>
-            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
-                <div className="space-y-4">
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={setActiveTab}
-                        tabs={[
-                            { key: 'defaults' as AccessControlsTab, label: 'Defaults' },
-                            {
-                                key: 'roles' as AccessControlsTab,
-                                label: 'Roles',
-                                tooltip: !canUseRoles ? 'Requires role-based access' : undefined,
-                            },
-                            { key: 'members' as AccessControlsTab, label: 'Members' },
-                        ]}
-                    />
+            <div className="space-y-4">
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={setActiveTab}
+                    tabs={[
+                        { key: 'defaults' as AccessControlsTab, label: 'Defaults' },
+                        {
+                            key: 'roles' as AccessControlsTab,
+                            label: 'Roles',
+                            tooltip: !canUseRoles ? 'Requires role-based access' : undefined,
+                        },
+                        { key: 'members' as AccessControlsTab, label: 'Members' },
+                    ]}
+                />
 
-                    {showRolesError ? (
-                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS} />
+                <AccessControlTabContainer activeTab={activeTab}>
+                    {activeTab === 'defaults' ? (
+                        <AccessControlDefaultSettings projectId={projectId} />
                     ) : (
-                        <>
+                        <div className="space-y-4">
                             <AccessControlFilters
                                 activeTab={activeTab}
                                 searchText={searchText}
@@ -80,22 +78,17 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 ruleOptions={ruleOptions}
                                 canUseRoles={canUseRoles}
                             />
-
-                            {activeTab === 'defaults' ? (
-                                <AccessControlDefaultSettings projectId={projectId} />
-                            ) : (
-                                <AccessControlTable
-                                    activeTab={activeTab}
-                                    rows={filteredSortedRows}
-                                    loading={loading}
-                                    canEditAny={canEditAny}
-                                    onEdit={(row) => openRuleModal({ row })}
-                                />
-                            )}
-                        </>
+                            <AccessControlTable
+                                activeTab={activeTab}
+                                rows={filteredSortedRows}
+                                loading={loading}
+                                canEditAny={canEditAny}
+                                onEdit={(row) => openRuleModal({ row })}
+                            />
+                        </div>
                     )}
-                </div>
-            </PayGateMini>
+                </AccessControlTabContainer>
+            </div>
 
             {ruleModalState && (
                 <GroupedAccessControlRuleModal
@@ -113,4 +106,19 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
             )}
         </>
     )
+}
+
+function AccessControlTabContainer(props: { activeTab: AccessControlsTab; children?: React.ReactNode }): JSX.Element {
+    if (props.activeTab === 'roles') {
+        return (
+            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>{props.children}</PayGateMini>
+            </PayGateMini>
+        )
+    }
+    if (props.activeTab === 'members') {
+        return <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>{props.children}</PayGateMini>
+    }
+
+    return <>{props.children}</>
 }

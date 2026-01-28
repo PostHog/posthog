@@ -21,10 +21,6 @@ export interface AccessControlFiltersProps {
 }
 
 export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Element | null {
-    if (props.activeTab === 'defaults') {
-        return null
-    }
-
     return (
         <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">

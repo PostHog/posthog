@@ -26,9 +26,10 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSelect, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
-import { APIScopeObject, AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
 
@@ -105,117 +106,119 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                 </div>
             </div>
 
-            <LemonTable
-                dataSource={resourcesWithProject.filter((r) => r.key !== 'project')}
-                loading={loading}
-                columns={[
-                    {
-                        title: 'Feature',
-                        key: 'label',
-                        render: function RenderFeature(_, resource) {
-                            const tooltipText = getAccessControlTooltip(resource.key)
-                            return (
-                                <div className="font-medium flex items-center gap-2">
-                                    <span className="text-lg flex items-center text-muted-alt">
-                                        {SCOPE_ICON_MAP[resource.key]}
-                                    </span>
-                                    {resource.label}
-                                    {tooltipText && (
-                                        <Tooltip title={tooltipText}>
-                                            <IconInfo className="text-sm text-muted" />
-                                        </Tooltip>
-                                    )}
-                                </div>
-                            )
-                        },
-                    },
-                    {
-                        title: 'Access',
-                        key: 'access',
-                        align: 'right',
-                        render: function RenderAccess(_, resource) {
-                            const canEdit = canEditRoleBasedAccessControls
-                            const value = mappedLevels[resource.key] ?? null
-
-                            if (value === null) {
+            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+                <LemonTable
+                    dataSource={resourcesWithProject.filter((r) => r.key !== 'project')}
+                    loading={loading}
+                    columns={[
+                        {
+                            title: 'Feature',
+                            key: 'label',
+                            render: function RenderFeature(_, resource) {
+                                const tooltipText = getAccessControlTooltip(resource.key)
                                 return (
-                                    <LemonDropdown
-                                        placement="bottom-end"
-                                        overlay={
-                                            <div className="flex flex-col">
-                                                {getLevelOptionsForResource(resource.key).map((option) => (
-                                                    <LemonButton
-                                                        key={option.value}
-                                                        size="small"
-                                                        className="w-36"
-                                                        fullWidth
-                                                        disabledReason={option.disabledReason}
-                                                        onClick={() => {
-                                                            updateResourceAccessControls(
-                                                                [
-                                                                    {
-                                                                        resource: resource.key,
-                                                                        access_level:
-                                                                            option.value as AccessControlLevel,
-                                                                        role: null,
-                                                                        organization_member: null,
-                                                                    },
-                                                                ],
-                                                                'default'
-                                                            )
-                                                        }}
-                                                    >
-                                                        {option.label}
-                                                    </LemonButton>
-                                                ))}
-                                            </div>
-                                        }
-                                    >
-                                        <LemonButton
-                                            size="small"
-                                            type="tertiary"
-                                            icon={<IconPlus />}
-                                            sideIcon={null}
-                                            disabled={loading || !canEdit}
-                                            className="ml-auto my-0.5 w-36"
-                                        >
-                                            Add default
-                                        </LemonButton>
-                                    </LemonDropdown>
+                                    <div className="font-medium flex items-center gap-2">
+                                        <span className="text-lg flex items-center text-muted-alt">
+                                            {SCOPE_ICON_MAP[resource.key]}
+                                        </span>
+                                        {resource.label}
+                                        {tooltipText && (
+                                            <Tooltip title={tooltipText}>
+                                                <IconInfo className="text-sm text-muted" />
+                                            </Tooltip>
+                                        )}
+                                    </div>
                                 )
-                            }
-
-                            return (
-                                <LemonSelect
-                                    dropdownPlacement="bottom-end"
-                                    placeholder="No override"
-                                    value={value}
-                                    disabled={loading || !canEdit}
-                                    size="small"
-                                    className="ml-auto w-36 my-0.5"
-                                    onChange={(newValue) => {
-                                        updateResourceAccessControls(
-                                            [
-                                                {
-                                                    resource: resource.key,
-                                                    access_level: newValue as AccessControlLevel | null,
-                                                    role: null,
-                                                    organization_member: null,
-                                                },
-                                            ],
-                                            'default'
-                                        )
-                                    }}
-                                    options={[
-                                        { value: null, label: 'No override' },
-                                        ...(getLevelOptionsForResource(resource.key) as any[]),
-                                    ]}
-                                />
-                            )
+                            },
                         },
-                    },
-                ]}
-            />
+                        {
+                            title: 'Access',
+                            key: 'access',
+                            align: 'right',
+                            render: function RenderAccess(_, resource) {
+                                const canEdit = canEditRoleBasedAccessControls
+                                const value = mappedLevels[resource.key] ?? null
+
+                                if (value === null) {
+                                    return (
+                                        <LemonDropdown
+                                            placement="bottom-end"
+                                            overlay={
+                                                <div className="flex flex-col">
+                                                    {getLevelOptionsForResource(resource.key).map((option) => (
+                                                        <LemonButton
+                                                            key={option.value}
+                                                            size="small"
+                                                            className="w-36"
+                                                            fullWidth
+                                                            disabledReason={option.disabledReason}
+                                                            onClick={() => {
+                                                                updateResourceAccessControls(
+                                                                    [
+                                                                        {
+                                                                            resource: resource.key,
+                                                                            access_level:
+                                                                                option.value as AccessControlLevel,
+                                                                            role: null,
+                                                                            organization_member: null,
+                                                                        },
+                                                                    ],
+                                                                    'default'
+                                                                )
+                                                            }}
+                                                        >
+                                                            {option.label}
+                                                        </LemonButton>
+                                                    ))}
+                                                </div>
+                                            }
+                                        >
+                                            <LemonButton
+                                                size="small"
+                                                type="tertiary"
+                                                icon={<IconPlus />}
+                                                sideIcon={null}
+                                                disabled={loading || !canEdit}
+                                                className="ml-auto my-0.5 w-36"
+                                            >
+                                                Add default
+                                            </LemonButton>
+                                        </LemonDropdown>
+                                    )
+                                }
+
+                                return (
+                                    <LemonSelect
+                                        dropdownPlacement="bottom-end"
+                                        placeholder="No override"
+                                        value={value}
+                                        disabled={loading || !canEdit}
+                                        size="small"
+                                        className="ml-auto w-36 my-0.5"
+                                        onChange={(newValue) => {
+                                            updateResourceAccessControls(
+                                                [
+                                                    {
+                                                        resource: resource.key,
+                                                        access_level: newValue as AccessControlLevel | null,
+                                                        role: null,
+                                                        organization_member: null,
+                                                    },
+                                                ],
+                                                'default'
+                                            )
+                                        }}
+                                        options={[
+                                            { value: null, label: 'No override' },
+                                            ...(getLevelOptionsForResource(resource.key) as any[]),
+                                        ]}
+                                    />
+                                )
+                            },
+                        },
+                    ]}
+                />
+            </PayGateMini>
         </div>
     )
 }
