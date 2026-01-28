@@ -31,7 +31,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use dashmap::DashSet;
+use dashmap::mapref::entry::Entry;
+use dashmap::{DashMap, DashSet};
+use futures::future::Shared;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::kafka::types::Partition;
@@ -39,6 +43,20 @@ use crate::metrics_const::{
     OWNED_PARTITIONS_COUNT, PARTITION_OWNERSHIP_ADDED, PARTITION_OWNERSHIP_REMOVED,
     REBALANCING_COUNT,
 };
+
+/// Type alias for the shared task handle. The closure maps JoinHandle's Result to ()
+/// so it can be Clone (required by Shared).
+type SharedTaskHandle =
+    Shared<futures::future::Map<JoinHandle<()>, fn(Result<(), tokio::task::JoinError>) -> ()>>;
+
+/// Tracks a partition setup task with its cancellation token.
+///
+/// The `Shared` future allows multiple async_setup calls to await the same task.
+/// The `CancellationToken` allows cancelling ONLY this partition's download on revoke.
+struct PartitionSetupTask {
+    handle: SharedTaskHandle,
+    cancel_token: CancellationToken,
+}
 
 /// Coordinates rebalance state across multiple components.
 ///
@@ -55,6 +73,11 @@ pub struct RebalanceCoordinator {
     /// Updated synchronously in ASSIGN (add) and REVOKE (remove) callbacks.
     /// Used to determine which partitions to resume and which to cleanup.
     owned_partitions: DashSet<Partition>,
+
+    /// Per-partition setup task handles with cancellation tokens.
+    /// - Shared<JoinHandle> allows multiple async_setup calls to await the same task
+    /// - CancellationToken allows cancelling ONLY this partition's S3 download on revoke
+    partition_setup_tasks: DashMap<Partition, PartitionSetupTask>,
 }
 
 impl RebalanceCoordinator {
@@ -63,6 +86,7 @@ impl RebalanceCoordinator {
         Self {
             rebalancing_count: AtomicUsize::new(0),
             owned_partitions: DashSet::new(),
+            partition_setup_tasks: DashMap::new(),
         }
     }
 
@@ -222,6 +246,69 @@ impl RebalanceCoordinator {
             .filter(|p| !self.owned_partitions.contains(*p))
             .cloned()
             .collect()
+    }
+
+    // ============================================
+    // PER-PARTITION SETUP TASK MANAGEMENT
+    // ============================================
+
+    /// Register a setup task for a partition.
+    ///
+    /// Returns true if the task was registered, false if a task already exists for this partition.
+    /// The handle is converted to `Shared` so multiple callers can await it.
+    pub fn register_setup_task(
+        &self,
+        partition: &Partition,
+        handle: JoinHandle<()>,
+        cancel_token: CancellationToken,
+    ) -> bool {
+        use futures::future::FutureExt;
+
+        // Helper function to discard JoinHandle result (must be fn, not closure, for type matching)
+        fn discard_result(_: Result<(), tokio::task::JoinError>) {}
+
+        match self.partition_setup_tasks.entry(partition.clone()) {
+            Entry::Vacant(e) => {
+                // Map the JoinHandle result to () so it's Clone (required for Shared)
+                let shared_handle = handle.map(discard_result as fn(_) -> ()).shared();
+                e.insert(PartitionSetupTask {
+                    handle: shared_handle,
+                    cancel_token,
+                });
+                true
+            }
+            Entry::Occupied(_) => false, // Task already exists
+        }
+    }
+
+    /// Get the setup task handle for a partition (if any).
+    ///
+    /// Returns a clone of the Shared handle that can be awaited by multiple callers.
+    pub fn get_setup_task(&self, partition: &Partition) -> Option<SharedTaskHandle> {
+        self.partition_setup_tasks
+            .get(partition)
+            .map(|t| t.handle.clone())
+    }
+
+    /// Cancel and remove setup tasks for revoked partitions.
+    ///
+    /// This immediately cancels any in-flight S3 downloads to save cost/time.
+    /// The tasks will detect cancellation and clean up.
+    pub fn cancel_setup_tasks(&self, partitions: &[Partition]) {
+        for partition in partitions {
+            if let Some((_, task)) = self.partition_setup_tasks.remove(partition) {
+                // Cancel the token - S3 download will stop at next chunk
+                task.cancel_token.cancel();
+                // Handle is dropped, task continues but we won't wait for it
+            }
+        }
+    }
+
+    /// Remove a completed setup task for a partition.
+    ///
+    /// Called after awaiting the task to clean up the tracking entry.
+    pub fn complete_setup_task(&self, partition: &Partition) {
+        self.partition_setup_tasks.remove(partition);
     }
 
     /// Get the count of owned partitions (for testing/debugging).
