@@ -1,6 +1,5 @@
 import re
 
-import posthoganalytics
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -11,6 +10,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.llm_prompt import LLMPrompt
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 
@@ -88,6 +88,8 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
     scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "llm-analytics-prompts"
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(deleted=False)
@@ -106,19 +108,6 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
     )
     @monitor(feature=None, endpoint="llma_prompts_get_by_name", method="GET")
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        distinct_id = getattr(request.user, "distinct_id", None)
-
-        if not distinct_id or not posthoganalytics.feature_enabled(
-            "llm-analytics-prompts",
-            distinct_id,
-            groups={"organization": str(self.organization.id)},
-            group_properties={"organization": {"id": str(self.organization.id)}},
-        ):
-            return Response(
-                {"detail": "This feature is not available."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         try:
             prompt = LLMPrompt.objects.get(
                 team=self.team,
