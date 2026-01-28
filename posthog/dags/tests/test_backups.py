@@ -43,9 +43,9 @@ def test_get_latest_backup(table: str):
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {
         "CommonPrefixes": [
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-01-01T07:54:04Z/"},
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-03-01T07:54:04Z/"},
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-02-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/full-20240101075404/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/inc-20240301075404/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/inc-20240201075404/"},
         ]
     }
 
@@ -55,15 +55,18 @@ def test_get_latest_backup(table: str):
 
     assert isinstance(result, list)
     assert result[0].database == "posthog"
-    assert result[0].date == "2024-03-01T07:54:04Z"
+    assert result[0].date == "20240301075404"
+    assert result[0].incremental is True
     assert result[0].base_backup is None
 
     assert result[1].database == "posthog"
-    assert result[1].date == "2024-02-01T07:54:04Z"
+    assert result[1].date == "20240201075404"
+    assert result[1].incremental is True
     assert result[1].base_backup is None
 
     assert result[2].database == "posthog"
-    assert result[2].date == "2024-01-01T07:54:04Z"
+    assert result[2].date == "20240101075404"
+    assert result[2].incremental is False
     assert result[2].base_backup is None
 
     expected_table = table if table else None
@@ -74,13 +77,13 @@ def test_get_latest_backup(table: str):
 
 def test_get_latest_successful_backup_returns_latest_backup():
     config = BackupConfig(database="posthog", table="test", incremental=True)
-    backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
+    backup1 = Backup(database="posthog", date="20240201075404", incremental=True, table="test")
     backup1.is_done = MagicMock(return_value=True)  # type: ignore
     backup1.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
 
-    backup2 = Backup(database="posthog", date="2024-01-01T07:54:04Z", table="test")
+    backup2 = Backup(database="posthog", date="20240101075404", incremental=False, table="test")
     backup2.is_done = MagicMock(return_value=True)  # type: ignore
     backup2.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="BACKUP_CREATED", event_time_microseconds=datetime.now())
@@ -107,7 +110,7 @@ def test_get_latest_successful_backup_returns_latest_backup():
 
 def test_get_latest_successful_backup_fails():
     config = BackupConfig(database="posthog", table="test", incremental=True)
-    backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
+    backup1 = Backup(database="posthog", date="20240201075404", incremental=True, table="test")
     backup1.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
@@ -152,11 +155,11 @@ def run_backup_test(
         )
 
     def create_backup(client: Client, bucket_name: str) -> None:
-        date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d%H%M%S")
         client.execute(
             """
             BACKUP TABLE person_distinct_id_overrides
-            TO S3('http://objectstorage:19000/{bucket_name}/{database}/person_distinct_id_overrides/{shard}/{date}')
+            TO S3('http://objectstorage:19000/{bucket_name}/{database}/person_distinct_id_overrides/{shard}/full-{date}')
             """.format(
                 bucket_name=bucket_name,
                 database=settings.CLICKHOUSE_DATABASE,

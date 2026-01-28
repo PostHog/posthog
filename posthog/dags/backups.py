@@ -124,13 +124,18 @@ class BackupStatus:
 class Backup:
     database: str
     date: str
+    incremental: bool = False
     table: Optional[str] = None
     id: Optional[str] = None
     base_backup: Optional["Backup"] = None
     shard: Optional[int] = None
 
     def __post_init__(self):
-        datetime.strptime(self.date, "%Y-%m-%dT%H:%M:%SZ")  # It will fail if the date is invalid
+        datetime.strptime(self.date, "%Y%m%d%H%M%S")  # It will fail if the date is invalid
+
+    @property
+    def backup_type_prefix(self) -> str:
+        return "inc" if self.incremental else "full"
 
     @property
     def path(self):
@@ -139,7 +144,7 @@ class Backup:
         if self.table:
             base_path = f"{base_path}/{self.table}"
 
-        return f"{base_path}/{shard_path}/{self.date}"
+        return f"{base_path}/{shard_path}/{self.backup_type_prefix}-{self.date}"
 
     def _bucket_base_path(self, bucket: str):
         return f"https://{bucket}.s3.amazonaws.com"
@@ -147,7 +152,7 @@ class Backup:
     @classmethod
     def from_s3_path(cls, path: str) -> "Backup":
         path_regex = re.compile(
-            r"^(?P<database>\w+)(\/(?P<table>\w+))?\/(?P<shard>\w+)\/(?P<date>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\/$"
+            r"^(?P<database>\w+)(\/(?P<table>\w+))?\/(?P<shard>\w+)\/(?P<backup_type>full|inc)-(?P<date>\d{14})\/$"
         )
         match = path_regex.match(path)
         if not match:
@@ -156,6 +161,7 @@ class Backup:
         return Backup(
             database=match.group("database"),
             date=match.group("date"),
+            incremental=match.group("backup_type") == "inc",
             table=match.group("table"),
             base_backup=None,
             shard=None if match.group("shard") == NO_SHARD_PATH else int(match.group("shard")),
@@ -389,8 +395,9 @@ def run_backup(
     backup = Backup(
         id=context.run_id,
         database=config.database,
+        date=datetime.now(UTC).strftime("%Y%m%d%H%M%S"),
+        incremental=config.incremental,
         table=config.table,
-        date=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         base_backup=latest_backup if config.incremental else None,
         shard=shard,
     )
