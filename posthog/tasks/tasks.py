@@ -926,11 +926,13 @@ def background_delete_model_task(
         raise
 
 
-def _delete_team_data(team_ids: list[int], user_id: int) -> None:
+def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | None = None) -> None:
     """
-    Shared logic for deleting team data (Postgres, batch exports, ClickHouse).
+    Shared logic for deleting teams and all associated data (Postgres, batch exports, ClickHouse).
     """
     from posthog.models.async_deletion import AsyncDeletion, DeletionType
+    from posthog.models.project import Project
+    from posthog.models.team import Team
     from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
     from posthog.models.user import User
 
@@ -939,6 +941,12 @@ def _delete_team_data(team_ids: list[int], user_id: int) -> None:
 
     logger.info("Deleting batch exports", team_ids=team_ids)
     delete_batch_exports(team_ids=team_ids)
+
+    logger.info("Deleting team records", team_ids=team_ids)
+    if project_id:
+        Project.objects.filter(id=project_id).delete()
+    else:
+        Team.objects.filter(id__in=team_ids).delete()
 
     logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
     user = User.objects.filter(id=user_id).first()
@@ -966,24 +974,26 @@ def _delete_team_data(team_ids: list[int], user_id: int) -> None:
 )
 def delete_project_data_and_notify_task(
     team_ids: list[int],
+    project_id: int | None,
     user_id: int,
     project_name: str,
 ) -> None:
     """
-    Task to delete project data and notify user when complete.
+    Task to delete project/team and all associated data, then notify user.
 
     Args:
         team_ids: List of team IDs whose data should be deleted
+        project_id: Project ID to delete (None if deleting just a team/environment)
         user_id: User who initiated the deletion (for email notification)
-        project_name: Name of the deleted project (for email notification)
+        project_name: Name of the deleted project/team (for email notification)
     """
     from posthog.email import is_email_available
     from posthog.tasks.email import send_project_deleted_email
 
-    logger.info("Starting project data deletion", team_ids=team_ids, project_name=project_name)
+    logger.info("Starting project data deletion", team_ids=team_ids, project_name=project_name, project_id=project_id)
 
     try:
-        _delete_team_data(team_ids, user_id)
+        _delete_teams_and_data(team_ids, user_id, project_id)
         logger.info("Project data deletion completed", team_ids=team_ids, project_name=project_name)
         if is_email_available():
             send_project_deleted_email.delay(user_id=user_id, project_name=project_name)
@@ -1012,26 +1022,42 @@ def delete_project_data_and_notify_task(
 )
 def delete_organization_data_and_notify_task(
     team_ids: list[int],
+    organization_id: str,
     user_id: int,
     organization_name: str,
     project_names: list[str],
 ) -> None:
     """
-    Task to delete organization data and notify user when complete.
+    Task to delete organization and all associated data, then notify user.
 
     Args:
         team_ids: List of team IDs whose data should be deleted
+        organization_id: UUID of the organization to delete
         user_id: User who initiated the deletion (for email notification)
         organization_name: Name of the deleted organization (for email notification)
         project_names: Names of all projects in the organization (for email notification)
     """
     from posthog.email import is_email_available
+    from posthog.models.organization import Organization
     from posthog.tasks.email import send_organization_deleted_email
 
-    logger.info("Starting organization data deletion", team_ids=team_ids, organization_name=organization_name)
+    logger.info(
+        "Starting organization data deletion",
+        team_ids=team_ids,
+        organization_name=organization_name,
+        organization_id=organization_id,
+    )
 
     try:
-        _delete_team_data(team_ids, user_id)
+        # Delete teams and their data first
+        if team_ids:
+            _delete_teams_and_data(team_ids, user_id)
+
+        # Delete the organization record
+        if organization_id:
+            logger.info("Deleting organization record", organization_id=organization_id)
+            Organization.objects.filter(id=organization_id).delete()
+
         logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
         if is_email_available():
             send_organization_deleted_email.delay(

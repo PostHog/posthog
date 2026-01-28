@@ -45,7 +45,6 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
-from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -605,12 +604,11 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
         team_ids = [team.id for team in teams]
 
-        with mute_selected_signals():
-            super().perform_destroy(project)
-
-        # Queue background task to delete bulky data and send email
+        # Queue background task to handle all deletion
+        # bulky postgres, batch exports, project/team records, ClickHouse, email
         delete_project_data_and_notify_task.delay(
             team_ids=team_ids,
+            project_id=project_id,
             user_id=user.id,
             project_name=project_name,
         )

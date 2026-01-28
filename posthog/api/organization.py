@@ -26,7 +26,7 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.signals import model_activity_signal, mutable_receiver, mute_selected_signals
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -336,19 +336,18 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         teams = list(organization.teams.only("id", "name").all())
         team_ids = [team.pk for team in teams]
         project_names = [team.name for team in teams]
+        organization_id = organization.pk
         organization_name = organization.name
 
-        with mute_selected_signals():
-            super().perform_destroy(organization)
-
-        # Queue background task to delete bulky data and send email
-        if team_ids:
-            delete_organization_data_and_notify_task.delay(
-                team_ids=team_ids,
-                user_id=user.id,
-                organization_name=organization_name,
-                project_names=project_names,
-            )
+        # Queue background task to handle all deletion
+        # bulky postgres, batch exports, org/team records, ClickHouse, email
+        delete_organization_data_and_notify_task.delay(
+            team_ids=team_ids,
+            organization_id=str(organization_id),
+            user_id=user.id,
+            organization_name=organization_name,
+            project_names=project_names,
+        )
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {

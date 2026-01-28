@@ -193,7 +193,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     @patch("posthog.api.project.delete_project_data_and_notify_task")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
-        """Verify that project deletion deletes project and queues data cleanup task."""
+        """Verify that project deletion queues async task for full deletion."""
         viewset = ProjectViewSet()
         request = MagicMock()
         request.user = self.user
@@ -205,12 +205,11 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         viewset.perform_destroy(self.project)
 
-        # Project is deleted immediately
-        self.assertFalse(Project.objects.filter(id=project_id).exists())
+        # Project deletion happens async in Celery task
 
-        # Verify async task was queued for data cleanup
         mock_delete_task.delay.assert_called_once_with(
             team_ids=[team_id],
+            project_id=project_id,
             user_id=self.user.id,
             project_name=project_name,
         )

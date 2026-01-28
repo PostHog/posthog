@@ -526,24 +526,28 @@ def team_api_test_factory():
                 )
             assert activity == expected_activity
 
+        @patch("posthog.api.project.delete_project_data_and_notify_task")
         @patch("posthog.tasks.tasks.delete_project_data_and_notify_task")
         @patch("posthoganalytics.capture")
         def test_delete_team_own_second(
             self,
             mock_capture: MagicMock,
-            mock_delete_task: MagicMock,
+            mock_delete_task_team: MagicMock,
+            mock_delete_task_project: MagicMock,
         ):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            team_pk = team.pk
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
             response = self.client.delete(f"/api/environments/{team.id}")
 
             self.assertEqual(response.status_code, 204)
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
+            # Team deletion happens async in the (mocked) Celery task, so team still exists
+            # We only verify the task was queued correctly
             expected_capture_calls = [
                 call(
                     distinct_id=self.user.distinct_id,
@@ -567,12 +571,20 @@ def team_api_test_factory():
                         groups=mock.ANY,
                     )
                 )
+                mock_delete_task_project.delay.assert_called_once_with(
+                    team_ids=[team_pk],
+                    project_id=team_pk,
+                    user_id=self.user.id,
+                    project_name="Default project",
+                )
+            else:
+                mock_delete_task_team.delay.assert_called_once_with(
+                    team_ids=[team_pk],
+                    project_id=None,
+                    user_id=self.user.id,
+                    project_name="Default project",
+                )
             assert mock_capture.call_args_list == expected_capture_calls
-            mock_delete_task.delay.assert_called_once_with(
-                team_ids=[team.pk],
-                user_id=self.user.id,
-                project_name="Default project",
-            )
 
         def test_delete_bulky_postgres_data(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN

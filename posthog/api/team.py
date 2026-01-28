@@ -40,7 +40,6 @@ from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIEL
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
-from posthog.models.signals import mute_selected_signals
 from posthog.models.tag import Tag
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team
@@ -1085,12 +1084,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         user = cast(User, self.request.user)
 
-        with mute_selected_signals():
-            super().perform_destroy(team)
-
-        # Queue background task to delete bulky data and send email
+        # Queue background task to handle all deletion
+        # bulky postgres, batch exports, team record, ClickHouse, email
         delete_project_data_and_notify_task.delay(
             team_ids=[team_id],
+            project_id=None,  # Only deleting a team, not the whole project
             user_id=user.id,
             project_name=team_name,
         )
