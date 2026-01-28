@@ -918,6 +918,26 @@ class SessionRecordingViewSet(
             {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
 
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="batch_check_exists")
+    def batch_check_exists(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Batch check which session IDs have recordings.
+
+        Returns a dict mapping session_id -> exists (boolean).
+        Only positive results (exists=True) are cached.
+        Negative results are not cached since recordings may still be ingesting.
+        """
+        session_ids = request.data.get("session_ids", [])
+
+        if not session_ids or not isinstance(session_ids, list):
+            raise exceptions.ValidationError("session_ids must be provided as a non-empty array")
+
+        if len(session_ids) > 100:
+            raise exceptions.ValidationError("Cannot check more than 100 session IDs at once")
+
+        results = SessionReplayEvents().batch_exists(session_ids, self.team)
+        return Response({"results": results})
+
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
     @action(
