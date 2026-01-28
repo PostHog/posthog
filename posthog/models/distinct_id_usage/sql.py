@@ -1,5 +1,3 @@
-from django.conf import settings
-
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_DISTINCT_ID_USAGE, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, ReplicationScheme, SummingMergeTree
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
@@ -94,17 +92,16 @@ def KAFKA_DISTINCT_ID_USAGE_TABLE_SQL():
 def DISTINCT_ID_USAGE_MV_SQL(target_table: str = WRITABLE_TABLE_NAME):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
-TO {database}.{target_table}
+TO {target_table}
 AS SELECT
     team_id,
     distinct_id,
     toStartOfMinute(timestamp) AS minute,
     1 AS event_count
-FROM {database}.{kafka_table}
+FROM {kafka_table}
 """.format(
         mv_name=MV_NAME,
         target_table=target_table,
-        database=settings.CLICKHOUSE_DATABASE,
         kafka_table=KAFKA_TABLE_NAME,
     )
 
