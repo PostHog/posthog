@@ -138,8 +138,6 @@ pub async fn process_event(
     )
     .await?;
 
-    dbg!(&issue);
-
     // Check if issue is suppressed
     if issue.status == IssueStatus::Suppressed {
         return Ok(ProcessEventResponse {
