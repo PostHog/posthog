@@ -7,8 +7,8 @@ from fastapi.responses import StreamingResponse
 from llm_gateway.api.handler import (
     OPENAI_CONFIG,
     OPENAI_RESPONSES_CONFIG,
+    OPENAI_TRANSCRIPTION_CONFIG,
     handle_llm_request,
-    handle_transcription_request,
 )
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest
@@ -136,14 +136,21 @@ async def _handle_transcription(
             detail={"error": {"message": "File must have a filename", "type": "invalid_request_error", "code": None}},
         )
 
+    normalized_model = _normalize_model_name(model)
     content = await file.read()
     file_tuple = (file.filename, content, file.content_type or "audio/mpeg")
 
-    return await handle_transcription_request(
-        file_tuple=file_tuple,
-        model=_normalize_model_name(model),
+    request_data: dict[str, Any] = {"model": normalized_model, "file": file_tuple}
+    if language:
+        request_data["language"] = language
+
+    return await handle_llm_request(
+        request_data=request_data,
         user=user,
-        language=language,
+        model=normalized_model,
+        is_streaming=False,
+        provider_config=OPENAI_TRANSCRIPTION_CONFIG,
+        llm_call=litellm.atranscription,
         product=product,
     )
 
