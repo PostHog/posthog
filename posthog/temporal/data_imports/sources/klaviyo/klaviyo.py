@@ -15,8 +15,7 @@ def get_resource(
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
 ) -> EndpointResource:
-    # Extract API filter field name from incremental_field (e.g., "attributes__created_at" -> "created_at")
-    api_filter_field = incremental_field.split("__")[-1] if incremental_field else "updated_at"
+    api_filter_field = incremental_field if incremental_field else "updated_at"
 
     resources: dict[str, EndpointResource] = {
         "email_campaigns": {
