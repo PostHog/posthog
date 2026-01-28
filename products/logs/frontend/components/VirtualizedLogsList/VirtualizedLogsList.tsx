@@ -2,11 +2,12 @@ import './VirtualizedLogsList.scss'
 
 import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
-import { List, useDynamicRowHeight, useListRef } from 'react-window'
+import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-window'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
+import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 
@@ -321,7 +322,7 @@ export function VirtualizedLogsList({
             <div style={{ height: fixedHeight }} className="flex flex-col bg-bg-light border rounded overflow-hidden">
                 <AutoSizer
                     disableHeight
-                    renderProp={({ width }) => {
+                    renderProp={({ width }: SizeProps) => {
                         if (width && width !== autosizerWidthRef.current) {
                             autosizerWidthRef.current = width
                             requestAnimationFrame(() => setContainerWidth(width))
@@ -330,7 +331,7 @@ export function VirtualizedLogsList({
                         return (
                             <div className="overflow-y-hidden overflow-x-auto" style={{ width, height: fixedHeight }}>
                                 <LogRowHeader
-                                    rowWidth={rowWidth}
+                                    rowWidth={rowWidth - getScrollbarSize()}
                                     attributeColumns={attributeColumns}
                                     attributeColumnWidths={attributeColumnWidths}
                                     onRemoveAttributeColumn={removeAttributeColumn}
@@ -349,7 +350,7 @@ export function VirtualizedLogsList({
                                     rowCount={dataSource.length}
                                     rowHeight={dynamicRowHeight}
                                     rowComponent={LogsListRow}
-                                    rowProps={createRowProps(rowWidth)}
+                                    rowProps={createRowProps(rowWidth - getScrollbarSize())}
                                     listRef={listRef}
                                 />
                             </div>
@@ -370,7 +371,7 @@ export function VirtualizedLogsList({
             data-attr="logs-table"
         >
             <AutoSizer
-                renderProp={({ width, height }) => {
+                renderProp={({ width, height }: SizeProps) => {
                     if (width && width !== autosizerWidthRef.current) {
                         autosizerWidthRef.current = width
                         requestAnimationFrame(() => setContainerWidth(width))
@@ -380,7 +381,7 @@ export function VirtualizedLogsList({
                     return height && width ? (
                         <div className="overflow-y-hidden overflow-x-auto" style={{ width, height }}>
                             <LogRowHeader
-                                rowWidth={rowWidth}
+                                rowWidth={rowWidth - getScrollbarSize()}
                                 attributeColumns={attributeColumns}
                                 attributeColumnWidths={attributeColumnWidths}
                                 onRemoveAttributeColumn={removeAttributeColumn}
@@ -399,7 +400,7 @@ export function VirtualizedLogsList({
                                 rowCount={dataSource.length}
                                 rowHeight={dynamicRowHeight}
                                 rowComponent={LogsListRow}
-                                rowProps={createRowProps(rowWidth)}
+                                rowProps={createRowProps(rowWidth - getScrollbarSize())}
                                 listRef={listRef}
                                 onRowsRendered={handleRowsRendered}
                             />
