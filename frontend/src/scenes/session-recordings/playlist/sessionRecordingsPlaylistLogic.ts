@@ -289,49 +289,6 @@ function normalizeFilterWithNestedProperties<T extends { properties?: AnyPropert
     return hasChanges ? { ...filter, properties: normalizedProperties } : filter
 }
 
-/**
- * Normalizes filter values from URL to ensure multi-select operators have array values.
- * This fixes issues with saved/bookmarked URLs that may have string values instead of arrays.
- * Handles both top-level property filters and properties nested inside event/action filters.
- */
-function normalizeFiltersFromUrl(filters: Partial<RecordingUniversalFilters>): Partial<RecordingUniversalFilters> {
-    if (!filters.filter_group?.values) {
-        return filters
-    }
-
-    const normalizedFilterGroup: UniversalFiltersGroup = {
-        ...filters.filter_group,
-        values: filters.filter_group.values.map((group): UniversalFiltersGroup => {
-            if (!('values' in group) || !Array.isArray(group.values)) {
-                return group as UniversalFiltersGroup
-            }
-            return {
-                ...group,
-                values: group.values.map((filter): UniversalFilterValue => {
-                    if (!filter || typeof filter !== 'object') {
-                        return filter as UniversalFilterValue
-                    }
-
-                    // Handle event/action filters with nested properties
-                    if ('type' in filter && (filter.type === 'events' || filter.type === 'actions')) {
-                        return normalizeFilterWithNestedProperties(
-                            filter as { properties?: AnyPropertyFilter[] }
-                        ) as UniversalFilterValue
-                    }
-
-                    // Handle top-level property filters
-                    return normalizePropertyFilter(filter) as UniversalFilterValue
-                }),
-            }
-        }),
-    }
-
-    return {
-        ...filters,
-        filter_group: normalizedFilterGroup,
-    }
-}
-
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
     const filters = filtersFromUniversalFilterGroups(universalFilters)
 
@@ -1552,7 +1509,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Event,
                     operator: PropertyOperator.Exact,
                     key: params.eventProperty,
-                    value: normalizePropertyFilterValue(params.eventPropertyValue, PropertyOperator.Exact),
+                    // Store as-is in UI state; normalization happens in convertUniversalFiltersToRecordingsQuery
+                    value: params.eventPropertyValue,
                 }
             }
 
@@ -1561,7 +1519,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Person,
                     operator: PropertyOperator.Exact,
                     key: params.personProperty,
-                    value: normalizePropertyFilterValue(params.personPropertyValue, PropertyOperator.Exact),
+                    // Store as-is in UI state; normalization happens in convertUniversalFiltersToRecordingsQuery
+                    value: params.personPropertyValue,
                 }
             }
 
@@ -1584,12 +1543,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
-                // Normalize filters from URL to fix string values that should be arrays
-                const normalizedUrlFilters = params.filters ? normalizeFiltersFromUrl(params.filters) : undefined
+                // Filters are stored as-is from URL; normalization happens in convertUniversalFiltersToRecordingsQuery
                 const updatedFilters = {
-                    ...(normalizedUrlFilters && !equal(normalizedUrlFilters, values.filters)
-                        ? normalizedUrlFilters
-                        : {}),
+                    ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
                         ? { order_direction: params.order_direction }
