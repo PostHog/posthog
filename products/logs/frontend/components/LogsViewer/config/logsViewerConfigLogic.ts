@@ -3,6 +3,7 @@ import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import { FilterLogicalOperator } from '~/types'
 
 import { LogsViewerConfig, LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+import { LogsOrderBy } from 'products/logs/frontend/types'
 
 import type { logsViewerConfigLogicType } from './logsViewerConfigLogicType'
 
@@ -14,7 +15,10 @@ export const DEFAULT_LOGS_VIEWER_CONFIG: LogsViewerConfig = {
         serviceNames: [],
         filterGroup: { type: FilterLogicalOperator.And, values: [] },
     },
+    orderBy: 'latest',
 }
+
+const DEFAULT_ORDER_BY: LogsOrderBy = 'latest'
 
 export interface LogsViewerConfigProps {
     id: string
@@ -26,6 +30,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
     key((props) => props.id),
 
     actions({
+        setOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar' = 'toolbar') => ({ orderBy, source }),
         setFilters: (filters: LogsViewerFilters) => ({ filters }),
         setFilter: (filter: keyof LogsViewerFilters, value: LogsViewerFilters[keyof LogsViewerFilters]) => ({
             filter,
@@ -42,6 +47,12 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                     ...state,
                     [filter]: value,
                 }),
+            },
+        ],
+        orderBy: [
+            DEFAULT_ORDER_BY as LogsOrderBy,
+            {
+                setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
     }),
