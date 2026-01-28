@@ -1,9 +1,9 @@
 """Command-line entry point for running acceptance tests.
 
 Usage:
-    python -m common.ingestion.acceptance_tests_v2
-    python -m common.ingestion.acceptance_tests_v2 --output results.json
-    python -m common.ingestion.acceptance_tests_v2 --filter test_capture
+    python -m posthog.temporal.ingestion_acceptance_test
+    python -m posthog.temporal.ingestion_acceptance_test --output results.json
+    python -m posthog.temporal.ingestion_acceptance_test --filter test_capture
 """
 
 import sys
@@ -11,7 +11,7 @@ import json
 import logging
 import argparse
 
-from .runner import run_tests
+from posthog.temporal.ingestion_acceptance_test.runner import run_tests
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,0 @@
-pytest>=7.0.0
-pytest-xdist>=3.0.0  # For parallel test execution
-requests>=2.28.0
-pydantic-settings>=2.0.0
-posthog>=3.0.0  # Official PostHog Python SDK
