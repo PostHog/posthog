@@ -680,6 +680,7 @@ def _recalculate_cohortpeople_for_team_hogql(
                 "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
                 "max_bytes_ratio_before_external_group_by": 0.5,
                 "max_bytes_ratio_before_external_sort": 0.5,
+                "max_memory_usage": "150000000000",
             },
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
