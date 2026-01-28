@@ -192,6 +192,7 @@ urlpatterns = [
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
+    opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),

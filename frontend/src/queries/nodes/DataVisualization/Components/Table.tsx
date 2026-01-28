@@ -99,10 +99,14 @@ export const Table = (props: TableProps): JSX.Element => {
                     </div>
                 ),
                 render: (_, data, recordIndex: number, rowCount: number) => {
-                    return renderColumn(column.name, data[index].formattedValue, data, recordIndex, rowCount, {
-                        kind: NodeKind.DataTableNode,
-                        source: props.query.source,
-                    })
+                    return (
+                        <div className="truncate">
+                            {renderColumn(column.name, data[index].formattedValue, data, recordIndex, rowCount, {
+                                kind: NodeKind.DataTableNode,
+                                source: props.query.source,
+                            })}
+                        </div>
+                    )
                 },
                 style: (_, data) => {
                     const cf = conditionalFormattingRules

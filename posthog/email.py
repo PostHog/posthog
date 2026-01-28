@@ -108,6 +108,11 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "new_conversation_ticket": "53",
     "project_deleted": "54",
     "organization_deleted": "55",
+    "approval_requested": "60",
+    "approval_approved": "57",
+    "approval_rejected": "58",
+    "approval_expired": "59",
+    "approval_applied": "61",
 }
 
 

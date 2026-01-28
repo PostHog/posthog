@@ -608,6 +608,9 @@ export interface ConversationsSettings {
 
 export interface LogsSettings {
     capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
 }
 
 export interface TeamType extends TeamBasicType {
@@ -1581,11 +1584,6 @@ export enum GroupsTabType {
     OVERVIEW = 'overview',
 }
 
-export enum LayoutView {
-    Card = 'card',
-    List = 'list',
-}
-
 export interface EventsTableAction {
     name: string
     id: string
@@ -1975,6 +1973,10 @@ export interface BillingProductV2Type {
     usage_limit: number | null
     has_exceeded_limit: boolean
     unit: string | null
+    // Display formatting fields - for human-friendly display of usage values
+    display_unit: string | null // Display unit (e.g., "GB" when internal unit is "MB")
+    display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
+    display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
     plans: BillingPlanType[]
     contact_support: boolean | null
@@ -2003,6 +2005,10 @@ export interface BillingProductV2AddonType {
     inclusion_only: boolean | null
     contact_support: boolean | null
     unit: string | null
+    // Display formatting fields - for human-friendly display of usage values
+    display_unit: string | null // Display unit (e.g., "GB" when internal unit is "MB")
+    display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
+    display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
     current_amount_usd: string | null
     current_usage: number
@@ -3407,6 +3413,8 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
+    /** When true, SDK uses selector directly instead of inferenceData for element matching */
+    useManualSelector?: boolean
     /** Button configuration for tour steps (modals / announcements) */
     buttons?: ProductTourStepButtons
     /** Banner configuration (only for banner steps) */
@@ -3439,6 +3447,7 @@ export interface ProductTourDisplayConditions {
     cancelEvents?: {
         values: SurveyEventsWithProperties[]
     } | null
+    linkedFlagVariant?: string
 }
 
 export interface ProductTourAppearance {
@@ -3476,8 +3485,9 @@ export interface ProductTour {
     name: string
     description: string
     internal_targeting_flag: FeatureFlagBasicType | null
-    feature_flag_key: string | null
     targeting_flag_filters: FeatureFlagFilters | null
+    linked_flag: FeatureFlagBasicType | null
+    linked_flag_id: number | null
     content: ProductTourContent
     auto_launch: boolean
     start_date: string | null
@@ -5121,6 +5131,34 @@ export interface DataWarehouseSavedQueryDependencies {
     downstream_count: number
 }
 
+export type DataModelingNodeType = 'table' | 'view' | 'matview'
+
+export interface DataModelingNode {
+    /** UUID */
+    id: string
+    name: string
+    type: DataModelingNodeType
+    dag_id: string
+    saved_query_id?: string
+    properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+    upstream_count: number
+    downstream_count: number
+    last_run_at?: string
+}
+
+export interface DataModelingEdge {
+    /** UUID */
+    id: string
+    source_id: string
+    target_id: string
+    dag_id: string
+    properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+}
+
 export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
@@ -5485,7 +5523,7 @@ export type BatchExportService =
     | BatchExportServiceAzureBlob
     | BatchExportRealtimeDestinationBackfill
 
-export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
+export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes'
 
 export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
 export type OrNever = 'never'
@@ -5497,7 +5535,10 @@ export type BatchExportConfiguration = {
     team_id: number
     name: string
     destination: BatchExportService
-    interval: PipelineInterval
+    interval: BatchExportInterval
+    timezone: string | null
+    offset_day: number | null
+    offset_hour: number | null
     created_at: string
     start_at: string | null
     end_at: string | null
@@ -5727,7 +5768,6 @@ export enum SidePanelTab {
     Support = 'support',
     Docs = 'docs',
     Changelog = 'changelog',
-    Activation = 'activation',
     Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',
@@ -5920,7 +5960,12 @@ export type HogFunctionType = {
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 
 // Contexts change the way the UI is rendered allowing different teams to customize the UI for their use case
-export type HogFunctionConfigurationContextId = 'standard' | 'error-tracking' | 'activity-log' | 'insight-alerts'
+export type HogFunctionConfigurationContextId =
+    | 'standard'
+    | 'error-tracking'
+    | 'activity-log'
+    | 'discussion-mention'
+    | 'insight-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -5929,6 +5974,7 @@ export type HogFunctionSubTemplateIdType =
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'
+    | 'discussion-mention'
     | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
@@ -6422,7 +6468,6 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-    TELL_US_MORE = 'tell_us_more',
 }
 
 export interface Dataset {

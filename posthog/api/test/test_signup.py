@@ -1189,6 +1189,191 @@ class TestSignupAPI(APIBaseTest):
                     User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
 
 
+class TestPasskeySignupAPI(APIBaseTest):
+    """
+    Tests passkey signup flow, specifically that the temporary UUID generated during
+    passkey registration becomes the user's actual UUID after signup.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        TEST_clear_instance_license_cache()
+
+    @pytest.mark.skip_on_multitenancy
+    def test_passkey_signup_assigns_temporary_uuid_to_user(self):
+        """
+        When a user signs up with a passkey, the UUID generated during passkey registration
+        should become the user's actual UUID.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        # Generate a UUID that would be created during passkey registration
+        expected_uuid = uuid.uuid4()
+
+        # Create a session and set the passkey data
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "passkey_user@posthog.com"
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(expected_uuid)
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"test-credential-id-12345"),
+            "public_key": bytes_to_base64url(b"test-public-key-bytes"),
+            "algorithm": -7,  # ES256
+            "sign_count": 0,
+            "transports": ["internal", "hybrid"],
+        }
+        session.create()
+
+        # Set the session cookie on the client
+        self.client.cookies["sessionid"] = session.session_key or ""
+
+        # Complete signup (without password since using passkey)
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Passkey",
+                "last_name": "User",
+                "email": "passkey_user@posthog.com",
+                "organization_name": "Passkey Org",
+                "role_at_organization": "engineering",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify the user was created with the expected UUID
+        user = User.objects.get(email="passkey_user@posthog.com")
+        self.assertEqual(user.uuid, expected_uuid)
+
+        # Verify the passkey credential was created and linked to the user
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        credential = WebauthnCredential.objects.get(user=user)
+        self.assertEqual(credential.credential_id, b"test-credential-id-12345")
+        self.assertTrue(credential.verified)
+
+        # The user handle used during registration (user.uuid.bytes) matches the user's UUID
+        self.assertEqual(user.uuid.bytes, expected_uuid.bytes)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_passkey_signup_clears_session_data(self):
+        """
+        After successful passkey signup, the session data should be cleared.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        expected_uuid = uuid.uuid4()
+
+        # Create a session and set the passkey data
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "passkey_cleanup@posthog.com"
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(expected_uuid)
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"test-credential-cleanup"),
+            "public_key": bytes_to_base64url(b"test-public-key"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": [],
+        }
+        session.create()
+        session_key = session.session_key
+
+        # Set the session cookie on the client
+        self.client.cookies["sessionid"] = session_key or ""
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Cleanup",
+                "last_name": "Test",
+                "email": "passkey_cleanup@posthog.com",
+                "organization_name": "Cleanup Org",
+                "role_at_organization": "engineering",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Reload the session and verify data was cleared
+        session = SessionStore(session_key=session_key)
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+
+    @pytest.mark.skip_on_multitenancy
+    def test_password_signup_generates_random_uuid(self):
+        """
+        When a user signs up with a password (not passkey), a random UUID should be generated
+        (not using any session data).
+        """
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Password",
+                "last_name": "User",
+                "email": "password_user@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Password Org",
+                "role_at_organization": "engineering",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email="password_user@posthog.com")
+
+        # User should have a UUID (randomly generated)
+        self.assertIsNotNone(user.uuid)
+
+        # User should have a usable password
+        self.assertTrue(user.has_usable_password())
+
+        # No passkey credential should exist
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+
+    def test_password_required_without_passkey_credential(self):
+        """
+        When signing up without a passkey credential in the session, password is required.
+        """
+        count = User.objects.count()
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "No",
+                "last_name": "Password",
+                "email": "nopassword@posthog.com",
+                "organization_name": "Test Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "password",
+            },
+        )
+        self.assertEqual(User.objects.count(), count)
+
+
 class TestInviteSignupAPI(APIBaseTest):
     """
     Tests the sign up process for users with an invite (i.e. existing organization).

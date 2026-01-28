@@ -48,6 +48,7 @@ use kafka_deduplicator::kafka::{
 use kafka_deduplicator::processor_rebalance_handler::ProcessorRebalanceHandler;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
 use kafka_deduplicator::store_manager::StoreManager;
+use kafka_deduplicator::test_utils::create_test_coordinator;
 
 // Infrastructure configuration matching docker-compose.dev.yml
 const KAFKA_BROKERS: &str = "localhost:9092";
@@ -355,8 +356,12 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         path: tmp_consumer_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let store_manager = Arc::new(StoreManager::new(consumer_store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let coordinator = create_test_coordinator();
+    let store_manager = Arc::new(StoreManager::new(
+        consumer_store_config,
+        coordinator.clone(),
+    ));
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
     let processor = Arc::new(CountingProcessor::new());
 
     // Create checkpoint importer
@@ -378,6 +383,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
     let rebalance_handler: Arc<ProcessorRebalanceHandler<CapturedEvent, CountingProcessor>> =
         Arc::new(ProcessorRebalanceHandler::with_router(
             store_manager.clone(),
+            coordinator.clone(),
             router.clone(),
             offset_tracker.clone(),
             Some(importer),
@@ -495,12 +501,18 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let store_manager = Arc::new(StoreManager::new(store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let coordinator = create_test_coordinator();
+    let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
     // Create the ProcessorRebalanceHandler
     let handler: ProcessorRebalanceHandler<CapturedEvent, CountingProcessor> =
-        ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
+        ProcessorRebalanceHandler::new(
+            store_manager.clone(),
+            coordinator,
+            offset_tracker.clone(),
+            None,
+        );
 
     // Assign partition 0
     let mut partitions = TopicPartitionList::new();
@@ -578,11 +590,17 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let store_manager = Arc::new(StoreManager::new(store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let coordinator = create_test_coordinator();
+    let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
     let handler: ProcessorRebalanceHandler<CapturedEvent, CountingProcessor> =
-        ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
+        ProcessorRebalanceHandler::new(
+            store_manager.clone(),
+            coordinator,
+            offset_tracker.clone(),
+            None,
+        );
 
     let mut partitions = TopicPartitionList::new();
     partitions.add_partition_offset(&test_topic, 0, Offset::Beginning)?;

@@ -75,4 +75,36 @@ describe('formatResponse', () => {
         const result = formatResponse(data)
         expect(result).toBeTruthy()
     })
+
+    it('truncates responses exceeding max length', () => {
+        // Create a large data object that will exceed 80k chars
+        const largeArray = Array(10000)
+            .fill(null)
+            .map((_, i) => ({
+                id: i,
+                name: `Item ${i} with some extra text to make it longer`,
+                description: 'A'.repeat(50),
+            }))
+        const data = { items: largeArray }
+
+        const result = formatResponse(data)
+
+        // Should be truncated to ~80k chars + truncation message
+        expect(result.length).toBeLessThan(85000)
+        expect(result).toContain('[Response truncated')
+        expect(result).toContain('Use more specific filters or pagination')
+    })
+
+    it('does not truncate responses under max length', () => {
+        const data = {
+            id: 123,
+            name: 'Test',
+            items: Array(10)
+                .fill(null)
+                .map((_, i) => ({ id: i })),
+        }
+        const result = formatResponse(data)
+
+        expect(result).not.toContain('[Response truncated')
+    })
 })

@@ -6,10 +6,10 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { IconPencil, IconX } from '@posthog/icons'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -92,6 +92,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
               ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
               : { type: 'team_columns' },
         contextKey: query.contextKey,
+        showTableViews: query.showTableViews,
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -214,28 +215,30 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     <div className="HalfColumn">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>
                         <div className="h-[min(480px,60vh)]">
-                            <AutoSizer>
-                                {({ height, width }: { height: number; width: number }) => (
-                                    <TaxonomicFilter
-                                        height={height}
-                                        width={width}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        value={undefined}
-                                        onChange={(group, value) => {
-                                            const column = isGroupsQuery(query.source)
-                                                ? taxonomicGroupFilterToHogQL(group.type, value)
-                                                : isActorsQuery(query.source)
-                                                  ? taxonomicPersonFilterToHogQL(group.type, value)
-                                                  : taxonomicEventFilterToHogQL(group.type, value)
-                                            if (column !== null) {
-                                                selectColumn(column)
-                                            }
-                                        }}
-                                        popoverEnabled={false}
-                                        selectFirstItem={false}
-                                    />
-                                )}
-                            </AutoSizer>
+                            <AutoSizer
+                                renderProp={({ height, width }) =>
+                                    height && width ? (
+                                        <TaxonomicFilter
+                                            height={height}
+                                            width={width}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            value={undefined}
+                                            onChange={(group, value) => {
+                                                const column = isGroupsQuery(query.source)
+                                                    ? taxonomicGroupFilterToHogQL(group.type, value)
+                                                    : isActorsQuery(query.source)
+                                                      ? taxonomicPersonFilterToHogQL(group.type, value)
+                                                      : taxonomicEventFilterToHogQL(group.type, value)
+                                                if (column !== null) {
+                                                    selectColumn(column)
+                                                }
+                                            }}
+                                            popoverEnabled={false}
+                                            selectFirstItem={false}
+                                        />
+                                    ) : null
+                                }
+                            />
                         </div>
                     </div>
                 </div>

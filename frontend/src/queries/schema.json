@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -577,6 +577,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceNeighborsQuery"
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
@@ -1951,6 +1954,7 @@
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
+                "edit_survey",
                 "analyze_survey_responses",
                 "create_dashboard",
                 "edit_current_dashboard",
@@ -6645,6 +6649,68 @@
             ],
             "type": "object"
         },
+        "CachedTraceNeighborsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "newerTimestamp": {
+                    "description": "Timestamp of the newer trace",
+                    "type": "string"
+                },
+                "newerTraceId": {
+                    "description": "ID of the newer trace (chronologically after current)",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "olderTimestamp": {
+                    "description": "Timestamp of the older trace",
+                    "type": "string"
+                },
+                "olderTraceId": {
+                    "description": "ID of the older trace (chronologically before current)",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
+            "type": "object"
+        },
         "CachedTraceQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -10548,6 +10614,10 @@
                 },
                 "showSourceQueryOptions": {
                     "description": "Show actors query options and back to source",
+                    "type": "boolean"
+                },
+                "showTableViews": {
+                    "description": "Show table views feature for this table (requires uniqueKey)",
                     "type": "boolean"
                 },
                 "showTestAccountFilters": {
@@ -15578,7 +15648,8 @@
                 "folder",
                 "folder_open",
                 "conversations",
-                "toolbar"
+                "toolbar",
+                "settings"
             ],
             "type": "string"
         },
@@ -21538,6 +21609,7 @@
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
                 "TraceQuery",
+                "TraceNeighborsQuery",
                 "VectorSearchQuery",
                 "DocumentSimilarityQuery",
                 "UsageMetricsQuery",
@@ -22399,6 +22471,7 @@
                 "early_access_feature_view_recordings",
                 "data_warehouse_stripe_source_created",
                 "surveys_viewed",
+                "survey_add_new",
                 "survey_created",
                 "survey_launched",
                 "survey_viewed",
@@ -22430,11 +22503,15 @@
                 "feature_preview_enabled",
                 "workflow_created",
                 "data_pipeline_created",
+                "batch_export_created",
                 "notebook_created",
                 "product_tour_created",
                 "task_created",
                 "toolbar_launched",
-                "vercel_integration"
+                "vercel_integration",
+                "endpoint_created",
+                "endpoint_created_from_insight",
+                "endpoint_created_from_sql_editor"
             ],
             "type": "string"
         },
@@ -22494,8 +22571,9 @@
                 "mobile_replay",
                 "notebooks",
                 "persons",
-                "pipeline_transformations",
+                "pipeline_batch_exports",
                 "pipeline_destinations",
+                "pipeline_transformations",
                 "platform_and_support",
                 "product_analytics",
                 "product_tours",
@@ -26911,6 +26989,35 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "newerTimestamp": {
+                            "description": "Timestamp of the newer trace",
+                            "type": "string"
+                        },
+                        "newerTraceId": {
+                            "description": "ID of the newer trace (chronologically after current)",
+                            "type": "string"
+                        },
+                        "olderTimestamp": {
+                            "description": "Timestamp of the older trace",
+                            "type": "string"
+                        },
+                        "olderTraceId": {
+                            "description": "ID of the older trace (chronologically before current)",
+                            "type": "string"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -27321,6 +27428,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceNeighborsQuery"
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
@@ -29282,6 +29392,10 @@
                     "type": "boolean"
                 },
                 "showTable": {
+                    "type": "boolean"
+                },
+                "showTableViews": {
+                    "description": "Show table views feature for this table (requires uniqueKey)",
                     "type": "boolean"
                 },
                 "showTestAccountFilters": {
@@ -31628,6 +31742,84 @@
                 }
             },
             "required": ["events"],
+            "type": "object"
+        },
+        "TraceNeighborsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterSupportTraces": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "TraceNeighborsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceNeighborsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "timestamp": {
+                    "description": "Timestamp of the current trace to find neighbors for",
+                    "type": "string"
+                },
+                "traceId": {
+                    "description": "ID of the current trace to find neighbors for",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "timestamp", "traceId"],
+            "type": "object"
+        },
+        "TraceNeighborsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "newerTimestamp": {
+                    "description": "Timestamp of the newer trace",
+                    "type": "string"
+                },
+                "newerTraceId": {
+                    "description": "ID of the newer trace (chronologically after current)",
+                    "type": "string"
+                },
+                "olderTimestamp": {
+                    "description": "Timestamp of the older trace",
+                    "type": "string"
+                },
+                "olderTraceId": {
+                    "description": "ID of the older trace (chronologically before current)",
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "TraceQuery": {

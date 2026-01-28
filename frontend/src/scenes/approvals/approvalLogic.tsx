@@ -6,7 +6,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { getApprovalActionLabel } from 'scenes/approvals/utils'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +28,7 @@ export const approvalLogic = kea<approvalLogicType>([
     key(({ id }) => id),
     connect({
         values: [teamLogic, ['currentTeamId']],
+        actions: [membersLogic, ['loadAllMembers'], rolesLogic, ['loadRoles']],
     }),
     actions({
         loadChangeRequest: true,
@@ -137,5 +140,7 @@ export const approvalLogic = kea<approvalLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadChangeRequest()
+        actions.loadAllMembers()
+        actions.loadRoles()
     }),
 ])
