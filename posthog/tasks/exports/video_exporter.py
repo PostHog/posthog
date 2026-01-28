@@ -6,7 +6,7 @@ import uuid
 import shutil
 import tempfile
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -98,8 +98,13 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
         # Load the script
         script_path = os.path.join(self.NODEJS_SCRIPTS_DIR, self.SCRIPT_NAME)
         if not os.path.exists(script_path):
-            logger.exception("video_exporter.puppeteer_recorder_not_found", script_path=script_path)
-            raise FileNotFoundError(f"Puppeteer recorder script not found: {script_path}")
+            msg = f"Puppeteer recorder script not found: {script_path}"
+            logger.exception(
+                msg,
+                options=asdict(self.opts),
+                signals_type="video_export",
+            )
+            raise FileNotFoundError(msg)
         # Build input
         options = {
             "url_to_render": self.opts.url_to_render,
@@ -114,11 +119,6 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
         if self.opts.screenshot_height is not None:
             options["screenshot_height"] = self.opts.screenshot_height
         options_json = json.dumps(options)
-        logger.info(
-            "video_exporter.puppeteer_recorder_starting",
-            script_path=script_path,
-            options=options,
-        )
         # Record the video
         try:
             result = subprocess.run(
@@ -128,25 +128,44 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
                 check=False,  # Don't raise on non-zero exit, we'll check the JSON output
                 timeout=60 * 60 * 3,  # 3 hours timeout in case of script hanging, as it has own timeouts
             )
-            # Log stderr (Node.js logs go there)
-            if result.stderr:
-                for line in result.stderr.strip().split("\n"):
-                    logger.debug("video_exporter.puppeteer_log", message=line)
             # Parse JSON output from stdout
             if not result.stdout.strip():
-                raise RuntimeError(
-                    f"Puppeteer recorder produced no output when recording the session. "
-                    f"Exit code: {result.returncode}\nOutput: {result.stdout}\nStderr: {result.stderr}"
+                msg = "Puppeteer recorder produced no output when recording the session."
+                logger.exception(
+                    msg,
+                    exit_code=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    options=options,
+                    signals_type="video_export",
                 )
+                raise RuntimeError(msg)
             try:
                 output = json.loads(result.stdout.strip())
             except json.JSONDecodeError as e:
-                raise RuntimeError(
+                msg = (
                     f"Failed to parse Puppeteer output, when recording the session: {e}. Output: {result.stdout[:500]}"
-                ) from e
+                )
+                logger.exception(
+                    msg,
+                    exit_code=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    options=options,
+                    signals_type="video_export",
+                )
+                raise RuntimeError(msg) from e
             if not output.get("success"):
-                error_msg = output.get("error", "Unknown error")
-                raise RuntimeError(f"Puppeteer recorder failed, when recording the session: {error_msg}")
+                msg = f"Puppeteer recorder failed, when recording the session: {output.get('error', 'Unknown error')}"
+                logger.exception(
+                    msg,
+                    exit_code=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    options=options,
+                    signals_type="video_export",
+                )
+                raise RuntimeError(msg)
             # Parse inactivity periods
             inactivity_periods = None
             if output.get("inactivity_periods"):
@@ -158,12 +177,6 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
             if output.get("segment_start_timestamps"):
                 segment_start_timestamps = {int(k): float(v) for k, v in output["segment_start_timestamps"].items()}
             # Return the result
-            logger.info(
-                "video_exporter.puppeteer_recorder_success",
-                video_path=output["video_path"],
-                pre_roll=output["pre_roll"],
-                playback_speed=output["playback_speed"],
-            )
             return RecordingResult(
                 video_path=output["video_path"],
                 pre_roll=output["pre_roll"],
@@ -173,8 +186,9 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
                 segment_start_timestamps=segment_start_timestamps,
             )
         except Exception as e:
-            logger.exception("video_exporter.puppeteer_recorder_error", error=str(e))
-            raise RuntimeError(f"Puppeteer recorder failed, when recording the session: {e}") from e
+            msg = f"Puppeteer recorder failed, when recording the session: {e}"
+            logger.exception(msg, error=str(e), options=options, signals_type="video_export")
+            raise RuntimeError(msg) from e
 
 
 class PlaywrightRecorder(_ReplayVideoRecorder):
@@ -182,7 +196,6 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
 
     def record(self) -> RecordingResult:
         """Record a replay to a file using Playwright."""
-        logger.info("video_exporter.using_playwright_recorder")
         with sync_playwright() as p:
             headless = os.getenv("EXPORTER_HEADLESS", "1") != "0"  # TIP: for debugging, set to False
             browser = p.chromium.launch(
@@ -201,7 +214,6 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 # Use provided dimensions
                 width = self.opts.screenshot_width
                 height = self.opts.screenshot_height
-                logger.info("video_exporter.using_provided_dimensions", width=width, height=height)
             else:
                 # Phase 1: Detect actual recording resolution
                 default_width = 1400  # Default fallback
@@ -213,7 +225,6 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                     default_width=default_width,
                     default_height=default_height,
                 )
-                logger.info("video_exporter.using_detected_dimensions", width=width, height=height)
             # Scale dimensions if needed to fit within max width while maintaining aspect ratio
             width, height = self._scale_dimensions_if_needed(width, height)
             # Phase 2: Create recording context with exact resolution
@@ -224,7 +235,6 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
             )
             page = context.new_page()
             record_started = time.monotonic()
-            logger.info("video_exporter.recording_context_created", width=width, height=height)
             # Speed up playback for long MP4 recordings to reduce recording time
             ext = os.path.splitext(self.opts.image_path)[1].lower()
             # if playback speed is the default value for webm or mp4 then we speed it up, otherwise we respect user choice
@@ -266,10 +276,15 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 measured_width = max(width, min(1800, int(width_candidate)))
                 page.set_viewport_size({"width": measured_width, "height": int(final_height) + HEIGHT_OFFSET})
             except Exception as e:
-                logger.warning("video_exporter.viewport_resize_failed", error=str(e))
+                logger.exception(
+                    "Failed to resize viewport to the recording resolution.",
+                    error=str(e),
+                    options=asdict(self.opts),
+                    signals_type="video_export",
+                )
+                # Allow the recording to confinue even if viewport resize fails
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
-
             # Wait for playback to reach the end while tracking segment changes
             # This allows us to record accurate video timestamps for each segment
             max_wait_ms = int((self.opts.recording_duration / playback_speed) * 1000)
@@ -347,16 +362,6 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
             scale_factor = max_size / height
             scaled_width = int(width * scale_factor)
             scaled_height = max_size
-
-        logger.info(
-            "video_exporter.dimensions_scaled",
-            original_width=width,
-            original_height=height,
-            scaled_width=scaled_width,
-            scaled_height=scaled_height,
-            scale_factor=scale_factor,
-        )
-
         return scaled_width, scaled_height
 
     def _detect_recording_resolution(
@@ -367,21 +372,17 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
         default_width: int,
         default_height: int,
     ) -> tuple[int, int]:
-        logger.info("video_exporter.resolution_detection_start")
-
         # Create temporary context just for resolution detection
         context = browser.new_context(
             viewport={"width": default_width, "height": default_height},
         )
         page = context.new_page()
-
         try:
             # Navigate and wait for player to load
             self._wait_for_page_ready(page, url_to_render, wait_for_css_selector)
 
             # Wait for resolution to be available from sessionRecordingPlayerLogic global variable
             try:
-                logger.debug("video_exporter.waiting_for_resolution_global")
                 resolution = page.wait_for_function(
                     """
                     () => {
@@ -396,18 +397,19 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
 
                 detected_width = int(resolution["width"])
                 detected_height = int(resolution["height"])
-                logger.debug("video_exporter.resolution_detected", width=detected_width, height=detected_height)
                 return detected_width, detected_height
-
             except Exception as e:
-                logger.warning("video_exporter.resolution_detection_failed", error=str(e))
+                logger.exception(
+                    "Failed to detect recording resolution.",
+                    error=str(e),
+                    options=asdict(self.opts),
+                    signals_type="video_export",
+                )
                 return default_width, default_height
-
         finally:
             # Clean up detection context
             page.close()
             context.close()
-            logger.info("video_exporter.resolution_detection_complete")
 
     def _detect_inactivity_periods(
         self,
@@ -423,7 +425,6 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
         """
         try:
             # Get data from the global variable using browser
-            logger.debug("video_exporter.waiting_for_inactivity_periods_global")
             inactivity_periods_raw = page.wait_for_function(
                 """
                 () => {
@@ -451,10 +452,14 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                         period["recording_ts_from_s"] = round(raw_timestamp * playback_speed)
 
             inactivity_periods = [ReplayInactivityPeriod.model_validate(period) for period in inactivity_periods_raw]
-            logger.debug("video_exporter.inactivity_periods_detected", inactivity_periods=inactivity_periods)
             return inactivity_periods
         except Exception as e:
-            logger.exception("video_exporter.inactivity_periods_detection_failed", error=str(e))
+            logger.exception(
+                "Failed to detect inactivity periods.",
+                error=str(e),
+                options=asdict(self.opts),
+                signals_type="video_export",
+            )
             return None
 
     def _wait_for_recording_with_segments(
@@ -471,13 +476,18 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
         # Track time from the video start related to the in-player start timestamps
         segment_start_timestamps: dict[int, float] = {}
         last_counter = 0
-        logger.debug("video_exporter.waiting_for_recording_with_segments")
-
         while True:
             # Check if the recording should be ended by now and stop it manually
             elapsed_ms = (time.monotonic() - playback_started) * 1000
             if elapsed_ms >= max_wait_ms:
-                logger.warning("video_exporter.recording_wait_timeout", elapsed_ms=elapsed_ms, max_wait_ms=max_wait_ms)
+                logger.exception(
+                    "Recording wait timeout reached. Stopping the recording manually.",
+                    elapsed_ms=elapsed_ms,
+                    max_wait_ms=max_wait_ms,
+                    options=asdict(self.opts),
+                    signals_type="video_export",
+                )
+                # Stop the recording manually
                 break
             try:
                 # Wait for either: recording ended OR segment counter changed
@@ -502,7 +512,6 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                     continue
                 # If the recording ended, assuming all the required data was already collected
                 if result.get("ended"):
-                    logger.debug("video_exporter.recording_ended_detected")
                     break
                 # Segment changed - record the video timestamp on BE to be consistent (rendering delays, etc.)
                 segment_start_ts = result.get("segment_start_ts")
@@ -510,12 +519,6 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 if segment_start_ts is not None and new_counter > last_counter:
                     video_time = time.monotonic() - playback_started
                     segment_start_timestamps[segment_start_ts] = video_time
-                    logger.debug(
-                        "video_exporter.segment_change_detected",
-                        segment_start_ts=segment_start_ts,
-                        video_time=video_time,
-                        counter=new_counter,
-                    )
                     last_counter = new_counter
 
             # No change in 1s, continue waiting
@@ -523,10 +526,14 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                 continue
             # Unexpected error, continue waiting
             except Exception as e:
-                logger.exception("video_exporter.segment_tracking_error", error=str(e))
+                logger.exception(
+                    "Unexpected error while waiting for recording with segments.",
+                    error=str(e),
+                    options=asdict(self.opts),
+                    signals_type="video_export",
+                )
                 # Continue waiting despite errors
                 continue
-        logger.debug("video_exporter.segment_tracking_complete", segments_tracked=len(segment_start_timestamps))
         return segment_start_timestamps
 
     def _ensure_playback_speed(self, url_to_render: str, playback_speed: int) -> str:
@@ -695,12 +702,11 @@ def record_replay_to_file(
         temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-", ignore_cleanup_errors=True)
         record_dir = temp_dir_ctx.name
         tmp_webm = os.path.join(record_dir, f"{uuid.uuid4()}.webm")
-        logger.warning(f"Output path: {tmp_webm}")
         # Choose recording method: Puppeteer or Playwright
         use_puppeteer = opts.use_puppeteer
         if use_puppeteer:
             # ============ Node.js + Puppeteer recording ============
-            logger.info("video_exporter.using_nodejs_recorder")
+            logger.debug("Using Node.js + Puppeteer recorder.", options=asdict(opts), signals_type="video_export")
             result = PuppeteerRecorder(
                 output_path=tmp_webm,
                 record_dir=record_dir,
@@ -708,19 +714,21 @@ def record_replay_to_file(
             ).record()
         else:
             # ============ Python + Playwright recording ============
-            logger.info("video_exporter.using_playwright_recorder")
+            logger.debug("Using Python + Playwright recorder.", options=asdict(opts), signals_type="video_export")
             result = PlaywrightRecorder(
                 output_path=tmp_webm,
                 record_dir=record_dir,
                 opts=opts,
             ).record()
         # ============ Common post-processing (ffmpeg) ============
-        logger.info(
-            "video_exporter.recording_complete",
+        logger.debug(
+            "Recording complete.",
             pre_roll=result.pre_roll,
             playback_speed=result.playback_speed,
             recording_duration=opts.recording_duration,
             segment_count=len(result.segment_start_timestamps) if result.segment_start_timestamps else 0,
+            options=asdict(opts),
+            signals_type="video_export",
         )
         video_renderer = ReplayVideoRenderer(
             tmp_webm=tmp_webm,
