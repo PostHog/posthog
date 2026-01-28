@@ -34,6 +34,7 @@ import {
     faviconUrl,
     webStatsBreakdownToPropertyName,
 } from 'scenes/web-analytics/common'
+import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -82,6 +83,53 @@ export const toUtcOffsetFormat = (value: number): string => {
 
     // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
     return `UTC${sign}${integerPart}${formattedMinutes}`
+}
+
+const PAGE_LIKE_BREAKDOWNS = new Set([
+    WebStatsBreakdown.Page,
+    WebStatsBreakdown.InitialPage,
+    WebStatsBreakdown.ExitPage,
+    WebStatsBreakdown.ExitClick,
+    WebStatsBreakdown.FrustrationMetrics,
+])
+
+const buildOpenUrl = (breakdownBy: WebStatsBreakdown, value: string, effectiveDomain: string | null): string | null => {
+    if (!value || !PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
+        return null
+    }
+
+    // For ExitClick, the value is already a full URL
+    if (breakdownBy === WebStatsBreakdown.ExitClick) {
+        return value.startsWith('http') ? value : `https://${value}`
+    }
+
+    if (!effectiveDomain) {
+        return null
+    }
+
+    // Remove protocol if present, then reconstruct with path
+    const domain = effectiveDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')
+    const path = value.startsWith('/') ? value.slice(1) : value
+    return `https://${domain}/${path}`
+}
+
+const OpenURLButtonWithLogic = ({
+    breakdownBy,
+    value,
+}: {
+    breakdownBy: WebStatsBreakdown
+    value: string
+}): JSX.Element => {
+    const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
+
+    if (!PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
+        return <></>
+    }
+
+    const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
+    const needsDomain = breakdownBy !== WebStatsBreakdown.ExitClick && !effectiveDomain
+
+    return <OpenURLButton url={url} disabledReason={needsDomain ? 'Select a domain to open this URL' : undefined} />
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
@@ -479,7 +527,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
 
                 return (
                     <div className="flex flex-row items-center justify-end">
-                        <OpenURLButton breakdownBy={breakdownBy} value={value} />
+                        <OpenURLButtonWithLogic breakdownBy={breakdownBy} value={value} />
                         <ReplayButton
                             date_from={dateRange?.date_from}
                             date_to={dateRange?.date_to}
