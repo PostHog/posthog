@@ -114,6 +114,10 @@ class _NotebookBridgeParser:
 
             payloads.append(line_content[payload_start:payload_end])
 
+        if self.buffer and not self.buffer.startswith(self.marker) and not self.marker.startswith(self.buffer):
+            output_parts.append(self.buffer)
+            self.buffer = ""
+
         return "".join(output_parts), payloads
 
     def flush(self) -> str:
