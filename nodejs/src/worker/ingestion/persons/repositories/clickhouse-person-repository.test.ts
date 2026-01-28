@@ -36,6 +36,7 @@ describe('ClickHousePersonRepository', () => {
     })
 
     afterEach(async () => {
+        await clickHouseRouter.close()
         await closeHub(hub)
         jest.clearAllMocks()
     })

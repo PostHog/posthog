@@ -48,7 +48,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     SELECT id
                     FROM person
                     FINAL
-                    WHERE team_id = ${teamId}
+                    WHERE team_id = ${parseInt(String(teamId))}
                       AND is_deleted = 0
                     GROUP BY id, team_id
                 )
@@ -69,7 +69,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     argMax(properties, _timestamp) as properties
                 FROM person
                 FINAL
-                WHERE team_id = ${teamId}
+                WHERE team_id = ${parseInt(String(teamId))}
                   AND is_deleted = 0
                 GROUP BY team_id, id
                 HAVING ${propertyFilters}
@@ -113,13 +113,13 @@ export class ClickHousePersonRepository implements PersonRepository {
                     max(is_deleted) as is_deleted
                 FROM person
                 FINAL
-                WHERE team_id = ${teamId}
+                WHERE team_id = ${parseInt(String(teamId))}
                   ${cursorFilter}
                 GROUP BY team_id, id
                 HAVING is_deleted = 0
                   ${propertyFilters ? `AND ${propertyFilters}` : ''}
                 ORDER BY id
-                LIMIT ${limit}
+                LIMIT ${Math.min(Math.max(1, parseInt(String(limit))), 10000)}
             ) p
             LEFT JOIN (
                 SELECT
@@ -128,7 +128,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     any(distinct_id) as distinct_id
                 FROM person_distinct_id2
                 FINAL
-                WHERE team_id = ${teamId}
+                WHERE team_id = ${parseInt(String(teamId))}
                   AND is_deleted = 0
                 GROUP BY team_id, person_id
             ) pd ON p.team_id = pd.team_id AND p.id = pd.person_id
@@ -296,6 +296,14 @@ export class ClickHousePersonRepository implements PersonRepository {
                     return `toDateTime(JSONExtractString(properties, '${escapedKey}')) > toDateTime('${escapeClickHouseString(normalizedValue)}')`
                 }
 
+                // The "is_cleaned_path_exact" operator is intended for URL/path event properties,
+                // not for person properties. We handle it explicitly here to avoid falling through
+                // to the generic default and to make this behavior clear.
+                case 'is_cleaned_path_exact': {
+                    throw new Error(
+                        'Operator "is_cleaned_path_exact" is not supported for person properties; it is only valid for event/path properties'
+                    )
+                }
                 default:
                     throw new Error(`Unsupported property filter operator: ${operator}`)
             }
