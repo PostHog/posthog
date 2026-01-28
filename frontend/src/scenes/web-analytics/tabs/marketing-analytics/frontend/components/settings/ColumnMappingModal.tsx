@@ -4,12 +4,8 @@ import { useMemo } from 'react'
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
-import {
-    CURRENCY_SYMBOL_TO_NAME_MAP,
-    IMPORTANT_CURRENCIES,
-    OTHER_CURRENCIES,
-} from 'lib/utils/geography/currency'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { CURRENCY_SYMBOL_TO_NAME_MAP, IMPORTANT_CURRENCIES, OTHER_CURRENCIES } from 'lib/utils/geography/currency'
 
 import {
     MARKETING_ANALYTICS_SCHEMA,
@@ -20,6 +16,7 @@ import {
     SourceMap,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
+import type { MarketingAnalyticsSchemaFieldTypes } from '~/queries/schema/schema-general'
 
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -130,8 +127,12 @@ function buildColumnOptions(
         const sourceOptions: LemonInputSelectOption[] = []
 
         // Type-compatible columns first
-        const compatible = tableColumns.filter((col) => expectedTypes.type.includes(col.type))
-        const incompatible = tableColumns.filter((col) => !expectedTypes.type.includes(col.type))
+        const compatible = tableColumns.filter((col) =>
+            expectedTypes.type.includes(col.type as MarketingAnalyticsSchemaFieldTypes)
+        )
+        const incompatible = tableColumns.filter(
+            (col) => !expectedTypes.type.includes(col.type as MarketingAnalyticsSchemaFieldTypes)
+        )
 
         for (const col of compatible) {
             sourceOptions.push({
@@ -156,8 +157,12 @@ function buildColumnOptions(
     const options: LemonInputSelectOption[] = []
 
     // Type-compatible columns first
-    const compatible = tableColumns.filter((col) => expectedTypes.type.includes(col.type))
-    const incompatible = tableColumns.filter((col) => !expectedTypes.type.includes(col.type))
+    const compatible = tableColumns.filter((col) =>
+        expectedTypes.type.includes(col.type as MarketingAnalyticsSchemaFieldTypes)
+    )
+    const incompatible = tableColumns.filter(
+        (col) => !expectedTypes.type.includes(col.type as MarketingAnalyticsSchemaFieldTypes)
+    )
 
     for (const col of compatible) {
         options.push({
