@@ -15394,6 +15394,7 @@
                 "TikTokAds",
                 "BingAds",
                 "Shopify",
+                "Attio",
                 "SnapchatAds"
             ],
             "type": "string"
