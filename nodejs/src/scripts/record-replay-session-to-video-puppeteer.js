@@ -238,6 +238,7 @@ async function main() {
         screenshot_height: providedHeight,
         playback_speed: requestedPlaybackSpeed = 1,
         headless = true,
+        ffmpeg_path: ffmpegPath,
     } = options
     if (!urlToRender || !outputPath || !waitForCssSelector || !recordingDuration) {
         console.error('Missing required options: url_to_render, output_path, wait_for_css_selector, recording_duration')
@@ -300,7 +301,7 @@ async function main() {
             followNewTab: false, // Always a single tab is recorded
             // Adjust FPS based on the playback speed, so we can speed up seamlessly later
             fps: customFps,
-            ffmpeg_Path: null, // TODO: Check if it picks the system one, or installs it instead
+            ffmpeg_Path: ffmpegPath || null,
             videoFrame: {
                 width,
                 height,

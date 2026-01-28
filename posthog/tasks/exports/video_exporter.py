@@ -118,6 +118,13 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
             options["screenshot_width"] = self.opts.screenshot_width
         if self.opts.screenshot_height is not None:
             options["screenshot_height"] = self.opts.screenshot_height
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            options["ffmpeg_path"] = ffmpeg_path
+        else:
+            msg = "ffmpeg not found in PATH"
+            logger.exception(msg, signals_type="video_export")
+            raise RuntimeError(msg)
         options_json = json.dumps(options)
         # Record the video
         try:
