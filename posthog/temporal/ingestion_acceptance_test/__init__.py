@@ -5,7 +5,6 @@ to verify that events can be captured and queried successfully.
 """
 
 from posthog.temporal.ingestion_acceptance_test.activities import run_ingestion_acceptance_tests
-from posthog.temporal.ingestion_acceptance_test.inputs import IngestionAcceptanceTestInputs
 from posthog.temporal.ingestion_acceptance_test.workflows import IngestionAcceptanceTestWorkflow
 
 WORKFLOWS = [IngestionAcceptanceTestWorkflow]
@@ -15,6 +14,5 @@ __all__ = [
     "WORKFLOWS",
     "ACTIVITIES",
     "IngestionAcceptanceTestWorkflow",
-    "IngestionAcceptanceTestInputs",
     "run_ingestion_acceptance_tests",
 ]
