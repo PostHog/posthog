@@ -78,7 +78,8 @@ export const IframeExample: Story = {
     parameters: {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
-            waitForSelector: '.heatmaps-ready',
+            // 1800 = ceil((maxY + 100) / 100) * 100 where maxY=1700 from mock data below
+            waitForSelector: '[data-height-override="1800"] canvas.heatmap-canvas',
             waitForLoadersToDisappear: true,
         },
     },
@@ -93,12 +94,12 @@ export const IframeExample: Story = {
                         ctx.json({
                             results: [
                                 { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 150, count: 25 },
-                                { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 250, count: 20 },
-                                { pointer_relative_x: 0.52, pointer_target_fixed: false, pointer_y: 350, count: 12 },
-                                { pointer_relative_x: 0.3, pointer_target_fixed: false, pointer_y: 500, count: 8 },
-                                { pointer_relative_x: 0.25, pointer_target_fixed: false, pointer_y: 700, count: 5 },
-                                { pointer_relative_x: 0.6, pointer_target_fixed: false, pointer_y: 900, count: 10 },
-                                { pointer_relative_x: 0.45, pointer_target_fixed: false, pointer_y: 1200, count: 6 },
+                                { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 300, count: 20 },
+                                { pointer_relative_x: 0.52, pointer_target_fixed: false, pointer_y: 500, count: 12 },
+                                { pointer_relative_x: 0.3, pointer_target_fixed: false, pointer_y: 800, count: 8 },
+                                { pointer_relative_x: 0.25, pointer_target_fixed: false, pointer_y: 1100, count: 5 },
+                                { pointer_relative_x: 0.6, pointer_target_fixed: false, pointer_y: 1400, count: 10 },
+                                { pointer_relative_x: 0.45, pointer_target_fixed: false, pointer_y: 1700, count: 6 },
                             ],
                             count: 7,
                             next: null,

@@ -154,6 +154,7 @@ export function HeatmapCanvas({
                 isReady ? 'heatmaps-ready' : 'heatmaps-loading'
             )}
             data-attr="heatmap-canvas"
+            data-height-override={heightOverride}
         >
             {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas except when it's an export */}
             <div
