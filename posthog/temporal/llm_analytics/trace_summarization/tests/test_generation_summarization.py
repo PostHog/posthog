@@ -91,7 +91,6 @@ class TestGenerateAndSaveGenerationSummaryActivity:
                 window_end="2025-01-01T01:00:00Z",
                 mode="minimal",
                 batch_run_id="test_batch",
-                provider="openai",
             )
 
             assert result.success is False
@@ -150,7 +149,6 @@ class TestGenerateAndSaveGenerationSummaryActivity:
                 window_end="2025-01-01T01:00:00Z",
                 mode="minimal",
                 batch_run_id="test_batch",
-                provider="openai",
             )
 
             assert result.success is True
@@ -201,7 +199,6 @@ class TestGenerateAndSaveGenerationSummaryActivity:
                 window_end="2025-01-01T01:00:00Z",
                 mode="minimal",
                 batch_run_id="test_batch",
-                provider="openai",
             )
 
             assert result.success is True
