@@ -23,12 +23,6 @@ Column | Type | Nullable | Description
 `data_color_theme_id` | integer | NULL | FK to `posthog_datacolortheme.id`
 `last_refresh` | timestamp with tz | NULL | Last refresh timestamp
 
-### HogQL Queryable Fields
-
-Available via `system.dashboards`:
-
-- `id`, `team_id`, `name`, `description`, `created_at`, `deleted`, `filters`, `variables`
-
 ### Key Relationships
 
 - **Created by**: `created_by_id` -> `posthog_user.id`
@@ -61,12 +55,6 @@ Column | Type | Nullable | Description
 `insight_id` | integer | NULL | FK to `posthog_dashboarditem.id`
 `text_id` | integer | NULL | FK to `posthog_text.id`
 `filters_overrides` | jsonb | NULL | Tile-specific filter overrides
-
-### HogQL Queryable Fields
-
-Available via `system.dashboard_tiles`:
-
-- `id`, `dashboard_id`, `insight_id`, `text_id`, `layouts`, `color`, `deleted`
 
 ### Constraints
 
@@ -114,12 +102,6 @@ Column | Type | Nullable | Description
 `updated_at` | timestamp with tz | NOT NULL | Auto-updated timestamp
 `created_by_id` | integer | NULL | FK to `posthog_user.id`
 `last_modified_by_id` | integer | NULL | FK to `posthog_user.id`
-
-### HogQL Queryable Fields
-
-Available via `system.insights`:
-
-- `id`, `short_id`, `team_id`, `name`, `description`, `filters`, `query`, `query_metadata`, `deleted`, `saved`, `created_at`, `updated_at`
 
 ### Key Relationships
 

@@ -30,12 +30,6 @@ Column | Type | Nullable | Description
 `last_called_at` | timestamp with tz | NULL | Last evaluation timestamp
 `bucketing_identifier` | varchar(50) | NULL | `distinct_id` or `device_id`
 
-### HogQL Queryable Fields
-
-Available via `system.feature_flags`:
-
-- `id`, `team_id`, `key`, `name`, `filters`, `rollout_percentage`, `created_at`, `deleted`
-
 ### Filters Structure
 
 ```json
@@ -108,12 +102,6 @@ Column | Type | Nullable | Description
 `scheduling_config` | jsonb | NULL | Scheduled actions configuration
 `primary_metrics_ordered_uuids` | jsonb | NULL | Ordered primary metric UUIDs
 `secondary_metrics_ordered_uuids` | jsonb | NULL | Ordered secondary metric UUIDs
-
-### HogQL Queryable Fields
-
-Available via `system.experiments`:
-
-- `id`, `team_id`, `name`, `description`, `created_at`, `updated_at`, `filters`, `parameters`, `start_date`, `end_date`, `archived`, `feature_flag_id`
 
 ### Parameters Structure
 

@@ -24,12 +24,6 @@ Column | Type | Nullable | Description
 `summary` | text | NULL | AI-generated summary
 `created_by_id` | integer | NULL | FK to `posthog_user.id`
 
-### HogQL Queryable Fields
-
-Available via `system.actions`:
-
-- `id`, `name`, `description`, `deleted`, `created_at`, `updated_at`, `steps_json`
-
 ### Steps JSON Structure
 
 ```json

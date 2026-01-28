@@ -36,12 +36,6 @@ Column | Type | Nullable | Description
 `question_summaries` | jsonb | NULL | Per-question AI summaries
 `response_sampling_*` | various | NULL | Response sampling configuration
 
-### HogQL Queryable Fields
-
-Available via `system.surveys`:
-
-- `id`, `team_id`, `name`, `type`, `questions`, `appearance`, `start_date`, `end_date`, `created_at`
-
 ### Question Types
 
 ```json

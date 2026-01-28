@@ -141,6 +141,24 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     },
 )
 
+data_warehouse_tables: PostgresTable = PostgresTable(
+    name="data_warehouse_tables",
+    postgres_table_name="posthog_datawarehousetable",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "columns": StringJSONDatabaseField(name="columns"),
+        "row_count": IntegerDatabaseField(name="row_count"),
+        "external_data_source_id": StringDatabaseField(name="external_data_source_id"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+    },
+)
+
 feature_flags: PostgresTable = PostgresTable(
     name="feature_flags",
     postgres_table_name="posthog_featureflag",
@@ -311,6 +329,7 @@ class SystemTables(TableNode):
         "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
+        "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),

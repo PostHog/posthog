@@ -25,12 +25,6 @@ Column | Type | Nullable | Description
 `cohort_type` | varchar(50) | NULL | One of: `static`, `person_property`, `behavioral`, `realtime`, `analytical`
 `created_by_id` | integer | NULL | FK to `posthog_user.id`
 
-### HogQL Queryable Fields
-
-Available via `system.cohorts`:
-
-- `id`, `name`, `description`, `deleted`, `filters`, `groups`, `query`, `created_at`, `last_calculation`, `version`, `count`, `is_static`
-
 ### Cohort Types
 
 Type | Description

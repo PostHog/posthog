@@ -16,12 +16,6 @@ Column | Type | Nullable | Description
 `default_columns` | text[] | NULL | Default columns to display
 `created_at` | timestamp with tz | NULL | Creation timestamp
 
-### HogQL Queryable Fields
-
-Available via `system.group_type_mappings`:
-
-- `id`, `team_id`, `group_type`, `name_singular`, `name_plural`
-
 ### Constraints
 
 - `group_type_index` must be <= 5 (max 6 group types per team)
@@ -55,12 +49,6 @@ Column | Type | Nullable | Description
 `properties_last_updated_at` | jsonb | NOT NULL | Per-property update timestamps
 `properties_last_operation` | jsonb | NOT NULL | Per-property operation type (`set`/`set_once`)
 `version` | bigint | NOT NULL | Version for ClickHouse sync
-
-### HogQL Queryable Fields
-
-Available via `system.groups`:
-
-- `id`, `team_id`, `group_key`, `group_type_index`, `group_properties`, `created_at`
 
 ### Key Relationships
 

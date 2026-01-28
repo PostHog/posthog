@@ -24,12 +24,6 @@ Column | Type | Nullable | Description
 `kernel_memory_gb` | double precision | NULL | Jupyter kernel memory allocation
 `kernel_idle_timeout_seconds` | integer | NULL | Kernel idle timeout
 
-### HogQL Queryable Fields
-
-Available via `system.notebooks`:
-
-- `id`, `short_id`, `team_id`, `title`, `content`, `text_content`, `deleted`, `visibility`, `version`, `created_at`, `last_modified_at`
-
 ### Content Structure
 
 Notebooks use a block-based content format:
