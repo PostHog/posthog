@@ -16,9 +16,10 @@ export function createEnrichSurveyPersonPropertiesStep<T extends { event: Incomi
 
         if (event.event.event === SURVEY_EVENTS.SHOWN) {
             event.event.properties = event.event.properties || {}
-            event.event.properties['$set'] = {
-                [SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE]: event.event.timestamp,
-                ...event.event.properties['$set'],
+            event.event.properties['$set'] = event.event.properties['$set'] || {}
+            // Only set if not already present (allows explicit $set to override)
+            if (!(SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE in event.event.properties['$set'])) {
+                event.event.properties['$set'][SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE] = event.event.timestamp
             }
         }
 
