@@ -133,6 +133,8 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     hostname                              LowCardinality(String),
     user                                  LowCardinality(String),
     query_id                              String,
+    initial_query_id                      String,
+    is_initial_query                      UInt8,
     type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
 
     event_date                            Date,
@@ -180,6 +182,8 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     ProfileEvents_S3GetObject Int64,
     ProfileEvents_ReadBufferFromS3Bytes Int64,
     ProfileEvents_WriteBufferFromS3Bytes Int64,
+
+    ProfileEvents Map(String, UInt64),
 
     lc_workflow LowCardinality(String),
     lc_kind LowCardinality(String),
@@ -252,6 +256,8 @@ SELECT
     hostname,
     user,
     query_id,
+    initial_query_id,
+    is_initial_query,
     type,
 
     event_date,
@@ -299,6 +305,8 @@ SELECT
     ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
     ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
 
+    ProfileEvents,
+
     JSONExtractString(log_comment, 'workflow') as lc_workflow,
     JSONExtractString(log_comment, 'kind') as lc_kind,
     JSONExtractString(log_comment, 'id') as lc_id,
@@ -340,8 +348,8 @@ SELECT
     if(JSONHas(log_comment, 'query', 'source'),
         JSONExtractString(log_comment, 'query', 'source', 'kind'),
         JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'query'),
+    multiIf(not is_initial_query, '',
+        JSONHas(log_comment, 'query', 'source'), JSONExtractString(log_comment, 'query', 'source', 'query'),
         JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
@@ -358,7 +366,6 @@ SELECT
 FROM system.query_log
 WHERE
     type != 'QueryStart'
-    AND is_initial_query
 """
 
 
@@ -445,3 +452,13 @@ def SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL():
         ),
         include_table_clauses=False,
     )
+
+
+# V8 - adding initial_query_id, is_initial_query to track subqueries, and ProfileEvents map
+def QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS initial_query_id String AFTER query_id,
+        ADD COLUMN IF NOT EXISTS is_initial_query UInt8 AFTER initial_query_id,
+        ADD COLUMN IF NOT EXISTS ProfileEvents Map(String, UInt64) AFTER ProfileEvents_WriteBufferFromS3Bytes
+    """

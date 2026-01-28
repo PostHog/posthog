@@ -15,13 +15,19 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
 import { ViewsTab } from './scene/ViewsTab'
 
-export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
+export const scene: SceneExport = {
+    component: DataWarehouseScene,
+    logic: dataWarehouseSceneLogic,
+    productKey: ProductKey.DATA_WAREHOUSE,
+}
 
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -42,7 +48,7 @@ export function DataWarehouseScene(): JSX.Element {
                 }}
                 actions={
                     <div className="flex gap-2">
-                        <LemonButton type="secondary" to={urls.sqlEditor()} size="small">
+                        <LemonButton type="secondary" to={urls.sqlEditor()} size="small" data-attr="sql-editor-button">
                             Create view
                         </LemonButton>
                         <AppShortcut
@@ -58,6 +64,7 @@ export function DataWarehouseScene(): JSX.Element {
                                 icon={<IconPlusSmall />}
                                 size="small"
                                 tooltip="New source"
+                                data-attr="new-source-button"
                             >
                                 New source
                             </LemonButton>
@@ -85,6 +92,15 @@ export function DataWarehouseScene(): JSX.Element {
                         label: 'Views',
                         content: <ViewsTab />,
                     },
+                    ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
+                        ? [
+                              {
+                                  key: DataWarehouseTab.MODELING,
+                                  label: 'Modeling',
+                                  content: <DataModelingTab />,
+                              },
+                          ]
+                        : []),
                 ]}
             />
         </SceneContent>

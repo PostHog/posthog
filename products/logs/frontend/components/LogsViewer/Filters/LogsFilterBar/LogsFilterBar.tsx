@@ -27,6 +27,8 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+
 import { logsSceneLogic } from '../../../../logsSceneLogic'
 import { DateRangeFilter } from '../DateRangeFilter'
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
@@ -113,6 +115,7 @@ export const LogsFilterBar = (): JSX.Element => {
 const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { filterGroup, tabId, utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
     const { setFilterGroup } = useActions(logsSceneLogic)
+    const { setFilter } = useActions(logsViewerConfigLogic)
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
@@ -127,7 +130,9 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}
             onChange={(group) => {
-                return setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
+                const newFilterGroup = { type: FilterLogicalOperator.And, values: [group] }
+                setFilterGroup(newFilterGroup)
+                setFilter('filterGroup', newFilterGroup)
             }}
         >
             {children}

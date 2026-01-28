@@ -47,10 +47,6 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.surveys.util import (
-    filter_survey_sent_events_by_unique_submission,
-    get_survey_response_clickhouse_query,
-)
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
@@ -190,7 +186,7 @@ class HogQLPrinter(Visitor[str]):
                 raise ImpossibleASTError(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
             array_join = node.array_join_op
             if node.array_join_list is None or len(node.array_join_list or []) == 0:
-                raise ImpossibleASTError(f"Invalid ARRAY JOIN without an array")
+                raise ImpossibleASTError("Invalid ARRAY JOIN without an array")
             array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
 
         space = f"\n{self.indent(1)}" if self.pretty else " "
@@ -611,7 +607,7 @@ class HogQLPrinter(Visitor[str]):
             params = [self.visit(param) for param in node.params] if node.params is not None else None
 
             params_part = f"({', '.join(params)})" if params is not None else ""
-            args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+            args_part = f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
 
             return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
@@ -808,28 +804,6 @@ class HogQLPrinter(Visitor[str]):
                     # (old analyzer evaluates all branches regardless of condition)
                     safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
                     return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
-                elif node.name == "getSurveyResponse":
-                    question_index_obj = node.args[0]
-                    if not isinstance(question_index_obj, ast.Constant):
-                        raise QueryError("getSurveyResponse first argument must be a constant")
-                    if (
-                        not isinstance(question_index_obj.value, int | str)
-                        or not str(question_index_obj.value).lstrip("-").isdigit()
-                    ):
-                        raise QueryError("getSurveyResponse first argument must be a valid integer")
-                    second_arg = node.args[1] if len(node.args) > 1 else None
-                    third_arg = node.args[2] if len(node.args) > 2 else None
-                    question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                    is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
-                    return get_survey_response_clickhouse_query(
-                        int(question_index_obj.value), question_id, is_multiple_choice
-                    )
-
-                elif node.name == "uniqueSurveySubmissionsFilter":
-                    survey_id = node.args[0]
-                    if not isinstance(survey_id, ast.Constant):
-                        raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                    return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
@@ -951,7 +925,7 @@ class HogQLPrinter(Visitor[str]):
         else:
             error = f"Can't access field '{type.name}' on a table with type '{type.table_type.__class__.__name__}'."
             if isinstance(type.table_type, ast.LazyJoinType):
-                error += f" Lazy joins should have all been replaced in the resolver."
+                error += " Lazy joins should have all been replaced in the resolver."
             raise ImpossibleASTError(error)
 
         return field_sql

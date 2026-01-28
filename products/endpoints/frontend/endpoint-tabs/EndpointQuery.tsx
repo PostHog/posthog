@@ -59,7 +59,9 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
         const variables = hogqlQuery.variables || {}
 
         const handleEditQuery = (): void => {
-            newTab(urls.sqlEditor(hogqlQuery.query, undefined, undefined, undefined, OutputTab.Endpoint, endpoint.name))
+            newTab(
+                urls.sqlEditor({ query: hogqlQuery.query, outputTab: OutputTab.Endpoint, endpointName: endpoint.name })
+            )
         }
 
         return (

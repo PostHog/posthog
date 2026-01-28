@@ -1,13 +1,11 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getAPISteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    options?: StepModifier
-): StepDefinition[] => {
-    const steps: StepDefinition[] = [
+import { StepDefinition } from '../steps'
+
+export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return [
         {
             title: 'Evaluate the feature flag value using flags',
             badge: 'required',
@@ -214,21 +212,6 @@ export const getAPISteps = (
             ),
         },
     ]
-    return options?.modifySteps ? options.modifySteps(steps) : steps
 }
 
-export const APIInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-
-    const steps = getAPISteps(CodeBlock, Markdown, dedent, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const APIInstallation = createInstallation(getAPISteps)

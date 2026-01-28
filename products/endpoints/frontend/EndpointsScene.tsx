@@ -33,6 +33,7 @@ const ENDPOINTS_USAGE_PRODUCT_DESCRIPTION =
 export const scene: SceneExport = {
     component: EndpointsScene,
     logic: endpointsLogic,
+    productKey: ProductKey.ENDPOINTS,
 }
 
 export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
@@ -73,13 +74,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        to={urls.sqlEditor(
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            OutputTab.Endpoint
-                                        )}
+                                        to={urls.sqlEditor({ outputTab: OutputTab.Endpoint })}
                                         sideAction={{
                                             dropdown: {
                                                 placement: 'bottom-end',
@@ -121,11 +116,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             docsURL="https://posthog.com/docs/endpoints"
                             customHog={BigLeaguesHog}
                             isEmpty={false}
-                            action={() =>
-                                router.actions.push(
-                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
-                                )
-                            }
+                            action={() => router.actions.push(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))}
                         />
                         <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
                     </SceneContent>
