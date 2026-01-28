@@ -95,13 +95,14 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Endpoints',
-            category: 'Unreleased',
+            category: 'Tools',
             iconType: 'endpoints' as FileSystemIconType,
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             href: urls.endpoints(),
             sceneKey: 'EndpointsScene',
             flag: FEATURE_FLAGS.ENDPOINTS,
             tags: ['beta'],
+            sceneKeys: ['EndpointsScene', 'EndpointScene'],
         },
     ],
 }

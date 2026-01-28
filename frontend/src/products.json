@@ -205,7 +205,7 @@
             "type": null,
             "intents": []
         },
-        { "path": "Endpoints", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
+        { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Event definitions",
             "category": "Schema",
