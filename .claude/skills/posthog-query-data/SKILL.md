@@ -284,6 +284,10 @@ AND (coalesce(variables.org, '') = '' OR properties.org = variables.org)
 AND (variables.browser IS NULL OR properties.$browser = variables.browser)
 ```
 
+### Available HogQL functions
+
+Verify what functions are available using [the reference list](./references/available-functions.md) with suitable bash commands.
+
 ---
 
 ## Examples
@@ -320,10 +324,6 @@ WHERE NOT deleted
 ORDER BY created_at DESC
 LIMIT 20
 ```
-
-## Available HogQL functions
-
-Verify what functions are available using [the reference list](./references/available-functions.md) with suitable bash commands.
 
 ## Examples reference
 
