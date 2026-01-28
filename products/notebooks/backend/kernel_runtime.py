@@ -503,10 +503,14 @@ class KernelRuntimeService:
                     response_payload = response.model_dump(exclude_none=True)
                 else:
                     response_payload = response.dict(exclude_none=True)
-                del response_payload["clickhouse"]
-                del response_payload["timings"]
-                del response_payload["modifiers"]
-                del response_payload["hogql"]
+                if "clickhouse" in response_payload:
+                    del response_payload["clickhouse"]
+                if "hogql" in response_payload:
+                    del response_payload["hogql"]
+                if "timings" in response_payload:
+                    del response_payload["timings"]
+                if "modifiers" in response_payload:
+                    del response_payload["modifiers"]
             except Exception as err:
                 logger.exception(
                     "notebook_bridge_query_failed",
