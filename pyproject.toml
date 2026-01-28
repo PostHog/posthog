@@ -91,7 +91,7 @@ dependencies = [
     "numpy~=2.1.0",
     "openai==1.109.1",
     "openpyxl==3.1.2",
-    "orjson==3.10.15",
+    "orjson==3.11.5",
     "pandas~=2.2.2",
     "paramiko==3.4.0",
     "phonenumberslite==8.13.6",
@@ -172,7 +172,7 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.54b1",
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
-    "asgiref==3.8.1",
+    "asgiref==3.11.0",
     "claude-code-sdk~=0.0.14",
     "user-agents~=2.2.0",
     "django-admin-inline-paginator===0.4.0",
@@ -202,7 +202,6 @@ dependencies = [
 dev = [
     "aioresponses==0.7.6",
     "autoevals==0.0.129",
-    "black~=23.9.1",
     "boto3-stubs[s3]~=1.38.30",
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
@@ -224,7 +223,7 @@ dev = [
     "ty==0.0.4",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
-    "orjson==3.10.15",
+    "orjson==3.11.5",
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",
@@ -238,6 +237,7 @@ dev = [
     "pytest-icdiff~=0.9",
     "pytest-mock~=3.15.1",
     "pytest-split~=0.10.0",
+    "pytest-timeout~=2.4.0",
     "pytest-watch==4.2.0",
     "pytest-xdist~=3.8.0",
     "python-dateutil~=2.9.0",
@@ -263,6 +263,7 @@ dev = [
     "types-requests==2.31.0.6",
     "types-retry==0.9.9.4",
     "types-tzlocal~=5.1.0.1",
+    "pywatchman>=2.0.0",
     "watchdog==5.0.3",
 ]
 
@@ -272,10 +273,6 @@ required-version = ">=0.7.0"
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
 
-
-[tool.black]
-line-length = 120
-target-version = ['py312']
 
 [tool.isort]
 profile = "black"

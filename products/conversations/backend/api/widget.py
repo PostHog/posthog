@@ -12,8 +12,7 @@ This prevents users from accessing others' chats by knowing their email.
 
 import logging
 
-from django.db.models import CharField, Count, F, OuterRef, Q, Subquery
-from django.db.models.functions import Cast
+from django.db.models import F, Q
 
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
@@ -34,6 +33,13 @@ from products.conversations.backend.api.serializers import (
     WidgetMessagesQuerySerializer,
     WidgetTicketsQuerySerializer,
     validate_origin,
+)
+from products.conversations.backend.cache import (
+    get_cached_messages,
+    get_cached_tickets,
+    invalidate_unread_count_cache,
+    set_cached_messages,
+    set_cached_tickets,
 )
 from products.conversations.backend.models import Ticket
 
@@ -128,6 +134,8 @@ class WidgetMessageView(APIView):
                     ]
                 )
                 ticket.refresh_from_db()
+                # Invalidate unread count cache - customer message increases count
+                invalidate_unread_count_cache(team.id)
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -144,6 +152,8 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
             )
+            # Invalidate unread count cache - new ticket with unread message
+            invalidate_unread_count_cache(team.id)
 
         # Create message
         comment = Comment.objects.create(
@@ -211,11 +221,7 @@ class WidgetMessagesView(APIView):
 
         widget_session_id = str(query_serializer.validated_data["widget_session_id"])
         after = query_serializer.validated_data.get("after")
-        limit = request.query_params.get("limit", 500)
-        try:
-            limit = min(int(limit), 500)
-        except (ValueError, TypeError):
-            limit = 500
+        limit = query_serializer.validated_data["limit"]
 
         # Get ticket
         try:
@@ -226,6 +232,14 @@ class WidgetMessagesView(APIView):
         # CRITICAL: Verify the ticket belongs to this widget_session_id (NOT distinct_id)
         if ticket.widget_session_id != widget_session_id:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Check cache (after stays constant between polls until new message arrives)
+        after_str = after.isoformat() if after else None
+        use_cache = limit == 50  # Only cache the limit used by widget polling
+        if use_cache:
+            cached = get_cached_messages(team.id, ticket_id, after_str)
+            if cached is not None:
+                return Response(cached)
 
         # Build query - prefetch created_by to avoid N+1 queries
         messages_query = Comment.objects.filter(
@@ -268,15 +282,19 @@ class WidgetMessagesView(APIView):
                 }
             )
 
-        return Response(
-            {
-                "ticket_id": str(ticket.id),
-                "ticket_status": ticket.status,
-                "unread_count": ticket.unread_customer_count,
-                "messages": message_list,
-                "has_more": len(messages) == limit,  # Hint if there are more messages
-            }
-        )
+        response_data = {
+            "ticket_id": str(ticket.id),
+            "ticket_status": ticket.status,
+            "unread_count": ticket.unread_customer_count,
+            "messages": message_list,
+            "has_more": len(messages) == limit,  # Hint if there are more messages
+        }
+
+        # Cache the response
+        if use_cache:
+            set_cached_messages(team.id, ticket_id, response_data, after_str)
+
+        return Response(response_data)
 
 
 class WidgetTicketsView(APIView):
@@ -312,52 +330,19 @@ class WidgetTicketsView(APIView):
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
+        # Check cache for first page (most common case for polling)
+        if offset == 0:
+            cached = get_cached_tickets(team.id, widget_session_id, status_filter)
+            if cached is not None:
+                return Response(cached)
+
         # Build query - filter by widget_session_id, not distinct_id
         tickets_query = Ticket.objects.filter(team=team, widget_session_id=widget_session_id)
 
         if status_filter:
             tickets_query = tickets_query.filter(status=status_filter)
 
-        # Add annotations to avoid N+1 queries
-        message_count_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .values("item_id")
-            .annotate(count=Count("id"))
-            .values("count")
-        )
-
-        last_message_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("content")[:1]
-        )
-
-        last_message_at_subquery = (
-            Comment.objects.filter(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("created_at")[:1]
-        )
-
-        tickets_query = tickets_query.annotate(
-            message_count=Subquery(message_count_subquery),
-            last_message=Subquery(last_message_subquery),
-            last_message_at=Subquery(last_message_at_subquery),
-        )
+        # message_count, last_message_at, last_message_text are now denormalized on Ticket model
 
         # Order and paginate
         tickets = tickets_query.order_by("-created_at")[offset : offset + limit]
@@ -371,14 +356,20 @@ class WidgetTicketsView(APIView):
                     "id": str(ticket.id),
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
-                    "last_message": ticket.last_message,
+                    "last_message": ticket.last_message_text,  # Now from denormalized field
                     "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
-                    "message_count": ticket.message_count or 0,
+                    "message_count": ticket.message_count,
                     "created_at": ticket.created_at.isoformat(),
                 }
             )
 
-        return Response({"count": total_count, "results": ticket_list})
+        response_data = {"count": total_count, "results": ticket_list}
+
+        # Cache first page
+        if offset == 0:
+            set_cached_tickets(team.id, widget_session_id, response_data, status_filter)
+
+        return Response(response_data)
 
 
 class WidgetMarkReadView(APIView):

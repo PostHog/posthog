@@ -110,16 +110,16 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 		}
 
 		subscription := events.Subscription{
-			SubID:      atomic.AddUint64(&subID, 1),
-			TeamId:     teamID,
-			Token:      token,
-			DistinctId: distinctId,
-			Geo:        geoOnly,
-			Columns:    columns,
-			EventTypes: eventTypes,
-			EventChan:        make(chan interface{}, 100),
-			ShouldClose:      &atomic.Bool{},
-			DroppedEvents:    &atomic.Uint64{},
+			SubID:         atomic.AddUint64(&subID, 1),
+			TeamId:        teamID,
+			Token:         token,
+			DistinctId:    distinctId,
+			Geo:           geoOnly,
+			Columns:       columns,
+			EventTypes:    eventTypes,
+			EventChan:     make(chan interface{}, 100),
+			ShouldClose:   &atomic.Bool{},
+			DroppedEvents: &atomic.Uint64{},
 		}
 
 		subChan <- subscription

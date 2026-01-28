@@ -185,7 +185,7 @@ impl CheckpointManager {
                             let partition_tag = partition.to_string();
 
                             // Skip checkpoint attempts during rebalancing - favor reassignment over checkpointing
-                            if store_manager.is_rebalancing() {
+                            if store_manager.rebalance_coordinator().is_rebalancing() {
                                 let tags = [("result", "skipped"), ("cause", "rebalancing_loop")];
                                 metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                                 info!("Checkpoint manager: rebalancing in progress, skipping remaining partitions");
@@ -307,7 +307,7 @@ impl CheckpointManager {
                                 }
 
                                 // Re-verify conditions before expensive I/O (may have changed during scheduling)
-                                if worker_store_manager.is_rebalancing() {
+                                if worker_store_manager.rebalance_coordinator().is_rebalancing() {
                                     let tags = [("result", "skipped"), ("cause", "rebalancing_worker")];
                                     metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                                     warn!(partition = partition_tag, "Checkpoint worker: rebalancing started, skipping checkpoint");
@@ -363,7 +363,7 @@ impl CheckpointManager {
                 } // end tokio::select! block
             } // end 'outer loop
 
-            info!("Checkpoint manager: submit loop shutting down");
+            info!("Checkpoint manager: exiting submit loop");
             checkpoint_health_reporter.store(false, Ordering::SeqCst);
         });
         self.checkpoint_task = Some(checkpoint_task_handle);
@@ -490,6 +490,7 @@ mod tests {
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
     };
+    use crate::test_utils::create_test_coordinator;
     use async_trait::async_trait;
     use common_types::RawEvent;
     use std::{collections::HashMap, path::PathBuf, time::Duration};
@@ -548,7 +549,7 @@ mod tests {
             path: TempDir::new().unwrap().path().to_path_buf(),
             max_capacity: 1_000_000,
         };
-        Arc::new(StoreManager::new(config))
+        Arc::new(StoreManager::new(config, create_test_coordinator()))
     }
 
     fn create_test_store(topic: &str, partition: i32) -> DeduplicationStore {
@@ -941,7 +942,7 @@ mod tests {
         };
 
         // Start rebalancing BEFORE starting checkpoint manager
-        store_manager.start_rebalancing();
+        store_manager.rebalance_coordinator().start_rebalancing();
 
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
         manager.start();
@@ -1036,13 +1037,13 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Start rebalancing mid-flight
-        store_manager.start_rebalancing();
+        store_manager.rebalance_coordinator().start_rebalancing();
 
         // Let the manager process - workers should skip due to rebalancing
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Finish rebalancing to allow clean shutdown
-        store_manager.finish_rebalancing();
+        store_manager.rebalance_coordinator().finish_rebalancing();
 
         manager.stop().await;
 

@@ -1,19 +1,14 @@
-import { getReactSteps as getReactStepsPA } from '../product-analytics/react'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getReactSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getReactSteps as getReactStepsPA } from '../product-analytics/react'
+import { StepDefinition } from '../steps'
+
+export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
     // Get installation steps from product-analytics only (exclude "Send events")
-    const installationSteps = getReactStepsPA(CodeBlock, Markdown, CalloutBox, dedent, snippets).filter(
+    const installationSteps = getReactStepsPA(ctx).filter(
         (step: StepDefinition) => step.title !== 'Send events'
     )
 
@@ -48,21 +43,7 @@ export const getReactSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...experimentSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...experimentSteps]
 }
 
-export const ReactInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getReactSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const ReactInstallation = createInstallation(getReactSteps)

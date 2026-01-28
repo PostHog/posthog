@@ -22,14 +22,18 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
-    DEFAULT_MAX_TRACES_PER_WINDOW,
+    DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
 )
-from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, CoordinatorResult
+from posthog.temporal.llm_analytics.trace_summarization.models import (
+    AnalysisLevel,
+    BatchSummarizationInputs,
+    CoordinatorResult,
+)
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
@@ -41,7 +45,8 @@ logger = structlog.get_logger(__name__)
 class BatchTraceSummarizationCoordinatorInputs:
     """Inputs for the coordinator workflow."""
 
-    max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW
+    analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
+    max_items: int = DEFAULT_MAX_ITEMS_PER_WINDOW
     batch_size: int = DEFAULT_BATCH_SIZE
     mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES
@@ -76,12 +81,13 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> BatchTraceSummarizationCoordinatorInputs:
         """Parse workflow inputs from string list."""
         return BatchTraceSummarizationCoordinatorInputs(
-            max_traces=int(inputs[0]) if len(inputs) > 0 else DEFAULT_MAX_TRACES_PER_WINDOW,
-            batch_size=int(inputs[1]) if len(inputs) > 1 else DEFAULT_BATCH_SIZE,
-            mode=SummarizationMode(inputs[2]) if len(inputs) > 2 else DEFAULT_MODE,
-            window_minutes=int(inputs[3]) if len(inputs) > 3 else DEFAULT_WINDOW_MINUTES,
-            provider=SummarizationProvider(inputs[4]) if len(inputs) > 4 else DEFAULT_PROVIDER,
-            model=inputs[5] if len(inputs) > 5 else DEFAULT_MODEL,
+            analysis_level="generation" if len(inputs) > 0 and inputs[0] == "generation" else "trace",
+            max_items=int(inputs[1]) if len(inputs) > 1 else DEFAULT_MAX_ITEMS_PER_WINDOW,
+            batch_size=int(inputs[2]) if len(inputs) > 2 else DEFAULT_BATCH_SIZE,
+            mode=SummarizationMode(inputs[3]) if len(inputs) > 3 else DEFAULT_MODE,
+            window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
+            provider=SummarizationProvider(inputs[5]) if len(inputs) > 5 else DEFAULT_PROVIDER,
+            model=inputs[6] if len(inputs) > 6 else DEFAULT_MODEL,
         )
 
     @temporalio.workflow.run
@@ -89,7 +95,8 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         """Execute coordinator workflow."""
         logger.info(
             "Starting batch trace summarization coordinator",
-            max_traces=inputs.max_traces,
+            analysis_level=inputs.analysis_level,
+            max_items=inputs.max_items,
             window_minutes=inputs.window_minutes,
         )
 
@@ -102,14 +109,14 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 teams_processed=0,
                 teams_failed=0,
                 failed_team_ids=[],
-                total_traces=0,
+                total_items=0,
                 total_summaries=0,
             )
 
         logger.info("Processing teams from allowlist", team_count=len(team_ids), team_ids=team_ids)
 
         # Spawn child workflows for each team
-        total_traces = 0
+        total_items = 0
         total_summaries = 0
         failed_teams = []
 
@@ -119,7 +126,8 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     BatchTraceSummarizationWorkflow.run,
                     BatchSummarizationInputs(
                         team_id=team_id,
-                        max_traces=inputs.max_traces,
+                        analysis_level=inputs.analysis_level,
+                        max_items=inputs.max_items,
                         batch_size=inputs.batch_size,
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,
@@ -131,7 +139,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )
 
-                total_traces += workflow_result.metrics.traces_queried
+                total_items += workflow_result.metrics.items_queried
                 total_summaries += workflow_result.metrics.summaries_generated
 
             except Exception as e:
@@ -143,6 +151,6 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             teams_processed=len(team_ids),
             teams_failed=len(failed_teams),
             failed_team_ids=failed_teams,
-            total_traces=total_traces,
+            total_items=total_items,
             total_summaries=total_summaries,
         )

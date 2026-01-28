@@ -13,7 +13,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getApprovalActionLabel, getApprovalResourceName, getApprovalResourceUrl } from 'scenes/approvals/utils'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -250,11 +252,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
 
                 <section>
                     <h3 className="font-semibold mb-2">Policy Configuration</h3>
-                    <div className="bg-bg-light p-4 rounded border">
-                        <pre className="text-sm overflow-x-auto">
-                            {JSON.stringify(changeRequest.policy_snapshot, null, 2)}
-                        </pre>
-                    </div>
+                    <PolicyConfigurationDisplay policySnapshot={changeRequest.policy_snapshot} />
                 </section>
             </div>
         </SceneContent>
@@ -347,4 +345,138 @@ function StatusTag({ state }: { state: ChangeRequestState }): JSX.Element {
             {state}
         </LemonTag>
     )
+}
+
+interface PolicySnapshot {
+    quorum?: number
+    users?: number[]
+    roles?: string[]
+    allow_self_approve?: boolean
+    conditions?: {
+        type?: string
+        field?: string
+        operator?: string
+        value?: number
+    }
+}
+
+function PolicyConfigurationDisplay({ policySnapshot }: { policySnapshot?: PolicySnapshot }): JSX.Element {
+    const { members, membersLoading } = useValues(membersLogic)
+    const { roles, rolesLoading } = useValues(rolesLogic)
+
+    if (!policySnapshot) {
+        return (
+            <div className="bg-bg-light p-4 rounded border">
+                <span className="text-secondary">No policy configuration available</span>
+            </div>
+        )
+    }
+
+    if (membersLoading || rolesLoading) {
+        return (
+            <div className="bg-bg-light p-4 rounded border">
+                <LemonSkeleton className="h-32" />
+            </div>
+        )
+    }
+
+    const userIds = policySnapshot.users || []
+    const roleIds = policySnapshot.roles || []
+    const conditions = policySnapshot.conditions
+
+    const usersById = new Map(members?.map((m) => [m.user.id, m.user]) || [])
+    const rolesById = new Map(roles?.map((r) => [r.id, r]) || [])
+
+    return (
+        <div className="bg-bg-light p-4 rounded border space-y-4">
+            {/* Approvers (users) */}
+            <div>
+                <div className="text-secondary text-sm mb-2">Approvers</div>
+                {userIds.length === 0 ? (
+                    <span className="text-muted">No approvers configured</span>
+                ) : (
+                    <div className="flex flex-wrap gap-3">
+                        {userIds.map((id) => {
+                            const user = usersById.get(id)
+                            return user ? (
+                                <div key={id} className="flex items-center gap-2">
+                                    <ProfilePicture user={user} size="sm" />
+                                    <span className="text-sm">{user.first_name || user.email}</span>
+                                </div>
+                            ) : (
+                                <div key={id} className="flex items-center gap-2 text-muted">
+                                    <ProfilePicture size="sm" />
+                                    <span className="text-sm italic">Deleted user ID {id}</span>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Approver roles */}
+            <div>
+                <div className="text-secondary text-sm mb-2">Approver roles</div>
+                {roleIds.length === 0 ? (
+                    <span className="text-muted">No approver roles configured</span>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {roleIds.map((id) => {
+                            const role = rolesById.get(id)
+                            return role ? (
+                                <LemonTag key={id} type="highlight">
+                                    {role.name}
+                                </LemonTag>
+                            ) : (
+                                <LemonTag key={id} type="muted">
+                                    Deleted role ID {id}
+                                </LemonTag>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Condition */}
+            {conditions && Object.keys(conditions).length > 0 && (
+                <div>
+                    <div className="text-secondary text-sm mb-1">Condition</div>
+                    <div>{formatConditionText(conditions)}</div>
+                </div>
+            )}
+
+            {/* Approvals required */}
+            <div>
+                <div className="text-secondary text-sm mb-1">Approvals required</div>
+                <div>{policySnapshot.quorum || 1}</div>
+            </div>
+
+            {/* Self-approval */}
+            <div>
+                <div className="text-secondary text-sm mb-1">Self-approval</div>
+                <div>{policySnapshot.allow_self_approve ? 'Allowed' : 'Not allowed'}</div>
+            </div>
+        </div>
+    )
+}
+
+function formatConditionText(conditions: NonNullable<PolicySnapshot['conditions']>): string {
+    const field = conditions.field?.replace(/_/g, ' ') || 'field'
+
+    switch (conditions.type) {
+        case 'any_change':
+            return `Require approval for any change to ${field}`
+        case 'before_after':
+            if (conditions.operator && conditions.value !== undefined) {
+                return `Require approval when ${field} ${conditions.operator} ${conditions.value}%`
+            }
+            return `Require approval based on ${field} threshold`
+        case 'change_amount':
+            if (conditions.operator && conditions.value !== undefined) {
+                return `Require approval when ${field} changes by ${conditions.operator} ${conditions.value}%`
+            }
+            return `Require approval based on ${field} change amount`
+        default:
+            return 'Custom condition'
+    }
 }

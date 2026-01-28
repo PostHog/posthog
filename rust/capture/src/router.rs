@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use health::HealthRegistry;
+use health::{readiness_handler, HealthRegistry};
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -83,25 +83,6 @@ impl HistoricalConfig {
 
 async fn index() -> &'static str {
     "capture"
-}
-
-async fn readiness() -> axum::http::StatusCode {
-    use crate::metrics_middleware::ShutdownStatus;
-
-    let shutdown_status = crate::metrics_middleware::get_shutdown_status();
-    let is_running_or_unknown =
-        shutdown_status == ShutdownStatus::Running || shutdown_status == ShutdownStatus::Unknown;
-
-    if is_running_or_unknown && std::path::Path::new("/tmp/shutdown").exists() {
-        crate::metrics_middleware::set_shutdown_status(ShutdownStatus::Prestop);
-        tracing::info!("Shutdown status change: PRESTOP");
-    }
-
-    if is_running_or_unknown {
-        axum::http::StatusCode::OK
-    } else {
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -255,7 +236,7 @@ pub fn router<
 
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(readiness))
+        .route("/_readiness", get(readiness_handler))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let recordings_router = Router::new()

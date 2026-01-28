@@ -13,6 +13,7 @@ from google import genai
 from google.genai.errors import APIError
 from google.genai.types import GenerateContentConfig, HttpOptions
 from posthoganalytics.ai.gemini import genai as posthog_genai
+from pydantic import BaseModel
 
 from products.llm_analytics.backend.llm.errors import AuthenticationError
 from products.llm_analytics.backend.llm.types import (
@@ -29,9 +30,9 @@ logger = logging.getLogger(__name__)
 
 class GeminiConfig:
     TEMPERATURE: float = 0
-    # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
+    # Timeout in milliseconds for API calls. Set high to accommodate slow reasoning models.
     # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
-    TIMEOUT: int = 300
+    TIMEOUT: int = 300_000
 
     SUPPORTED_MODELS: list[str] = [
         "gemini-3-flash-preview",
@@ -57,7 +58,7 @@ class GeminiAdapter:
         api_key: str | None,
         analytics: AnalyticsContext,
     ) -> CompletionResponse:
-        """Non-streaming completion."""
+        """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
 
         posthog_client = posthoganalytics.default_client
@@ -77,6 +78,11 @@ class GeminiAdapter:
             tools=request.tools,
         )
 
+        # Handle structured output using Gemini's JSON mode
+        if request.response_format and issubclass(request.response_format, BaseModel):
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = request.response_format
+
         try:
             contents = convert_anthropic_messages_to_gemini(request.messages)
 
@@ -94,10 +100,21 @@ class GeminiAdapter:
                     output_tokens=response.usage_metadata.candidates_token_count or 0,
                     total_tokens=response.usage_metadata.total_token_count or 0,
                 )
+
+            # Parse structured output if response_format was specified
+            parsed: BaseModel | None = None
+            if request.response_format and issubclass(request.response_format, BaseModel):
+                try:
+                    parsed = request.response_format.model_validate_json(content)
+                except Exception as e:
+                    logger.warning(f"Failed to parse structured output from Gemini: {e}")
+                    raise ValueError(f"Failed to parse structured output: {e}") from e
+
             return CompletionResponse(
                 content=content,
                 model=request.model,
                 usage=usage,
+                parsed=parsed,
             )
         except Exception as e:
             if "authentication" in str(e).lower() or "api key" in str(e).lower():

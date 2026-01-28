@@ -125,6 +125,11 @@ export function loadPostHogJS(): void {
             __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
+            external_scripts_inject_target: 'head',
+            capture_performance: {
+                //disabling to investigate if this is associated with memory leak in the posthog app
+                web_vitals_attribution: false,
+            },
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {

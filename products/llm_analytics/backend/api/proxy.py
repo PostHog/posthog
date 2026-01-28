@@ -68,6 +68,11 @@ class LLMProxyViewSet(viewsets.ViewSet):
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
+        # Don't throttle the models list endpoint - it returns a static list
+        # and should always be accessible even if the user hit rate limits on completions
+        if self.action == "models":
+            return []
+
         return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
 
     def _get_provider_key(self, provider_key_id: str | None, user) -> LLMProviderKey | None:

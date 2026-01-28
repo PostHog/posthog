@@ -5,9 +5,9 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
-from llm_gateway.api.products import validate_product
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.anthropic import AnthropicMessagesRequest
+from llm_gateway.products.config import validate_product
 
 anthropic_router = APIRouter()
 

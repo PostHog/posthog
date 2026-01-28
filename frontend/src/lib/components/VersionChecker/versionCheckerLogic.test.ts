@@ -72,7 +72,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '1.40.0',
-                level: 'error',
+                level: 'warning',
             },
         },
         {
@@ -81,7 +81,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '1.50.0',
-                level: 'error',
+                level: 'warning',
             },
         },
         {
@@ -90,7 +90,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '2.0.0',
-                level: 'error',
+                level: 'warning',
             },
         },
     ])('return a version warning if diff is great enough', async (options) => {
@@ -109,7 +109,12 @@ describe('versionCheckerLogic', () => {
                 { version: '1.83.1', count: 50 },
             ],
             latestVersion: '1.84.0',
-            expectation: null, // Highest used is 1.83.1, only 1 minor behind
+            // 1.9.0 is outdated and has 50% of traffic (≥10% threshold), so warning is expected
+            expectation: {
+                latestUsedVersion: '1.83.1',
+                latestAvailableVersion: '1.84.0',
+                level: 'warning',
+            },
         },
         {
             usedVersions: [
@@ -120,7 +125,7 @@ describe('versionCheckerLogic', () => {
             expectation: {
                 latestUsedVersion: '1.42.0',
                 latestAvailableVersion: '1.84.0',
-                level: 'error',
+                level: 'warning',
             },
         },
     ])('when having multiple versions used, should match with the highest one', async (options) => {
@@ -130,5 +135,15 @@ describe('versionCheckerLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
         expectLogic(logic).toMatchValues({ versionWarning: options.expectation })
+    })
+
+    it('should show Current badge when used version is newer than latest cached from GitHub', async () => {
+        // Simulate stale cache: GitHub says latest is 1.300.0 but user has 1.333.0
+        setupTest('1.300.0', [{ version: '1.333.0', count: 100 }])
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const augmented = logic.values.augmentedData
+        expect(augmented?.web?.allReleases[0]?.isCurrentOrNewer).toBe(true)
     })
 })

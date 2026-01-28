@@ -1,5 +1,8 @@
+import json
 import asyncio
 from collections.abc import Generator
+from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlparse
 
 import dagster
@@ -152,14 +155,69 @@ def _is_retryable_http_error(exception: BaseException) -> bool:
     return isinstance(exception, requests.exceptions.ConnectionError)
 
 
+@dataclass
+class ClayBatchResult:
+    """Result from create_batches containing batches and stats for monitoring."""
+
+    batches: list[list[dict]]
+    truncated_count: int
+    skipped_count: int
+
+
 class ClayWebhookResource(dagster.ConfigurableResource):
     """Clay webhook client for sending enriched contact data."""
 
     webhook_url: str
     api_key: str
     timeout: int = 60
-    batch_size: int = 100
+    max_batch_bytes: int = 90_000  # 90KB, leaving margin under Clay's 100KB limit
+    max_records_per_batch: int = 10  # Rate limit friendly (Clay allows 10 records/sec sustained)
     max_retries: int = 3
+    # Fields to truncate in order of priority (least important first).
+    # These are array fields where partial data is acceptable.
+    # Order: diagnostic/metadata fields -> identifiers -> user-facing data
+    truncatable_fields: list[str] = [
+        "bounce_reasons",  # Diagnostic info, less critical
+        "subjects",  # Email subjects, can be sampled
+        "removal_timestamps",  # Timestamps for removals
+        "removal_types",  # Types of removal
+        "source_type",  # Source identifiers
+        "organization_names",  # Org names, can be partial
+        "organization_ids",  # Org IDs, can be partial
+        "emails",  # Core data, truncated last
+    ]
+
+    def _truncate_record_to_fit(self, record: dict) -> dict:
+        """Truncate array fields in a record to fit within max_batch_bytes."""
+        record = record.copy()
+        record_size = self._get_batch_size([record])
+
+        if record_size <= self.max_batch_bytes:
+            return record
+
+        # Progressively truncate fields until it fits
+        for field in self.truncatable_fields:
+            if field not in record or not isinstance(record[field], list):
+                continue
+
+            arr = record[field]
+            if not arr:
+                continue
+
+            # Progressively halve array length until it fits
+            while len(arr) > 0 and record_size > self.max_batch_bytes:
+                # Halve the array length each iteration
+                new_len = max(1, len(arr) // 2)
+                if new_len == len(arr):
+                    new_len = 0
+                record[field] = arr[:new_len]
+                record_size = self._get_batch_size([record])
+                arr = record[field]
+
+            if record_size <= self.max_batch_bytes:
+                break
+
+        return record
 
     def _post(self, session: requests.Session, data: list[dict]) -> requests.Response:
         """Make a POST request to the webhook."""
@@ -191,13 +249,68 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         with requests.Session() as session:
             return self._send_with_retry(session, data)
 
-    def send_batched(self, data: list[dict]) -> list[requests.Response]:
-        """Send data to Clay webhook in batches to avoid payload size limits."""
+    def _get_batch_size(self, batch: list[dict]) -> int:
+        """Get the serialized size of a batch in bytes."""
+        return len(json.dumps(batch, default=str).encode("utf-8"))
+
+    def create_batches(self, data: list[dict], logger: Any | None = None) -> ClayBatchResult:
+        """Split data into batches respecting both record count and byte limits.
+
+        Returns a ClayBatchResult containing:
+        - batches: list of batches, each containing records that fit within
+          max_records_per_batch and max_batch_bytes constraints
+        - truncated_count: number of records that were truncated to fit
+        - skipped_count: number of records that were skipped entirely
+        """
         if not data:
-            return []
-        with requests.Session() as session:
-            responses = []
-            for i in range(0, len(data), self.batch_size):
-                batch = data[i : i + self.batch_size]
-                responses.append(self._send_with_retry(session, batch))
-            return responses
+            return ClayBatchResult(batches=[], truncated_count=0, skipped_count=0)
+
+        batches: list[list[dict]] = []
+        current_batch: list[dict] = []
+        truncated_count = 0
+        skipped_count = 0
+
+        for record in data:
+            record_size = self._get_batch_size([record])
+            if record_size > self.max_batch_bytes:
+                original_size = record_size
+                record = self._truncate_record_to_fit(record)
+                record_size = self._get_batch_size([record])
+                truncated_count += 1
+                if logger:
+                    logger.info(
+                        "Truncated record for domain %s: %d -> %d bytes",
+                        record.get("domain", "unknown"),
+                        original_size,
+                        record_size,
+                    )
+                if record_size > self.max_batch_bytes:
+                    skipped_count += 1
+                    if logger:
+                        logger.warning(
+                            "Skipped oversized record for domain %s: %d bytes exceeds max %d bytes",
+                            record.get("domain", "unknown"),
+                            record_size,
+                            self.max_batch_bytes,
+                        )
+                    continue
+
+            # Check if adding this record would exceed limits
+            candidate = [*current_batch, record]
+            if len(candidate) > self.max_records_per_batch or self._get_batch_size(candidate) > self.max_batch_bytes:
+                if current_batch:
+                    batches.append(current_batch)
+                current_batch = [record]
+            else:
+                current_batch = candidate
+
+        if current_batch:
+            batches.append(current_batch)
+
+        if logger:
+            if truncated_count > 0:
+                logger.info("Truncated %d records to fit batch size limits", truncated_count)
+            if skipped_count > 0:
+                logger.warning("Skipped %d records that exceeded max batch size", skipped_count)
+
+        return ClayBatchResult(batches=batches, truncated_count=truncated_count, skipped_count=skipped_count)

@@ -1181,3 +1181,17 @@
   LIMIT 21
   '''
 # ---
+# name: TestPluginAPI.test_transpile_plugin_frontend_source
+  '''
+  "use strict";
+  export function getFrontendApp (require) { let exports = {}; export const scene = {}; return exports; }
+  '''
+# ---
+# name: TestPluginAPI.test_transpile_plugin_frontend_source.1
+  '''
+  (function() {
+              console.log('hello')
+              return {};
+          })
+  '''
+# ---

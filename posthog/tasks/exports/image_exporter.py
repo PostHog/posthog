@@ -20,6 +20,8 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
+from posthog.schema import NodeKind
+
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.exceptions_capture import capture_exception
@@ -43,7 +45,14 @@ def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
-ScreenWidth = Literal[800, 1920, 1400]
+# Newer versions of selenium seem to include the search bar in the height calculation.
+# This is a manually determined offset to ensure the screenshot is the correct height.
+# See https://github.com/SeleniumHQ/selenium/issues/14660.
+HEIGHT_OFFSET = 85
+MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many steps
+CONTENT_PADDING = 80  # Padding for card borders
+
+ScreenWidth = Literal[800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
@@ -127,7 +136,13 @@ def _export_to_png(
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
-            screenshot_width = 800
+            query = exported_asset.insight.query or {}
+            source = query.get("source", query)  # This to handle the InsightVizNode wrapper
+            is_funnel = source.get("kind") == NodeKind.FUNNELS_QUERY
+            # Set initial window size large enough for wide content like funnels with many steps
+            # Small funnels will be constrained later.
+            # The higher the number, the more RAM will be required by the Chromium driver.
+            screenshot_width = 4000 if is_funnel else 800
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
@@ -194,12 +209,6 @@ def _export_to_png(
         raise
 
 
-# Newer versions of selenium seem to include the search bar in the height calculation.
-# This is a manually determined offset to ensure the screenshot is the correct height.
-# See https://github.com/SeleniumHQ/selenium/issues/14660.
-HEIGHT_OFFSET = 85
-
-
 def _screenshot_asset(
     image_path: str,
     url_to_render: str,
@@ -211,7 +220,6 @@ def _screenshot_asset(
     driver: Optional[webdriver.Chrome] = None
     try:
         driver = get_driver()
-        # Set initial window size with a more reasonable height to prevent initial rendering issues
         driver.set_window_size(screenshot_width, screenshot_height)
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
@@ -273,24 +281,54 @@ def _screenshot_asset(
             )
             height = max_height_pixels
 
-        # For example funnels use a table that can get very wide, so try to get its width
-        # For replay players, check for player width
+        # Calculate width for replay players and non-funnel tables
+        # Funnels are handled separately with fit-content measurement below
         width = driver.execute_script(
-            """
+            f"""
             // Check for replay player first
             const replayElement = document.querySelector('.replayer-wrapper');
-            if (replayElement) {
+            if (replayElement) {{
                 return replayElement.offsetWidth;
-            }
+            }}
+
+            const funnelElement = document.querySelector('.FunnelBarVertical');
+            if (funnelElement) {{
+                // Force funnel to shrink to content size
+                funnelElement.style.width = 'fit-content';
+                funnelElement.style.maxWidth = 'fit-content';
+
+                const table = funnelElement.querySelector('table');
+                if (table) {{
+                    table.style.width = 'fit-content';
+                    table.style.maxWidth = 'fit-content';
+                }}
+
+                // Force a reflow
+                void funnelElement.offsetWidth;
+
+                // Now measure the actual content width
+                return funnelElement.offsetWidth + {CONTENT_PADDING};
+            }}
+
             // Fall back to table width for insights
             const tableElement = document.querySelector('table');
-            if (tableElement) {
+            if (tableElement) {{
                 return tableElement.offsetWidth * 1.5;
-            }
+            }}
+
+            return null;
         """
         )
-        if isinstance(width, int):
-            width = max(int(screenshot_width), min(1800, width or screenshot_width))
+        if isinstance(width, (int, float)):
+            calculated_width = width or screenshot_width
+            if calculated_width > MAX_WIDTH_PIXELS:
+                logger.warning(
+                    "screenshot_width_capped",
+                    original_width=calculated_width,
+                    capped_width=MAX_WIDTH_PIXELS,
+                    url=url_to_render,
+                )
+            width = min(MAX_WIDTH_PIXELS, int(calculated_width))
         else:
             width = screenshot_width
 

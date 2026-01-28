@@ -112,6 +112,40 @@ pub const ACTIVE_STORE_COUNT: &str = "active_store_count";
 /// Value > 0 means rebalance async work is ongoing; used to block orphan cleanup
 pub const REBALANCING_COUNT: &str = "rebalancing_count";
 
+// ==== Partition Ownership Tracking ====
+
+/// Gauge for currently owned partition count
+/// Updated on every ownership change for real-time visibility
+pub const OWNED_PARTITIONS_COUNT: &str = "owned_partitions_count";
+
+/// Counter for partitions added to ownership (ASSIGN callback)
+pub const PARTITION_OWNERSHIP_ADDED: &str = "partition_ownership_added_total";
+
+/// Counter for partitions removed from ownership (REVOKE callback)
+pub const PARTITION_OWNERSHIP_REMOVED: &str = "partition_ownership_removed_total";
+
+/// Counter for async setup cancellations
+/// Incremented when a new rebalance starts before async setup completes
+pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancelled_total";
+
+/// Counter for partitions skipped during store creation (no longer owned)
+/// Labels: reason (not_owned, cancelled)
+pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_total";
+
+/// Counter for partitions where checkpoint import failed and we fell back to empty store
+/// Labels: checkpoint_failure_reason (import, restore)
+/// This is an important metric for alerting - indicates degraded deduplication quality
+pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
+
+/// Counter for messages dropped because no store was registered for the partition
+/// This indicates the partition was likely revoked during a rebalance
+pub const MESSAGES_DROPPED_NO_STORE: &str = "messages_dropped_no_store_total";
+
+// ==== Rebalance Resume ====
+
+/// Counter for Resume commands skipped entirely (no owned partitions)
+pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no_owned_total";
+
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)
 pub const PARTITION_BATCH_PROCESSING_DURATION_MS: &str = "partition_batch_processing_duration_ms";

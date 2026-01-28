@@ -29,10 +29,10 @@ services:
         volumes:
             - postgres-15-data:/var/lib/postgresql/data
 
-    redis:
+    redis7:
         extends:
             file: docker-compose.base.yml
-            service: redis
+            service: redis7
         ports:
             - '6379:6379'
 
@@ -124,7 +124,7 @@ services:
             - JS_URL=http://localhost:8000
         depends_on:
             - db
-            - redis
+            - redis7
             - clickhouse
             - kafka
         links:
@@ -137,7 +137,7 @@ services:
         environment:
             - DEBUG=1
         depends_on:
-            - redis
+            - redis7
             - kafka
 
     replay-capture:
@@ -145,7 +145,7 @@ services:
             file: docker-compose.base.yml
             service: replay-capture
         depends_on:
-            - redis
+            - redis7
             - kafka
 
     property-defs-rs:
@@ -160,21 +160,23 @@ services:
             file: docker-compose.base.yml
             service: feature-flags
         depends_on:
-            - redis
+            - redis7
             - db
 
     plugins:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        build: .
+        build:
+            context: .
+            dockerfile: Dockerfile.node
         volumes:
             - .:/app/posthog
         environment:
             - DOCKER=1
         depends_on:
             - db
-            - redis
+            - redis7
             - clickhouse
             - kafka
             - objectstorage
@@ -228,7 +230,7 @@ services:
             - .:/app/posthog
         depends_on:
             - db
-            - redis
+            - redis7
             - clickhouse
             - kafka
             - objectstorage

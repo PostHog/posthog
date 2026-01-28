@@ -83,7 +83,7 @@ jobs:
 
             - name: report failure
               if: failure()
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-image-build'
@@ -542,7 +542,7 @@ jobs:
             - name: Check for changes that affect data modeling temporal worker
               id: check_changes_data_modeling_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/data_warehouse|^posthog/temporal/common|^posthog/warehouse|^products/data_modeling|^products/data_warehouse|^posthog/management/commands|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
               if: steps.check_changes_data_modeling_temporal_worker.outputs.changed == 'true'

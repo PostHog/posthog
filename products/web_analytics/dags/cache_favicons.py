@@ -70,6 +70,8 @@ def upload_if_missing(context: dagster.AssetExecutionContext, s3_client, bucket,
 def cache_favicons(
     context: dagster.AssetExecutionContext, s3: S3Resource, config: CacheFaviconsConfig
 ) -> dagster.MaterializeResult:
+    # We have over 10M distinct referrers for recent data, so let's limit to the top 50k to keep this manageable while we test it
+    # https://metabase.prod-us.posthog.dev/question#eyJkYXRhc2V0X3F1ZXJ5Ijp7InR5cGUiOiJuYXRpdmUiLCJuYXRpdmUiOnsicXVlcnkiOiJXSVRIIHJlZmVycmVycyBBUyAoXG4gICAgU0VMRUNUXG4gICAgICAgIGRvbWFpbihtYXRfJHJlZmVycmVyKSBBUyByZWZlcnJlcixcbiAgICAgICAgY291bnQoKSBBUyBjbnRcbiAgICBGUk9NIGV2ZW50c1xuICAgIFdIRVJFIGV2ZW50ID0gJyRwYWdldmlldydcbiAgICAgICAgQU5EIHRpbWVzdGFtcCA-PSBub3coKSAtIElOVEVSVkFMIDkwIERBWVxuICAgICAgICBBTkQgbWF0XyRyZWZlcnJlciBJUyBOT1QgTlVMTFxuICAgICAgICBBTkQgbWF0XyRyZWZlcnJlciAhPSAnJ1xuICAgIEdST1VQIEJZIHJlZmVycmVyXG4pLFxucmFua2VkIEFTIChcbiAgICBTRUxFQ1RcbiAgICAgICAgcmVmZXJyZXIsXG4gICAgICAgIGNudCxcbiAgICAgICAgc3VtKGNudCkgT1ZFUiAoT1JERVIgQlkgY250IERFU0MpIEFTIHJ1bm5pbmdfY250LFxuICAgICAgICBzdW0oY250KSBPVkVSICgpIEFTIHRvdGFsX2NudFxuICAgIEZST00gcmVmZXJyZXJzXG4pXG5TRUxFQ1RcbiAgICByZWZlcnJlcixcbiAgICBjbnQsXG4gICAgcnVubmluZ19jbnQgLyB0b3RhbF9jbnQgQVMgY3VtdWxhdGl2ZV9zaGFyZVxuRlJPTSByYW5rZWRcbk9SREVSIEJZIGNudCBERVNDIiwidGVtcGxhdGUtdGFncyI6e319LCJkYXRhYmFzZSI6Mzh9LCJkaXNwbGF5Ijoic2NhbGFyIiwicGFyYW1ldGVycyI6W10sInZpc3VhbGl6YXRpb25fc2V0dGluZ3MiOnt9fQ==
     top_referrer_query = """
         SELECT
             domain(mat_$referrer) AS referrer,
@@ -79,9 +81,8 @@ def cache_favicons(
             AND timestamp >= now() - interval 90 day
             AND referrer is not null and referrer != ''
         GROUP BY referrer
-        HAVING count > 1000
         ORDER BY count DESC
-        LIMIT 10000
+        LIMIT 50000
     """
 
     context.log.info("Querying top referrers.")

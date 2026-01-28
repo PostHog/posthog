@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,7 +26,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -359,6 +359,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'openSecondarySharedMetricModal',
                 'openStopExperimentModal',
                 'closeStopExperimentModal',
+                'closePauseExperimentModal',
+                'closeResumeExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
             ],
@@ -370,6 +372,7 @@ export const experimentLogic = kea<experimentLogicType>([
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setExperimentType: (type?: string) => ({ type }),
+        setFeatureFlagActive: (isActive: boolean) => ({ isActive }),
         addVariant: true,
         removeVariant: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -382,6 +385,8 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
         endExperiment: true,
+        pauseExperiment: true,
+        resumeExperiment: true,
         archiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
@@ -401,39 +406,39 @@ export const experimentLogic = kea<experimentLogicType>([
             uuid,
             name,
             metric,
-            isSecondary = false,
+            isSecondary,
         }: {
             uuid: string
             name?: string
             metric: ExperimentMetric
             isSecondary?: boolean
-        }) => ({ uuid, name, metric, isSecondary }),
+        }) => ({ uuid, name, metric, isSecondary: isSecondary ?? false }),
         setTrendsMetric: ({
             uuid,
             name,
             series,
             filterTestAccounts,
-            isSecondary = false,
+            isSecondary,
         }: {
             uuid: string
             name?: string
             series?: AnyEntityNode[]
             filterTestAccounts?: boolean
             isSecondary?: boolean
-        }) => ({ uuid, name, series, filterTestAccounts, isSecondary }),
+        }) => ({ uuid, name, series, filterTestAccounts, isSecondary: isSecondary ?? false }),
         setTrendsExposureMetric: ({
             uuid,
             name,
             series,
             filterTestAccounts,
-            isSecondary = false,
+            isSecondary,
         }: {
             uuid: string
             name?: string
             series?: AnyEntityNode[]
             filterTestAccounts?: boolean
             isSecondary?: boolean
-        }) => ({ uuid, name, series, filterTestAccounts, isSecondary }),
+        }) => ({ uuid, name, series, filterTestAccounts, isSecondary: isSecondary ?? false }),
         setFunnelsMetric: ({
             uuid,
             name,
@@ -938,6 +943,20 @@ export const experimentLogic = kea<experimentLogicType>([
         beforeUnmount: () => {
             actions.stopAutoRefreshInterval()
         },
+        setFeatureFlagActive: async ({ isActive }) => {
+            if (!values.experiment.feature_flag) {
+                lemonToast.error('Experiment does not have a feature flag linked')
+                return
+            }
+
+            const flagId = values.experiment.feature_flag.id
+            await featureFlagsLogic.asyncActions.updateFeatureFlag({
+                id: flagId,
+                payload: { active: isActive },
+            })
+
+            actions.loadExperiment()
+        },
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -1081,7 +1100,7 @@ export const experimentLogic = kea<experimentLogicType>([
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
-            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchExperiment)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
         },
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })
@@ -1109,6 +1128,18 @@ export const experimentLogic = kea<experimentLogicType>([
                         : false
                 )
             actions.closeStopExperimentModal()
+        },
+        pauseExperiment: async () => {
+            await actions.setFeatureFlagActive(false)
+            actions.closePauseExperimentModal()
+            lemonToast.success('The feature flag has been disabled')
+            values.experiment && eventUsageLogic.actions.reportExperimentPaused(values.experiment)
+        },
+        resumeExperiment: async () => {
+            await actions.setFeatureFlagActive(true)
+            actions.closeResumeExperimentModal()
+            lemonToast.success('The feature flag has been enabled')
+            values.experiment && eventUsageLogic.actions.reportExperimentResumed(values.experiment)
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
@@ -1466,6 +1497,11 @@ export const experimentLogic = kea<experimentLogicType>([
             })
 
             actions.setPrimaryMetricsResultsLoading(false)
+
+            // Mark the review results task as complete when results are loaded for a running experiment
+            if (values.experiment?.start_date) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
+            }
         },
         loadSecondaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setSecondaryMetricsResultsLoading(true)

@@ -17,6 +17,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -32,7 +33,6 @@ import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/con
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -887,9 +887,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             cachedFlag &&
                             JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
                         ) {
-                            activationLogic
+                            globalSetupLogic
                                 .findMounted()
-                                ?.actions.markTaskAsCompleted(ActivationTask.UpdateFeatureFlagReleaseConditions)
+                                ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
                         }
 
                         savedFlag = await api.update(
@@ -1202,7 +1202,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
-            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+
+            // Collect all completed setup tasks
+            const completedTasks: SetupTaskId[] = [SetupTaskId.CreateFeatureFlag]
+
+            if (featureFlag.filters?.payloads && Object.keys(featureFlag.filters.payloads).length > 0) {
+                completedTasks.push(SetupTaskId.SetUpFlagPayloads)
+            }
+
+            if (featureFlag.filters?.multivariate) {
+                completedTasks.push(SetupTaskId.CreateMultivariateFlag)
+            }
+
+            if (featureFlag.evaluation_runtime && featureFlag.evaluation_runtime !== FeatureFlagEvaluationRuntime.ALL) {
+                completedTasks.push(SetupTaskId.SetUpFlagEvaluationRuntimes)
+            }
+
+            // Set all completed tasks at once to avoid conflicts
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
         saveFeatureFlagFailure: ({ error, errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {

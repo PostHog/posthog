@@ -6,9 +6,15 @@ import polars as pl
 import dagster
 from dagster import AssetKey, JsonMetadataValue, MetadataValue
 
-from posthog.clickhouse.client import sync_execute
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import ClayWebhookResource
+from posthog.models import Team
+
+# PostHog Cloud US team where JobSwitchers_v3 saved query exists
+JOB_SWITCHERS_TEAM_ID = 2
 
 # Column definitions matching JobSwitchers_v3 schema
 COLUMNS = [
@@ -111,18 +117,27 @@ def job_switchers_to_clay(
     clay_webhook: dagster.ResourceParam[ClayWebhookResource],
 ) -> None:
     """
-    Incrementally sync job switchers to Clay webhook using Polars.
+    Incrementally sync job switchers to Clay webhook.
 
     Uses Dagster asset metadata to track domain hashes between runs,
-    preserving Clay's 50k lifetime submission limit.
+    only syncing new or changed domains to preserve Clay's 50k lifetime
+    submission limit. Batches are sent sequentially to respect Clay's
+    rate limits.
     """
-    context.log.info("Querying JobSwitchers_v3 materialized view")
+    context.log.info("Querying JobSwitchers_v3 saved query")
 
+    team = Team.objects.get(id=JOB_SWITCHERS_TEAM_ID)
     query = f"""
         SELECT {", ".join(COLUMNS)}
         FROM JobSwitchers_v3
     """
-    results = sync_execute(query)
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        query_type="job_switchers_query",
+        limit_context=LimitContext.SAVED_QUERY,
+    )
+    results = response.results
 
     if not results:
         context.log.info("No data found in JobSwitchers_v3")
@@ -160,7 +175,6 @@ def job_switchers_to_clay(
 
     if len(changed_df) == 0:
         context.log.info("No new or changed domains to sync")
-        # Still store metadata to persist state
         context.add_output_metadata(
             {
                 "domain_hashes": MetadataValue.json(current_hashes),
@@ -172,10 +186,16 @@ def job_switchers_to_clay(
 
     context.log.info("Sending %d new/changed domains to Clay webhook", len(changed_df))
 
-    # Convert to payload and send in batches
+    # Convert to payload and create batches
     payload = dataframe_to_clay_payload(changed_df)
-    responses = clay_webhook.send_batched(payload)
-    context.log.info("Sent %d batches to Clay webhook", len(responses))
+    batch_result = clay_webhook.create_batches(payload, logger=context.log)
+
+    # Send batches sequentially
+    for i, batch in enumerate(batch_result.batches):
+        clay_webhook.send(batch)
+        context.log.info("Sent batch %d/%d with %d records", i + 1, len(batch_result.batches), len(batch))
+
+    context.log.info("Sent %d batches to Clay webhook", len(batch_result.batches))
 
     # Store domain hashes in asset metadata for next run
     context.add_output_metadata(
@@ -183,14 +203,15 @@ def job_switchers_to_clay(
             "domain_hashes": MetadataValue.json(current_hashes),
             "domains_synced": MetadataValue.int(len(changed_df)),
             "total_domains": MetadataValue.int(len(df)),
-            "batches_sent": MetadataValue.int(len(responses)),
+            "batches_sent": MetadataValue.int(len(batch_result.batches)),
+            "records_truncated": MetadataValue.int(batch_result.truncated_count),
+            "records_skipped": MetadataValue.int(batch_result.skipped_count),
         }
     )
 
     context.log.info("Synced %d domains, stored %d hashes in metadata", len(changed_df), len(current_hashes))
 
 
-# Define the job
 job_switchers_job = dagster.define_asset_job(
     name="job_switchers_to_clay_job",
     selection=["job_switchers_to_clay"],

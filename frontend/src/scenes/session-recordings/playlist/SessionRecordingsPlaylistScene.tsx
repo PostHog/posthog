@@ -38,7 +38,6 @@ export const scene: SceneExport<SessionRecordingsPlaylistLogicProps> = {
     component: SessionRecordingsPlaylistScene,
     logic: sessionRecordingsPlaylistSceneLogic,
     paramsToProps: ({ params: { id } }) => ({ shortId: id }),
-    settingSectionId: 'environment-replay',
 }
 
 function PlaylistSceneLoadingSkeleton(): JSX.Element {

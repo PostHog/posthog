@@ -223,7 +223,7 @@ describe('getInitialFocusEventId', () => {
         expect(getInitialFocusEventId(events, tree)).toBe('trace-event-1')
     })
 
-    it('returns first tree event id when no $ai_trace event exists', () => {
+    it('returns first $ai_generation event id when no $ai_trace event exists', () => {
         const events: LLMTraceEvent[] = [
             {
                 id: 'span-1',
@@ -241,6 +241,27 @@ describe('getInitialFocusEventId', () => {
 
         const tree: TraceTreeNode[] = [{ event: events[0] }, { event: events[1] }]
 
+        expect(getInitialFocusEventId(events, tree)).toBe('generation-1')
+    })
+
+    it('returns first tree event id when no $ai_trace or $ai_generation events exist', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'span-1',
+                event: '$ai_span',
+                properties: {},
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: 'span-2',
+                event: '$ai_span',
+                properties: {},
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+        ]
+
+        const tree: TraceTreeNode[] = [{ event: events[0] }, { event: events[1] }]
+
         expect(getInitialFocusEventId(events, tree)).toBe('span-1')
     })
 
@@ -248,10 +269,10 @@ describe('getInitialFocusEventId', () => {
         expect(getInitialFocusEventId([], [])).toBeNull()
     })
 
-    it('prioritizes $ai_trace over tree order', () => {
-        const spanEvent: LLMTraceEvent = {
-            id: 'span-1',
-            event: '$ai_span',
+    it('prioritizes $ai_trace over $ai_generation and tree order', () => {
+        const generationEvent: LLMTraceEvent = {
+            id: 'generation-1',
+            event: '$ai_generation',
             properties: {},
             createdAt: '2024-01-01T00:00:00Z',
         }
@@ -263,12 +284,36 @@ describe('getInitialFocusEventId', () => {
             createdAt: '2024-01-01T00:00:00Z',
         }
 
-        const events: LLMTraceEvent[] = [spanEvent, traceEvent]
+        const events: LLMTraceEvent[] = [generationEvent, traceEvent]
 
-        // Tree has span first, but $ai_trace should still be selected
-        const tree: TraceTreeNode[] = [{ event: spanEvent }]
+        // Tree has generation first, but $ai_trace should still be selected
+        const tree: TraceTreeNode[] = [{ event: generationEvent }]
 
         expect(getInitialFocusEventId(events, tree)).toBe('trace-event-1')
+    })
+
+    it('skips $ai_generation events not in filtered tree', () => {
+        const spanEvent: LLMTraceEvent = {
+            id: 'span-1',
+            event: '$ai_span',
+            properties: {},
+            createdAt: '2024-01-01T00:00:00Z',
+        }
+
+        const generationEvent: LLMTraceEvent = {
+            id: 'generation-1',
+            event: '$ai_generation',
+            properties: {},
+            createdAt: '2024-01-01T00:00:00Z',
+        }
+
+        const events: LLMTraceEvent[] = [spanEvent, generationEvent]
+
+        // Tree only has span (e.g., generation was filtered out by search)
+        const tree: TraceTreeNode[] = [{ event: spanEvent }]
+
+        // Should return first tree event since generation is not in tree
+        expect(getInitialFocusEventId(events, tree)).toBe('span-1')
     })
 })
 

@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { EndpointSceneHeader } from './EndpointHeader'
@@ -30,6 +31,7 @@ interface EndpointProps {
 export const scene: SceneExport = {
     component: EndpointScene,
     logic: endpointSceneLogic,
+    productKey: ProductKey.ENDPOINTS,
 }
 
 export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
@@ -44,6 +46,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         {
             key: EndpointTab.QUERY,
             label: 'Query',
+            'data-attr': 'endpoint-query-tab',
             content: <EndpointQuery tabId={tabId} />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.QUERY }).url
@@ -52,6 +55,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         {
             key: EndpointTab.CONFIGURATION,
             label: 'Configuration',
+            'data-attr': 'endpoint-configuration-tab',
             content: <EndpointConfiguration tabId={tabId} />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.CONFIGURATION }).url
@@ -60,6 +64,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         {
             key: EndpointTab.PLAYGROUND,
             label: 'Playground',
+            'data-attr': 'endpoint-playground-tab',
             content: <EndpointPlayground tabId={tabId} />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.PLAYGROUND }).url
@@ -68,6 +73,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         {
             key: EndpointTab.HISTORY,
             label: 'History',
+            'data-attr': 'endpoint-history-tab',
             content: endpoint ? <ActivityLog scope={ActivityScope.ENDPOINT} id={endpoint.id} /> : <></>,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.HISTORY }).url
