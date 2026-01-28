@@ -102,8 +102,7 @@ Type | Description
 
 ### Key Relationships
 
-- **Created By**: `created_by_id` -> `posthog_user.id`
-- **Persons**: Many-to-many via `posthog_cohortpeople`
+- **Persons**: Many-to-many via `raw_cohorts_people`
 - **Calculation History**: One-to-many via `posthog_cohortcalculationhistory`
 - **Experiments**: Referenced by `posthog_experiment.exposure_cohort_id`
 
@@ -113,33 +112,6 @@ Type | Description
 - `realtime` cohorts are cleared to `NULL` type if they exceed 20M persons
 - Static cohorts are populated via CSV upload or API
 - Dynamic cohorts are recalculated periodically
-
----
-
-## Cohort People (`posthog_cohortpeople`)
-
-Junction table connecting cohorts to persons.
-
-### Columns
-
-Column | Type | Nullable | Description
-`id` | bigint | NOT NULL | Primary key (auto-generated)
-`cohort_id` | integer | NOT NULL | FK to `posthog_cohort.id`
-`person_id` | bigint | NOT NULL | FK to `posthog_person.id`
-`version` | integer | NULL | Cohort calculation version that included this person
-
-### Indexes
-
-- Primary key on `id`
-- Composite index on `(cohort_id, person_id)`
-- Index on `cohort_id`
-- Index on `person_id`
-
-### Important Notes
-
-- `version` tracks which cohort calculation added this membership
-- During recalculation, old versions are cleaned up
-- Table migrations managed via Rust (persons_migrations)
 
 ---
 
@@ -188,76 +160,12 @@ Code | Description
 ]
 ```
 
----
-
-## Person (`posthog_person`)
-
-Represents an individual user tracked by PostHog.
-
-### Columns
-
-Column | Type | Nullable | Description
-`id` | bigint | NOT NULL | Primary key (auto-generated)
-`uuid` | uuid | NOT NULL | Unique identifier used in ClickHouse
-`created_at` | timestamp with tz | NOT NULL | Person creation timestamp
-`properties` | jsonb | NOT NULL | Person properties (max 640KB)
-`properties_last_updated_at` | jsonb | NULL | Per-property update timestamps
-`properties_last_operation` | jsonb | NULL | Per-property operation type
-`is_identified` | boolean | NOT NULL | Whether person has been identified
-`version` | bigint | NULL | Version for ClickHouse sync
-`is_user_id` | integer | NULL | Legacy user ID
-
-### Key Relationships
-
-- **Distinct IDs**: One-to-many via `posthog_persondistinctid`
-- **Cohorts**: Many-to-many via `posthog_cohortpeople`
-
-### Important Notes
-
-- `uuid` is the stable identifier used across ClickHouse and PostgreSQL
-- `properties` has a size constraint of 640KB
-- Multiple distinct IDs can map to a single person (identity merging)
-
----
-
-## Person Distinct ID (`posthog_persondistinctid`)
-
-Maps distinct IDs (anonymous or identified) to person records.
-
-### Columns
-
-Column | Type | Nullable | Description
-`id` | bigint | NOT NULL | Primary key (auto-generated)
-`distinct_id` | varchar(400) | NOT NULL | The distinct ID string
-`version` | bigint | NULL | Version for sync
-`person_id` | bigint | NOT NULL | FK to `posthog_person.id`
-
-### Important Notes
-
-- Distinct IDs can be anonymous UUIDs or identified user IDs
-- When persons merge, their distinct IDs are combined
-- The `$identify` call links anonymous to identified distinct IDs
-
----
-
 ## Entity Relationships Diagram
 
 ```text
 posthog_cohort (main cohort definition)
-├── created_by_id -> posthog_user.id
-├── <-M:N-> posthog_person via posthog_cohortpeople
-└── <- posthog_cohortcalculationhistory.cohort_id
-
-posthog_cohortpeople (junction table)
-├── cohort_id -> posthog_cohort.id
-└── person_id -> posthog_person.id
-
-posthog_person
-├── <- posthog_persondistinctid.person_id
-└── <-M:N-> posthog_cohort via posthog_cohortpeople
-
-posthog_persondistinctid
-├── person_id -> posthog_person.id
+├── <- posthog_cohortcalculationhistory.cohort_id
+└── persons through `IN COHORT`
 
 posthog_experiment
 └── exposure_cohort_id -> posthog_cohort.id
@@ -285,11 +193,21 @@ WHERE c.id = 123
 
 **List persons in a cohort (via events):**
 
+By cohort ID:
+
 ```sql
 SELECT DISTINCT person_id, person.properties.email
 FROM events
 WHERE person_id IN COHORT 123
 LIMIT 100
+```
+
+**List people in a cohort by its name:**
+
+```sql
+select count()
+from persons
+where id IN COHORT 'Case-sensitive cohort name'
 ```
 
 **Check cohort calculation history:**
@@ -300,4 +218,26 @@ FROM system.cohort_calculation_history
 WHERE cohort_id = 123
 ORDER BY started_at DESC
 LIMIT 10
+```
+
+**Find people in a cohort of a specific version:**
+
+```sql
+SELECT
+    tuple(coalesce(toString(properties.email), toString(properties.name), toString(properties.username), toString(id)), toString(id)),
+    id,
+    created_at
+FROM
+    persons
+WHERE
+    in(id, (SELECT
+            person_id
+        FROM
+            raw_cohort_people
+        WHERE
+            and(equals(cohort_id, 212606), equals(version, 2))))
+ORDER BY
+    id ASC
+LIMIT 101
+OFFSET 0
 ```

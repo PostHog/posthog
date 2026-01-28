@@ -29,6 +29,20 @@ class IngestionWarningsTable(Table):
         return "ingestion_warnings"
 
 
+cohort_calculation_history: PostgresTable = PostgresTable(
+    name="cohort_calculation_history",
+    postgres_table_name="posthog_cohortcalculationhistory",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "cohort_id": IntegerDatabaseField(name="cohort_id"),
+        "count": IntegerDatabaseField(name="count"),
+        "started_at": DateTimeDatabaseField(name="started_at"),
+        "finished_at": DateTimeDatabaseField(name="finished_at"),
+        "error_code": StringDatabaseField(name="error_code"),
+    },
+)
+
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
@@ -292,6 +306,7 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "actions": TableNode(name="actions", table=actions),
+        "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
         "dashboards": TableNode(name="dashboards", table=dashboards),
