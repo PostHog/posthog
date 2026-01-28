@@ -66,11 +66,13 @@ class ExperimentQueryRunner(QueryRunner):
         *args,
         override_end_date: Optional[datetime] = None,
         user_facing: bool = True,
+        max_execution_time: Optional[int] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
         self.user_facing = user_facing
+        self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -192,7 +194,7 @@ class ExperimentQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
             settings=HogQLGlobalSettings(
-                max_execution_time=MAX_EXECUTION_TIME,
+                max_execution_time=self.max_execution_time,
                 allow_experimental_analyzer=True,
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
             ),
