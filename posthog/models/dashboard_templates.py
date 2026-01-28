@@ -27,7 +27,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     dashboard_filters = models.JSONField(null=True, blank=True)
     tiles = models.JSONField(blank=True, null=True)
     variables = models.JSONField(null=True, blank=True)
-    tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True)
+    tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, default=list)
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(blank=True, null=True)

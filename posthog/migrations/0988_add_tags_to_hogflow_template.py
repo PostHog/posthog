@@ -6,13 +6,13 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0984_clear_temporary_tokens"),
+        ("posthog", "0987_add_column_configuration_constraints"),
     ]
 
     operations = [
         migrations.AddField(
             model_name="hogflowtemplate",
             name="tags",
-            field=ArrayField(base_field=models.CharField(max_length=255), blank=True, null=True, size=None),
+            field=ArrayField(base_field=models.CharField(max_length=255), blank=True, default=list, size=None),
         ),
     ]
