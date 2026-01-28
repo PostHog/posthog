@@ -52,9 +52,8 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
 
                 // Map SDK doctor's isOutdated/isOld to our warning levels
                 let level: 'warning' | 'info' | 'error' = 'warning'
-                if (webSdk.isOutdated) {
-                    level = 'error'
-                } else if (webSdk.isOld) {
+
+                if (webSdk.isOutdated || webSdk.isOld) {
                     level = 'warning'
                 }
 
