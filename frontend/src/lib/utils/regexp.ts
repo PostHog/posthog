@@ -25,11 +25,12 @@ export function isValidRegexPattern(s: string): boolean {
     return isLikelyRegex(s) && isValidRegexp(s)
 }
 
+export const RE2_DOCS_LINK = 'https://github.com/google/re2/wiki/Syntax'
+
 const HELP_TEXT: Record<string, string> = {
-    lookahead:
-        'Lookahead and lookbehind assertions ((?=...), (?!...), (?<=...), (?<!...)) are not supported. Try using simpler pattern matching instead.',
-    atomicGroup: 'Atomic groups ((?>...)) are not supported.',
-    conditional: 'Conditional expressions ((?(condition)yes|no)) are not supported.',
+    lookahead: 'Lookahead and lookbehind assertions ((?=test), (?!test), (?<=test), (?<!test)) are not supported.',
+    atomicGroup: 'Atomic groups ((?>test)) are not supported.',
+    conditional: 'Conditional expressions ((?(1)yes|no)) are not supported.',
     backreference: 'Backreferences (\\1, \\2, etc.) are not supported. Try using alternation or repetition instead.',
     possessive: 'Possessive quantifiers (*+, ++, ?+) are not supported. Use regular quantifiers (*, +, ?) instead.',
     unclosed: 'Check that all brackets and parentheses are properly closed.',

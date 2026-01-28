@@ -7,6 +7,7 @@ import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemo
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     allOperatorsMapping,
@@ -19,7 +20,7 @@ import {
     isOperatorRegex,
     isOperatorSemver,
 } from 'lib/utils'
-import { formatRE2Error } from 'lib/utils/regexp'
+import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
 import {
     GroupTypeIndex,
@@ -285,7 +286,19 @@ export function OperatorValueSelect({
                     />
                 </div>
             )}
-            {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
+            {validationError && (
+                <span className="taxonomic-validation-error">
+                    {validationError}
+                    {isOperatorRegex(currentOperator) && (
+                        <>
+                            {' '}
+                            <Link to={RE2_DOCS_LINK} target="_blank">
+                                Learn more
+                            </Link>
+                        </>
+                    )}
+                </span>
+            )}
         </>
     )
 }
