@@ -88,6 +88,8 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 FROM node:24.13.0-bookworm-slim AS node-scripts-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+# Skip Puppeteer Chromium download - we would use system Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 COPY nodejs/src/scripts/ nodejs/src/scripts/
 RUN cd nodejs/src/scripts && npm install --omit=dev
@@ -275,11 +277,6 @@ RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
     chown -R posthog:posthog /ms-playwright
 USER posthog
 
-# Validate video export dependencies
-RUN ffmpeg -version
-RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
-RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
-
 # Copy the frontend assets from the frontend-build stage.
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.
 COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
@@ -305,12 +302,20 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
+# Validate video export dependencies
+RUN ffmpeg -version
+RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
+RUN cd /code/nodejs/src/scripts && node -e "const p = require('puppeteer'); console.log('Puppeteer version:', p.default ? 'ESM' : p.version || 'loaded')"
+
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Expose container port and run entry point script.
 EXPOSE 8000
