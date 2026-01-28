@@ -34,7 +34,6 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -378,16 +377,17 @@ export function ActionFilterRow({
 
     const propertyFiltersButton = (
         <IconWithCount key="property-filter" count={filter.properties?.length || 0} showZero={false}>
-            <ButtonPrimitive
-                className="size-[37px]"
-                aria-label="Show filters"
+            <LemonButton
+                icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
+                title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
-                iconOnly
+                noPadding
                 onClick={() => {
                     typeof filter.order === 'number'
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                         : undefined
                 }}
+                disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
                 tooltip={
                     addFilterDocLink ? (
                         <>
@@ -401,10 +401,7 @@ export function ActionFilterRow({
                         'Show filters'
                     )
                 }
-                disabledReasons={filter.id === 'empty' ? { 'Please select an event first': true } : undefined}
-            >
-                <IconFilter />
-            </ButtonPrimitive>
+            />
         </IconWithCount>
     )
 
@@ -756,14 +753,13 @@ export function ActionFilterRow({
                                                         : []),
                                                 ]}
                                             >
-                                                <ButtonPrimitive
-                                                    className="size-[37px]"
+                                                <LemonButton
+                                                    size="medium"
                                                     aria-label="Show more actions"
                                                     data-attr={`more-button-${index}`}
-                                                    iconOnly
-                                                >
-                                                    <IconEllipsis />
-                                                </ButtonPrimitive>
+                                                    icon={<IconEllipsis />}
+                                                    noPadding
+                                                />
                                             </LemonMenu>
                                             <LemonBadge
                                                 position="top-right"
@@ -782,9 +778,7 @@ export function ActionFilterRow({
             </div>
 
             {propertyFiltersVisible && (
-                <div
-                    className={`ActionFilterRow-filters bg-surface-secondary rounded pr-2 ${filtersLeftPadding ? 'pl-7' : ''}`}
-                >
+                <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
