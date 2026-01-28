@@ -5185,6 +5185,10 @@ const api = {
         async delete(ticketId: string): Promise<void> {
             return await new ApiRequest().conversationsTicket(ticketId).delete()
         },
+
+        async unreadCount(): Promise<{ count: number }> {
+            return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
+        },
     },
 
     llmPrompts: {
