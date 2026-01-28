@@ -110,6 +110,66 @@ def cli(ctx: click.Context) -> None:
         _auto_update_manifest()
 
 
+def _load_env_file(path: os.PathLike[str], only_if_unset: bool = True) -> None:
+    """Load environment variables from a file.
+
+    Args:
+        path: Path to the env file
+        only_if_unset: If True, only set vars that aren't already in the environment
+    """
+    from pathlib import Path
+
+    env_file = Path(path)
+    if not env_file.exists():
+        return
+
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if only_if_unset and name in os.environ:
+            continue
+        os.environ[name] = value
+
+
+@cli.command(name="run", help="Run a command with resolved environment (1Password + defaults)")
+@click.argument("command", nargs=-1, required=True)
+def run_with_env(command: tuple[str, ...]) -> None:
+    """Run a command with PostHog environment variables.
+
+    Loads .env.development defaults and .env.local overrides.
+    If .env.local contains 1Password references (op://), resolves them via `op run`.
+
+    Note: When using 1Password, op run's .env.local takes precedence over shell env.
+    This is op's design - secrets from 1Password are meant to win.
+
+    Examples:
+        hogli run ./manage.py shell
+        hogli run pytest posthog/api/
+    """
+    from hogli.core.manifest import REPO_ROOT
+
+    env_dev = REPO_ROOT / ".env.development"
+    env_local = REPO_ROOT / ".env.local"
+
+    # Check if .env.local has 1Password references
+    has_op_refs = env_local.exists() and "op://" in env_local.read_text()
+
+    if has_op_refs:
+        # Load .env.development first (only if not already set in shell)
+        _load_env_file(env_dev, only_if_unset=True)
+        # op run will add .env.local vars (overriding .env.development but not shell)
+        os.execvp("op", ["op", "run", f"--env-file={env_local}", "--", *command])
+    else:
+        # No 1Password - load in correct precedence order
+        _load_env_file(env_local, only_if_unset=True)  # .env.local first
+        _load_env_file(env_dev, only_if_unset=True)  # then defaults
+        os.execvp(command[0], list(command))
+
+
 @cli.command(name="quickstart", help="Show getting started with PostHog development")
 def quickstart() -> None:
     """Display essential commands for getting up and running."""

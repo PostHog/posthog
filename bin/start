@@ -27,6 +27,10 @@ if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.en
     fi
 fi
 
+# Environment variables are defined in:
+#   .env.development  - committed defaults (edit to change defaults for everyone)
+#   .env.local        - your overrides + 1Password secrets (gitignored)
+#
 # Source env files respecting precedence: shell env > .env.local > .env.development
 # Only set vars that aren't already in the environment
 source_env_defaults() {
