@@ -159,6 +159,12 @@ def run_with_env(command: tuple[str, ...]) -> None:
     has_op_refs = env_local.exists() and "op://" in env_local.read_text()
 
     if has_op_refs:
+        import shutil
+
+        if not shutil.which("op"):
+            click.echo("⚠️  .env.local contains 1Password refs (op://) but 'op' CLI not found", err=True)
+            click.echo("   Install: brew install 1password-cli", err=True)
+            raise SystemExit(1)
         # Load .env.development first (only if not already set in shell)
         _load_env_file(env_dev, only_if_unset=True)
         # op run will add .env.local vars (overriding .env.development but not shell)
