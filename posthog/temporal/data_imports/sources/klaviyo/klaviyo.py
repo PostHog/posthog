@@ -8,6 +8,7 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -19,159 +20,62 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+def _build_filter(
+    config: KlaviyoEndpointConfig,
+    incremental_field: str | None,
+    formatted_value: str | None,
+) -> str | None:
+    """Build Klaviyo filter string from config."""
+    filter_field = incremental_field or config.default_incremental_field
+    incremental_filter = f"greater-than({filter_field},{formatted_value})" if formatted_value else None
+
+    if config.base_filter and incremental_filter:
+        return f"and({config.base_filter},{incremental_filter})"
+    elif config.base_filter:
+        return config.base_filter
+    else:
+        return incremental_filter
+
+
 def get_resource(
     name: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
 ) -> EndpointResource:
-    api_filter_field = incremental_field if incremental_field else "updated_at"
+    config = KLAVIYO_ENDPOINTS[name]
+
     formatted_last_value = (
-        _format_incremental_value(db_incremental_field_last_value) if db_incremental_field_last_value else None
+        _format_incremental_value(db_incremental_field_last_value)
+        if should_use_incremental_field and db_incremental_field_last_value
+        else None
     )
 
-    resources: dict[str, EndpointResource] = {
-        "email_campaigns": {
-            "name": "email_campaigns",
-            "table_name": "email_campaigns",
-            "primary_key": "id",
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "data_selector": "data",
-                "path": "/campaigns",
-                "params": {
-                    "filter": f"and(equals(messages.channel,'email'),greater-than({api_filter_field},{formatted_last_value}))"
-                    if should_use_incremental_field and db_incremental_field_last_value
-                    else "equals(messages.channel,'email')",
-                },
-            },
-            "table_format": "delta",
+    filter_value = _build_filter(config, incremental_field, formatted_last_value)
+
+    params: dict[str, Any] = {}
+    if config.page_size is not None and config.page_size > 0:
+        params["page[size]"] = config.page_size
+    if filter_value:
+        params["filter"] = filter_value
+
+    return {
+        "name": config.name,
+        "table_name": config.name,
+        "primary_key": "id",
+        "write_disposition": {
+            "disposition": "merge",
+            "strategy": "upsert",
+        }
+        if should_use_incremental_field
+        else "replace",
+        "endpoint": {
+            "data_selector": "data",
+            "path": config.path,
+            "params": params if params else {},
         },
-        "sms_campaigns": {
-            "name": "sms_campaigns",
-            "table_name": "sms_campaigns",
-            "primary_key": "id",
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "data_selector": "data",
-                "path": "/campaigns",
-                "params": {
-                    "filter": f"and(equals(messages.channel,'sms'),greater-than({api_filter_field},{formatted_last_value}))"
-                    if should_use_incremental_field and db_incremental_field_last_value
-                    else "equals(messages.channel,'sms')",
-                },
-            },
-            "table_format": "delta",
-        },
-        "events": {
-            "name": "events",
-            "table_name": "events",
-            "primary_key": "id",
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "data_selector": "data",
-                "path": "/events",
-                "params": {
-                    "filter": f"greater-than(datetime,{formatted_last_value})"
-                    if should_use_incremental_field and db_incremental_field_last_value
-                    else None,
-                },
-            },
-            "table_format": "delta",
-        },
-        "flows": {
-            "name": "flows",
-            "table_name": "flows",
-            "primary_key": "id",
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "data_selector": "data",
-                "path": "/flows",
-                "params": {
-                    "page[size]": 50,  # Flows endpoint max is 50
-                    "filter": f"greater-than({api_filter_field},{formatted_last_value})"
-                    if should_use_incremental_field and db_incremental_field_last_value
-                    else None,
-                },
-            },
-            "table_format": "delta",
-        },
-        "lists": {
-            "name": "lists",
-            "table_name": "lists",
-            "primary_key": "id",
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "data_selector": "data",
-                "path": "/lists",
-                "params": {
-                    "filter": f"greater-than({api_filter_field},{formatted_last_value})"
-                    if should_use_incremental_field and db_incremental_field_last_value
-                    else None,
-                },
-            },
-            "table_format": "delta",
-        },
-        "metrics": {
-            "name": "metrics",
-            "table_name": "metrics",
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "data",
-                "path": "/metrics",
-                "params": {},  # Override default page[size] - Metrics endpoint doesn't support it
-            },
-            "table_format": "delta",
-        },
-        "profiles": {
-            "name": "profiles",
-            "table_name": "profiles",
-            "primary_key": "id",
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-            "endpoint": {
-                "data_selector": "data",
-                "path": "/profiles",
-                "params": {
-                    "filter": f"greater-than({api_filter_field},{formatted_last_value})"
-                    if should_use_incremental_field and db_incremental_field_last_value
-                    else None,
-                },
-            },
-            "table_format": "delta",
-        },
+        "table_format": "delta",
     }
-    return resources[name]
 
 
 class KlaviyoPaginator(BasePaginator):
@@ -196,7 +100,9 @@ class KlaviyoPaginator(BasePaginator):
     def update_request(self, request: Request) -> None:
         if self._next_offset:
             # Use the full next URL from the response
+            # Clear params since the next URL already contains all query parameters
             request.url = self._next_offset
+            request.params = {}
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -265,7 +171,7 @@ def klaviyo_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    resources = rest_api_resources(config, team_id, job_id, None)
     assert len(resources) == 1
     resource = resources[0].add_map(_flatten_item)
 
