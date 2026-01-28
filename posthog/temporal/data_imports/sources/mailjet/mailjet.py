@@ -1,86 +1,56 @@
 import base64
-from typing import Any
+from datetime import date, datetime
+from typing import Any, Optional
 
-import dlt
 import requests
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.mailjet.settings import MAILJET_ENDPOINTS
 
 
-def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
-    resources: dict[str, EndpointResource] = {
-        "contactslist": {
-            "name": "contactslist",
-            "table_name": "contactslist",
-            "primary_key": "ID",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "Data",
-                "path": "/contactslist",
-                "params": {
-                    "Limit": 100,
-                },
-            },
-            "table_format": "delta",
-        },
-        "contacts": {
-            "name": "contacts",
-            "table_name": "contacts",
-            "primary_key": "ID",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "Data",
-                "path": "/contact",
-                "params": {
-                    "Limit": 100,
-                },
-            },
-            "table_format": "delta",
-        },
-        "campaign": {
-            "name": "campaign",
-            "table_name": "campaign",
-            "primary_key": "ID",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "Data",
-                "path": "/campaign",
-            },
-            "table_format": "delta",
-        },
-        "message": {
-            "name": "message",
-            "table_name": "message",
-            "primary_key": "ID",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "Data",
-                "path": "/message",
-                "params": {
-                    "ShowSubject": "true",
-                    "Limit": 100,
-                },
-            },
-            "table_format": "delta",
-        },
-        "listrecipient": {
-            "name": "listrecipient",
-            "table_name": "listrecipient",
-            "primary_key": "ID",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "Data",
-                "path": "/listrecipient",
-                "params": {
-                    "Limit": 100,
-                },
-            },
-            "table_format": "delta",
-        },
+def _format_incremental_value(value: Any) -> str:
+    """Format incremental field value as ISO string for Mailjet API filters."""
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time()).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return str(value)
+
+
+def get_resource(
+    name: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
+) -> EndpointResource:
+    config = MAILJET_ENDPOINTS[name]
+
+    params: dict[str, Any] = {
+        "Limit": config.page_size,
     }
 
-    return resources[name]
+    if name == "message":
+        params["ShowSubject"] = "true"
+
+    return {
+        "name": config.name,
+        "table_name": config.name,
+        "primary_key": "ID",
+        "write_disposition": {
+            "disposition": "merge",
+            "strategy": "upsert",
+        }
+        if should_use_incremental_field
+        else "replace",
+        "endpoint": {
+            "data_selector": "Data",
+            "path": config.path,
+            "params": params,
+        },
+        "table_format": "delta",
+    }
 
 
 def get_auth_header(api_key: str, api_secret: str) -> dict[str, str]:
@@ -105,14 +75,18 @@ def validate_credentials(api_key: str, api_secret: str) -> bool:
         return False
 
 
-@dlt.source(max_table_nesting=0)
 def mailjet_source(
     api_key: str,
     api_secret: str,
     endpoint: str,
     team_id: int,
     job_id: str,
-) -> Any:
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
+) -> SourceResponse:
+    endpoint_config = MAILJET_ENDPOINTS[endpoint]
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": "https://api.mailjet.com/v3/REST",
@@ -123,7 +97,7 @@ def mailjet_source(
             },
             "paginator": {
                 "type": "offset",
-                "limit": 100,
+                "limit": endpoint_config.page_size,
                 "offset_param": "Offset",
                 "limit_param": "Limit",
                 "total_path": "Total",
@@ -134,11 +108,31 @@ def mailjet_source(
             "write_disposition": "replace",
             "endpoint": {
                 "params": {
-                    "Limit": 100,
+                    "Limit": endpoint_config.page_size,
                 },
             },
         },
-        "resources": [get_resource(endpoint, False)],
+        "resources": [
+            get_resource(
+                endpoint,
+                should_use_incremental_field,
+                db_incremental_field_last_value,
+                incremental_field,
+            )
+        ],
     }
 
-    yield from rest_api_resources(config)
+    resources = rest_api_resources(config, team_id, job_id, None)
+    assert len(resources) == 1
+    resource = resources[0]
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=["ID"],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="week" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+    )

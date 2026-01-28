@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -11,7 +11,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import MailjetSourceConfig
 from posthog.temporal.data_imports.sources.mailjet.mailjet import (
     mailjet_source,
@@ -60,33 +59,40 @@ You can find your API key and Secret key in your [Mailjet account settings](http
                     ),
                 ],
             ),
-            feature_flag="dwh_mailjet",
+            featureFlag="dwh_mailjet",
         )
 
     def get_schemas(self, config: MailjetSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
+                and len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
+                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None
+                and len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in list(ENDPOINTS)
         ]
 
-    def validate_credentials(self, config: MailjetSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: MailjetSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if validate_mailjet_credentials(config.api_key, config.api_secret):
             return True, None
 
         return False, "Invalid Mailjet credentials"
 
     def source_for_pipeline(self, config: MailjetSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return dlt_source_to_source_response(
-            mailjet_source(
-                api_key=config.api_key,
-                api_secret=config.api_secret,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-            )
+        return mailjet_source(
+            api_key=config.api_key,
+            api_secret=config.api_secret,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            incremental_field=inputs.incremental_field,
         )
