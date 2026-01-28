@@ -118,7 +118,7 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         res = self._put_project_access_control({"organization_member": "not-a-valid-uuid", "access_level": "member"})
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
-        assert "organization_member" in res.json()
+        assert res.json()["attr"] == "organization_member"
         # Should not mention "UUID" in the error message
         assert "UUID" not in res.json()["detail"]
         # Should provide helpful guidance
