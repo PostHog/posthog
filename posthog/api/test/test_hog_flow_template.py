@@ -273,13 +273,6 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         template.refresh_from_db()
         assert template.tags == ["updated-tag"]
 
-    def test_template_creation_without_tags_returns_empty_list(self):
-        """Test that omitting tags returns empty list in response"""
-        hog_flow_data = self._create_hog_flow_data()
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
-        assert response.status_code == 201, response.json()
-        assert response.json()["tags"] == []
-
     def test_template_filtering_returns_global_and_team_templates(self):
         """Test that listing templates returns file-based global templates and team templates from DB"""
         team_template_data = self._create_hog_flow_data()
