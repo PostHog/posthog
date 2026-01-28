@@ -91,6 +91,7 @@ export const manifest: ProductManifest = {
             `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
         alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
         alerts: (): string => `/insights?tab=alerts`,
+        insightOptions: (): string => '/insights/options',
     },
     fileSystemTypes: {
         insight: {

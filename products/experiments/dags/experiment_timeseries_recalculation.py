@@ -23,6 +23,8 @@ from posthog.models.experiment import ExperimentMetricResult, ExperimentTimeseri
 
 from products.experiments.dags.utils import remove_step_sessions_from_experiment_result
 
+JOB_TIMEOUT_SECONDS = 15 * 60  # 15 minutes
+
 experiment_timeseries_recalculation_partitions_def = dagster.DynamicPartitionsDefinition(
     name="experiment_recalculations"
 )
@@ -213,7 +215,10 @@ def experiment_timeseries_recalculation(context: AssetExecutionContext) -> dict[
 experiment_timeseries_recalculation_job = dagster.define_asset_job(
     name="experiment_timeseries_recalculation_job",
     selection=[experiment_timeseries_recalculation],
-    tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
+    tags={
+        "owner": JobOwners.TEAM_EXPERIMENTS.value,
+        "dagster/max_runtime": str(JOB_TIMEOUT_SECONDS),
+    },
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
 )
 

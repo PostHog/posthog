@@ -406,39 +406,39 @@ export const experimentLogic = kea<experimentLogicType>([
             uuid,
             name,
             metric,
-            isSecondary = false,
+            isSecondary,
         }: {
             uuid: string
             name?: string
             metric: ExperimentMetric
             isSecondary?: boolean
-        }) => ({ uuid, name, metric, isSecondary }),
+        }) => ({ uuid, name, metric, isSecondary: isSecondary ?? false }),
         setTrendsMetric: ({
             uuid,
             name,
             series,
             filterTestAccounts,
-            isSecondary = false,
+            isSecondary,
         }: {
             uuid: string
             name?: string
             series?: AnyEntityNode[]
             filterTestAccounts?: boolean
             isSecondary?: boolean
-        }) => ({ uuid, name, series, filterTestAccounts, isSecondary }),
+        }) => ({ uuid, name, series, filterTestAccounts, isSecondary: isSecondary ?? false }),
         setTrendsExposureMetric: ({
             uuid,
             name,
             series,
             filterTestAccounts,
-            isSecondary = false,
+            isSecondary,
         }: {
             uuid: string
             name?: string
             series?: AnyEntityNode[]
             filterTestAccounts?: boolean
             isSecondary?: boolean
-        }) => ({ uuid, name, series, filterTestAccounts, isSecondary }),
+        }) => ({ uuid, name, series, filterTestAccounts, isSecondary: isSecondary ?? false }),
         setFunnelsMetric: ({
             uuid,
             name,

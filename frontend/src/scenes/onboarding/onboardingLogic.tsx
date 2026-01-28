@@ -58,7 +58,7 @@ export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string
     let baseUrl: string
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            baseUrl = urls.insightNew()
+            baseUrl = urls.insightOptions()
             break
         case ProductKey.WEB_ANALYTICS:
             baseUrl = urls.webAnalytics()

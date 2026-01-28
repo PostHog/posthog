@@ -9,6 +9,7 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { PostgresUse } from '../../src/utils/db/postgres'
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { parseJSON } from '../utils/json-parse'
 import {
@@ -269,6 +270,8 @@ describe('LogsIngestionConsumer', () => {
             expect(producedMessages[0].headers).toEqual({
                 token: team.api_token,
                 team_id: team.id.toString(),
+                'json-parse': 'true',
+                'retention-days': '15',
             })
         })
 
@@ -290,6 +293,41 @@ describe('LogsIngestionConsumer', () => {
             expect(message.messages[0].headers).toEqual({
                 token: team.api_token,
                 team_id: team.id.toString(),
+                'json-parse': 'true',
+                'retention-days': '15',
+            })
+        })
+
+        it('should use custom logs_settings when set', async () => {
+            // Update team with custom logs settings
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team
+                 SET logs_settings = $1
+                 WHERE id = $2`,
+                [JSON.stringify({ json_parse_logs: false, retention_days: 30 }), team.id],
+                'updateTeamLogsSettings'
+            )
+
+            // Clear team cache to ensure fresh data
+            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
+
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const producedMessages = mockProducerObserver.getProducedMessages()
+            expect(producedMessages).toHaveLength(1)
+
+            const message = producedMessages[0]
+            expect(message.messages[0].headers).toEqual({
+                token: team.api_token,
+                team_id: team.id.toString(),
+                'json-parse': 'false',
+                'retention-days': '30',
             })
         })
     })

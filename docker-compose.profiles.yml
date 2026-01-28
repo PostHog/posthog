@@ -1,0 +1,52 @@
+# Docker Compose profile overlay for intent-based dev environment
+#
+# This file is ONLY used by hogli dev:start to selectively start Docker services.
+# Running `docker compose -f docker-compose.dev.yml up` without this overlay
+# will start ALL services as before (backward compatible).
+#
+# Usage with intent system:
+#   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml \
+#     --profile core --profile temporal up
+#
+# Services not listed here have no profile constraint and always start.
+
+services:
+    # Temporal capability - workflow orchestration
+    temporal:
+        profiles: [temporal]
+    temporal-ui:
+        profiles: [temporal]
+    temporal-admin-tools:
+        profiles: [temporal]
+    elasticsearch:
+        profiles: [temporal]
+
+    # Observability capability - tracing and logging
+    otel-collector:
+        profiles: [observability]
+    jaeger:
+        profiles: [observability]
+    capture-logs:
+        profiles: [observability]
+
+    # Dev tools - debugging and monitoring UIs
+    kafka_ui:
+        profiles: [dev_tools]
+    flower:
+        profiles: [dev_tools]
+    maildev:
+        profiles: [dev_tools]
+    webhook-tester:
+        profiles: [dev_tools]
+
+    # Replay capability - session recording storage
+    seaweedfs:
+        profiles: [replay]
+
+    # Cloud provider emulators
+    localstack:
+        profiles: [localstack]
+    objectstorage-azure:
+        profiles: [azure]
+# Core services NOT listed = always start:
+# - proxy, db, redis, redis7, clickhouse, zookeeper, kafka, objectstorage, echo_server, feature-flags

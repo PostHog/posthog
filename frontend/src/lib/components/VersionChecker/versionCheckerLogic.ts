@@ -45,6 +45,11 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                     return null
                 }
 
+                // Don't show warning if the most recent version being used is already the latest
+                if (latestRelease.version === latestRelease.latestVersion) {
+                    return null
+                }
+
                 // Map SDK doctor's isOutdated/isOld to our warning levels
                 let level: 'warning' | 'info' | 'error' = 'warning'
                 if (webSdk.isOutdated) {

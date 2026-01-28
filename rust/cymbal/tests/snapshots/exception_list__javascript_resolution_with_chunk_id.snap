@@ -1,0 +1,88 @@
+---
+source: cymbal/tests/exception_list.rs
+expression: body.0
+---
+[
+  {
+    "id": "REDACTED",
+    "type": "CustomError",
+    "value": "Custom error message",
+    "stacktrace": {
+      "type": "resolved",
+      "frames": [
+        {
+          "raw_id": "a95875fcfec1a69333fd83d0ae05bd3606754a0fdfc780a1714603973bb055748391a1f49aa8af42d5aafaaea883819678452d916cb63760c2f1309d47cc1b51/0",
+          "mangled_name": "onClick",
+          "line": 98,
+          "column": 52,
+          "source": "../../node_modules/.pnpm/monaco-editor@0.49.0/node_modules/monaco-editor/esm/vs/editor/browser/widget/diffEditor/components/diffEditorViewZones/inlineDiffDeletedCodeMargin.js",
+          "in_app": false,
+          "resolved_name": "<anonymous>",
+          "lang": "javascript",
+          "resolved": true,
+          "synthetic": false,
+          "suspicious": false,
+          "junk_drawer": {
+            "raw_frame": {
+              "chunk_id": "1234",
+              "colno": 450,
+              "filename": "main.js",
+              "function": "onClick",
+              "in_app": true,
+              "lineno": 651,
+              "synthetic": false
+            }
+          }
+        },
+        {
+          "raw_id": "297df7e7a72cd11679d8a970ae431a6e43ed068d0131470ad0d4e48e754ae62b19df3e720de7b9b60c04c59eedc6d2390073d7d66c6aa90a71c19e00dac258da/0",
+          "mangled_name": "onClick",
+          "line": 296,
+          "column": 73,
+          "source": "../../node_modules/.pnpm/monaco-editor@0.49.0/node_modules/monaco-editor/esm/vs/editor/browser/widget/codeEditor/codeEditorWidget.js",
+          "in_app": false,
+          "resolved_name": "CodeEditorWidget_1.getValue",
+          "lang": "javascript",
+          "resolved": true,
+          "synthetic": false,
+          "suspicious": false,
+          "junk_drawer": {
+            "raw_frame": {
+              "chunk_id": "1234",
+              "colno": 57323,
+              "filename": "main.js",
+              "function": "onClick",
+              "in_app": true,
+              "lineno": 104,
+              "synthetic": false
+            }
+          }
+        },
+        {
+          "raw_id": "cceb91e8a17ce28158fe4f61c161f3da3bd47eee7ee58d7433a48bbff1ffaa5c1a8040b46b61658c9840865658d2c711e9f6f3ef52b9ad54e95cc19b1790181c/0",
+          "mangled_name": "onClick",
+          "line": 36,
+          "column": 21,
+          "source": "../../node_modules/.pnpm/monaco-editor@0.49.0/node_modules/monaco-editor/esm/vs/editor/common/languages/supports/characterPair.js",
+          "in_app": false,
+          "resolved_name": "init_characterPair",
+          "lang": "javascript",
+          "resolved": true,
+          "synthetic": false,
+          "suspicious": false,
+          "junk_drawer": {
+            "raw_frame": {
+              "chunk_id": "1234",
+              "colno": 10,
+              "filename": "main.js",
+              "function": "onClick",
+              "in_app": true,
+              "lineno": 14,
+              "synthetic": false
+            }
+          }
+        }
+      ]
+    }
+  }
+]

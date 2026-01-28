@@ -56,19 +56,11 @@ CI will fail if generated types are stale.
 ### Adding a new product's API
 
 1. Ensure `products/your_product/frontend/` directory exists
-2. Tag your viewset with `ProductKey`:
-
-```python
-from posthog.schema import ProductKey
-from posthog.api.documentation import extend_schema
-
-@extend_schema(tags=[ProductKey.YOUR_PRODUCT])
-class YourViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    serializer_class = YourSerializer
-```
-
+2. Put your ViewSet in `products/your_product/backend/`
 3. Run `hogli build:openapi`
 4. Types appear in `products/your_product/frontend/generated/`
+
+ViewSets in `products/*/backend/` are **automatically tagged** based on their module path. Manual `@extend_schema(tags=[...])` is not needed for products.
 
 Serializers are the source of truth for response types. Use explicit field types and `help_text` where helpful.
 
@@ -97,7 +89,7 @@ This validates inputs AND documents the endpoint for OpenAPI. Use `request.valid
 
 ### Troubleshooting
 
-**Types not generating?** Check `@extend_schema(tags=[ProductKey.YOUR_PRODUCT])` and that `products/your_product/frontend/` exists.
+**Types not generating?** Ensure your ViewSet is in `products/your_product/backend/` and the `products/your_product/frontend/` directory exists. Auto-tagging happens based on module path.
 
 **Wrong type shapes?** The serializer is the source of truth. Use `@extend_schema_field` for custom `SerializerMethodField` types.
 

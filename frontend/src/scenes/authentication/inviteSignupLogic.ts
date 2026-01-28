@@ -101,12 +101,11 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         acceptedInvite: [
             null,
             {
-                acceptInvite: async (payload?: AcceptInvitePayloadInterface, breakpoint?) => {
-                    breakpoint()
+                acceptInvite: () => {
                     if (!values.invite) {
                         return null
                     }
-                    return await api.create(`api/signup/${values.invite.id}/`, payload)
+                    return api.create(`api/signup/${values.invite.id}/`)
                 },
             },
         ],

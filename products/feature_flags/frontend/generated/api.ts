@@ -15,8 +15,6 @@ import type {
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
-    FeatureFlagsLocalEvaluationRetrieve402,
-    FeatureFlagsLocalEvaluationRetrieve500,
     FeatureFlagsLocalEvaluationRetrieveParams,
     FeatureFlagsMyFlagsRetrieveParams,
     LocalEvaluationResponseApi,
@@ -42,21 +40,37 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
+    return `/api/organizations/${organizationId}/feature_flags/${featureFlagKey}/`
+}
+
+export const featureFlagsRetrieve = async (
+    organizationId: string,
+    featureFlagKey: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsRetrieveUrl(organizationId, featureFlagKey), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsCopyFlagsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/feature_flags/copy_flags/`
+}
+
+export const featureFlagsCopyFlagsCreate = async (organizationId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsListResponse200 = {
-    data: PaginatedFeatureFlagListApi
-    status: 200
-}
-
-export type featureFlagsListResponseSuccess = featureFlagsListResponse200 & {
-    headers: Headers
-}
-export type featureFlagsListResponse = featureFlagsListResponseSuccess
-
 export const getFeatureFlagsListUrl = (projectId: string, params?: FeatureFlagsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -77,8 +91,8 @@ export const featureFlagsList = async (
     projectId: string,
     params?: FeatureFlagsListParams,
     options?: RequestInit
-): Promise<featureFlagsListResponse> => {
-    return apiMutator<featureFlagsListResponse>(getFeatureFlagsListUrl(projectId, params), {
+): Promise<PaginatedFeatureFlagListApi> => {
+    return apiMutator<PaginatedFeatureFlagListApi>(getFeatureFlagsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -89,16 +103,6 @@ export const featureFlagsList = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsCreateResponse201 = {
-    data: FeatureFlagApi
-    status: 201
-}
-
-export type featureFlagsCreateResponseSuccess = featureFlagsCreateResponse201 & {
-    headers: Headers
-}
-export type featureFlagsCreateResponse = featureFlagsCreateResponseSuccess
-
 export const getFeatureFlagsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/`
 }
@@ -107,8 +111,8 @@ export const featureFlagsCreate = async (
     projectId: string,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsCreateResponse> => {
-    return apiMutator<featureFlagsCreateResponse>(getFeatureFlagsCreateUrl(projectId), {
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -121,16 +125,6 @@ export const featureFlagsCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsRetrieve2Response200 = {
-    data: FeatureFlagApi
-    status: 200
-}
-
-export type featureFlagsRetrieve2ResponseSuccess = featureFlagsRetrieve2Response200 & {
-    headers: Headers
-}
-export type featureFlagsRetrieve2Response = featureFlagsRetrieve2ResponseSuccess
-
 export const getFeatureFlagsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
@@ -139,8 +133,8 @@ export const featureFlagsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<featureFlagsRetrieve2Response> => {
-    return apiMutator<featureFlagsRetrieve2Response>(getFeatureFlagsRetrieve2Url(projectId, id), {
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -151,16 +145,6 @@ export const featureFlagsRetrieve2 = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsUpdateResponse200 = {
-    data: FeatureFlagApi
-    status: 200
-}
-
-export type featureFlagsUpdateResponseSuccess = featureFlagsUpdateResponse200 & {
-    headers: Headers
-}
-export type featureFlagsUpdateResponse = featureFlagsUpdateResponseSuccess
-
 export const getFeatureFlagsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
@@ -170,8 +154,8 @@ export const featureFlagsUpdate = async (
     id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsUpdateResponse> => {
-    return apiMutator<featureFlagsUpdateResponse>(getFeatureFlagsUpdateUrl(projectId, id), {
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -184,16 +168,6 @@ export const featureFlagsUpdate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsPartialUpdateResponse200 = {
-    data: FeatureFlagApi
-    status: 200
-}
-
-export type featureFlagsPartialUpdateResponseSuccess = featureFlagsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type featureFlagsPartialUpdateResponse = featureFlagsPartialUpdateResponseSuccess
-
 export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
@@ -203,8 +177,8 @@ export const featureFlagsPartialUpdate = async (
     id: number,
     patchedFeatureFlagApi: NonReadonly<PatchedFeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsPartialUpdateResponse> => {
-    return apiMutator<featureFlagsPartialUpdateResponse>(getFeatureFlagsPartialUpdateUrl(projectId, id), {
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -215,26 +189,12 @@ export const featureFlagsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type featureFlagsDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type featureFlagsDestroyResponseError = featureFlagsDestroyResponse405 & {
-    headers: Headers
-}
-
-export type featureFlagsDestroyResponse = featureFlagsDestroyResponseError
-
 export const getFeatureFlagsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
-export const featureFlagsDestroy = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<featureFlagsDestroyResponse> => {
-    return apiMutator<featureFlagsDestroyResponse>(getFeatureFlagsDestroyUrl(projectId, id), {
+export const featureFlagsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getFeatureFlagsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -245,27 +205,6 @@ export const featureFlagsDestroy = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsActivityRetrieve2Response200 = {
-    data: ActivityLogPaginatedResponseApi
-    status: 200
-}
-
-export type featureFlagsActivityRetrieve2Response404 = {
-    data: void
-    status: 404
-}
-
-export type featureFlagsActivityRetrieve2ResponseSuccess = featureFlagsActivityRetrieve2Response200 & {
-    headers: Headers
-}
-export type featureFlagsActivityRetrieve2ResponseError = featureFlagsActivityRetrieve2Response404 & {
-    headers: Headers
-}
-
-export type featureFlagsActivityRetrieve2Response =
-    | featureFlagsActivityRetrieve2ResponseSuccess
-    | featureFlagsActivityRetrieve2ResponseError
-
 export const getFeatureFlagsActivityRetrieve2Url = (
     projectId: string,
     id: number,
@@ -291,14 +230,11 @@ export const featureFlagsActivityRetrieve2 = async (
     id: number,
     params?: FeatureFlagsActivityRetrieve2Params,
     options?: RequestInit
-): Promise<featureFlagsActivityRetrieve2Response> => {
-    return apiMutator<featureFlagsActivityRetrieve2Response>(
-        getFeatureFlagsActivityRetrieve2Url(projectId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieve2Url(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
@@ -306,18 +242,6 @@ export const featureFlagsActivityRetrieve2 = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsCreateStaticCohortForFlagCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsCreateStaticCohortForFlagCreateResponseSuccess =
-    featureFlagsCreateStaticCohortForFlagCreateResponse200 & {
-        headers: Headers
-    }
-export type featureFlagsCreateStaticCohortForFlagCreateResponse =
-    featureFlagsCreateStaticCohortForFlagCreateResponseSuccess
-
 export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/create_static_cohort_for_flag/`
 }
@@ -327,16 +251,13 @@ export const featureFlagsCreateStaticCohortForFlagCreate = async (
     id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsCreateStaticCohortForFlagCreateResponse> => {
-    return apiMutator<featureFlagsCreateStaticCohortForFlagCreateResponse>(
-        getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(featureFlagApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagApi),
+    })
 }
 
 /**
@@ -344,16 +265,6 @@ export const featureFlagsCreateStaticCohortForFlagCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsDashboardCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsDashboardCreateResponseSuccess = featureFlagsDashboardCreateResponse200 & {
-    headers: Headers
-}
-export type featureFlagsDashboardCreateResponse = featureFlagsDashboardCreateResponseSuccess
-
 export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dashboard/`
 }
@@ -363,8 +274,8 @@ export const featureFlagsDashboardCreate = async (
     id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsDashboardCreateResponse> => {
-    return apiMutator<featureFlagsDashboardCreateResponse>(getFeatureFlagsDashboardCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -375,16 +286,6 @@ export const featureFlagsDashboardCreate = async (
 /**
  * Get other active flags that depend on this flag.
  */
-export type featureFlagsDependentFlagsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsDependentFlagsRetrieveResponseSuccess = featureFlagsDependentFlagsRetrieveResponse200 & {
-    headers: Headers
-}
-export type featureFlagsDependentFlagsRetrieveResponse = featureFlagsDependentFlagsRetrieveResponseSuccess
-
 export const getFeatureFlagsDependentFlagsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
 }
@@ -393,14 +294,11 @@ export const featureFlagsDependentFlagsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<featureFlagsDependentFlagsRetrieveResponse> => {
-    return apiMutator<featureFlagsDependentFlagsRetrieveResponse>(
-        getFeatureFlagsDependentFlagsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsDependentFlagsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
@@ -408,17 +306,6 @@ export const featureFlagsDependentFlagsRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsEnrichUsageDashboardCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsEnrichUsageDashboardCreateResponseSuccess =
-    featureFlagsEnrichUsageDashboardCreateResponse200 & {
-        headers: Headers
-    }
-export type featureFlagsEnrichUsageDashboardCreateResponse = featureFlagsEnrichUsageDashboardCreateResponseSuccess
-
 export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/enrich_usage_dashboard/`
 }
@@ -428,32 +315,19 @@ export const featureFlagsEnrichUsageDashboardCreate = async (
     id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsEnrichUsageDashboardCreateResponse> => {
-    return apiMutator<featureFlagsEnrichUsageDashboardCreateResponse>(
-        getFeatureFlagsEnrichUsageDashboardCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(featureFlagApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsEnrichUsageDashboardCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagApi),
+    })
 }
 
 /**
  * Deprecated: Use GET /dependent_flags instead.
 Safe to delete after usage falls to zero, expected by Jan 22, 2026.
  */
-export type featureFlagsHasActiveDependentsCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsHasActiveDependentsCreateResponseSuccess = featureFlagsHasActiveDependentsCreateResponse200 & {
-    headers: Headers
-}
-export type featureFlagsHasActiveDependentsCreateResponse = featureFlagsHasActiveDependentsCreateResponseSuccess
-
 export const getFeatureFlagsHasActiveDependentsCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/has_active_dependents/`
 }
@@ -463,16 +337,13 @@ export const featureFlagsHasActiveDependentsCreate = async (
     id: number,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsHasActiveDependentsCreateResponse> => {
-    return apiMutator<featureFlagsHasActiveDependentsCreateResponse>(
-        getFeatureFlagsHasActiveDependentsCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(featureFlagApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsHasActiveDependentsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagApi),
+    })
 }
 
 /**
@@ -480,16 +351,6 @@ export const featureFlagsHasActiveDependentsCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsRemoteConfigRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsRemoteConfigRetrieveResponseSuccess = featureFlagsRemoteConfigRetrieveResponse200 & {
-    headers: Headers
-}
-export type featureFlagsRemoteConfigRetrieveResponse = featureFlagsRemoteConfigRetrieveResponseSuccess
-
 export const getFeatureFlagsRemoteConfigRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/remote_config/`
 }
@@ -498,8 +359,8 @@ export const featureFlagsRemoteConfigRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<featureFlagsRemoteConfigRetrieveResponse> => {
-    return apiMutator<featureFlagsRemoteConfigRetrieveResponse>(getFeatureFlagsRemoteConfigRetrieveUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsRemoteConfigRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -510,16 +371,6 @@ export const featureFlagsRemoteConfigRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsStatusRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsStatusRetrieveResponseSuccess = featureFlagsStatusRetrieveResponse200 & {
-    headers: Headers
-}
-export type featureFlagsStatusRetrieveResponse = featureFlagsStatusRetrieveResponseSuccess
-
 export const getFeatureFlagsStatusRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/status/`
 }
@@ -528,8 +379,8 @@ export const featureFlagsStatusRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<featureFlagsStatusRetrieveResponse> => {
-    return apiMutator<featureFlagsStatusRetrieveResponse>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -540,16 +391,6 @@ export const featureFlagsStatusRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsActivityRetrieveResponse200 = {
-    data: ActivityLogPaginatedResponseApi
-    status: 200
-}
-
-export type featureFlagsActivityRetrieveResponseSuccess = featureFlagsActivityRetrieveResponse200 & {
-    headers: Headers
-}
-export type featureFlagsActivityRetrieveResponse = featureFlagsActivityRetrieveResponseSuccess
-
 export const getFeatureFlagsActivityRetrieveUrl = (projectId: string, params?: FeatureFlagsActivityRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -570,8 +411,8 @@ export const featureFlagsActivityRetrieve = async (
     projectId: string,
     params?: FeatureFlagsActivityRetrieveParams,
     options?: RequestInit
-): Promise<featureFlagsActivityRetrieveResponse> => {
-    return apiMutator<featureFlagsActivityRetrieveResponse>(getFeatureFlagsActivityRetrieveUrl(projectId, params), {
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -581,16 +422,6 @@ export const featureFlagsActivityRetrieve = async (
  * Get feature flag keys by IDs.
 Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export type featureFlagsBulkKeysCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsBulkKeysCreateResponseSuccess = featureFlagsBulkKeysCreateResponse200 & {
-    headers: Headers
-}
-export type featureFlagsBulkKeysCreateResponse = featureFlagsBulkKeysCreateResponseSuccess
-
 export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_keys/`
 }
@@ -599,8 +430,8 @@ export const featureFlagsBulkKeysCreate = async (
     projectId: string,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsBulkKeysCreateResponse> => {
-    return apiMutator<featureFlagsBulkKeysCreateResponse>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -613,16 +444,6 @@ export const featureFlagsBulkKeysCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsEvaluationReasonsRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsEvaluationReasonsRetrieveResponseSuccess = featureFlagsEvaluationReasonsRetrieveResponse200 & {
-    headers: Headers
-}
-export type featureFlagsEvaluationReasonsRetrieveResponse = featureFlagsEvaluationReasonsRetrieveResponseSuccess
-
 export const getFeatureFlagsEvaluationReasonsRetrieveUrl = (
     projectId: string,
     params: FeatureFlagsEvaluationReasonsRetrieveParams
@@ -646,14 +467,11 @@ export const featureFlagsEvaluationReasonsRetrieve = async (
     projectId: string,
     params: FeatureFlagsEvaluationReasonsRetrieveParams,
     options?: RequestInit
-): Promise<featureFlagsEvaluationReasonsRetrieveResponse> => {
-    return apiMutator<featureFlagsEvaluationReasonsRetrieveResponse>(
-        getFeatureFlagsEvaluationReasonsRetrieveUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsEvaluationReasonsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
@@ -661,35 +479,6 @@ export const featureFlagsEvaluationReasonsRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsLocalEvaluationRetrieveResponse200 = {
-    data: LocalEvaluationResponseApi
-    status: 200
-}
-
-export type featureFlagsLocalEvaluationRetrieveResponse402 = {
-    data: FeatureFlagsLocalEvaluationRetrieve402
-    status: 402
-}
-
-export type featureFlagsLocalEvaluationRetrieveResponse500 = {
-    data: FeatureFlagsLocalEvaluationRetrieve500
-    status: 500
-}
-
-export type featureFlagsLocalEvaluationRetrieveResponseSuccess = featureFlagsLocalEvaluationRetrieveResponse200 & {
-    headers: Headers
-}
-export type featureFlagsLocalEvaluationRetrieveResponseError = (
-    | featureFlagsLocalEvaluationRetrieveResponse402
-    | featureFlagsLocalEvaluationRetrieveResponse500
-) & {
-    headers: Headers
-}
-
-export type featureFlagsLocalEvaluationRetrieveResponse =
-    | featureFlagsLocalEvaluationRetrieveResponseSuccess
-    | featureFlagsLocalEvaluationRetrieveResponseError
-
 export const getFeatureFlagsLocalEvaluationRetrieveUrl = (
     projectId: string,
     params?: FeatureFlagsLocalEvaluationRetrieveParams
@@ -713,14 +502,11 @@ export const featureFlagsLocalEvaluationRetrieve = async (
     projectId: string,
     params?: FeatureFlagsLocalEvaluationRetrieveParams,
     options?: RequestInit
-): Promise<featureFlagsLocalEvaluationRetrieveResponse> => {
-    return apiMutator<featureFlagsLocalEvaluationRetrieveResponse>(
-        getFeatureFlagsLocalEvaluationRetrieveUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<LocalEvaluationResponseApi> => {
+    return apiMutator<LocalEvaluationResponseApi>(getFeatureFlagsLocalEvaluationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 /**
@@ -728,16 +514,6 @@ export const featureFlagsLocalEvaluationRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsMyFlagsRetrieveResponse200 = {
-    data: MyFlagsResponseApi[]
-    status: 200
-}
-
-export type featureFlagsMyFlagsRetrieveResponseSuccess = featureFlagsMyFlagsRetrieveResponse200 & {
-    headers: Headers
-}
-export type featureFlagsMyFlagsRetrieveResponse = featureFlagsMyFlagsRetrieveResponseSuccess
-
 export const getFeatureFlagsMyFlagsRetrieveUrl = (projectId: string, params?: FeatureFlagsMyFlagsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -758,8 +534,8 @@ export const featureFlagsMyFlagsRetrieve = async (
     projectId: string,
     params?: FeatureFlagsMyFlagsRetrieveParams,
     options?: RequestInit
-): Promise<featureFlagsMyFlagsRetrieveResponse> => {
-    return apiMutator<featureFlagsMyFlagsRetrieveResponse>(getFeatureFlagsMyFlagsRetrieveUrl(projectId, params), {
+): Promise<MyFlagsResponseApi[]> => {
+    return apiMutator<MyFlagsResponseApi[]>(getFeatureFlagsMyFlagsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -770,16 +546,6 @@ export const featureFlagsMyFlagsRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export type featureFlagsUserBlastRadiusCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type featureFlagsUserBlastRadiusCreateResponseSuccess = featureFlagsUserBlastRadiusCreateResponse200 & {
-    headers: Headers
-}
-export type featureFlagsUserBlastRadiusCreateResponse = featureFlagsUserBlastRadiusCreateResponseSuccess
-
 export const getFeatureFlagsUserBlastRadiusCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/user_blast_radius/`
 }
@@ -788,8 +554,8 @@ export const featureFlagsUserBlastRadiusCreate = async (
     projectId: string,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<featureFlagsUserBlastRadiusCreateResponse> => {
-    return apiMutator<featureFlagsUserBlastRadiusCreateResponse>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

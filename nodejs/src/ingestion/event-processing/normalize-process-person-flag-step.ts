@@ -1,5 +1,5 @@
 import { normalizeProcessPerson } from '../../utils/event'
-import { PerDistinctIdPipelineInput } from '../ingestion-consumer'
+import { PerDistinctIdPipelineInput } from '../analytics'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'

@@ -67,6 +67,12 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "claude-sonnet-4-5-20260101": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
 }
 
 
@@ -145,20 +151,24 @@ class TestListModelsForProductEndpoint:
         assert "gpt-4o" in model_ids
         assert "o1" in model_ids
 
-    def test_array_returns_only_restricted_models(self, client: TestClient):
+    def test_twig_filters_models_by_allowed_list(self, client: TestClient):
+        response = client.get("/twig/v1/models")
+        assert response.status_code == 200
+        data = response.json()
+        model_ids = {m["id"] for m in data["data"]}
+        assert "claude-sonnet-4-5" in model_ids
+        assert "claude-sonnet-4-5-20260101" not in model_ids
+        assert "gpt-4o" not in model_ids
+        assert "o1" not in model_ids
+        assert "claude-3-5-sonnet-20241022" not in model_ids
+
+    def test_array_alias_routes_to_twig(self, client: TestClient):
         response = client.get("/array/v1/models")
         assert response.status_code == 200
         data = response.json()
         model_ids = {m["id"] for m in data["data"]}
-        assert "claude-opus-4-5" in model_ids
         assert "claude-sonnet-4-5" in model_ids
-        assert "claude-haiku-4-5" in model_ids
-        assert "gpt-5.2" in model_ids
-        assert "gpt-5-mini" in model_ids
         assert "gpt-4o" not in model_ids
-        assert "o1" not in model_ids
-        assert "claude-3-5-sonnet-20241022" not in model_ids
-        assert "gemini-2.0-flash" not in model_ids
 
     def test_returns_error_for_invalid_product(self, client: TestClient):
         response = client.get("/invalid_product/v1/models")

@@ -14,7 +14,19 @@ pytestmark = [
 ]
 
 
-def test_can_get_exports_for_your_organizations(client: HttpClient, temporal, organization, team, user):
+@pytest.mark.parametrize(
+    "interval,timezone,offset_day,offset_hour",
+    [
+        ("hour", "UTC", None, None),
+        ("day", "UTC", None, None),
+        ("day", "US/Pacific", None, 2),
+        ("week", "UTC", 1, 0),
+        ("week", "Asia/Kathmandu", 1, 2),
+    ],
+)
+def test_can_get_exports_for_your_organizations(
+    client: HttpClient, temporal, organization, team, user, interval, timezone, offset_day, offset_hour
+):
     destination_data = {
         "type": "S3",
         "config": {
@@ -29,7 +41,10 @@ def test_can_get_exports_for_your_organizations(client: HttpClient, temporal, or
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
-        "interval": "hour",
+        "interval": interval,
+        "timezone": timezone,
+        "offset_day": offset_day,
+        "offset_hour": offset_hour,
     }
 
     client.force_login(user)
@@ -44,6 +59,20 @@ def test_can_get_exports_for_your_organizations(client: HttpClient, temporal, or
     assert response.status_code == status.HTTP_200_OK, response.json()
 
     batch_export = response.json()
+
+    expected_offset_day = offset_day
+    if interval == "week":
+        expected_offset_day = expected_offset_day or 0
+
+    expected_offset_hour = offset_hour
+    if interval == "day" or interval == "week":
+        expected_offset_hour = expected_offset_hour or 0
+
+    # Check that the schedule info is returned correctly
+    assert batch_export["interval"] == interval
+    assert batch_export["timezone"] == timezone
+    assert batch_export["offset_day"] == expected_offset_day
+    assert batch_export["offset_hour"] == expected_offset_hour
 
     # Check that the destination config is returned, except for aws_access_key_id and aws_secret_access_key.
     assert batch_export["destination"]["config"] == {

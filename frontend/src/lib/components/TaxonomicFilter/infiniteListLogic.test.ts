@@ -207,7 +207,6 @@ describe('infiniteListLogic', () => {
                     logic.actions.onRowsRendered({
                         startIndex: 30,
                         stopIndex: 40,
-                        overscanStartIndex: 20,
                         overscanStopIndex: 60,
                     })
                 )
@@ -218,7 +217,6 @@ describe('infiniteListLogic', () => {
                     logic.actions.onRowsRendered({
                         startIndex: 80,
                         stopIndex: 100,
-                        overscanStartIndex: 70,
                         overscanStopIndex: 120,
                     })
                 )

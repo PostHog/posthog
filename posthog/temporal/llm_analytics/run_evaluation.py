@@ -113,7 +113,20 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
 
     def _fetch():
         try:
-            evaluation = Evaluation.objects.get(id=inputs.evaluation_id)
+            evaluation = Evaluation.objects.select_related(
+                "model_configuration",
+                "model_configuration__provider_key",
+            ).get(id=inputs.evaluation_id, team_id=inputs.event_data["team_id"])
+
+            model_configuration = None
+            if evaluation.model_configuration:
+                mc = evaluation.model_configuration
+                model_configuration = {
+                    "provider": mc.provider,
+                    "model": mc.model,
+                    "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
+                }
+
             return {
                 "id": str(evaluation.id),
                 "name": evaluation.name,
@@ -122,6 +135,7 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
                 "output_type": evaluation.output_type,
                 "output_config": evaluation.output_config,
                 "team_id": evaluation.team_id,
+                "model_configuration": model_configuration,
             }
         except Evaluation.DoesNotExist:
             logger.exception("Evaluation not found", evaluation_id=inputs.evaluation_id)
@@ -158,6 +172,16 @@ async def increment_trial_eval_count_activity(team_id: int) -> None:
 
 
 @temporalio.activity.defn
+async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
+    """Disable an evaluation when trial limit is reached"""
+
+    def _disable():
+        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(enabled=False)
+
+    await database_sync_to_async(_disable)()
+
+
+@temporalio.activity.defn
 async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event.
 
@@ -188,8 +212,10 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
 
     # Fetch provider key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
+    model_configuration = evaluation.get("model_configuration")
 
-    def _get_provider_key() -> LLMProviderKey | None:
+    def _get_legacy_provider_key() -> LLMProviderKey | None:
+        """Legacy fallback for evaluations without model_configuration."""
         config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
 
         # Check if team has active BYOK key
@@ -209,7 +235,7 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
         # No active key - check trial quota
         if config.trial_evals_used >= config.trial_eval_limit:
             raise ApplicationError(
-                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own OpenAI API key to continue.",
+                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
                 {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
                 non_retryable=True,
             )
@@ -217,7 +243,54 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
         # Trial mode - no provider key, use PostHog defaults
         return None
 
-    provider_key = await database_sync_to_async(_get_provider_key)()
+    def _get_provider_key_by_id(key_id: str) -> LLMProviderKey:
+        """Fetch a specific provider key by ID, validating team ownership."""
+        try:
+            key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
+            if key.state != LLMProviderKey.State.OK:
+                raise ApplicationError(
+                    f"Your API key is {key.state}. Please fix or replace it.",
+                    {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
+                    non_retryable=True,
+                )
+            key.last_used_at = timezone.now()
+            key.save(update_fields=["last_used_at"])
+            return key
+        except LLMProviderKey.DoesNotExist:
+            raise ApplicationError(
+                "Provider key not found.",
+                {"error_type": "key_not_found", "key_id": key_id},
+                non_retryable=True,
+            )
+
+    def _check_trial_quota() -> None:
+        """Check if trial quota is available for PostHog key usage."""
+        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
+        if config.trial_evals_used >= config.trial_eval_limit:
+            raise ApplicationError(
+                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
+                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
+                non_retryable=True,
+            )
+
+    # Determine provider, model, and key based on model_configuration
+    if model_configuration:
+        provider = model_configuration["provider"]
+        model = model_configuration["model"]
+        provider_key_id = model_configuration.get("provider_key_id")
+
+        if provider_key_id:
+            provider_key = await database_sync_to_async(_get_provider_key_by_id)(provider_key_id)
+        else:
+            # Using PostHog key - check trial quota
+            await database_sync_to_async(_check_trial_quota)()
+            provider_key = None
+    else:
+        # TODO(llma): Remove after migration completes - legacy evals without model_configuration
+        provider = "openai"
+        model = DEFAULT_JUDGE_MODEL
+        provider_key = await database_sync_to_async(_get_legacy_provider_key)()
+
     is_byok = provider_key is not None
     key_id = str(provider_key.id) if provider_key else None
 
@@ -267,10 +340,10 @@ Output: {output_data}"""
             temporalio.activity.heartbeat("starting LLM judge call")
         response = client.complete(
             CompletionRequest(
-                model=DEFAULT_JUDGE_MODEL,
+                model=model,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
-                provider="openai",
+                provider=provider,
                 response_format=response_format,
             )
         )
@@ -303,7 +376,7 @@ Output: {output_data}"""
         raise
     except ModelNotFoundError:
         raise ApplicationError(
-            f"Model '{DEFAULT_JUDGE_MODEL}' not found.",
+            f"Model '{model}' not found.",
             non_retryable=True,
         )
 
@@ -329,6 +402,8 @@ Output: {output_data}"""
         "is_byok": is_byok,
         "key_id": key_id,
         "allows_na": allows_na,
+        "model": model,
+        "provider": provider,
     }
 
     if allows_na and isinstance(result, BooleanWithNAEvalResult):
@@ -363,7 +438,8 @@ async def emit_evaluation_event_activity(
         properties: dict[str, Any] = {
             "$ai_evaluation_id": evaluation["id"],
             "$ai_evaluation_name": evaluation["name"],
-            "$ai_evaluation_model": DEFAULT_JUDGE_MODEL,
+            "$ai_evaluation_model": result.get("model", DEFAULT_JUDGE_MODEL),
+            "$ai_evaluation_provider": result.get("provider", "openai"),
             "$ai_evaluation_start_time": start_time.isoformat(),
             "$ai_evaluation_allows_na": allows_na,
             "$ai_evaluation_reasoning": result["reasoning"],
@@ -428,7 +504,8 @@ async def emit_internal_telemetry_activity(
             properties={
                 "evaluation_id": evaluation["id"],
                 "team_id": team_id,
-                "model": DEFAULT_JUDGE_MODEL,
+                "model": result.get("model", DEFAULT_JUDGE_MODEL),
+                "provider": result.get("provider", "openai"),
                 "input_tokens": result.get("input_tokens", 0),
                 "output_tokens": result.get("output_tokens", 0),
                 "total_tokens": result.get("total_tokens", 0),
@@ -475,6 +552,13 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
                 # Handle skippable errors - return success with skip info
                 if error_type in ("trial_limit_reached", "key_invalid"):
+                    if error_type == "trial_limit_reached":
+                        await temporalio.workflow.execute_activity(
+                            disable_evaluation_activity,
+                            args=[evaluation["id"], evaluation["team_id"]],
+                            schedule_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
                     return {
                         "verdict": None,
                         "skipped": True,

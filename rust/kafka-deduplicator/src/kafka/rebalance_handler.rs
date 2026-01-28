@@ -48,15 +48,15 @@ use crate::kafka::batch_context::ConsumerCommandSender;
 ///
 /// ```text
 /// pre_rebalance(Revoke partition 0)
-///     └─► setup_revoked_partitions()   - adds partition 0 to pending_cleanup set
+///     └─► setup_revoked_partitions()   - removes partition 0 from owned_partitions
 ///
 /// post_rebalance(Assign partition 0)
-///     └─► setup_assigned_partitions()  - REMOVES partition 0 from pending_cleanup
+///     └─► setup_assigned_partitions()  - adds partition 0 back to owned_partitions
 ///                                       - reuses existing worker if present
 ///
 /// Async worker processes RebalanceEvent::Revoke:
-///     └─► cleanup_revoked_partitions() - checks pending_cleanup set
-///                                       - partition 0 NOT in set → SKIPS cleanup!
+///     └─► cleanup_revoked_partitions() - checks owned_partitions via coordinator
+///                                       - partition 0 IS owned → SKIPS cleanup!
 ///                                       - worker and store are preserved
 /// ```
 ///

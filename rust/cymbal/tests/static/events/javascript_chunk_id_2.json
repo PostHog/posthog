@@ -1,0 +1,45 @@
+{
+  "uuid": "123e4567-e89b-12d3-a456-426614174000",
+  "event": "$exception",
+  "$exception_list": [
+    {
+      "type": "CustomError",
+      "value": "Custom error message",
+      "stacktrace": {
+        "type": "raw",
+        "frames": [
+          {
+            "filename": "main.js",
+            "function": "onClok",
+            "in_app": true,
+            "lineno": 123,
+            "colno": 45,
+            "synthetic": false,
+            "platform": "web:javascript",
+            "chunk_id": "124"
+          },
+          {
+            "filename": "main.js",
+            "function": "onClok",
+            "in_app": true,
+            "lineno": 123,
+            "colno": 45,
+            "synthetic": false,
+            "platform": "web:javascript",
+            "chunk_id": "124"
+          },
+          {
+            "filename": "main.js",
+            "function": "onClok",
+            "in_app": true,
+            "lineno": 123,
+            "colno": 45,
+            "synthetic": false,
+            "platform": "web:javascript",
+            "chunk_id": "124"
+          }
+        ]
+      }
+    }
+  ]
+}

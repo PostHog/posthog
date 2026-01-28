@@ -10,6 +10,7 @@ __pycache__/
 .eslintcache
 .mypy_cache
 .parcel-cache
+.posthog/
 .postgres-backups/
 .python-version
 .temporal-worker-settings

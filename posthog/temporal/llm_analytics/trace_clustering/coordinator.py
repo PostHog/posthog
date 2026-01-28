@@ -23,7 +23,11 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
 )
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringResult, ClusteringWorkflowInputs
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    AnalysisLevel,
+    ClusteringResult,
+    ClusteringWorkflowInputs,
+)
 from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +37,7 @@ logger = structlog.get_logger(__name__)
 class TraceClusteringCoordinatorInputs:
     """Inputs for the coordinator workflow."""
 
+    analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     lookback_days: int = constants.DEFAULT_LOOKBACK_DAYS
     max_samples: int = constants.DEFAULT_MAX_SAMPLES
     min_k: int = constants.DEFAULT_MIN_K
@@ -67,11 +72,12 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> TraceClusteringCoordinatorInputs:
         """Parse workflow inputs from string list."""
         return TraceClusteringCoordinatorInputs(
-            lookback_days=int(inputs[0]) if len(inputs) > 0 else constants.DEFAULT_LOOKBACK_DAYS,
-            max_samples=int(inputs[1]) if len(inputs) > 1 else constants.DEFAULT_MAX_SAMPLES,
-            min_k=int(inputs[2]) if len(inputs) > 2 else constants.DEFAULT_MIN_K,
-            max_k=int(inputs[3]) if len(inputs) > 3 else constants.DEFAULT_MAX_K,
-            max_concurrent_teams=int(inputs[4]) if len(inputs) > 4 else constants.DEFAULT_MAX_CONCURRENT_TEAMS,
+            analysis_level="generation" if len(inputs) > 0 and inputs[0] == "generation" else "trace",
+            lookback_days=int(inputs[1]) if len(inputs) > 1 else constants.DEFAULT_LOOKBACK_DAYS,
+            max_samples=int(inputs[2]) if len(inputs) > 2 else constants.DEFAULT_MAX_SAMPLES,
+            min_k=int(inputs[3]) if len(inputs) > 3 else constants.DEFAULT_MIN_K,
+            max_k=int(inputs[4]) if len(inputs) > 4 else constants.DEFAULT_MAX_K,
+            max_concurrent_teams=int(inputs[5]) if len(inputs) > 5 else constants.DEFAULT_MAX_CONCURRENT_TEAMS,
         )
 
     @temporalio.workflow.run
@@ -79,6 +85,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
         """Execute coordinator workflow."""
         logger.info(
             "Starting trace clustering coordinator",
+            analysis_level=inputs.analysis_level,
             lookback_days=inputs.lookback_days,
             max_samples=inputs.max_samples,
         )
@@ -97,7 +104,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
 
         # Spawn child workflows for each team with concurrency limit
         total_clusters = 0
-        total_traces = 0
+        total_items = 0
         failed_teams: list[int] = []
         successful_teams: list[int] = []
 
@@ -114,6 +121,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     DailyTraceClusteringWorkflow.run,
                     ClusteringWorkflowInputs(
                         team_id=team_id,
+                        analysis_level=inputs.analysis_level,
                         lookback_days=inputs.lookback_days,
                         max_samples=inputs.max_samples,
                         min_k=inputs.min_k,
@@ -131,13 +139,13 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                 try:
                     workflow_result: ClusteringResult = await handle
                     total_clusters += workflow_result.metrics.num_clusters
-                    total_traces += workflow_result.metrics.total_traces_analyzed
+                    total_items += workflow_result.metrics.total_items_analyzed
                     successful_teams.append(team_id)
 
                     logger.info(
                         "Completed clustering for team",
                         team_id=team_id,
-                        traces=workflow_result.metrics.total_traces_analyzed,
+                        items=workflow_result.metrics.total_items_analyzed,
                         clusters=workflow_result.metrics.num_clusters,
                     )
 
@@ -150,7 +158,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             teams_processed=len(team_ids),
             teams_succeeded=len(successful_teams),
             teams_failed=len(failed_teams),
-            total_traces=total_traces,
+            total_items=total_items,
             total_clusters=total_clusters,
         )
 
@@ -159,6 +167,6 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
             "failed_team_ids": failed_teams,
-            "total_traces": total_traces,
+            "total_items": total_items,
             "total_clusters": total_clusters,
         }

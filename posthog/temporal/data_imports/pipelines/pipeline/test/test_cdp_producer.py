@@ -126,7 +126,7 @@ def test_should_produce_table_with_leading_underscore_source_prefix(team):
 
 
 @pytest.mark.django_db(transaction=True)
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer._WarpStreamKafkaProducer")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
 def test_produce_to_kafka_from_s3_success(mock_get_s3_client, mock_kafka_producer_class, team):
     source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES)
@@ -171,7 +171,7 @@ def test_produce_to_kafka_from_s3_success(mock_get_s3_client, mock_kafka_produce
 
 
 @pytest.mark.django_db(transaction=True)
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer._WarpStreamKafkaProducer")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
 def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, mock_kafka_producer_class, team):
     source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES)
@@ -195,7 +195,7 @@ def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, mock_kafka_p
 
 
 @pytest.mark.django_db(transaction=True)
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer._WarpStreamKafkaProducer")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
 def test_produce_to_kafka_from_s3_kafka_failure(
@@ -235,7 +235,7 @@ def test_produce_to_kafka_from_s3_kafka_failure(
 
 
 @pytest.mark.django_db(transaction=True)
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer._WarpStreamKafkaProducer")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
 def test_produce_to_kafka_from_s3_s3_read_failure(
@@ -267,7 +267,7 @@ def test_produce_to_kafka_from_s3_s3_read_failure(
 
 
 @pytest.mark.django_db(transaction=True)
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer._WarpStreamKafkaProducer")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
 def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, mock_kafka_producer_class, team):
     source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES)
