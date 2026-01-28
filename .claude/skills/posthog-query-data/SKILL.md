@@ -337,3 +337,7 @@ Use the examples below to create optimized queries.
 - [User paths (pageviews, three steps, applied path cleaning and filters, maximum 50 paths)](./references/example-paths.md)
 - [Lifecycle (unique users by pageviews)](./references/example-lifecycle.md)
 - [Stickiness (counted by pageviews from unique users, defined by at least one event for the interval, non-cumulative)](./references/example-stickiness.md)
+- [LLM trace (generations, spans, embeddings, human feedback, captured AI metrics)](./references/example-llm-trace.md)
+- [Web path stats (paths, visitors, views, bounce rate)](./references/example-web-path-stats.md)
+- [Web traffic channels (direct, organic search, etc)](./references/example-web-traffic-channels.md)
+- [Web views by devices](./references/example-web-traffic-by-device-type.md)
