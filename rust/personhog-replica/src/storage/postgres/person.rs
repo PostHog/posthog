@@ -75,7 +75,7 @@ impl PersonLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(person_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.replica_pool)
         .await?;
 
         Ok(row.map(Person::from))
@@ -95,7 +95,7 @@ impl PersonLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(uuid)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.replica_pool)
         .await?;
 
         Ok(row.map(Person::from))
@@ -123,7 +123,7 @@ impl PersonLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(person_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.replica_pool)
         .await?;
 
         Ok(rows.into_iter().map(Person::from).collect())
@@ -151,7 +151,7 @@ impl PersonLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(uuids)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.replica_pool)
         .await?;
 
         Ok(rows.into_iter().map(Person::from).collect())
@@ -180,7 +180,7 @@ impl PersonLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(distinct_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.replica_pool)
         .await?;
 
         Ok(row.map(Person::from))
@@ -213,7 +213,7 @@ impl PersonLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(distinct_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.replica_pool)
         .await?;
 
         let found: HashMap<String, Person> = rows
@@ -273,7 +273,7 @@ impl PersonLookup for PostgresStorage {
         )
         .bind(&team_ids)
         .bind(&distinct_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&self.replica_pool)
         .await?;
 
         let found: HashMap<(i64, String), Person> = rows

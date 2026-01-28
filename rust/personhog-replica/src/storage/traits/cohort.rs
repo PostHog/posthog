@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 use crate::storage::error::StorageResult;
+use crate::storage::postgres::ConsistencyLevel;
 use crate::storage::types::CohortMembership;
 
 /// Cohort membership operations
@@ -10,5 +11,6 @@ pub trait CohortStorage: Send + Sync {
         &self,
         person_id: i64,
         cohort_ids: &[i64],
+        consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<CohortMembership>>;
 }

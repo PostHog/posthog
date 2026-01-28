@@ -3,22 +3,22 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
+    CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse, ConsistencyLevel,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
     DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
-    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse,
-    GetExistingPersonIdsWithOverrideKeysRequest, GetExistingPersonIdsWithOverrideKeysResponse,
-    GetGroupRequest, GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
-    GetGroupsRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonIdsAndHashKeyOverridesRequest, GetPersonIdsAndHashKeyOverridesResponse,
-    GetPersonRequest, GetPersonResponse, GetPersonsByDistinctIdsInTeamRequest,
-    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, Group, GroupKey,
-    GroupTypeMapping, GroupTypeMappingsBatchResponse, GroupTypeMappingsByKey,
-    GroupTypeMappingsResponse, GroupWithKey, GroupsResponse, HashKeyOverride, Person,
-    PersonDistinctIds, PersonIdWithOverrideKeys, PersonIdWithOverrides, PersonWithDistinctIds,
-    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, TeamDistinctId,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
+    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
+    GetPersonsRequest, Group, GroupKey, GroupTypeMapping, GroupTypeMappingsBatchResponse,
+    GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
+    HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext, Person,
+    PersonDistinctIds, PersonWithDistinctIds, PersonWithTeamDistinctId,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse, ReadOptions,
+    TeamDistinctId, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use tracing::error;
@@ -34,6 +34,44 @@ impl PersonHogReplicaService {
     pub fn new(storage: Arc<dyn FullStorage>) -> Self {
         Self { storage }
     }
+}
+
+// ============================================================
+// Consistency level validation
+// ============================================================
+
+/// Check if the read options request strong consistency
+fn is_strong_consistency(read_options: &Option<ReadOptions>) -> bool {
+    read_options
+        .as_ref()
+        .map(|opts| opts.consistency() == ConsistencyLevel::Strong)
+        .unwrap_or(false)
+}
+
+/// Convert read options to storage consistency level
+fn to_storage_consistency(
+    read_options: &Option<ReadOptions>,
+) -> storage::postgres::ConsistencyLevel {
+    if is_strong_consistency(read_options) {
+        storage::postgres::ConsistencyLevel::Strong
+    } else {
+        storage::postgres::ConsistencyLevel::Eventual
+    }
+}
+
+/// Reject requests for strong consistency on person-related endpoints.
+/// The replica service cannot serve strong consistency for person data because
+/// the person table is cached/managed by the leader service.
+#[allow(clippy::result_large_err)]
+fn reject_strong_consistency(read_options: &Option<ReadOptions>) -> Result<(), Status> {
+    if is_strong_consistency(read_options) {
+        return Err(Status::failed_precondition(
+            "This endpoint cannot serve strong consistency. Person data is only available \
+             with eventual consistency from the replica service. Use the leader service \
+             for strong consistency requirements.",
+        ));
+    }
+    Ok(())
 }
 
 // ============================================================
@@ -129,6 +167,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let person = self
             .storage
@@ -146,6 +185,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let persons = self
             .storage
@@ -171,6 +211,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonByUuidRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let uuid = Uuid::parse_str(&req.uuid)
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
@@ -191,6 +232,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsByUuidsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let uuids: Vec<Uuid> = req
             .uuids
@@ -220,6 +262,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonByDistinctIdRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let person = self
             .storage
@@ -237,6 +280,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsByDistinctIdsInTeamRequest>,
     ) -> Result<Response<PersonsByDistinctIdsInTeamResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let results = self
             .storage
@@ -260,6 +304,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsByDistinctIdsRequest>,
     ) -> Result<Response<PersonsByDistinctIdsResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let team_distinct_ids: Vec<(i64, String)> = req
             .team_distinct_ids
@@ -298,10 +343,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetDistinctIdsForPersonRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let distinct_ids = self
             .storage
-            .get_distinct_ids_for_person(req.team_id, req.person_id)
+            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_person"))?;
 
@@ -321,10 +367,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetDistinctIdsForPersonsRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonsResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let mappings = self
             .storage
-            .get_distinct_ids_for_persons(req.team_id, &req.person_ids)
+            .get_distinct_ids_for_persons(req.team_id, &req.person_ids, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_persons"))?;
 
@@ -357,22 +404,39 @@ impl PersonHogReplica for PersonHogReplicaService {
     // Feature Flag support
     // ============================================================
 
-    async fn get_person_ids_and_hash_key_overrides(
+    async fn get_hash_key_override_context(
         &self,
-        request: Request<GetPersonIdsAndHashKeyOverridesRequest>,
-    ) -> Result<Response<GetPersonIdsAndHashKeyOverridesResponse>, Status> {
+        request: Request<GetHashKeyOverrideContextRequest>,
+    ) -> Result<Response<GetHashKeyOverrideContextResponse>, Status> {
         let req = request.into_inner();
+
+        // Strong consistency routes to the primary database, which is important for this endpoint:
+        // 1. The caller has just written hash key overrides and needs to read them back
+        // 2. The caller needs the latest person existence state (e.g., for write validation)
+        //
+        // Note: This implementation queries person data on the primary database directly to attain strong consistency.
+        // When personhog-leader is implemented, person table data will be cached on leader pods.
+        // At that point, strong consistency for person data will require routing to the leader
+        // service rather than the primary database.
+        // Once that service is implemented and in use, using personhog-replica for this query will have to be
+        // re-assessed as its consistency guarantee will be broken
+        let consistency = to_storage_consistency(&req.read_options);
 
         let results = self
             .storage
-            .get_person_ids_and_hash_key_overrides(req.team_id, &req.distinct_ids)
+            .get_hash_key_override_context(
+                req.team_id,
+                &req.distinct_ids,
+                req.check_person_exists,
+                consistency,
+            )
             .await
-            .map_err(|e| log_and_convert_error(e, "get_person_ids_and_hash_key_overrides"))?;
+            .map_err(|e| log_and_convert_error(e, "get_hash_key_override_context"))?;
 
-        Ok(Response::new(GetPersonIdsAndHashKeyOverridesResponse {
+        Ok(Response::new(GetHashKeyOverrideContextResponse {
             results: results
                 .into_iter()
-                .map(|r| PersonIdWithOverrides {
+                .map(|r| ProtoHashKeyOverrideContext {
                     person_id: r.person_id,
                     distinct_id: r.distinct_id,
                     overrides: r
@@ -383,34 +447,53 @@ impl PersonHogReplica for PersonHogReplicaService {
                             hash_key: o.hash_key,
                         })
                         .collect(),
+                    existing_feature_flag_keys: r.existing_feature_flag_keys,
                 })
                 .collect(),
         }))
     }
 
-    async fn get_existing_person_ids_with_override_keys(
+    async fn upsert_hash_key_overrides(
         &self,
-        request: Request<GetExistingPersonIdsWithOverrideKeysRequest>,
-    ) -> Result<Response<GetExistingPersonIdsWithOverrideKeysResponse>, Status> {
+        request: Request<UpsertHashKeyOverridesRequest>,
+    ) -> Result<Response<UpsertHashKeyOverridesResponse>, Status> {
         let req = request.into_inner();
 
-        let results = self
-            .storage
-            .get_existing_person_ids_with_override_keys(req.team_id, &req.distinct_ids)
-            .await
-            .map_err(|e| log_and_convert_error(e, "get_existing_person_ids_with_override_keys"))?;
+        let overrides: Vec<storage::HashKeyOverrideInput> = req
+            .overrides
+            .into_iter()
+            .map(|o| storage::HashKeyOverrideInput {
+                person_id: o.person_id,
+                feature_flag_key: o.feature_flag_key,
+            })
+            .collect();
 
-        Ok(Response::new(
-            GetExistingPersonIdsWithOverrideKeysResponse {
-                results: results
-                    .into_iter()
-                    .map(|r| PersonIdWithOverrideKeys {
-                        person_id: r.person_id,
-                        existing_feature_flag_keys: r.existing_feature_flag_keys,
-                    })
-                    .collect(),
-            },
-        ))
+        let inserted_count = self
+            .storage
+            .upsert_hash_key_overrides(req.team_id, &overrides, &req.hash_key)
+            .await
+            .map_err(|e| log_and_convert_error(e, "upsert_hash_key_overrides"))?;
+
+        Ok(Response::new(UpsertHashKeyOverridesResponse {
+            inserted_count,
+        }))
+    }
+
+    async fn delete_hash_key_overrides_by_teams(
+        &self,
+        request: Request<DeleteHashKeyOverridesByTeamsRequest>,
+    ) -> Result<Response<DeleteHashKeyOverridesByTeamsResponse>, Status> {
+        let req = request.into_inner();
+
+        let deleted_count = self
+            .storage
+            .delete_hash_key_overrides_by_teams(&req.team_ids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_hash_key_overrides_by_teams"))?;
+
+        Ok(Response::new(DeleteHashKeyOverridesByTeamsResponse {
+            deleted_count,
+        }))
     }
 
     // ============================================================
@@ -422,10 +505,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<CheckCohortMembershipRequest>,
     ) -> Result<Response<CohortMembershipResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let memberships = self
             .storage
-            .check_cohort_membership(req.person_id, &req.cohort_ids)
+            .check_cohort_membership(req.person_id, &req.cohort_ids, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "check_cohort_membership"))?;
 
@@ -449,10 +533,16 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupRequest>,
     ) -> Result<Response<GetGroupResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let group = self
             .storage
-            .get_group(req.team_id, req.group_type_index, &req.group_key)
+            .get_group(
+                req.team_id,
+                req.group_type_index,
+                &req.group_key,
+                consistency,
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_group"))?;
 
@@ -466,6 +556,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupsRequest>,
     ) -> Result<Response<GroupsResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let identifiers: Vec<storage::GroupIdentifier> = req
             .group_identifiers
@@ -478,7 +569,7 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let groups = self
             .storage
-            .get_groups(req.team_id, &identifiers)
+            .get_groups(req.team_id, &identifiers, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_groups"))?;
 
@@ -505,6 +596,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupsBatchRequest>,
     ) -> Result<Response<GetGroupsBatchResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let keys: Vec<storage::GroupKey> = req
             .keys
@@ -518,7 +610,7 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let results = self
             .storage
-            .get_groups_batch(&keys)
+            .get_groups_batch(&keys, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_groups_batch"))?;
 
@@ -557,10 +649,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupTypeMappingsByTeamIdRequest>,
     ) -> Result<Response<GroupTypeMappingsResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let mappings = self
             .storage
-            .get_group_type_mappings_by_team_id(req.team_id)
+            .get_group_type_mappings_by_team_id(req.team_id, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_team_id"))?;
 
@@ -577,10 +670,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupTypeMappingsByTeamIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let all_mappings = self
             .storage
-            .get_group_type_mappings_by_team_ids(&req.team_ids)
+            .get_group_type_mappings_by_team_ids(&req.team_ids, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_team_ids"))?;
 
@@ -610,10 +704,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupTypeMappingsByProjectIdRequest>,
     ) -> Result<Response<GroupTypeMappingsResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let mappings = self
             .storage
-            .get_group_type_mappings_by_project_id(req.project_id)
+            .get_group_type_mappings_by_project_id(req.project_id, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_project_id"))?;
 
@@ -630,10 +725,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupTypeMappingsByProjectIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let all_mappings = self
             .storage
-            .get_group_type_mappings_by_project_ids(&req.project_ids)
+            .get_group_type_mappings_by_project_ids(&req.project_ids, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_project_ids"))?;
 
@@ -664,7 +760,12 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use personhog_proto::personhog::types::v1::{
-        GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
+        GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+        GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+        GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
+        GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
+        GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
+        GetPersonsByUuidsRequest, GetPersonsRequest,
     };
 
     /// Mock storage that returns configurable errors for unit testing error handling
@@ -756,6 +857,7 @@ mod tests {
             &self,
             _team_id: i64,
             _person_id: i64,
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
             Err(self.error.clone())
         }
@@ -764,6 +866,7 @@ mod tests {
             &self,
             _team_id: i64,
             _person_ids: &[i64],
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
             Err(self.error.clone())
         }
@@ -771,19 +874,29 @@ mod tests {
 
     #[async_trait]
     impl storage::FeatureFlagStorage for FailingStorage {
-        async fn get_person_ids_and_hash_key_overrides(
+        async fn get_hash_key_override_context(
             &self,
             _team_id: i64,
             _distinct_ids: &[String],
-        ) -> storage::StorageResult<Vec<storage::PersonIdWithOverrides>> {
+            _check_person_exists: bool,
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::HashKeyOverrideContext>> {
             Err(self.error.clone())
         }
 
-        async fn get_existing_person_ids_with_override_keys(
+        async fn upsert_hash_key_overrides(
             &self,
             _team_id: i64,
-            _distinct_ids: &[String],
-        ) -> storage::StorageResult<Vec<storage::PersonIdWithOverrideKeys>> {
+            _overrides: &[storage::HashKeyOverrideInput],
+            _hash_key: &str,
+        ) -> storage::StorageResult<i64> {
+            Err(self.error.clone())
+        }
+
+        async fn delete_hash_key_overrides_by_teams(
+            &self,
+            _team_ids: &[i64],
+        ) -> storage::StorageResult<i64> {
             Err(self.error.clone())
         }
     }
@@ -794,6 +907,7 @@ mod tests {
             &self,
             _person_id: i64,
             _cohort_ids: &[i64],
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<storage::CohortMembership>> {
             Err(self.error.clone())
         }
@@ -806,6 +920,7 @@ mod tests {
             _team_id: i64,
             _group_type_index: i32,
             _group_key: &str,
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Option<storage::Group>> {
             Err(self.error.clone())
         }
@@ -814,6 +929,7 @@ mod tests {
             &self,
             _team_id: i64,
             _identifiers: &[storage::GroupIdentifier],
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<storage::Group>> {
             Err(self.error.clone())
         }
@@ -821,6 +937,7 @@ mod tests {
         async fn get_groups_batch(
             &self,
             _keys: &[storage::GroupKey],
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
             Err(self.error.clone())
         }
@@ -828,6 +945,7 @@ mod tests {
         async fn get_group_type_mappings_by_team_id(
             &self,
             _team_id: i64,
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
             Err(self.error.clone())
         }
@@ -835,6 +953,7 @@ mod tests {
         async fn get_group_type_mappings_by_team_ids(
             &self,
             _team_ids: &[i64],
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
             Err(self.error.clone())
         }
@@ -842,6 +961,7 @@ mod tests {
         async fn get_group_type_mappings_by_project_id(
             &self,
             _project_id: i64,
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
             Err(self.error.clone())
         }
@@ -849,6 +969,7 @@ mod tests {
         async fn get_group_type_mappings_by_project_ids(
             &self,
             _project_ids: &[i64],
+            _consistency: storage::postgres::ConsistencyLevel,
         ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
             Err(self.error.clone())
         }
@@ -863,6 +984,7 @@ mod tests {
             .get_person(Request::new(GetPersonRequest {
                 team_id: 1,
                 person_id: 1,
+                read_options: None,
             }))
             .await;
 
@@ -881,6 +1003,7 @@ mod tests {
             .get_person(Request::new(GetPersonRequest {
                 team_id: 1,
                 person_id: 1,
+                read_options: None,
             }))
             .await;
 
@@ -898,6 +1021,7 @@ mod tests {
             .get_person(Request::new(GetPersonRequest {
                 team_id: 1,
                 person_id: 1,
+                read_options: None,
             }))
             .await;
 
@@ -917,6 +1041,7 @@ mod tests {
                 GetPersonsByDistinctIdsInTeamRequest {
                     team_id: 1,
                     distinct_ids: vec!["user1".to_string(), "user2".to_string()],
+                    read_options: None,
                 },
             ))
             .await;
@@ -935,10 +1060,1228 @@ mod tests {
                 team_id: 1,
                 group_type_index: 0,
                 group_key: "test".to_string(),
+                read_options: None,
             }))
             .await;
 
         let status = result.unwrap_err();
         assert_eq!(status.code(), tonic::Code::Internal);
+    }
+
+    // ============================================================
+    // Consistency Level Routing Tests
+    // ============================================================
+    //
+    // These tests define the expected behavior for consistency level routing:
+    //
+    // 1. Person-related endpoints (touch posthog_person table for data retrieval):
+    //    - MUST reject STRONG consistency with FailedPrecondition
+    //    - The replica service cannot serve strong consistency for person data
+    //      because the person table is cached/managed by the leader service
+    //
+    // 2. Non-person endpoints (groups, cohorts, distinct_ids, group_type_mappings):
+    //    - MUST accept both EVENTUAL and STRONG consistency
+    //    - STRONG routes to primary, EVENTUAL routes to replica
+    //
+    // 3. Feature flag get_hash_key_override_context is an exception to the above rules:
+    //    - Accepts both consistency levels regardless of check_person_exists
+    //    - STRONG routes to primary (for read-after-write scenarios)
+    //    - EVENTUAL routes to replica
+    //    - Note: This is an exception because the check_person_exists queries hit the person
+    //      table on the primary database. When personhog-leader is implemented, this will no
+    //      longer be a consistent read and may need to change
+    //
+    // 4. Write endpoints (upsert/delete):
+    //    - Always go to primary, no read_options needed
+
+    /// Mock storage that returns successful empty results for testing consistency validation
+    struct SuccessStorage;
+
+    #[async_trait]
+    impl storage::PersonLookup for SuccessStorage {
+        async fn get_person_by_id(
+            &self,
+            _team_id: i64,
+            _person_id: i64,
+        ) -> storage::StorageResult<Option<storage::Person>> {
+            Ok(None)
+        }
+
+        async fn get_person_by_uuid(
+            &self,
+            _team_id: i64,
+            _uuid: Uuid,
+        ) -> storage::StorageResult<Option<storage::Person>> {
+            Ok(None)
+        }
+
+        async fn get_persons_by_ids(
+            &self,
+            _team_id: i64,
+            _person_ids: &[i64],
+        ) -> storage::StorageResult<Vec<storage::Person>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_persons_by_uuids(
+            &self,
+            _team_id: i64,
+            _uuids: &[Uuid],
+        ) -> storage::StorageResult<Vec<storage::Person>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_person_by_distinct_id(
+            &self,
+            _team_id: i64,
+            _distinct_id: &str,
+        ) -> storage::StorageResult<Option<storage::Person>> {
+            Ok(None)
+        }
+
+        async fn get_persons_by_distinct_ids_in_team(
+            &self,
+            _team_id: i64,
+            distinct_ids: &[String],
+        ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
+            Ok(distinct_ids.iter().map(|d| (d.clone(), None)).collect())
+        }
+
+        async fn get_persons_by_distinct_ids_cross_team(
+            &self,
+            team_distinct_ids: &[(i64, String)],
+        ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
+            Ok(team_distinct_ids
+                .iter()
+                .map(|(t, d)| ((*t, d.clone()), None))
+                .collect())
+        }
+    }
+
+    #[async_trait]
+    impl storage::DistinctIdLookup for SuccessStorage {
+        async fn get_distinct_ids_for_person(
+            &self,
+            _team_id: i64,
+            _person_id: i64,
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_distinct_ids_for_persons(
+            &self,
+            _team_id: i64,
+            _person_ids: &[i64],
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[async_trait]
+    impl storage::FeatureFlagStorage for SuccessStorage {
+        async fn get_hash_key_override_context(
+            &self,
+            _team_id: i64,
+            _distinct_ids: &[String],
+            _check_person_exists: bool,
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::HashKeyOverrideContext>> {
+            Ok(Vec::new())
+        }
+
+        async fn upsert_hash_key_overrides(
+            &self,
+            _team_id: i64,
+            _overrides: &[storage::HashKeyOverrideInput],
+            _hash_key: &str,
+        ) -> storage::StorageResult<i64> {
+            Ok(0)
+        }
+
+        async fn delete_hash_key_overrides_by_teams(
+            &self,
+            _team_ids: &[i64],
+        ) -> storage::StorageResult<i64> {
+            Ok(0)
+        }
+    }
+
+    #[async_trait]
+    impl storage::CohortStorage for SuccessStorage {
+        async fn check_cohort_membership(
+            &self,
+            _person_id: i64,
+            cohort_ids: &[i64],
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::CohortMembership>> {
+            Ok(cohort_ids
+                .iter()
+                .map(|&id| storage::CohortMembership {
+                    cohort_id: id,
+                    is_member: false,
+                })
+                .collect())
+        }
+    }
+
+    #[async_trait]
+    impl storage::GroupStorage for SuccessStorage {
+        async fn get_group(
+            &self,
+            _team_id: i64,
+            _group_type_index: i32,
+            _group_key: &str,
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Option<storage::Group>> {
+            Ok(None)
+        }
+
+        async fn get_groups(
+            &self,
+            _team_id: i64,
+            _identifiers: &[storage::GroupIdentifier],
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::Group>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_groups_batch(
+            &self,
+            _keys: &[storage::GroupKey],
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_group_type_mappings_by_team_id(
+            &self,
+            _team_id: i64,
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_group_type_mappings_by_team_ids(
+            &self,
+            _team_ids: &[i64],
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_group_type_mappings_by_project_id(
+            &self,
+            _project_id: i64,
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_group_type_mappings_by_project_ids(
+            &self,
+            _project_ids: &[i64],
+            _consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn strong_consistency() -> Option<personhog_proto::personhog::types::v1::ReadOptions> {
+        Some(personhog_proto::personhog::types::v1::ReadOptions {
+            consistency: personhog_proto::personhog::types::v1::ConsistencyLevel::Strong.into(),
+        })
+    }
+
+    fn eventual_consistency() -> Option<personhog_proto::personhog::types::v1::ReadOptions> {
+        Some(personhog_proto::personhog::types::v1::ReadOptions {
+            consistency: personhog_proto::personhog::types::v1::ConsistencyLevel::Eventual.into(),
+        })
+    }
+
+    // ============================================================
+    // Person endpoints: rejects STRONG consistency
+    // ============================================================
+
+    #[tokio::test]
+    async fn test_get_person_rejects_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_person(Request::new(GetPersonRequest {
+                team_id: 1,
+                person_id: 1,
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+        assert!(status.message().contains("strong consistency"));
+    }
+
+    #[tokio::test]
+    async fn test_get_person_accepts_eventual_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_person(Request::new(GetPersonRequest {
+                team_id: 1,
+                person_id: 1,
+                read_options: eventual_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_person_accepts_unspecified_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_person(Request::new(GetPersonRequest {
+                team_id: 1,
+                person_id: 1,
+                read_options: None,
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_persons_rejects_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_persons(Request::new(GetPersonsRequest {
+                team_id: 1,
+                person_ids: vec![1, 2],
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn test_get_person_by_uuid_rejects_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_person_by_uuid(Request::new(GetPersonByUuidRequest {
+                team_id: 1,
+                uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn test_get_persons_by_uuids_rejects_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_persons_by_uuids(Request::new(GetPersonsByUuidsRequest {
+                team_id: 1,
+                uuids: vec!["00000000-0000-0000-0000-000000000000".to_string()],
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn test_get_person_by_distinct_id_rejects_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_person_by_distinct_id(Request::new(GetPersonByDistinctIdRequest {
+                team_id: 1,
+                distinct_id: "user1".to_string(),
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn test_get_persons_by_distinct_ids_in_team_rejects_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_persons_by_distinct_ids_in_team(Request::new(
+                GetPersonsByDistinctIdsInTeamRequest {
+                    team_id: 1,
+                    distinct_ids: vec!["user1".to_string()],
+                    read_options: strong_consistency(),
+                },
+            ))
+            .await;
+
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn test_get_persons_by_distinct_ids_rejects_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_persons_by_distinct_ids(Request::new(GetPersonsByDistinctIdsRequest {
+                team_distinct_ids: vec![TeamDistinctId {
+                    team_id: 1,
+                    distinct_id: "user1".to_string(),
+                }],
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+    }
+
+    // ============================================================
+    // Non-person endpoints: accepts both EVENTUAL and STRONG consistency reads
+    // ============================================================
+
+    #[tokio::test]
+    async fn test_get_group_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_group(Request::new(GetGroupRequest {
+                team_id: 1,
+                group_type_index: 0,
+                group_key: "test".to_string(),
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_group_accepts_eventual_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_group(Request::new(GetGroupRequest {
+                team_id: 1,
+                group_type_index: 0,
+                group_key: "test".to_string(),
+                read_options: eventual_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_groups_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_groups(Request::new(GetGroupsRequest {
+                team_id: 1,
+                group_identifiers: vec![],
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_groups_batch_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_groups_batch(Request::new(GetGroupsBatchRequest {
+                keys: vec![],
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_check_cohort_membership_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .check_cohort_membership(Request::new(CheckCohortMembershipRequest {
+                person_id: 1,
+                cohort_ids: vec![1],
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_distinct_ids_for_person_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+                team_id: 1,
+                person_id: 1,
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_distinct_ids_for_persons_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_distinct_ids_for_persons(Request::new(GetDistinctIdsForPersonsRequest {
+                team_id: 1,
+                person_ids: vec![1],
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_group_type_mappings_by_team_id_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_group_type_mappings_by_team_id(Request::new(GetGroupTypeMappingsByTeamIdRequest {
+                team_id: 1,
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_group_type_mappings_by_team_ids_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_group_type_mappings_by_team_ids(Request::new(
+                GetGroupTypeMappingsByTeamIdsRequest {
+                    team_ids: vec![1],
+                    read_options: strong_consistency(),
+                },
+            ))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_group_type_mappings_by_project_id_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_group_type_mappings_by_project_id(Request::new(
+                GetGroupTypeMappingsByProjectIdRequest {
+                    project_id: 1,
+                    read_options: strong_consistency(),
+                },
+            ))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_group_type_mappings_by_project_ids_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_group_type_mappings_by_project_ids(Request::new(
+                GetGroupTypeMappingsByProjectIdsRequest {
+                    project_ids: vec![1],
+                    read_options: strong_consistency(),
+                },
+            ))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    // ============================================================
+    // Feature flag get_hash_key_override_context: accepts both consistency levels
+    // ============================================================
+    //
+    // Unlike person-related endpoints, get_hash_key_override_context accepts strong consistency
+    // regardless of check_person_exists. Strong consistency routes to the primary database
+    // for read-after-write scenarios (e.g., reading hash key overrides after writing them).
+    //
+    // Note: When personhog-leader is implemented, strong consistency for person data will
+    // require routing to the leader service. The current implementation queries the primary
+    // database directly as an interim solution.
+
+    #[tokio::test]
+    async fn test_get_hash_key_override_context_without_person_check_accepts_strong_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+                team_id: 1,
+                distinct_ids: vec!["user1".to_string()],
+                check_person_exists: false,
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_hash_key_override_context_with_person_check_accepts_strong_consistency() {
+        // Strong consistency is allowed for get_hash_key_override_context even with check_person_exists=true.
+        // This routes to the primary database for read-after-write scenarios.
+        //
+        // Note: When personhog-leader is implemented, strong consistency for person data will
+        // require routing to the leader service. This test documents the current behavior where
+        // we query the primary database directly as an interim solution.
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+                team_id: 1,
+                distinct_ids: vec!["user1".to_string()],
+                check_person_exists: true,
+                read_options: strong_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_hash_key_override_context_with_person_check_accepts_eventual_consistency() {
+        let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+        let result = service
+            .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+                team_id: 1,
+                distinct_ids: vec!["user1".to_string()],
+                check_person_exists: true,
+                read_options: eventual_consistency(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    // ============================================================
+    // Consistency Level Routing Verification Tests
+    // ============================================================
+    //
+    // These tests verify that the service correctly passes the consistency
+    // level from read_options to the storage layer. Each domain (distinct_id,
+    // cohort, group, feature_flag) should correctly route based on consistency.
+
+    use std::sync::Mutex;
+
+    /// Mock storage that tracks which consistency level was passed to each method.
+    /// Used to verify that the service correctly routes requests based on read_options.
+    struct ConsistencyTrackingStorage {
+        last_consistency: Mutex<Option<storage::postgres::ConsistencyLevel>>,
+    }
+
+    impl ConsistencyTrackingStorage {
+        fn new() -> Self {
+            Self {
+                last_consistency: Mutex::new(None),
+            }
+        }
+
+        fn record(&self, consistency: storage::postgres::ConsistencyLevel) {
+            *self.last_consistency.lock().unwrap() = Some(consistency);
+        }
+
+        fn last_consistency(&self) -> Option<storage::postgres::ConsistencyLevel> {
+            *self.last_consistency.lock().unwrap()
+        }
+    }
+
+    #[async_trait]
+    impl storage::PersonLookup for ConsistencyTrackingStorage {
+        async fn get_person_by_id(
+            &self,
+            _team_id: i64,
+            _person_id: i64,
+        ) -> storage::StorageResult<Option<storage::Person>> {
+            Ok(None)
+        }
+
+        async fn get_person_by_uuid(
+            &self,
+            _team_id: i64,
+            _uuid: Uuid,
+        ) -> storage::StorageResult<Option<storage::Person>> {
+            Ok(None)
+        }
+
+        async fn get_persons_by_ids(
+            &self,
+            _team_id: i64,
+            _person_ids: &[i64],
+        ) -> storage::StorageResult<Vec<storage::Person>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_persons_by_uuids(
+            &self,
+            _team_id: i64,
+            _uuids: &[Uuid],
+        ) -> storage::StorageResult<Vec<storage::Person>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_person_by_distinct_id(
+            &self,
+            _team_id: i64,
+            _distinct_id: &str,
+        ) -> storage::StorageResult<Option<storage::Person>> {
+            Ok(None)
+        }
+
+        async fn get_persons_by_distinct_ids_in_team(
+            &self,
+            _team_id: i64,
+            distinct_ids: &[String],
+        ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
+            Ok(distinct_ids.iter().map(|d| (d.clone(), None)).collect())
+        }
+
+        async fn get_persons_by_distinct_ids_cross_team(
+            &self,
+            team_distinct_ids: &[(i64, String)],
+        ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
+            Ok(team_distinct_ids
+                .iter()
+                .map(|(t, d)| ((*t, d.clone()), None))
+                .collect())
+        }
+    }
+
+    #[async_trait]
+    impl storage::DistinctIdLookup for ConsistencyTrackingStorage {
+        async fn get_distinct_ids_for_person(
+            &self,
+            _team_id: i64,
+            _person_id: i64,
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+
+        async fn get_distinct_ids_for_persons(
+            &self,
+            _team_id: i64,
+            _person_ids: &[i64],
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+    }
+
+    #[async_trait]
+    impl storage::FeatureFlagStorage for ConsistencyTrackingStorage {
+        async fn get_hash_key_override_context(
+            &self,
+            _team_id: i64,
+            _distinct_ids: &[String],
+            _check_person_exists: bool,
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::HashKeyOverrideContext>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+
+        async fn upsert_hash_key_overrides(
+            &self,
+            _team_id: i64,
+            _overrides: &[storage::HashKeyOverrideInput],
+            _hash_key: &str,
+        ) -> storage::StorageResult<i64> {
+            Ok(0)
+        }
+
+        async fn delete_hash_key_overrides_by_teams(
+            &self,
+            _team_ids: &[i64],
+        ) -> storage::StorageResult<i64> {
+            Ok(0)
+        }
+    }
+
+    #[async_trait]
+    impl storage::CohortStorage for ConsistencyTrackingStorage {
+        async fn check_cohort_membership(
+            &self,
+            _person_id: i64,
+            cohort_ids: &[i64],
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::CohortMembership>> {
+            self.record(consistency);
+            Ok(cohort_ids
+                .iter()
+                .map(|&id| storage::CohortMembership {
+                    cohort_id: id,
+                    is_member: false,
+                })
+                .collect())
+        }
+    }
+
+    #[async_trait]
+    impl storage::GroupStorage for ConsistencyTrackingStorage {
+        async fn get_group(
+            &self,
+            _team_id: i64,
+            _group_type_index: i32,
+            _group_key: &str,
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Option<storage::Group>> {
+            self.record(consistency);
+            Ok(None)
+        }
+
+        async fn get_groups(
+            &self,
+            _team_id: i64,
+            _identifiers: &[storage::GroupIdentifier],
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::Group>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+
+        async fn get_groups_batch(
+            &self,
+            _keys: &[storage::GroupKey],
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+
+        async fn get_group_type_mappings_by_team_id(
+            &self,
+            _team_id: i64,
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+
+        async fn get_group_type_mappings_by_team_ids(
+            &self,
+            _team_ids: &[i64],
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+
+        async fn get_group_type_mappings_by_project_id(
+            &self,
+            _project_id: i64,
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+
+        async fn get_group_type_mappings_by_project_ids(
+            &self,
+            _project_ids: &[i64],
+            consistency: storage::postgres::ConsistencyLevel,
+        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+            self.record(consistency);
+            Ok(Vec::new())
+        }
+    }
+
+    // ============================================================
+    // Distinct ID domain routing tests
+    // ============================================================
+
+    #[tokio::test]
+    async fn test_get_distinct_ids_for_person_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+                team_id: 1,
+                person_id: 1,
+                read_options: strong_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_distinct_ids_for_person_routes_eventual_to_replica() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+                team_id: 1,
+                person_id: 1,
+                read_options: eventual_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Eventual)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_distinct_ids_for_person_routes_unspecified_to_replica() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+                team_id: 1,
+                person_id: 1,
+                read_options: None,
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Eventual)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_distinct_ids_for_persons_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_distinct_ids_for_persons(Request::new(GetDistinctIdsForPersonsRequest {
+                team_id: 1,
+                person_ids: vec![1],
+                read_options: strong_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    // ============================================================
+    // Cohort domain routing tests
+    // ============================================================
+
+    #[tokio::test]
+    async fn test_check_cohort_membership_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .check_cohort_membership(Request::new(CheckCohortMembershipRequest {
+                person_id: 1,
+                cohort_ids: vec![1],
+                read_options: strong_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_cohort_membership_routes_eventual_to_replica() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .check_cohort_membership(Request::new(CheckCohortMembershipRequest {
+                person_id: 1,
+                cohort_ids: vec![1],
+                read_options: eventual_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Eventual)
+        );
+    }
+
+    // ============================================================
+    // Group domain routing tests
+    // ============================================================
+
+    #[tokio::test]
+    async fn test_get_group_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_group(Request::new(GetGroupRequest {
+                team_id: 1,
+                group_type_index: 0,
+                group_key: "test".to_string(),
+                read_options: strong_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_group_routes_eventual_to_replica() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_group(Request::new(GetGroupRequest {
+                team_id: 1,
+                group_type_index: 0,
+                group_key: "test".to_string(),
+                read_options: eventual_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Eventual)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_groups_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_groups(Request::new(GetGroupsRequest {
+                team_id: 1,
+                group_identifiers: vec![],
+                read_options: strong_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_groups_batch_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_groups_batch(Request::new(GetGroupsBatchRequest {
+                keys: vec![],
+                read_options: strong_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_group_type_mappings_by_team_id_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_group_type_mappings_by_team_id(Request::new(GetGroupTypeMappingsByTeamIdRequest {
+                team_id: 1,
+                read_options: strong_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_group_type_mappings_by_team_ids_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_group_type_mappings_by_team_ids(Request::new(
+                GetGroupTypeMappingsByTeamIdsRequest {
+                    team_ids: vec![1],
+                    read_options: strong_consistency(),
+                },
+            ))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_group_type_mappings_by_project_id_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_group_type_mappings_by_project_id(Request::new(
+                GetGroupTypeMappingsByProjectIdRequest {
+                    project_id: 1,
+                    read_options: strong_consistency(),
+                },
+            ))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_group_type_mappings_by_project_ids_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_group_type_mappings_by_project_ids(Request::new(
+                GetGroupTypeMappingsByProjectIdsRequest {
+                    project_ids: vec![1],
+                    read_options: strong_consistency(),
+                },
+            ))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    // ============================================================
+    // Feature flag domain routing tests
+    // ============================================================
+
+    #[tokio::test]
+    async fn test_get_hash_key_override_context_routes_strong_to_primary() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+                team_id: 1,
+                distinct_ids: vec!["user1".to_string()],
+                check_person_exists: false,
+                read_options: strong_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Strong)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_hash_key_override_context_routes_eventual_to_replica() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+                team_id: 1,
+                distinct_ids: vec!["user1".to_string()],
+                check_person_exists: false,
+                read_options: eventual_consistency(),
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Eventual)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_hash_key_override_context_routes_unspecified_to_replica() {
+        let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+        let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+        service
+            .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+                team_id: 1,
+                distinct_ids: vec!["user1".to_string()],
+                check_person_exists: false,
+                read_options: None,
+            }))
+            .await
+            .expect("RPC should succeed");
+
+        assert_eq!(
+            tracking_storage.last_consistency(),
+            Some(storage::postgres::ConsistencyLevel::Eventual)
+        );
     }
 }
