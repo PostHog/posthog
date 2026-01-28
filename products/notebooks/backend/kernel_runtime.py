@@ -468,9 +468,15 @@ class KernelRuntimeService:
             )
             return
 
+        call = payload.get("call") or "hogql_execute"
         query = payload.get("query")
         response_path = payload.get("response_path")
-        if not isinstance(query, str) or not isinstance(response_path, str) or not response_path:
+        if (
+            not isinstance(call, str)
+            or not isinstance(query, str)
+            or not isinstance(response_path, str)
+            or not response_path
+        ):
             logger.warning(
                 "notebook_bridge_payload_missing_fields",
                 payload=payload,
@@ -496,23 +502,32 @@ class KernelRuntimeService:
             )
             return
 
-        try:
-            response = execute_hogql_query(query=query, team=team)
-            if hasattr(response, "model_dump"):
-                response_payload = response.model_dump(exclude_none=True)
-            else:
-                response_payload = response.dict(exclude_none=True)
-            del response_payload["clickhouse"]
-            del response_payload["timings"]
-            del response_payload["modifiers"]
-            del response_payload["hogql"]
-        except Exception as err:
-            logger.exception(
-                "notebook_bridge_query_failed",
+        if call != "hogql_execute":
+            logger.warning(
+                "notebook_bridge_unsupported_call",
+                call=call,
                 sandbox_id=handle.sandbox_id,
                 team_id=handle.runtime.team_id,
             )
-            response_payload = {"error": str(err)}
+            response_payload = {"error": f"Unsupported notebook bridge call: {call}"}
+        else:
+            try:
+                response = execute_hogql_query(query=query, team=team)
+                if hasattr(response, "model_dump"):
+                    response_payload = response.model_dump(exclude_none=True)
+                else:
+                    response_payload = response.dict(exclude_none=True)
+                del response_payload["clickhouse"]
+                del response_payload["timings"]
+                del response_payload["modifiers"]
+                del response_payload["hogql"]
+            except Exception as err:
+                logger.exception(
+                    "notebook_bridge_query_failed",
+                    sandbox_id=handle.sandbox_id,
+                    team_id=handle.runtime.team_id,
+                )
+                response_payload = {"error": str(err)}
 
         response_json = json.dumps(response_payload, ensure_ascii=False, default=str)
         response_bytes = response_json.encode("utf-8")
@@ -881,7 +896,7 @@ class KernelRuntimeService:
             "    fd, response_path = tempfile.mkstemp(prefix='hogql_response_', suffix='.json')\n"
             "    os.close(fd)\n"
             "    os.unlink(response_path)\n"
-            "    _notebook_bridge_write({'query': query, 'response_path': response_path})\n"
+            "    _notebook_bridge_write({'call': 'hogql_execute', 'query': query, 'response_path': response_path})\n"
             "    start_time = time.monotonic()\n"
             "    while not os.path.exists(response_path):\n"
             "        if timeout is not None and time.monotonic() - start_time > timeout:\n"

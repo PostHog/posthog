@@ -302,7 +302,7 @@ class TestKernelRuntimeService(BaseTest):
             sandbox_id=runtime.sandbox_id,
         )
         marker = service._notebook_bridge_marker(handle)
-        bridge_payload = {"query": "select 1", "response_path": "/tmp/resp.json"}
+        bridge_payload = {"call": "hogql_execute", "query": "select 1", "response_path": "/tmp/resp.json"}
         bridge_payload_json = json.dumps(bridge_payload)
         bridge_message = f"{marker}{len(bridge_payload_json)} {bridge_payload_json}\n"
         payload_out: dict[str, Any] = {
@@ -364,7 +364,7 @@ class TestKernelRuntimeService(BaseTest):
             sandbox_id=runtime.sandbox_id,
         )
         marker = service._notebook_bridge_marker(handle)
-        bridge_payload = {"query": "select 1", "response_path": "/tmp/resp.json"}
+        bridge_payload = {"call": "hogql_execute", "query": "select 1", "response_path": "/tmp/resp.json"}
         bridge_payload_json = json.dumps(bridge_payload)
         bridge_message = f"{marker}{len(bridge_payload_json)} {bridge_payload_json}\n"
         payload_out: dict[str, Any] = {
@@ -437,10 +437,10 @@ class TestKernelRuntimeService(BaseTest):
                 "payload_extraction",
                 "__NOTEBOOK_BRIDGE__",
                 [
-                    'hello__NOTEBOOK_BRIDGE__18 {"query":"select"}\nworld',
+                    'hello__NOTEBOOK_BRIDGE__41 {"call":"hogql_execute","query":"select"}\nworld',
                 ],
                 ["helloworld"],
-                ['{"query":"select"}'],
+                ['{"call":"hogql_execute","query":"select"}'],
             ),
         ]
     )
