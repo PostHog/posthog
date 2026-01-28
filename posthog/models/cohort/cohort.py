@@ -40,6 +40,15 @@ class CohortType(StrEnum):
     ANALYTICAL = "analytical"
 
 
+class SystemCohortType(models.IntegerChoices):
+    """
+    Types of system cohorts managed by PostHog.
+    Starting at 1 so NULL (falsey) clearly indicates a non-system cohort.
+    """
+
+    TEST_USERS = 1, "Test users"
+
+
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
 # set in cohorts_cache
 CohortOrEmpty = Union["Cohort", Literal[""], None]
@@ -180,6 +189,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     last_error_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
+    system_type = models.IntegerField(
+        choices=SystemCohortType.choices,
+        null=True,
+        blank=True,
+        help_text="Type of system cohort, or NULL for user-created cohorts",
+    )
 
     cohort_type = models.CharField(
         max_length=50,
@@ -193,6 +208,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     groups = models.JSONField(default=list)
 
     objects = CohortManager()  # type: ignore
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "system_type"],
+                condition=models.Q(system_type__isnull=False),
+                name="unique_system_cohort_per_team",
+            )
+        ]
 
     def __str__(self):
         return self.name or "Untitled cohort"
@@ -857,6 +881,37 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         transaction.on_commit(trigger_calculation)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
+
+
+def get_or_create_system_cohorts(team: "Team") -> list["Cohort"]:
+    test_users_cohort, _ = Cohort.objects.get_or_create(
+        team=team,
+        system_type=SystemCohortType.TEST_USERS,
+        defaults={
+            "name": "Test users",
+            "description": "System cohort containing users with $test_user property set to true",
+            "is_static": False,
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$test_user",
+                                    "type": "person",
+                                    "value": [True],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        },
+    )
+    return [test_users_cohort]
 
 
 class CohortPeople(models.Model):

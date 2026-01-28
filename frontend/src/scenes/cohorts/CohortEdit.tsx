@@ -229,7 +229,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             </ButtonPrimitive>
                         )}
                     </ScenePanelActionsSection>
-                    {!isNewCohort && (
+                    {!isNewCohort && !cohort.system_type && (
                         <>
                             <ScenePanelDivider />
                             <ScenePanelActionsSection>
@@ -265,6 +265,11 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
                 <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                     <SceneContent>
+                        {cohort.system_type && (
+                            <LemonBanner type="info" className="mb-4">
+                                This is a system cohort managed by PostHog. It cannot be modified or deleted.
+                            </LemonBanner>
+                        )}
                         <LemonField name="name" className="contents">
                             <SceneTitleSection
                                 name={cohort.name}
@@ -274,40 +279,50 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     type: RESOURCE_TYPE,
                                 }}
                                 isLoading={cohortLoading}
-                                onNameChange={(value) => {
-                                    setCohortValue('name', value)
-                                }}
-                                onDescriptionChange={(value) => {
-                                    setCohortValue('description', value)
-                                }}
-                                canEdit
+                                onNameChange={
+                                    cohort.system_type
+                                        ? undefined
+                                        : (value) => {
+                                              setCohortValue('name', value)
+                                          }
+                                }
+                                onDescriptionChange={
+                                    cohort.system_type
+                                        ? undefined
+                                        : (value) => {
+                                              setCohortValue('description', value)
+                                          }
+                                }
+                                canEdit={!cohort.system_type}
                                 forceEdit={isNewCohort}
                                 actions={
-                                    <>
-                                        {isNewCohort ? (
+                                    cohort.system_type ? undefined : (
+                                        <>
+                                            {isNewCohort ? (
+                                                <LemonButton
+                                                    data-attr="cancel-cohort"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        router.actions.push(urls.cohorts())
+                                                    }}
+                                                    size="small"
+                                                    disabled={cohortLoading}
+                                                >
+                                                    Cancel
+                                                </LemonButton>
+                                            ) : null}
                                             <LemonButton
-                                                data-attr="cancel-cohort"
-                                                type="secondary"
-                                                onClick={() => {
-                                                    router.actions.push(urls.cohorts())
-                                                }}
+                                                type="primary"
+                                                data-attr="save-cohort"
+                                                htmlType="submit"
+                                                loading={cohortLoading || cohort.is_calculating}
+                                                form="cohort"
                                                 size="small"
-                                                disabled={cohortLoading}
                                             >
-                                                Cancel
+                                                Save
                                             </LemonButton>
-                                        ) : null}
-                                        <LemonButton
-                                            type="primary"
-                                            data-attr="save-cohort"
-                                            htmlType="submit"
-                                            loading={cohortLoading || cohort.is_calculating}
-                                            form="cohort"
-                                            size="small"
-                                        >
-                                            Save
-                                        </LemonButton>
-                                    </>
+                                        </>
+                                    )
                                 }
                             />
                         </LemonField>
@@ -324,9 +339,11 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                         {({ value, onChange }) => (
                                             <LemonSelect
                                                 disabledReason={
-                                                    isNewCohort
-                                                        ? null
-                                                        : 'Create a new cohort to use a different type of cohort.'
+                                                    cohort.system_type
+                                                        ? 'System cohorts cannot be modified.'
+                                                        : isNewCohort
+                                                          ? null
+                                                          : 'Create a new cohort to use a different type of cohort.'
                                                 }
                                                 options={COHORT_TYPE_OPTIONS}
                                                 value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
@@ -497,7 +514,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     </>
                                 )}
                             </>
-                        ) : (
+                        ) : !cohort.system_type ? (
                             <>
                                 <SceneDivider />
                                 {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
@@ -523,13 +540,14 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                         }}
                                         topLevelFilter={true}
                                         suffix={['criterion', 'criteria']}
+                                        disabledReason={cohort.system_type ? 'Cannot edit system cohort' : undefined}
                                     />
                                     <div className={cn('w-full [&>div]:my-0 [&>div]:w-full')}>
                                         <CohortCriteriaGroups id={logicProps.id} />
                                     </div>
                                 </SceneSection>
                             </>
-                        )}
+                        ) : null}
 
                         {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
                         {typeof cohort.id === 'number' && (

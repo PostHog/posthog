@@ -64,4 +64,7 @@ class SpikeGPTMatrix(Matrix):
                 }
             ],
         )
-        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": real_users_cohort.pk},
+            *team.test_account_filters,
+        ]

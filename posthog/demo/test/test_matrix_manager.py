@@ -72,7 +72,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
     def test_create_team(self):
         manager = MatrixManager(self.matrix)
 
-        demo_team = manager.create_team(self.organization)
+        demo_team = manager.create_team(self.organization, initiating_user=self.user)
 
         assert demo_team.organization == self.organization
         assert demo_team.ingested_event

@@ -130,7 +130,10 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         shouldShowEmptyState: [
             (s) => [s.cohorts, s.cohortFilters],
             (cohorts: CountedPaginatedResponse<CohortType>, filters: CohortFilters): boolean => {
-                return cohorts.results.length === 0 && objectsEqual(filters, DEFAULT_COHORT_FILTERS)
+                return (
+                    cohorts.results.filter((c) => !c.system_type).length === 0 &&
+                    objectsEqual(filters, DEFAULT_COHORT_FILTERS)
+                )
             },
         ],
     }),

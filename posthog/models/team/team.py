@@ -118,18 +118,29 @@ class TeamManager(models.Manager):
     def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
         team = cast("Team", self.create(**kwargs))
 
+        from posthog.models.cohort.cohort import get_or_create_system_cohorts
+
+        [test_users_cohort] = get_or_create_system_cohorts(team)
+        team.test_account_filters = [{"key": "id", "type": "cohort", "value": test_users_cohort.id, "negation": True}]
+
         if kwargs.get("is_demo"):
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
-            team.kick_off_demo_data_generation(initiating_user)
+
+            team.save()
+            # Defer Celery task if we're inside an atomic block (e.g., ensure_account_and_save)
+            # to avoid sending task before transaction commits. In tests, Celery tasks run
+            # synchronously so we can call directly (and on_commit doesn't run in TestCase).
+            if connection.in_atomic_block and not settings.TEST:
+                transaction.on_commit(lambda: team.kick_off_demo_data_generation(initiating_user))
+            else:
+                team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
         # Get organization to apply defaults
         organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
         team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
-
-        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
@@ -156,6 +167,7 @@ class TeamManager(models.Manager):
                 description=str(playlist.get("description", "")),
                 type="filters",
             )
+
         team.save()
 
         # Add UserProductList for all users who have access to this new team

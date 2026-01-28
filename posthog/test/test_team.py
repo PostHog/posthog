@@ -7,7 +7,9 @@ from parameterized import parameterized
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.models import Dashboard, DashboardTile, Organization, Team, User
+from posthog.models import Dashboard, DashboardTile, Organization, Team
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import SystemCohortType
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
@@ -72,38 +74,20 @@ class TestTeam(BaseTest):
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-        self.assertEqual(
-            team.test_account_filters,
-            [
-                {
-                    "key": "email",
-                    "value": "@posthog.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "key": "$host",
-                    "operator": "not_regex",
-                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
-                    "type": "event",
-                },
-            ],
-        )
 
-        # test generic emails
-        user = User.objects.create(email="test@gmail.com")
-        organization = Organization.objects.create()
-        organization.members.set([user])
-        team = Team.objects.create_with_data(initiating_user=self.user, organization=organization)
+        # Get the system cohort that was created for this team
+        test_users_cohort = Cohort.objects.get(team=team, system_type=SystemCohortType.TEST_USERS)
+
+        # New teams get the Test users cohort filter (with negation to exclude test users)
         self.assertEqual(
             team.test_account_filters,
             [
                 {
-                    "key": "$host",
-                    "operator": "not_regex",
-                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
-                    "type": "event",
-                }
+                    "key": "id",
+                    "type": "cohort",
+                    "value": test_users_cohort.id,
+                    "negation": True,
+                },
             ],
         )
 

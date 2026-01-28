@@ -33,6 +33,7 @@ class Cluster(ABC):
     end: dt.datetime  # End of the simulation (might be same as now or later)
 
     radius: int
+    is_test_cluster: bool  # Whether all people in this cluster are test users (1% of clusters)
     people_matrix: list[list[SimPerson]]  # Grid containing all people in the cluster
 
     random: mimesis.random.Random
@@ -65,6 +66,7 @@ class Cluster(ABC):
         self.now = matrix.now
         self.end = matrix.end
         self.radius = int(self.MIN_RADIUS + self.radius_distribution() * (self.MAX_RADIUS - self.MIN_RADIUS))
+        self.is_test_cluster = self.random.random() < 0.01
         self.people_matrix = [
             [
                 matrix.PERSON_CLASS(
