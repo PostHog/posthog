@@ -46,7 +46,7 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
         // Note: recording_ts_from_s will be added by the backend based on actual video time
         const periods: ReplayInactivityPeriod[] = recordingSegments
             // Skipping buffers, keeping windows and gaps
-            .filter((segment) => segment.kind !== 'buffer')
+            .filter((segment) => segment.kind !== 'buffer' && segment.kind !== 'gap')
             .map((segment) => ({
                 ts_from_s: Math.floor((segment.startTimestamp - recordingStartTimestamp) / 1000),
                 ts_to_s: Math.floor((segment.endTimestamp - recordingStartTimestamp) / 1000),
@@ -81,9 +81,8 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
         if (!currentSegment || !recordingSegments?.length) {
             return
         }
-        // Skip buffers and inactive segments - only track active segments
-        // (inactive segments are tracked via __POSTHOG_INACTIVITY_PERIODS__ above)
-        if (currentSegment.kind === 'buffer' || !currentSegment.isActive) {
+        // Track only active segments (inactive segments are tracked via __POSTHOG_INACTIVITY_PERIODS__ above)
+        if (!currentSegment.isActive) {
             return
         }
         // Calculate ts_from_s for this segment
