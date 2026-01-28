@@ -1221,22 +1221,9 @@ class KernelRuntimeService:
         bridge_parser = _NotebookBridgeParser(marker=marker)
 
         for line in stream.iter_stdout():
-            trimmed = line.strip()
-            if not trimmed:
-                continue
-            try:
-                chunk = json.loads(trimmed)
-            except json.JSONDecodeError:
-                continue
-            if chunk.get("type") == "stream":
-                if chunk.get("name") == "stdout":
-                    text = chunk.get("text", "")
-                    _, payloads = bridge_parser.feed(text)
-                    for payload_json in payloads:
-                        self._handle_notebook_bridge_payload(payload_json, handle)
-                continue
-            if chunk.get("type") == "result":
-                payload_out = chunk
+            event = self._parse_kernel_stream_line(line, handle=handle, bridge_parser=bridge_parser)
+            if event and event["type"] == "result":
+                payload_out = event["data"]
 
         result = stream.wait()
         if result.exit_code != 0:
@@ -1318,28 +1305,14 @@ class KernelRuntimeService:
         bridge_parser = _NotebookBridgeParser(marker=marker)
 
         for line in stream.iter_stdout():
-            trimmed = line.strip()
-            if not trimmed:
+            event = self._parse_kernel_stream_line(line, handle=handle, bridge_parser=bridge_parser)
+            if not event:
                 continue
-            try:
-                chunk = json.loads(trimmed)
-            except json.JSONDecodeError:
+            if event["type"] == "result":
+                payload_out = event["data"]
                 continue
-            if chunk.get("type") == "stream":
-                stream_name = chunk.get("name")
-                text = chunk.get("text", "")
-                if stream_name == "stdout":
-                    filtered_text, payloads = bridge_parser.feed(text)
-                    for payload_json in payloads:
-                        self._handle_notebook_bridge_payload(payload_json, handle)
-                    if filtered_text:
-                        yield {"type": "stdout", "text": filtered_text}
-                elif stream_name == "stderr":
-                    yield {"type": "stderr", "text": text}
-                continue
-            if chunk.get("type") == "result":
-                payload_out = chunk
-                continue
+            if event["text"]:
+                yield event
 
         remaining_text = bridge_parser.flush()
         if remaining_text:
@@ -1388,6 +1361,35 @@ class KernelRuntimeService:
         )
 
         yield {"type": "result", "data": execution_result.as_dict()}
+
+    def _parse_kernel_stream_line(
+        self,
+        line: str,
+        *,
+        handle: _KernelHandle,
+        bridge_parser: _NotebookBridgeParser,
+    ) -> dict[str, Any] | None:
+        trimmed = line.strip()
+        if not trimmed:
+            return None
+        try:
+            chunk = json.loads(trimmed)
+        except json.JSONDecodeError:
+            return None
+        if chunk.get("type") == "stream":
+            stream_name = chunk.get("name")
+            text = chunk.get("text", "")
+            if stream_name == "stdout":
+                filtered_text, payloads = bridge_parser.feed(text)
+                for payload_json in payloads:
+                    self._handle_notebook_bridge_payload(payload_json, handle)
+                return {"type": "stdout", "text": filtered_text}
+            if stream_name == "stderr":
+                return {"type": "stderr", "text": text}
+            return None
+        if chunk.get("type") == "result":
+            return {"type": "result", "data": chunk}
+        return None
 
     def dataframe_page(
         self,
