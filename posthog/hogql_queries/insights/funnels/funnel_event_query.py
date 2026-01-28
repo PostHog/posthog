@@ -16,7 +16,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, UUIDDatabaseField
+from posthog.hogql.database.models import (
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    StringDatabaseField,
+    UUIDDatabaseField,
+)
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -81,10 +86,24 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
     def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
         tables_to_steps: dict[str, list[tuple[int, EntityNode]]] = defaultdict(list)
+        data_warehouse_tables_to_steps: dict[tuple[str, str, str], list[tuple[int, DataWarehouseNode]]] = defaultdict(
+            list
+        )
+        data_warehouse_timestamp_fields: dict[str, set[str]] = defaultdict(set)
 
         for step_index, node in enumerate(self.context.query.series):
             table_name = get_table_name(node)
-            tables_to_steps[table_name].append((step_index, node))
+            if table_name == "events":
+                tables_to_steps[table_name].append((step_index, node))
+                continue
+
+            assert isinstance(node, DataWarehouseNode)
+            data_warehouse_timestamp_fields[node.table_name].add(node.timestamp_field)
+            # Group data warehouse steps by the combination that defines an event stream.
+            # This prevents multiple steps on the same table (but different timestamp fields)
+            # from collapsing into a single stream with the wrong timestamp.
+            key = (node.table_name, node.distinct_id_field, node.timestamp_field)
+            data_warehouse_tables_to_steps[key].append((step_index, node))
 
         def _build_events_table_query(
             table_name: str, steps: Sequence[tuple[int, EventsNode | ActionsNode]]
@@ -123,11 +142,19 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return stmt
 
         def _build_data_warehouse_table_query(
-            table_name: str, steps: Sequence[tuple[int, DataWarehouseNode]]
+            table_name: str,
+            steps: Sequence[tuple[int, DataWarehouseNode]],
+            uuid_salt: str | None,
         ) -> ast.SelectQuery:
             node = steps[0][1]
-
-            all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name, node)
+            step_indices = {index for index, _ in steps}
+            all_step_cols = self._get_funnel_cols(
+                SourceTableKind.DATA_WAREHOUSE,
+                table_name,
+                node,
+                step_indices,
+                uuid_salt,
+            )
 
             field = self.get_warehouse_field(node.table_name, node.timestamp_field)
 
@@ -136,6 +163,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             if isinstance(field, DateTimeDatabaseField):
                 timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])
             elif isinstance(field, StringDatabaseField):
+                timestamp_expr = ast.Call(
+                    name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])]
+                )
+            elif isinstance(field, DateDatabaseField):
                 timestamp_expr = ast.Call(
                     name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])]
                 )
@@ -197,7 +228,14 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 queries.append(_build_events_table_query(table_name, event_steps))
             else:
                 dwh_steps = cast(Sequence[tuple[int, DataWarehouseNode]], steps)
-                queries.append(_build_data_warehouse_table_query(table_name, dwh_steps))
+                queries.append(_build_data_warehouse_table_query(table_name, dwh_steps, None))
+
+        for (table_name, _distinct_id_field, _timestamp_field), steps in data_warehouse_tables_to_steps.items():
+            dwh_steps = cast(Sequence[tuple[int, DataWarehouseNode]], steps)
+            uuid_salt = None
+            if len(data_warehouse_timestamp_fields[table_name]) > 1:
+                uuid_salt = dwh_steps[0][1].timestamp_field
+            queries.append(_build_data_warehouse_table_query(table_name, dwh_steps, uuid_salt))
 
         if len(queries) == 1:
             return queries[0]
@@ -215,15 +253,23 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         )
 
     def _get_funnel_cols(
-        self, source_kind: SourceTableKind, table_name: str, node: Optional[DataWarehouseNode] = None
+        self,
+        source_kind: SourceTableKind,
+        table_name: str,
+        node: Optional[DataWarehouseNode] = None,
+        step_indices: Optional[set[int]] = None,
+        uuid_salt: str | None = None,
     ) -> list[ast.Expr]:
         cols: list[ast.Expr] = []
 
         # extra fields
-        cols.extend(self._get_extra_fields(source_kind, node))
+        cols.extend(self._get_extra_fields(source_kind, node, uuid_salt))
 
         # step cols
         for index, entity in enumerate(self.context.query.series):
+            if step_indices is not None and index not in step_indices:
+                cols.append(parse_expr(f"0 as step_{index}"))
+                continue
             step_col = self._get_step_col(source_kind, table_name, entity, index)
             cols.append(step_col)
 
@@ -418,12 +464,23 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             raise ValidationError(f"Unknown breakdown attribution type {breakdownAttributionType}")
 
     def _get_extra_fields(
-        self, source_kind: SourceTableKind, node: Optional[DataWarehouseNode] = None
+        self,
+        source_kind: SourceTableKind,
+        node: Optional[DataWarehouseNode] = None,
+        uuid_salt: str | None = None,
     ) -> list[ast.Expr]:
         def _expr_for(field: str) -> ast.Expr:
             if is_data_warehouse_source(source_kind):
                 assert isinstance(node, DataWarehouseNode)
                 if field == "uuid":
+                    if uuid_salt is not None:
+                        return parse_expr(
+                            "reinterpretAsUUID(md5(concat({salt}, '-', toString({id_field}))))",
+                            placeholders={
+                                "salt": ast.Constant(value=uuid_salt),
+                                "id_field": ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field]),
+                            },
+                        )
                     resolved_field = self.get_warehouse_field(node.table_name, node.id_field)
                     if isinstance(resolved_field, UUIDDatabaseField):
                         return ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field])
