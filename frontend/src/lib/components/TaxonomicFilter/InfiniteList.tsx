@@ -3,22 +3,24 @@ import './InfiniteList.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { CSSProperties, useEffect, useState } from 'react'
+import { List, useListRef } from 'react-window'
 
 import { IconArchive, IconCheck, IconPlus } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
+    ListStorage,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
+    TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
@@ -160,31 +162,30 @@ const selectedItemHasPopover = (
 ): boolean => {
     // NB: also update "renderItemContents" above
     return (
-        TaxonomicFilterGroupType.EventMetadata,
         !!item &&
-            !!group?.getValue?.(item) &&
-            !!listGroupType &&
-            ([
-                TaxonomicFilterGroupType.Actions,
-                TaxonomicFilterGroupType.Elements,
-                TaxonomicFilterGroupType.Events,
-                TaxonomicFilterGroupType.DataWarehouse,
-                TaxonomicFilterGroupType.DataWarehouseProperties,
-                TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                TaxonomicFilterGroupType.CustomEvents,
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.EventFeatureFlags,
-                TaxonomicFilterGroupType.EventMetadata,
-                TaxonomicFilterGroupType.RevenueAnalyticsProperties,
-                TaxonomicFilterGroupType.NumericalEventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.CohortsWithAllUsers,
-                TaxonomicFilterGroupType.Metadata,
-                TaxonomicFilterGroupType.SessionProperties,
-                TaxonomicFilterGroupType.ErrorTrackingProperties,
-            ].includes(listGroupType) ||
-                listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+        !!group?.getValue?.(item) &&
+        !!listGroupType &&
+        ([
+            TaxonomicFilterGroupType.Actions,
+            TaxonomicFilterGroupType.Elements,
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.DataWarehouse,
+            TaxonomicFilterGroupType.DataWarehouseProperties,
+            TaxonomicFilterGroupType.DataWarehousePersonProperties,
+            TaxonomicFilterGroupType.CustomEvents,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.EventFeatureFlags,
+            TaxonomicFilterGroupType.EventMetadata,
+            TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+            TaxonomicFilterGroupType.NumericalEventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.Cohorts,
+            TaxonomicFilterGroupType.CohortsWithAllUsers,
+            TaxonomicFilterGroupType.Metadata,
+            TaxonomicFilterGroupType.SessionProperties,
+            TaxonomicFilterGroupType.ErrorTrackingProperties,
+        ].includes(listGroupType) ||
+            listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
 }
 
@@ -195,6 +196,202 @@ const canSelectItem = (
     return (
         !!listGroupType &&
         (dataWarehousePopoverFields?.length === 0 || listGroupType !== TaxonomicFilterGroupType.DataWarehouse)
+    )
+}
+
+interface InfiniteListRowProps {
+    results: TaxonomicDefinitionTypes[]
+    taxonomicGroups: TaxonomicFilterGroup[]
+    group: TaxonomicFilterGroup
+    listGroupType: TaxonomicFilterGroupType
+    groupType: TaxonomicFilterGroupType | undefined
+    value: string | number | null | undefined
+    selectedProperties: TaxonomicFilterGroupValueMap
+    eventNames: string[]
+    highlightedIndex: number
+    isActiveTab: boolean
+    mouseInteractionsEnabled: boolean
+    showPopover: boolean
+    totalListCount: number
+    totalResultCount: number
+    expandedCount: number
+    isExpandable: boolean
+    isLoading: boolean
+    items: ListStorage
+    showNonCapturedEventOption: boolean
+    trimmedSearchQuery: string
+    dataWarehousePopoverFields: DataWarehousePopoverField[] | undefined
+    popupAnchorElement: HTMLDivElement | null
+    setIndex: (index: number) => void
+    expand: () => void
+    selectItem: (
+        group: TaxonomicFilterGroup,
+        value: string | number | null,
+        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
+        query: string
+    ) => void
+    setHighlightedItemElement: (element: HTMLDivElement | null) => void
+}
+
+const InfiniteListRow = ({
+    index: rowIndex,
+    style,
+    results,
+    taxonomicGroups,
+    group,
+    listGroupType,
+    groupType,
+    value,
+    selectedProperties,
+    eventNames,
+    highlightedIndex,
+    isActiveTab,
+    mouseInteractionsEnabled,
+    showPopover,
+    totalListCount,
+    totalResultCount,
+    expandedCount,
+    isExpandable,
+    isLoading,
+    items,
+    showNonCapturedEventOption,
+    trimmedSearchQuery,
+    dataWarehousePopoverFields,
+    popupAnchorElement,
+    setIndex,
+    expand,
+    selectItem,
+    setHighlightedItemElement,
+}: {
+    ariaAttributes: Record<string, unknown>
+    index: number
+    style: CSSProperties
+} & InfiniteListRowProps): JSX.Element | null => {
+    const item = results[rowIndex]
+    const itemGroup = getItemGroup(item, taxonomicGroups, group)
+    const itemValue = item ? itemGroup?.getValue?.(item) : null
+
+    const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
+
+    const isSelected = listGroupType === groupType && itemValue === normalizedValue
+
+    const isHighlighted = rowIndex === highlightedIndex && isActiveTab
+
+    const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
+
+    if (showNonCapturedEventOption && rowIndex === 0) {
+        const selectNonCapturedEvent = (): void => {
+            selectItem(
+                itemGroup,
+                trimmedSearchQuery,
+                { name: trimmedSearchQuery, isNonCaptured: true },
+                trimmedSearchQuery
+            )
+        }
+
+        return (
+            <LemonRow
+                fullWidth
+                style={style}
+                className={clsx(
+                    'taxonomic-list-row',
+                    'border border-dashed border-secondary rounded min-h-9 justify-center'
+                )}
+                outlined={false}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        selectNonCapturedEvent()
+                    }
+                }}
+                onClick={selectNonCapturedEvent}
+                onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
+                icon={<IconPlus className="text-muted size-4" />}
+                data-attr="prop-filter-event-option-custom"
+            >
+                <div className="flex items-center gap-2">
+                    <span className="text-muted">Select event:</span>
+                    <span className="font-medium">{trimmedSearchQuery}</span>
+                    <LemonTag type="caution" size="small">
+                        Not seen yet
+                    </LemonTag>
+                </div>
+            </LemonRow>
+        )
+    }
+
+    const commonDivProps: React.HTMLProps<HTMLDivElement> = {
+        className: clsx(
+            'taxonomic-list-row',
+            rowIndex === highlightedIndex && mouseInteractionsEnabled && 'hover',
+            isActive && 'active',
+            isSelected && 'selected'
+        ),
+        onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
+        onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
+        style: style,
+        ref: isHighlighted
+            ? (element) => {
+                  setHighlightedItemElement(element && popupAnchorElement ? popupAnchorElement : element)
+              }
+            : null,
+    }
+
+    if (item && itemGroup) {
+        return (
+            <div
+                {...commonDivProps}
+                data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
+                onClick={() => {
+                    return (
+                        canSelectItem(listGroupType, dataWarehousePopoverFields) &&
+                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery ?? '')
+                    )
+                }}
+            >
+                {renderItemContents({
+                    item,
+                    listGroupType,
+                    itemGroup,
+                    eventNames,
+                    isActive,
+                })}
+            </div>
+        )
+    }
+
+    const isExpandRow = !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading
+    if (isExpandRow) {
+        return (
+            <div
+                {...commonDivProps}
+                className={clsx(commonDivProps.className, 'expand-row')}
+                data-attr={`expand-list-${listGroupType}`}
+                onClick={expand}
+            >
+                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                    `See ${expandedCount - totalResultCount} more ${pluralize(
+                        expandedCount - totalResultCount,
+                        'row',
+                        'rows',
+                        false
+                    )}`}
+            </div>
+        )
+    }
+
+    return (
+        <div
+            {...commonDivProps}
+            className={clsx(commonDivProps.className, 'skeleton-row')}
+            data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
+        >
+            <div className="taxonomic-list-row-contents">
+                <div className="taxonomic-list-row-contents-icon">
+                    <Spinner className="h-4 w-4" speed="0.8s" />
+                </div>
+                <LemonSkeleton className="h-4 flex-1" />
+            </div>
+        </div>
     )
 }
 
@@ -231,6 +428,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const isActiveTab = listGroupType === activeTab
+    const listRef = useListRef(null)
 
     const trimmedSearchQuery = searchQuery.trim()
 
@@ -239,7 +437,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         allowNonCapturedEvents &&
         (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
             listGroupType === TaxonomicFilterGroupType.Events) &&
-        trimmedSearchQuery &&
         trimmedSearchQuery.length > 0 &&
         !isLoading &&
         // Only show if no results found at all
@@ -253,145 +450,11 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const showEmptyState =
         totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
 
-    const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
-        const item = results[rowIndex]
-        const itemGroup = getItemGroup(item, taxonomicGroups, group)
-        const itemValue = item ? itemGroup?.getValue?.(item) : null
-
-        // Normalize value to match itemValue type before comparison
-        const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
-
-        const isSelected = listGroupType === groupType && itemValue === normalizedValue
-
-        const isHighlighted = rowIndex === index && isActiveTab
-
-        const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
-
-        // Show create custom event option when there are no results
-        if (showNonCapturedEventOption && rowIndex === 0) {
-            const selectNonCapturedEvent = (): void => {
-                selectItem(
-                    itemGroup,
-                    trimmedSearchQuery,
-                    { name: trimmedSearchQuery, isNonCaptured: true },
-                    trimmedSearchQuery
-                )
-            }
-
-            return (
-                <LemonRow
-                    key={`item_${rowIndex}`}
-                    fullWidth
-                    className={clsx(
-                        'taxonomic-list-row',
-                        'border border-dashed border-secondary rounded min-h-9 justify-center'
-                    )}
-                    outlined={false}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            selectNonCapturedEvent()
-                        }
-                    }}
-                    onClick={selectNonCapturedEvent}
-                    onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                    icon={<IconPlus className="text-muted size-4" />}
-                    data-attr="prop-filter-event-option-custom"
-                >
-                    <div className="flex items-center gap-2">
-                        <span className="text-muted">Select event:</span>
-                        <span className="font-medium">{trimmedSearchQuery}</span>
-                        <LemonTag type="caution" size="small">
-                            Not seen yet
-                        </LemonTag>
-                    </div>
-                </LemonRow>
-            )
+    useEffect(() => {
+        if (index >= 0 && listRef.current) {
+            listRef.current.scrollToRow({ index, align: 'smart' })
         }
-
-        const commonDivProps: React.HTMLProps<HTMLDivElement> = {
-            key: `item_${rowIndex}`,
-            className: clsx(
-                'taxonomic-list-row',
-                rowIndex === index && mouseInteractionsEnabled && 'hover',
-                isActive && 'active',
-                isSelected && 'selected'
-            ),
-            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
-            // if the popover is not enabled then don't leave the row selected when the mouse leaves it
-            onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
-            style: style,
-            ref: isHighlighted
-                ? (element) => {
-                      setHighlightedItemElement(element && popupAnchorElement ? popupAnchorElement : element)
-                  }
-                : null,
-        }
-
-        // If there's an item to render
-        if (item && itemGroup) {
-            return (
-                <div
-                    {...commonDivProps}
-                    data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                    onClick={() => {
-                        return (
-                            canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                            selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
-                        )
-                    }}
-                >
-                    {renderItemContents({
-                        item,
-                        listGroupType,
-                        itemGroup,
-                        eventNames,
-                        isActive,
-                    })}
-                </div>
-            )
-        }
-
-        // Check if this row should be the "show more" expand row:
-        // - !item: No actual item data exists at this index
-        // - rowIndex === totalListCount - 1: This is the last row in the visible list
-        // - isExpandable: There are more items available to load/show
-        // - !isLoading: We're not currently in the middle of loading data
-        const isExpandRow = !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading
-        if (isExpandRow) {
-            return (
-                <div
-                    {...commonDivProps}
-                    className={clsx(commonDivProps.className, 'expand-row')}
-                    data-attr={`expand-list-${listGroupType}`}
-                    onClick={expand}
-                >
-                    {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
-                        `See ${expandedCount - totalResultCount} more ${pluralize(
-                            expandedCount - totalResultCount,
-                            'row',
-                            'rows',
-                            false
-                        )}`}
-                </div>
-            )
-        }
-
-        // Otherwise show a skeleton loader
-        return (
-            <div
-                {...commonDivProps}
-                className={clsx(commonDivProps.className, 'skeleton-row')}
-                data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
-            >
-                <div className="taxonomic-list-row-contents">
-                    <div className="taxonomic-list-row-contents-icon">
-                        <Spinner className="h-4 w-4" speed="0.8s" />
-                    </div>
-                    <LemonSkeleton className="h-4 flex-1" />
-                </div>
-            </div>
-        )
-    }
+    }, [index, listRef])
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
 
@@ -415,24 +478,59 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     <Spinner className="text-3xl" />
                 </div>
             ) : (
-                <AutoSizer>
-                    {({ height, width }) => (
-                        <List
-                            width={width}
-                            height={height}
-                            rowCount={
-                                showNonCapturedEventOption
-                                    ? 1
-                                    : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
-                            }
-                            overscanRowCount={100}
-                            rowHeight={36} // LemonRow heights
-                            rowRenderer={renderItem}
-                            onRowsRendered={onRowsRendered}
-                            scrollToIndex={index}
-                        />
-                    )}
-                </AutoSizer>
+                <AutoSizer
+                    renderProp={({ height, width }) =>
+                        height && width ? (
+                            <List<InfiniteListRowProps>
+                                listRef={listRef}
+                                style={{ width, height }}
+                                rowCount={
+                                    showNonCapturedEventOption
+                                        ? 1
+                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
+                                }
+                                overscanCount={100}
+                                rowHeight={36}
+                                rowComponent={InfiniteListRow}
+                                rowProps={{
+                                    results,
+                                    taxonomicGroups,
+                                    group,
+                                    listGroupType,
+                                    groupType,
+                                    value,
+                                    selectedProperties,
+                                    eventNames,
+                                    highlightedIndex: index,
+                                    isActiveTab,
+                                    mouseInteractionsEnabled,
+                                    showPopover,
+                                    totalListCount,
+                                    totalResultCount,
+                                    expandedCount,
+                                    isExpandable,
+                                    isLoading,
+                                    items,
+                                    showNonCapturedEventOption,
+                                    trimmedSearchQuery,
+                                    dataWarehousePopoverFields,
+                                    popupAnchorElement,
+                                    setIndex,
+                                    expand,
+                                    selectItem,
+                                    setHighlightedItemElement,
+                                }}
+                                onRowsRendered={(visibleRows, allRows) =>
+                                    onRowsRendered({
+                                        startIndex: visibleRows.startIndex,
+                                        stopIndex: visibleRows.stopIndex,
+                                        overscanStopIndex: allRows.stopIndex,
+                                    })
+                                }
+                            />
+                        ) : null
+                    }
+                />
             )}
             {isActiveTab &&
             selectedItemHasPopover(selectedItem, listGroupType, selectedItemGroup) &&

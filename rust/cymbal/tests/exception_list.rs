@@ -185,4 +185,8 @@ test_exception_list_processing!(
     async |_, _, _, _| -> () {}
 );
 
-test_exception_list_processing!(exception_list_python, "python", async |_, _, _, _| -> () {});
+test_exception_list_processing!(test_exception_list_python, "python", async |_,
+                                                                             _,
+                                                                             _,
+                                                                             _|
+       -> () {});
