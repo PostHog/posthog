@@ -5,7 +5,6 @@ export const OpenAIAgentsInstallation = (): JSX.Element => {
         Steps,
         Step,
         CodeBlock,
-        CalloutBox,
         ProductScreenshot,
         OSButton,
         Markdown,
