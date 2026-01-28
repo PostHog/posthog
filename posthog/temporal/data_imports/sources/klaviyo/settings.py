@@ -10,6 +10,9 @@ class KlaviyoEndpointConfig:
     path: str
     incremental_fields: list[IncrementalField]
     default_incremental_field: str = "updated_at"
+    partition_key: Optional[str] = (
+        None  # Field to partition by (should be created_at style field for stable partitions)
+    )
     base_filter: Optional[str] = None  # e.g., "equals(messages.channel,'email')"
     page_size: Optional[int] = None  # Override default page size (100)
 
@@ -19,6 +22,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         name="email_campaigns",
         path="/campaigns",
         base_filter="equals(messages.channel,'email')",
+        partition_key="created_at",
         incremental_fields=[
             {
                 "label": "updated_at",
@@ -38,6 +42,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         name="sms_campaigns",
         path="/campaigns",
         base_filter="equals(messages.channel,'sms')",
+        partition_key="created_at",
         incremental_fields=[
             {
                 "label": "updated_at",
@@ -57,6 +62,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         name="events",
         path="/events",
         default_incremental_field="datetime",
+        partition_key="datetime",
         incremental_fields=[
             {
                 "label": "datetime",
@@ -70,6 +76,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         name="flows",
         path="/flows",
         default_incremental_field="updated",
+        partition_key="created",
         page_size=50,  # Flows endpoint max is 50
         incremental_fields=[
             {
@@ -90,6 +97,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         name="lists",
         path="/lists",
         default_incremental_field="updated",
+        partition_key="created",
         incremental_fields=[
             {
                 "label": "updated",
@@ -115,6 +123,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         name="profiles",
         path="/profiles",
         default_incremental_field="updated",
+        partition_key="created",
         incremental_fields=[
             {
                 "label": "updated",

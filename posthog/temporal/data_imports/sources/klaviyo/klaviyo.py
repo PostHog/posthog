@@ -137,6 +137,8 @@ def klaviyo_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
+    endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": "https://a.klaviyo.com/api",
@@ -180,4 +182,8 @@ def klaviyo_source(
         items=lambda: resource,
         primary_keys=["id"],
         partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="week",
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
     )
