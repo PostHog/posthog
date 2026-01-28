@@ -35,6 +35,8 @@ const MAX_DIMENSION = 1400
 const DEFAULT_WIDTH = 1400
 const DEFAULT_HEIGHT = 600
 const RECORDING_BUFFER_SECONDS = 120
+const DEFAULT_FPS = 25 // Both Playwright and ffpmeg use 25 (PAL) as a default
+const MAX_FPS = 250 // Maximum FPS for the recording (10x playback), vibes, could experiment with higher numbers
 
 // Log to stderr so it doesn't interfere with JSON output
 function log(...args) {
@@ -291,9 +293,9 @@ async function main() {
         const page = await browser.newPage()
         await page.setViewport({ width, height })
         const recordStarted = Date.now()
-        // Videos could be recorded up to 240fps if necessary to avoid losing data when slowing down to 30 fps later
-        // The complication is mostly with CSS animations, as they aren't sped up by rrweb player when running at 8x
-        const customFps = Math.min(30 * playbackSpeed, 240)
+        // Videos are recorded at x playspeed, and will be slowed down to 1x later
+        // The complication is mostly with CSS animations, as they aren't sped up by rrweb player when running at >1x playback
+        const customFps = Math.min(DEFAULT_FPS * playbackSpeed, MAX_FPS)
         const recorderConfig = {
             followNewTab: false, // Always a single tab is recorded
             // Adjust FPS based on the playback speed, so we can speed up seamlessly later
