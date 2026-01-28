@@ -113,7 +113,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     max(is_deleted) as is_deleted
                 FROM person
                 FINAL
-                WHERE team_id = ${teamId}
+                WHERE team_id = ${parseInt(String(teamId))}
                   ${cursorFilter}
                 GROUP BY team_id, id
                 HAVING is_deleted = 0
