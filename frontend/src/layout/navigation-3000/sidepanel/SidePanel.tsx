@@ -359,7 +359,7 @@ export function SidePanel({
                         onValueChange={(value) => openSidePanel(value as SidePanelTab)}
                     >
                         {/* Header with close button */}
-                        <div className="h-[50px] flex items-center justify-between gap-2 pl-2 pr-1.5 py-2 border-b border-primary shrink-0">
+                        <div className="h-[50px] flex items-center justify-between gap-2 pl-2 pr-1.5 border-b border-primary shrink-0">
                             {/* Tab buttons */}
                             <Tabs.List className="relative z-0 flex gap-1 grow">
                                 {[
@@ -411,7 +411,7 @@ export function SidePanel({
                                             />
                                         )
                                     })}
-                                <Tabs.Indicator className="transform-gpu absolute top-[calc(50%-1px)] left-0 z-[-1] h-[33px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
+                                <Tabs.Indicator className="transform-gpu absolute top-1/2 left-0 z-[-1] h-[33px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
 
                                 <ButtonPrimitive
                                     onClick={() => {
