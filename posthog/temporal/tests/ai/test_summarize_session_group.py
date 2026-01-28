@@ -25,6 +25,7 @@ from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai import WORKFLOWS
+from posthog.temporal.ai.session_summary.activities.capture_timing import capture_timing_activity
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
@@ -1035,6 +1036,7 @@ class TestSummarizeSessionGroupWorkflow:
                         combine_patterns_from_chunks_activity,
                         split_session_summaries_into_chunks_for_patterns_extraction_activity,
                         validate_llm_single_session_summary_with_videos_activity,
+                        capture_timing_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ) as worker:
