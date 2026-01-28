@@ -217,6 +217,46 @@ export const tasksDestroy = async (
 }
 
 /**
+ * Get list of references for a task, sorted by creation date.
+ * @summary List task references
+ */
+export type tasksReferencesRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type tasksReferencesRetrieveResponse404 = {
+    data: void
+    status: 404
+}
+
+export type tasksReferencesRetrieveResponseSuccess = tasksReferencesRetrieveResponse200 & {
+    headers: Headers
+}
+export type tasksReferencesRetrieveResponseError = tasksReferencesRetrieveResponse404 & {
+    headers: Headers
+}
+
+export type tasksReferencesRetrieveResponse =
+    | tasksReferencesRetrieveResponseSuccess
+    | tasksReferencesRetrieveResponseError
+
+export const getTasksReferencesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/references/`
+}
+
+export const tasksReferencesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<tasksReferencesRetrieveResponse> => {
+    return apiMutator<tasksReferencesRetrieveResponse>(getTasksReferencesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Create a new task run and kick off the workflow.
  * @summary Run task
  */
@@ -249,6 +289,45 @@ export const tasksRunCreate = async (
     options?: RequestInit
 ): Promise<tasksRunCreateResponse> => {
     return apiMutator<tasksRunCreateResponse>(getTasksRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.
+ * @summary Run video segment clustering
+ */
+export type tasksClusterVideoSegmentsCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type tasksClusterVideoSegmentsCreateResponse500 = {
+    data: void
+    status: 500
+}
+
+export type tasksClusterVideoSegmentsCreateResponseSuccess = tasksClusterVideoSegmentsCreateResponse200 & {
+    headers: Headers
+}
+export type tasksClusterVideoSegmentsCreateResponseError = tasksClusterVideoSegmentsCreateResponse500 & {
+    headers: Headers
+}
+
+export type tasksClusterVideoSegmentsCreateResponse =
+    | tasksClusterVideoSegmentsCreateResponseSuccess
+    | tasksClusterVideoSegmentsCreateResponseError
+
+export const getTasksClusterVideoSegmentsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/cluster_video_segments/`
+}
+
+export const tasksClusterVideoSegmentsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<tasksClusterVideoSegmentsCreateResponse> => {
+    return apiMutator<tasksClusterVideoSegmentsCreateResponse>(getTasksClusterVideoSegmentsCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })

@@ -53,6 +53,15 @@ from .sync_vectors import (
     batch_summarize_actions,
     get_approximate_actions_count,
 )
+from .video_segment_clustering.activities import (
+    cluster_segments_activity,
+    fetch_segments_activity,
+    label_clusters_activity,
+    match_clusters_activity,
+    persist_tasks_activity,
+    prime_session_embeddings_activity,
+)
+from .video_segment_clustering.workflow import VideoSegmentClusteringWorkflow
 
 WORKFLOWS = [
     SyncVectorsWorkflow,
@@ -63,6 +72,8 @@ WORKFLOWS = [
     ChatAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
+    # Video segment clustering workflow
+    VideoSegmentClusteringWorkflow,
 ]
 
 ACTIVITIES = [
@@ -89,6 +100,13 @@ ACTIVITIES = [
     embed_and_store_segments_activity,
     store_video_session_summary_activity,
     consolidate_video_segments_activity,
+    # Video segment clustering activities
+    prime_session_embeddings_activity,
+    fetch_segments_activity,
+    cluster_segments_activity,
+    match_clusters_activity,
+    label_clusters_activity,
+    persist_tasks_activity,
 ]
 
 __all__ = [

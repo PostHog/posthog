@@ -131,6 +131,16 @@ export interface PatchedTaskApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
+    /** Number of unique users affected by this issue */
+    readonly relevant_user_count?: number
+    /** Total number of video segment occurrences (cases) */
+    readonly occurrence_count?: number
+    /**
+     * When this issue was last observed in a video segment
+     * @nullable
+     */
+    readonly last_occurrence_at?: string | null
+    readonly reference_count?: number
 }
 
 export type TasksListParams = {
