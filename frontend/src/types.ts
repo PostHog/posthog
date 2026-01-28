@@ -403,6 +403,7 @@ export interface NotificationSettings {
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
+    discussion_mention_destination_opt_outs?: Record<string, string[]>
 }
 
 export interface PluginAccess {

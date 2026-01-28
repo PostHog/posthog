@@ -2217,3 +2217,245 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["uuid"], str(self.user.uuid))
+
+
+class TestDiscussionMentionDestinationPreferences(APIBaseTest):
+    def test_discussion_mention_destinations_empty_state(self):
+        """Test that endpoint returns empty when no destinations are configured"""
+        response = self.client.get("/api/users/@me/discussion_mention_destinations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"projects": []})
+
+    def test_discussion_mention_destinations_with_destinations(self):
+        """Test that endpoint returns projects with configured destinations"""
+        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Test Slack Destination",
+            type=HogFunctionType.INTERNAL_DESTINATION,
+            enabled=True,
+            deleted=False,
+            hog="return event",
+            filters={"events": [{"id": "$discussion_mention_created"}]},
+            template_id="slack-discussion-notification",
+            icon_url="https://example.com/slack-icon.png",
+        )
+
+        response = self.client.get("/api/users/@me/discussion_mention_destinations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["projects"]), 1)
+        self.assertEqual(data["projects"][0]["id"], self.team.id)
+        self.assertEqual(data["projects"][0]["name"], self.team.name)
+        self.assertEqual(len(data["projects"][0]["destinations"]), 1)
+        self.assertEqual(data["projects"][0]["destinations"][0]["id"], str(hog_function.id))
+        self.assertEqual(data["projects"][0]["destinations"][0]["name"], "Test Slack Destination")
+        self.assertEqual(data["projects"][0]["destinations"][0]["type"], "slack")
+        self.assertEqual(data["projects"][0]["destinations"][0]["icon_url"], "https://example.com/slack-icon.png")
+
+    def test_discussion_mention_destinations_filters_disabled(self):
+        """Test that disabled destinations are not returned"""
+        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+
+        HogFunction.objects.create(
+            team=self.team,
+            name="Disabled Destination",
+            type=HogFunctionType.INTERNAL_DESTINATION,
+            enabled=False,
+            deleted=False,
+            hog="return event",
+            filters={"events": [{"id": "$discussion_mention_created"}]},
+            template_id="slack-discussion-notification",
+        )
+
+        response = self.client.get("/api/users/@me/discussion_mention_destinations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"projects": []})
+
+    def test_discussion_mention_destinations_filters_deleted(self):
+        """Test that deleted destinations are not returned"""
+        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+
+        HogFunction.objects.create(
+            team=self.team,
+            name="Deleted Destination",
+            type=HogFunctionType.INTERNAL_DESTINATION,
+            enabled=True,
+            deleted=True,
+            hog="return event",
+            filters={"events": [{"id": "$discussion_mention_created"}]},
+            template_id="slack-discussion-notification",
+        )
+
+        response = self.client.get("/api/users/@me/discussion_mention_destinations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"projects": []})
+
+    def test_discussion_mention_destinations_access_control(self):
+        """Test that endpoint only returns projects user has access to"""
+        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+
+        other_org = Organization.objects.create(name="Other Organization")
+        other_team = Team.objects.create(name="Other Team", organization=other_org)
+
+        HogFunction.objects.create(
+            team=other_team,
+            name="Other Team Destination",
+            type=HogFunctionType.INTERNAL_DESTINATION,
+            enabled=True,
+            deleted=False,
+            hog="return event",
+            filters={"events": [{"id": "$discussion_mention_created"}]},
+            template_id="slack-discussion-notification",
+        )
+
+        response = self.client.get("/api/users/@me/discussion_mention_destinations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"projects": []})
+
+    def test_opt_out_validation_valid_input(self):
+        """Test that valid opt-out preferences are accepted"""
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "discussion_mention_destination_opt_outs": {
+                        str(self.team.id): ["dest-uuid-1", "dest-uuid-2"],
+                    }
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        opt_outs = self.user.notification_settings.get("discussion_mention_destination_opt_outs", {})
+        self.assertEqual(opt_outs.get(str(self.team.id)), ["dest-uuid-1", "dest-uuid-2"])
+
+    def test_opt_out_validation_invalid_dict(self):
+        """Test that invalid opt-out format is rejected - not a dict"""
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "discussion_mention_destination_opt_outs": "not-a-dict",
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("must be a dict", response.json()["detail"])
+
+    def test_opt_out_validation_invalid_list(self):
+        """Test that invalid opt-out format is rejected - value not a list"""
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "discussion_mention_destination_opt_outs": {
+                        str(self.team.id): "not-a-list",
+                    }
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("must be lists", response.json()["detail"])
+
+    def test_opt_out_validation_invalid_destination_id(self):
+        """Test that invalid opt-out format is rejected - destination ID not string"""
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "discussion_mention_destination_opt_outs": {
+                        str(self.team.id): [123],
+                    }
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("must be strings", response.json()["detail"])
+
+
+class TestShouldSendCdpDiscussionMention(APIBaseTest):
+    def test_should_send_cdp_discussion_mention_opted_in(self):
+        """Test that helper returns True when user is not opted out"""
+        from posthog.models.comment.utils import should_send_cdp_discussion_mention
+
+        result = should_send_cdp_discussion_mention(
+            user=self.user,
+            team_id=self.team.id,
+            destination_id="test-destination-uuid",
+        )
+
+        self.assertTrue(result)
+
+    def test_should_send_cdp_discussion_mention_opted_out(self):
+        """Test that helper returns False when user is opted out"""
+        from posthog.models.comment.utils import should_send_cdp_discussion_mention
+
+        self.user.partial_notification_settings = {
+            "discussion_mention_destination_opt_outs": {
+                str(self.team.id): ["test-destination-uuid"],
+            }
+        }
+        self.user.save()
+
+        result = should_send_cdp_discussion_mention(
+            user=self.user,
+            team_id=self.team.id,
+            destination_id="test-destination-uuid",
+        )
+
+        self.assertFalse(result)
+
+    def test_should_send_cdp_discussion_mention_different_destination(self):
+        """Test that user can be opted out of one destination but not another"""
+        from posthog.models.comment.utils import should_send_cdp_discussion_mention
+
+        self.user.partial_notification_settings = {
+            "discussion_mention_destination_opt_outs": {
+                str(self.team.id): ["other-destination-uuid"],
+            }
+        }
+        self.user.save()
+
+        result = should_send_cdp_discussion_mention(
+            user=self.user,
+            team_id=self.team.id,
+            destination_id="test-destination-uuid",
+        )
+
+        self.assertTrue(result)
+
+    def test_should_send_cdp_discussion_mention_different_team(self):
+        """Test that opt-outs are team-specific"""
+        from posthog.models.comment.utils import should_send_cdp_discussion_mention
+
+        other_team = Team.objects.create(name="Other Team", organization=self.organization)
+
+        self.user.partial_notification_settings = {
+            "discussion_mention_destination_opt_outs": {
+                str(other_team.id): ["test-destination-uuid"],
+            }
+        }
+        self.user.save()
+
+        result = should_send_cdp_discussion_mention(
+            user=self.user,
+            team_id=self.team.id,
+            destination_id="test-destination-uuid",
+        )
+
+        self.assertTrue(result)

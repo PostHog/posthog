@@ -123,3 +123,22 @@ def produce_discussion_mention_events(
     except Exception as e:
         logger.exception("Failed to produce discussion mention events", error=e)
         capture_exception(e)
+
+
+def should_send_cdp_discussion_mention(
+    user: User,
+    team_id: int,
+    destination_id: str,
+) -> bool:
+    """
+    Check if a user should receive discussion mention notifications
+    for a specific CDP destination.
+
+    Users are opted-in by default. Only explicit opt-outs are stored.
+    """
+    settings = user.notification_settings
+    opt_outs = settings.get("discussion_mention_destination_opt_outs", {})
+
+    team_opt_outs = opt_outs.get(str(team_id), [])
+
+    return destination_id not in team_opt_outs
