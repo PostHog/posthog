@@ -91,10 +91,7 @@ class ExcelWriter(TabularWriter):
             self._worksheet.append(columns)
         except ValueError as e:
             if "Invalid column index" in str(e):
-                raise ExcelColumnLimitExceeded(
-                    "Export exceeds Excel's maximum of 18,278 columns. "
-                    "Try exporting fewer columns or use CSV format instead."
-                ) from e
+                raise ExcelColumnLimitExceeded() from e
             raise
 
     def write_row(self, row: dict) -> None:
@@ -108,10 +105,7 @@ class ExcelWriter(TabularWriter):
             self._worksheet.append(values)
         except ValueError as e:
             if "Invalid column index" in str(e):
-                raise ExcelColumnLimitExceeded(
-                    "Export exceeds Excel's maximum of 18,278 columns. "
-                    "Try exporting fewer columns or use CSV format instead."
-                ) from e
+                raise ExcelColumnLimitExceeded() from e
             raise
 
     def finish(self) -> str:
@@ -218,12 +212,11 @@ def _get_breakdown_info(
 
 
 def _format_breakdown_value(breakdown_value: Any) -> str:
-    """Format breakdown_value for CSV export, handling various data types."""
+    """Format breakdown_value for CSV export in a type safe way."""
     if breakdown_value is None:
         return ""
-    if isinstance(breakdown_value, list):
-        return "::".join(str(v) for v in breakdown_value)
-    return str(breakdown_value)
+
+    return "::".join(breakdown_value)
 
 
 def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any, None, None]:

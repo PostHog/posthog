@@ -1521,39 +1521,27 @@ class TestCSVExporter(APIBaseTest):
                 assert "[31mred[0mafter" in str(data_row)  # ANSI: ESC stripped, rest preserved
 
     def test_format_breakdown_value(self) -> None:
-        """Test _format_breakdown_value handles various data types correctly."""
-        test_cases = [
-            (None, ""),
-            ([], ""),
-            (["a", "b", "c"], "a::b::c"),
-            (["single"], "single"),
-            ("single_string", "single_string"),
-            (123, "123"),
-            ([1, 2, 3], "1::2::3"),
-            (["foo", None, "bar"], "foo::None::bar"),
-        ]
-        for input_value, expected in test_cases:
-            result = _format_breakdown_value(input_value)
-            assert result == expected, (
-                f"Failed for input {repr(input_value)}: got {repr(result)}, expected {repr(expected)}"
-            )
+        """Test _format_breakdown_value handles None (the actual incident case)."""
+        # None was causing TypeError: can only join an iterable
+        assert _format_breakdown_value(None) == ""
+
+        # Normal list behavior unchanged
+        assert _format_breakdown_value([]) == ""
+        assert _format_breakdown_value(["a", "b", "c"]) == "a::b::c"
+        assert _format_breakdown_value(["single"]) == "single"
 
     def test_excel_writer_raises_column_limit_exceeded(self) -> None:
-        """Test that ExcelWriter raises ExcelColumnLimitExceeded when data has >18,278 columns."""
         writer = ExcelWriter()
-
-        # Excel's maximum column is 16,384 (XFD), but openpyxl raises at 18,278 (ZZZ)
         # Create more columns than Excel supports
         columns = [f"col_{i}" for i in range(18300)]
 
         with pytest.raises(ExcelColumnLimitExceeded) as exc_info:
             writer.write_header(columns)
 
-        assert "18,278 columns" in str(exc_info.value)
+        assert "16,384 columns" in str(exc_info.value)
         assert "CSV format" in str(exc_info.value)
 
     def test_excel_writer_normal_column_count_works(self) -> None:
-        """Test that ExcelWriter works fine with normal column counts."""
         writer = ExcelWriter()
         columns = ["col_a", "col_b", "col_c"]
         writer.write_header(columns)

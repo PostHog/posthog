@@ -63,9 +63,13 @@ class ExportCancelled(Exception):
 
 
 class ExcelColumnLimitExceeded(Exception):
-    """Raised when export data exceeds Excel's 18,278 column limit (ZZZ)."""
+    """Raised when export data exceeds Excel's 16,384 column limit (XFD)."""
 
-    pass
+    def __init__(self, message: str | None = None):
+        super().__init__(
+            message
+            or "Export exceeds Excel's maximum of 16,384 columns. Try exporting fewer columns or use CSV format instead."
+        )
 
 
 EXCEPTIONS_TO_RETRY = (
@@ -99,8 +103,8 @@ USER_QUERY_ERRORS = (
     QuerySizeExceeded,
     CHQueryErrorUnsupportedMethod,
     ResolutionError,
-    CHQueryErrorInvalidJoinOnExpression,  # Invalid JOIN ON clause in HogQL query
-    ExcelColumnLimitExceeded,  # Export exceeds Excel's column limit
+    CHQueryErrorInvalidJoinOnExpression,
+    ExcelColumnLimitExceeded,
 )
 
 TIMEOUT_ERRORS = (
