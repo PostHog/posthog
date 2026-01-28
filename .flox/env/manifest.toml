@@ -27,6 +27,8 @@ rustfmt = { pkg-path = "rustfmt", pkg-group = "rust-toolchain" }
 rust-lib-src = { pkg-path = "rustPlatform.rustLibSrc", pkg-group = "rust-toolchain" }
 libiconv = { pkg-path = "libiconv", systems = ["aarch64-darwin"], pkg-group = "rust-toolchain" }
 rust-analyzer = { pkg-path = "rust-analyzer", pkg-group = "rust-analyzer" } # rust-analyzer should be isolated in its own group, details in cookbook example
+lld = { pkg-path = "lld", systems = ["aarch64-darwin"] } # Faster linker for Rust dev builds on macOS
+sccache = { pkg-path = "sccache" } # Compilation cache for Rust (also used in CI)
 # Go
 go = { pkg-path = "go", version = "1.24", pkg-group = "go" }
 golangci-lint = { pkg-path = "golangci-lint", pkg-group = "go" }
@@ -40,6 +42,7 @@ postgresql = { pkg-path = "postgresql_14" } # psql
 ffmpeg.pkg-path = "ffmpeg"
 gh = { pkg-path = "gh" }
 protobuf = { pkg-path = "protobuf" } # protoc compiler for gRPC code generation
+watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery autoreload (uses pywatchman)
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first

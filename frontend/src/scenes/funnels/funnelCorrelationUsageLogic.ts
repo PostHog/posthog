@@ -76,108 +76,122 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         ],
     }),
 
-    listeners(({ values, actions }) => ({
-        hideSkewWarning: () => {
-            actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'hide skew warning')
-        },
+    listeners(({ values, actions }) => {
+        // Kea's action type strings can vary by keyed logic instance at runtime,
+        // but the generated types don't encode that, so we widen these keys to avoid TS1117.
+        const correlationVisibleActionType = visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes
+            .setVisible as string
+        const propertyCorrelationVisibleActionType = visibilitySensorLogic({
+            id: `${values.correlationPropKey}-properties`,
+        }).actionTypes.setVisible as string
 
-        // event correlation
-        [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
-            { visible }: { visible: boolean },
-            breakpoint: BreakPointFunction
-        ) => {
-            if (visible && values.shouldReportCorrelationViewed) {
-                actions.reportCorrelationViewed(values.querySource, 0)
-                await breakpoint(10000)
-                actions.reportCorrelationViewed(values.querySource, 10)
-            }
-        },
-        setCorrelationTypes: ({ types }) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Events,
-                'set correlation types',
-                { types }
-            )
-        },
-        excludeEventFromProject: async ({ eventName }) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
-                event_name: eventName,
-            })
-        },
+        return {
+            hideSkewWarning: () => {
+                actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'hide skew warning')
+            },
 
-        // property correlation
-        [visibilitySensorLogic({ id: `${values.correlationPropKey}-properties` }).actionTypes.setVisible]: async (
-            { visible }: { visible: boolean },
-            breakpoint: BreakPointFunction
-        ) => {
-            if (visible && values.shouldReportPropertyCorrelationViewed) {
-                actions.reportCorrelationViewed(values.querySource, 0, true)
-                await breakpoint(10000)
-                actions.reportCorrelationViewed(values.querySource, 10, true)
-            }
-        },
-        setPropertyCorrelationTypes: ({ types }) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Properties,
-                'set property correlation types',
-                { types }
-            )
-        },
-        excludePropertyFromProject: ({ propertyName }) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Events,
-                'exclude person property',
-                {
-                    person_property: propertyName,
+            // event correlation
+            [correlationVisibleActionType]: async (
+                { visible }: { visible: boolean },
+                breakpoint: BreakPointFunction
+            ) => {
+                if (visible && values.shouldReportCorrelationViewed) {
+                    actions.reportCorrelationViewed(values.querySource, 0)
+                    await breakpoint(10000)
+                    actions.reportCorrelationViewed(values.querySource, 10)
                 }
-            )
-        },
+            },
+            setCorrelationTypes: ({ types }) => {
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.Events,
+                    'set correlation types',
+                    { types }
+                )
+            },
+            excludeEventFromProject: async ({ eventName }) => {
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.Events,
+                    'exclude event',
+                    {
+                        event_name: eventName,
+                    }
+                )
+            },
 
-        // event property correlation
-        setPropertyNames: async ({ propertyNames }) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Properties,
-                'set property names',
-                { property_names: propertyNames }
-            )
-        },
-        loadEventWithPropertyCorrelations: async (eventName: string) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.EventWithProperties,
-                'load event with properties',
-                { name: eventName }
-            )
-        },
-        excludeEventPropertyFromProject: async ({ propertyName }) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.EventWithProperties,
-                'exclude event property',
-                {
-                    property_name: propertyName,
+            // property correlation
+            [propertyCorrelationVisibleActionType]: async (
+                { visible }: { visible: boolean },
+                breakpoint: BreakPointFunction
+            ) => {
+                if (visible && values.shouldReportPropertyCorrelationViewed) {
+                    actions.reportCorrelationViewed(values.querySource, 0, true)
+                    await breakpoint(10000)
+                    actions.reportCorrelationViewed(values.querySource, 10, true)
                 }
-            )
-        },
-
-        // person modal
-        openCorrelationPersonsModal: ({ correlation, success }) => {
-            if (values.isInDashboardContext) {
-                return
-            }
-
-            if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
+            },
+            setPropertyCorrelationTypes: ({ types }) => {
                 eventUsageLogic.actions.reportCorrelationInteraction(
                     FunnelCorrelationResultsType.Properties,
-                    'person modal'
+                    'set property correlation types',
+                    { types }
                 )
-            } else {
-                const { name, properties } = parseEventAndProperty(correlation.event)
-                eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
-                    id: name,
-                    type: EntityTypes.EVENTS,
-                    properties,
-                    converted: success,
-                })
-            }
-        },
-    })),
+            },
+            excludePropertyFromProject: ({ propertyName }) => {
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.Events,
+                    'exclude person property',
+                    {
+                        person_property: propertyName,
+                    }
+                )
+            },
+
+            // event property correlation
+            setPropertyNames: async ({ propertyNames }) => {
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.Properties,
+                    'set property names',
+                    { property_names: propertyNames }
+                )
+            },
+            loadEventWithPropertyCorrelations: async (eventName: string) => {
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.EventWithProperties,
+                    'load event with properties',
+                    { name: eventName }
+                )
+            },
+            excludeEventPropertyFromProject: async ({ propertyName }) => {
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.EventWithProperties,
+                    'exclude event property',
+                    {
+                        property_name: propertyName,
+                    }
+                )
+            },
+
+            // person modal
+            openCorrelationPersonsModal: ({ correlation, success }) => {
+                if (values.isInDashboardContext) {
+                    return
+                }
+
+                if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
+                    eventUsageLogic.actions.reportCorrelationInteraction(
+                        FunnelCorrelationResultsType.Properties,
+                        'person modal'
+                    )
+                } else {
+                    const { name, properties } = parseEventAndProperty(correlation.event)
+                    eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
+                        id: name,
+                        type: EntityTypes.EVENTS,
+                        properties,
+                        converted: success,
+                    })
+                }
+            },
+        }
+    }),
 ])
