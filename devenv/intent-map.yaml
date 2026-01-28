@@ -176,6 +176,11 @@ always_required:
     - frontend
     - typegen
     - docker-compose
+    # Migrations (DBs created by postgres init scripts, run for everyone)
+    - migrate-postgres
+    - migrate-clickhouse
+    - migrate-persons-db
+    - migrate-behavioral-cohorts
     # Core services
     - celery-worker
     - celery-beat
