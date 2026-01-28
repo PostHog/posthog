@@ -1,41 +1,37 @@
 from datetime import datetime
 from uuid import UUID
 
-import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from clickhouse_driver import Client
-
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.client import sync_execute
 from posthog.dags.fix_person_id_overrides import (
     fix_person_id_overrides_job,
     get_all_distinct_ids_for_person,
     get_existing_override,
     get_person_id_from_pdi2,
-    insert_override,
+    insert_override_batch,
 )
 
-TEAM_ID = 1
 
-
-def insert_pdi2_records(client: Client, records: list[tuple[int, str, UUID, int, int]]) -> None:
+def insert_pdi2_records(records: list[tuple[int, str, UUID, int, int]]) -> None:
     """Insert records into person_distinct_id2: (team_id, distinct_id, person_id, version, is_deleted)"""
-    client.execute(
+    sync_execute(
         "INSERT INTO person_distinct_id2 (team_id, distinct_id, person_id, version, is_deleted) VALUES",
         records,
     )
 
 
-def insert_override_records(client: Client, records: list[tuple[int, str, UUID, int, int]]) -> None:
+def insert_override_records(records: list[tuple[int, str, UUID, int, int]]) -> None:
     """Insert records into person_distinct_id_overrides: (team_id, distinct_id, person_id, version, is_deleted)"""
-    client.execute(
+    sync_execute(
         "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted, _timestamp, _offset, _partition) VALUES",
         [(r[0], r[1], r[2], r[3], r[4], datetime(2025, 1, 1), 0, 0) for r in records],
     )
 
 
-def get_all_overrides(client: Client, team_id: int) -> list[tuple[str, str]]:
+def get_all_overrides(team_id: int) -> list[tuple[str, str]]:
     """Get all overrides for a team: (distinct_id, person_id)"""
-    result = client.execute(
+    result = sync_execute(
         """
         SELECT distinct_id, argMax(person_id, version) as person_id
         FROM person_distinct_id_overrides
@@ -48,191 +44,159 @@ def get_all_overrides(client: Client, team_id: int) -> list[tuple[str, str]]:
     return [(row[0], str(row[1])) for row in result]
 
 
-class TestGetPersonIdFromPdi2:
-    @pytest.mark.django_db
-    def test_returns_person_id_and_version(self, cluster: ClickhouseCluster):
+class TestGetPersonIdFromPdi2(ClickhouseTestMixin, BaseTest):
+    def test_returns_person_id_and_version(self):
         person_id = UUID(int=1)
+        insert_pdi2_records([(self.team.id, "user_123", person_id, 1, 0)])
 
-        def setup(client: Client) -> None:
-            insert_pdi2_records(client, [(TEAM_ID, "user_123", person_id, 1, 0)])
-
-        cluster.any_host(setup).result()
-
-        result = get_person_id_from_pdi2(TEAM_ID, "user_123")
+        result = get_person_id_from_pdi2(self.team.id, "user_123")
 
         assert result is not None
         assert result[0] == str(person_id)
         assert result[1] == 1
 
-    @pytest.mark.django_db
-    def test_returns_none_for_missing_distinct_id(self, cluster: ClickhouseCluster):
-        result = get_person_id_from_pdi2(TEAM_ID, "nonexistent")
+    def test_returns_none_for_missing_distinct_id(self):
+        result = get_person_id_from_pdi2(self.team.id, "nonexistent")
         assert result is None
 
-    @pytest.mark.django_db
-    def test_returns_none_for_deleted_mapping(self, cluster: ClickhouseCluster):
+    def test_returns_none_for_deleted_mapping(self):
         person_id = UUID(int=2)
+        insert_pdi2_records(
+            [
+                (self.team.id, "deleted_user", person_id, 1, 0),
+                (self.team.id, "deleted_user", person_id, 2, 1),  # deleted
+            ]
+        )
 
-        def setup(client: Client) -> None:
-            insert_pdi2_records(
-                client,
-                [
-                    (TEAM_ID, "deleted_user", person_id, 1, 0),
-                    (TEAM_ID, "deleted_user", person_id, 2, 1),  # deleted
-                ],
-            )
-
-        cluster.any_host(setup).result()
-
-        result = get_person_id_from_pdi2(TEAM_ID, "deleted_user")
+        result = get_person_id_from_pdi2(self.team.id, "deleted_user")
         assert result is None
 
-    @pytest.mark.django_db
-    def test_returns_latest_person_id_by_version(self, cluster: ClickhouseCluster):
+    def test_returns_latest_person_id_by_version(self):
         old_person_id = UUID(int=10)
         new_person_id = UUID(int=20)
+        insert_pdi2_records(
+            [
+                (self.team.id, "merged_user", old_person_id, 1, 0),
+                (self.team.id, "merged_user", new_person_id, 2, 0),  # newer version
+            ]
+        )
 
-        def setup(client: Client) -> None:
-            insert_pdi2_records(
-                client,
-                [
-                    (TEAM_ID, "merged_user", old_person_id, 1, 0),
-                    (TEAM_ID, "merged_user", new_person_id, 2, 0),  # newer version
-                ],
-            )
-
-        cluster.any_host(setup).result()
-
-        result = get_person_id_from_pdi2(TEAM_ID, "merged_user")
+        result = get_person_id_from_pdi2(self.team.id, "merged_user")
 
         assert result is not None
         assert result[0] == str(new_person_id)
         assert result[1] == 2
 
 
-class TestGetAllDistinctIdsForPerson:
-    @pytest.mark.django_db
-    def test_returns_all_distinct_ids_for_person(self, cluster: ClickhouseCluster):
+class TestGetAllDistinctIdsForPerson(ClickhouseTestMixin, BaseTest):
+    def test_returns_all_distinct_ids_for_person(self):
         person_id = UUID(int=100)
+        insert_pdi2_records(
+            [
+                (self.team.id, "anon_id", person_id, 1, 0),
+                (self.team.id, "email@example.com", person_id, 1, 0),
+                (self.team.id, "phone_123", person_id, 1, 0),
+            ]
+        )
 
-        def setup(client: Client) -> None:
-            insert_pdi2_records(
-                client,
-                [
-                    (TEAM_ID, "anon_id", person_id, 1, 0),
-                    (TEAM_ID, "email@example.com", person_id, 1, 0),
-                    (TEAM_ID, "phone_123", person_id, 1, 0),
-                ],
-            )
-
-        cluster.any_host(setup).result()
-
-        result = get_all_distinct_ids_for_person(TEAM_ID, str(person_id))
+        result = get_all_distinct_ids_for_person(self.team.id, str(person_id))
 
         distinct_ids = {did for did, _ in result}
         assert distinct_ids == {"anon_id", "email@example.com", "phone_123"}
 
-    @pytest.mark.django_db
-    def test_excludes_deleted_mappings(self, cluster: ClickhouseCluster):
+    def test_excludes_deleted_mappings(self):
         person_id = UUID(int=101)
+        insert_pdi2_records(
+            [
+                (self.team.id, "active_id", person_id, 1, 0),
+                (self.team.id, "deleted_id", person_id, 1, 0),
+                (self.team.id, "deleted_id", person_id, 2, 1),  # deleted
+            ]
+        )
 
-        def setup(client: Client) -> None:
-            insert_pdi2_records(
-                client,
-                [
-                    (TEAM_ID, "active_id", person_id, 1, 0),
-                    (TEAM_ID, "deleted_id", person_id, 1, 0),
-                    (TEAM_ID, "deleted_id", person_id, 2, 1),  # deleted
-                ],
-            )
-
-        cluster.any_host(setup).result()
-
-        result = get_all_distinct_ids_for_person(TEAM_ID, str(person_id))
+        result = get_all_distinct_ids_for_person(self.team.id, str(person_id))
 
         distinct_ids = {did for did, _ in result}
         assert distinct_ids == {"active_id"}
 
-    @pytest.mark.django_db
-    def test_returns_empty_for_nonexistent_person(self, cluster: ClickhouseCluster):
-        result = get_all_distinct_ids_for_person(TEAM_ID, str(UUID(int=999)))
+    def test_returns_empty_for_nonexistent_person(self):
+        result = get_all_distinct_ids_for_person(self.team.id, str(UUID(int=999)))
         assert result == []
 
 
-class TestGetExistingOverride:
-    @pytest.mark.django_db
-    def test_returns_override_when_exists(self, cluster: ClickhouseCluster):
+class TestGetExistingOverride(ClickhouseTestMixin, BaseTest):
+    def test_returns_override_when_exists(self):
         person_id = UUID(int=200)
+        insert_override_records([(self.team.id, "override_user", person_id, 1, 0)])
 
-        def setup(client: Client) -> None:
-            insert_override_records(client, [(TEAM_ID, "override_user", person_id, 1, 0)])
-
-        cluster.any_host(setup).result()
-
-        result = get_existing_override(TEAM_ID, "override_user")
+        result = get_existing_override(self.team.id, "override_user")
 
         assert result is not None
         assert result[0] == str(person_id)
         assert result[1] == 1
 
-    @pytest.mark.django_db
-    def test_returns_none_when_no_override(self, cluster: ClickhouseCluster):
-        result = get_existing_override(TEAM_ID, "no_override_user")
+    def test_returns_none_when_no_override(self):
+        result = get_existing_override(self.team.id, "no_override_user")
         assert result is None
 
-    @pytest.mark.django_db
-    def test_returns_none_for_deleted_override(self, cluster: ClickhouseCluster):
+    def test_returns_none_for_deleted_override(self):
         person_id = UUID(int=201)
+        insert_override_records(
+            [
+                (self.team.id, "deleted_override", person_id, 1, 0),
+                (self.team.id, "deleted_override", person_id, 2, 1),  # deleted
+            ]
+        )
 
-        def setup(client: Client) -> None:
-            insert_override_records(
-                client,
-                [
-                    (TEAM_ID, "deleted_override", person_id, 1, 0),
-                    (TEAM_ID, "deleted_override", person_id, 2, 1),  # deleted
-                ],
-            )
-
-        cluster.any_host(setup).result()
-
-        result = get_existing_override(TEAM_ID, "deleted_override")
+        result = get_existing_override(self.team.id, "deleted_override")
         assert result is None
 
 
-class TestInsertOverride:
-    @pytest.mark.django_db
-    def test_inserts_override_record(self, cluster: ClickhouseCluster):
-        person_id = UUID(int=300)
+class TestInsertOverrideBatch(ClickhouseTestMixin, BaseTest):
+    def test_inserts_batch_of_overrides(self):
+        person_id_1 = UUID(int=300)
+        person_id_2 = UUID(int=301)
 
-        insert_override(TEAM_ID, "new_override", str(person_id), 1)
+        insert_override_batch(
+            [
+                (self.team.id, "batch_user_1", str(person_id_1), 1),
+                (self.team.id, "batch_user_2", str(person_id_1), 1),
+                (self.team.id, "batch_user_3", str(person_id_2), 2),
+            ]
+        )
 
-        result = get_existing_override(TEAM_ID, "new_override")
+        result = get_existing_override(self.team.id, "batch_user_1")
         assert result is not None
-        assert result[0] == str(person_id)
+        assert result[0] == str(person_id_1)
+
+        result = get_existing_override(self.team.id, "batch_user_2")
+        assert result is not None
+        assert result[0] == str(person_id_1)
+
+        result = get_existing_override(self.team.id, "batch_user_3")
+        assert result is not None
+        assert result[0] == str(person_id_2)
+
+    def test_handles_empty_batch(self):
+        insert_override_batch([])
 
 
-class TestFixPersonIdOverridesJob:
-    @pytest.mark.django_db
-    def test_inserts_overrides_for_all_distinct_ids_of_person(self, cluster: ClickhouseCluster):
+class TestFixPersonIdOverridesJob(ClickhouseTestMixin, BaseTest):
+    def test_inserts_overrides_for_all_distinct_ids_of_person(self):
         person_id = UUID(int=400)
-
-        def setup(client: Client) -> None:
-            insert_pdi2_records(
-                client,
-                [
-                    (TEAM_ID, "anon_abc123", person_id, 1, 0),
-                    (TEAM_ID, "user@email.com", person_id, 1, 0),
-                ],
-            )
-
-        cluster.any_host(setup).result()
+        insert_pdi2_records(
+            [
+                (self.team.id, "anon_abc123", person_id, 1, 0),
+                (self.team.id, "user@email.com", person_id, 1, 0),
+            ]
+        )
 
         fix_person_id_overrides_job.execute_in_process(
             run_config={
                 "ops": {
                     "fix_person_id_overrides_op": {
                         "config": {
-                            "team_id": TEAM_ID,
+                            "team_id": self.team.id,
                             "distinct_ids": "anon_abc123",
                             "dry_run": False,
                         }
@@ -241,7 +205,7 @@ class TestFixPersonIdOverridesJob:
             }
         )
 
-        overrides = cluster.any_host(lambda c: get_all_overrides(c, TEAM_ID)).result()
+        overrides = get_all_overrides(self.team.id)
         override_dict = dict(overrides)
 
         assert "anon_abc123" in override_dict
@@ -249,21 +213,16 @@ class TestFixPersonIdOverridesJob:
         assert override_dict["anon_abc123"] == str(person_id)
         assert override_dict["user@email.com"] == str(person_id)
 
-    @pytest.mark.django_db
-    def test_dry_run_does_not_insert(self, cluster: ClickhouseCluster):
+    def test_dry_run_does_not_insert(self):
         person_id = UUID(int=401)
-
-        def setup(client: Client) -> None:
-            insert_pdi2_records(client, [(TEAM_ID, "dry_run_user", person_id, 1, 0)])
-
-        cluster.any_host(setup).result()
+        insert_pdi2_records([(self.team.id, "dry_run_user", person_id, 1, 0)])
 
         fix_person_id_overrides_job.execute_in_process(
             run_config={
                 "ops": {
                     "fix_person_id_overrides_op": {
                         "config": {
-                            "team_id": TEAM_ID,
+                            "team_id": self.team.id,
                             "distinct_ids": "dry_run_user",
                             "dry_run": True,
                         }
@@ -272,32 +231,26 @@ class TestFixPersonIdOverridesJob:
             }
         )
 
-        overrides = cluster.any_host(lambda c: get_all_overrides(c, TEAM_ID)).result()
+        overrides = get_all_overrides(self.team.id)
         assert len(overrides) == 0
 
-    @pytest.mark.django_db
-    def test_skips_existing_overrides(self, cluster: ClickhouseCluster):
+    def test_skips_existing_overrides(self):
         person_id = UUID(int=402)
         existing_person_id = UUID(int=403)
-
-        def setup(client: Client) -> None:
-            insert_pdi2_records(
-                client,
-                [
-                    (TEAM_ID, "existing_override_user", person_id, 1, 0),
-                    (TEAM_ID, "new_user", person_id, 1, 0),
-                ],
-            )
-            insert_override_records(client, [(TEAM_ID, "existing_override_user", existing_person_id, 1, 0)])
-
-        cluster.any_host(setup).result()
+        insert_pdi2_records(
+            [
+                (self.team.id, "existing_override_user", person_id, 1, 0),
+                (self.team.id, "new_user", person_id, 1, 0),
+            ]
+        )
+        insert_override_records([(self.team.id, "existing_override_user", existing_person_id, 1, 0)])
 
         fix_person_id_overrides_job.execute_in_process(
             run_config={
                 "ops": {
                     "fix_person_id_overrides_op": {
                         "config": {
-                            "team_id": TEAM_ID,
+                            "team_id": self.team.id,
                             "distinct_ids": "existing_override_user",
                             "dry_run": False,
                         }
@@ -306,7 +259,7 @@ class TestFixPersonIdOverridesJob:
             }
         )
 
-        overrides = cluster.any_host(lambda c: get_all_overrides(c, TEAM_ID)).result()
+        overrides = get_all_overrides(self.team.id)
         override_dict = dict(overrides)
 
         # Existing override should not be changed
@@ -314,21 +267,15 @@ class TestFixPersonIdOverridesJob:
         # New user should have override inserted
         assert override_dict["new_user"] == str(person_id)
 
-    @pytest.mark.django_db
-    def test_handles_multiple_distinct_ids_mapping_to_same_person(self, cluster: ClickhouseCluster):
+    def test_handles_multiple_distinct_ids_mapping_to_same_person(self):
         person_id = UUID(int=404)
-
-        def setup(client: Client) -> None:
-            insert_pdi2_records(
-                client,
-                [
-                    (TEAM_ID, "id_a", person_id, 1, 0),
-                    (TEAM_ID, "id_b", person_id, 1, 0),
-                    (TEAM_ID, "id_c", person_id, 1, 0),
-                ],
-            )
-
-        cluster.any_host(setup).result()
+        insert_pdi2_records(
+            [
+                (self.team.id, "id_a", person_id, 1, 0),
+                (self.team.id, "id_b", person_id, 1, 0),
+                (self.team.id, "id_c", person_id, 1, 0),
+            ]
+        )
 
         # Pass multiple distinct_ids that map to the same person
         fix_person_id_overrides_job.execute_in_process(
@@ -336,7 +283,7 @@ class TestFixPersonIdOverridesJob:
                 "ops": {
                     "fix_person_id_overrides_op": {
                         "config": {
-                            "team_id": TEAM_ID,
+                            "team_id": self.team.id,
                             "distinct_ids": "id_a,id_b",
                             "dry_run": False,
                         }
@@ -345,22 +292,21 @@ class TestFixPersonIdOverridesJob:
             }
         )
 
-        overrides = cluster.any_host(lambda c: get_all_overrides(c, TEAM_ID)).result()
+        overrides = get_all_overrides(self.team.id)
         override_dict = dict(overrides)
 
         # All three should have overrides (even id_c which wasn't in the input)
         assert len(override_dict) == 3
         assert all(v == str(person_id) for v in override_dict.values())
 
-    @pytest.mark.django_db
-    def test_handles_nonexistent_distinct_id(self, cluster: ClickhouseCluster):
+    def test_handles_nonexistent_distinct_id(self):
         # Should complete without error
         result = fix_person_id_overrides_job.execute_in_process(
             run_config={
                 "ops": {
                     "fix_person_id_overrides_op": {
                         "config": {
-                            "team_id": TEAM_ID,
+                            "team_id": self.team.id,
                             "distinct_ids": "nonexistent_id",
                             "dry_run": False,
                         }

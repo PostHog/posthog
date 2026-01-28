@@ -10,7 +10,8 @@ import type { ResourceManifest, SkillsManifest } from './manifest-types'
  * URL to the PostHog skills resources ZIP (latest release)
  * Contains manifest.json + individual skill ZIPs
  */
-export const SKILLS_RESOURCES_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
+export const SKILLS_RESOURCES_URL =
+    'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
 // Cache for skills resources ZIP contents
 let cachedSkillsResources: Unzipped | null = null
@@ -64,7 +65,7 @@ function loadSkillsManifestFromArchive(archive: Unzipped): SkillsManifest {
  * Get prompts from the manifest
  * Currently returns empty - prompts will be migrated to skills
  */
-export async function getPromptsFromManifest(_context: Context): Promise<ResourceManifest['resources']['prompts']> {
+export async function getPromptsFromManifest(): Promise<ResourceManifest['resources']['prompts']> {
     // Prompts are being migrated to skills - return empty for now
     return []
 }
@@ -111,7 +112,7 @@ async function registerSkillResources(server: McpServer, context: Context): Prom
             }
 
             const installCommand = generateInstallCommand(skill.id, skill.downloadUrl)
-            console.log(`Registering skill: ${skill.id}`)
+            console.info(`Registering skill: ${skill.id}`)
 
             server.registerResource(
                 skill.name,
@@ -137,7 +138,7 @@ async function registerSkillResources(server: McpServer, context: Context): Prom
             )
         }
 
-        console.log(`Registered ${manifest.skills.length} skills (returning install commands)`)
+        console.info(`Registered ${manifest.skills.length} skills (returning install commands)`)
     } catch (error) {
         // Skills are optional - log error but don't fail startup
         console.error('Failed to register skill resources:', error)
