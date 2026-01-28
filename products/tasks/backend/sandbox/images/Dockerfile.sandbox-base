@@ -71,11 +71,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 ###
 
 # Set up /scripts as a Node.js project and install @posthog/agent + dependencies
-# @posthog/agent-server provides the cloud execution entry point
+# Note: @posthog/agent-server is installed via local Dockerfile when using LOCAL_ARRAY_REPO
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    npm install @posthog/agent@latest @posthog/agent-server@latest @agentclientprotocol/sdk@latest ioredis
+    npm install @posthog/agent@latest @agentclientprotocol/sdk@latest ioredis
 
 # Download agent runner script from GitHub (fallback to empty file for local dev - script mounted via volume)
 RUN cd /scripts && \

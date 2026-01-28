@@ -11,19 +11,25 @@ COPY local-agent-server /local-agent-server
 # Build and install local agent package if present
 RUN if [ -f /local-agent/package.json ]; then \
         cd /local-agent && \
-        npm install --include=dev && \
-        npm run build && \
-        npm pack && \
-        cd /scripts && npm install /local-agent/*.tgz; \
-    fi && \
-    rm -rf /local-agent
+        pnpm install && \
+        pnpm run build && \
+        pnpm pack && \
+        cd /scripts && pnpm install /local-agent/*.tgz; \
+    fi
 
 # Build and install local agent-server package if present
+# Replace workspace:* with the local agent tgz path before installing
 RUN if [ -f /local-agent-server/package.json ]; then \
         cd /local-agent-server && \
-        npm install --include=dev && \
-        npm run build && \
-        npm pack && \
-        cd /scripts && npm install /local-agent-server/*.tgz; \
-    fi && \
-    rm -rf /local-agent-server
+        AGENT_TGZ=$(ls /local-agent/*.tgz 2>/dev/null | head -1) && \
+        if [ -n "$AGENT_TGZ" ]; then \
+            sed -i "s|\"workspace:\\*\"|\"file:$AGENT_TGZ\"|g" package.json; \
+        fi && \
+        pnpm install && \
+        pnpm run build && \
+        pnpm pack && \
+        cd /scripts && pnpm install /local-agent-server/*.tgz; \
+    fi
+
+# Clean up local package sources
+RUN rm -rf /local-agent /local-agent-server
