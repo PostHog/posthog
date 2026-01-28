@@ -70,6 +70,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                 <ScenePanelActionsSection>
                                     <ButtonPrimitive
                                         menuItem
+                                        variant="danger"
                                         onClick={() => {
                                             LemonDialog.openForm({
                                                 width: '30rem',
@@ -79,11 +80,19 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                                 initialValues: {
                                                     distinct_id: '',
                                                 },
+                                                content: (
+                                                    <LemonField name="distinct_id" label="Distinct ID to reset">
+                                                        <LemonInput type="text" autoFocus />
+                                                    </LemonField>
+                                                ),
+                                                errors: {
+                                                    distinct_id: (distinct_id) =>
+                                                        !distinct_id ? 'This is required' : undefined,
+                                                },
                                                 onSubmit: async ({ distinct_id }) =>
                                                     await resetDeletedDistinctId(distinct_id),
                                             })
                                         }}
-                                        variant="danger"
                                     >
                                         <IconRewind />
                                         Reset a deleted person...
