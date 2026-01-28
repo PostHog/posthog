@@ -69,7 +69,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     argMax(properties, _timestamp) as properties
                 FROM person
                 FINAL
-                WHERE team_id = ${teamId}
+                WHERE team_id = ${parseInt(String(teamId))}
                   AND is_deleted = 0
                 GROUP BY team_id, id
                 HAVING ${propertyFilters}
