@@ -79,7 +79,7 @@ export const IframeExample: Story = {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
             // 1800 = ceil((maxY + 100) / 100) * 100 where maxY=1700 from mock data below
-            waitForSelector: '[data-height-override="1800"] canvas.heatmap-canvas',
+            waitForSelector: '.heatmaps-ready[data-height-override="1800"] canvas.heatmap-canvas',
             waitForLoadersToDisappear: true,
         },
     },
