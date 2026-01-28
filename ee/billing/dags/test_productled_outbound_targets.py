@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -653,7 +654,7 @@ class TestQualifySignals:
         )
 
         context = dagster.build_asset_context()
-        result = qualify_signals(context, base_df)
+        result = cast(pl.DataFrame, qualify_signals(context, base_df))
 
         assert len(result) == 2
         assert "multi_product_count" in result.columns
@@ -687,7 +688,7 @@ class TestQualifySignals:
         )
 
         context = dagster.build_asset_context()
-        result = qualify_signals(context, base_df)
+        result = cast(pl.DataFrame, qualify_signals(context, base_df))
 
         assert len(result) == 0
         assert "multi_product_count" in result.columns
