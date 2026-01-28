@@ -5383,8 +5383,8 @@ export type WebsiteBrowsingHistoryProdInterest =
     | 'endpoints'
 
 export interface ReplayInactivityPeriod {
-    ts_from_s: integer
-    ts_to_s?: integer
+    ts_from_s: number
+    ts_to_s?: number
     active: boolean
-    recording_ts_from_s?: integer
+    recording_ts_from_s?: number
 }

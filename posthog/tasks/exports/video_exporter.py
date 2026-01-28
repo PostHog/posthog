@@ -449,7 +449,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
                         # Raw timestamp * playback_speed = final video timestamp
                         # (video is slowed down by playback_speed in ffmpeg)
                         raw_timestamp = segment_start_timestamps[ts_from_s]
-                        period["recording_ts_from_s"] = round(raw_timestamp * playback_speed)
+                        period["recording_ts_from_s"] = raw_timestamp * playback_speed
 
             inactivity_periods = [ReplayInactivityPeriod.model_validate(period) for period in inactivity_periods_raw]
             return inactivity_periods
