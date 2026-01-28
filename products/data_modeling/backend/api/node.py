@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import asdict
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -169,7 +169,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         node_ids.add(str(node.id))
 
-        if _is_v2_backend_enabled(req.user, self.team):
+        if _is_v2_backend_enabled(cast(User, req.user), self.team):
             inputs: ExecuteDAGInputs | RunWorkflowInputs = ExecuteDAGInputs(
                 team_id=self.team_id,
                 dag_id=node.dag_id,
@@ -233,7 +233,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if _is_v2_backend_enabled(req.user, self.team):
+        if _is_v2_backend_enabled(cast(User, req.user), self.team):
             inputs: MaterializeViewWorkflowInputs | RunWorkflowInputs = MaterializeViewWorkflowInputs(
                 team_id=self.team_id,
                 dag_id=node.dag_id,
