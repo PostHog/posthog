@@ -33,6 +33,12 @@ class Command(BaseCommand):
             default=DEV_USER_EMAIL,
             help=f"Email of the user to create the key for (default: {DEV_USER_EMAIL})",
         )
+        parser.add_argument(
+            "--scopes",
+            nargs="*",
+            default=None,
+            help="Scopes to grant (e.g. --scopes llm_gateway:read project:read). Omit for no scopes.",
+        )
 
     def handle(self, *args, **options):
         if not settings.DEBUG:
@@ -41,6 +47,7 @@ class Command(BaseCommand):
             raise CommandError("This command cannot run in cloud deployments")
 
         email = options["email"]
+        scopes = options["scopes"]
 
         try:
             user = User.objects.get(email=email)
@@ -52,7 +59,12 @@ class Command(BaseCommand):
 
         existing_key = PersonalAPIKey.objects.filter(secure_value=secure_value).first()
         if existing_key:
-            print(f"API key already exists for user '{existing_key.user.email}'")
+            if scopes is not None and existing_key.scopes != scopes:
+                existing_key.scopes = scopes or None
+                existing_key.save(update_fields=["scopes"])
+                print(f"Updated scopes to {scopes} for user '{existing_key.user.email}'")
+            else:
+                print(f"API key already exists for user '{existing_key.user.email}'")
             print(f"Key: {DEV_API_KEY}")
             return
 
@@ -63,7 +75,10 @@ class Command(BaseCommand):
             label=DEV_KEY_LABEL,
             secure_value=secure_value,
             mask_value=mask_key_value(DEV_API_KEY),
+            scopes=scopes or None,
         )
 
         print(f"Created personal API key for '{email}'")
+        if scopes:
+            print(f"Scopes: {', '.join(scopes)}")
         print(f"Key: {DEV_API_KEY}")
