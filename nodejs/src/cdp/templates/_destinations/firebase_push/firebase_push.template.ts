@@ -1,6 +1,6 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
-// push_subscription_distinct_id input gets resolved to FCM token in hog-inputs.service.ts
+// push_subscription input gets resolved to FCM token in hog-inputs.service.ts
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'hidden',
@@ -12,7 +12,7 @@ export const template: HogFunctionTemplate = {
     category: ['Communication'],
     code_language: 'hog',
     code: `
-let fcmToken := inputs.push_subscription_distinct_id
+let fcmToken := inputs.push_subscription
 
 if (not fcmToken) {
     print(f'No push subscription found for the targeted person. Skipping push notification for event: {event.uuid}')
@@ -79,8 +79,8 @@ if (inputs.debug) {
             required: true,
         },
         {
-            key: 'push_subscription_distinct_id',
-            type: 'push_subscription_distinct_id',
+            key: 'push_subscription',
+            type: 'push_subscription',
             label: 'Person Name',
             secret: false,
             required: true,

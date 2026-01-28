@@ -99,7 +99,7 @@ describe('PushSubscriptionsManagerService', () => {
             await insertPushSubscription(team.id, distinctId, nonMatchingToken, 'android', true, 'fcm', 'other-project')
 
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
-                push_subscription_distinct_id: {
+                push_subscription: {
                     distinctId,
                     firebaseAppId: 'test-project',
                     platform: 'android',
@@ -107,9 +107,9 @@ describe('PushSubscriptionsManagerService', () => {
             }
             const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
             expect(result).toEqual({
-                push_subscription_distinct_id: { value: matchingToken },
+                push_subscription: { value: matchingToken },
             })
-            expect(result.push_subscription_distinct_id.value).not.toBe(nonMatchingToken)
+            expect(result.push_subscription.value).not.toBe(nonMatchingToken)
         })
 
         it('returns null for inactive subscription', async () => {
@@ -118,7 +118,7 @@ describe('PushSubscriptionsManagerService', () => {
             await insertPushSubscription(team.id, distinctId, token, 'android', false, 'fcm', 'test-project')
 
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
-                push_subscription_distinct_id: {
+                push_subscription: {
                     distinctId,
                     firebaseAppId: 'test-project',
                     platform: 'android',
@@ -126,7 +126,7 @@ describe('PushSubscriptionsManagerService', () => {
             }
             const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
             expect(result).toEqual({
-                push_subscription_distinct_id: { value: null },
+                push_subscription: { value: null },
             })
         })
 
@@ -136,7 +136,7 @@ describe('PushSubscriptionsManagerService', () => {
             await insertPushSubscription(999, distinctId, token, 'android', true, 'fcm', 'test-project')
 
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
-                push_subscription_distinct_id: {
+                push_subscription: {
                     distinctId,
                     firebaseAppId: 'test-project',
                     platform: 'android',
@@ -144,7 +144,7 @@ describe('PushSubscriptionsManagerService', () => {
             }
             const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
             expect(result).toEqual({
-                push_subscription_distinct_id: { value: null },
+                push_subscription: { value: null },
             })
         })
 
@@ -156,7 +156,7 @@ describe('PushSubscriptionsManagerService', () => {
             await insertPushSubscription(team.id, distinctId, iosToken, 'ios', true, 'apns')
 
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
-                push_subscription_distinct_id: {
+                push_subscription: {
                     distinctId,
                     firebaseAppId: 'test-project',
                     platform: 'android',
@@ -164,7 +164,7 @@ describe('PushSubscriptionsManagerService', () => {
             }
             const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
             expect(result).toEqual({
-                push_subscription_distinct_id: { value: androidToken },
+                push_subscription: { value: androidToken },
             })
         })
 
@@ -179,7 +179,7 @@ describe('PushSubscriptionsManagerService', () => {
             await insertPushSubscription(team.id, originalDistinctId, token, 'android', true, 'fcm', 'test-project')
 
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
-                push_subscription_distinct_id: {
+                push_subscription: {
                     distinctId: newDistinctId,
                     firebaseAppId: 'test-project',
                     platform: 'android',
@@ -187,7 +187,7 @@ describe('PushSubscriptionsManagerService', () => {
             }
             const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
             expect(result).toEqual({
-                push_subscription_distinct_id: { value: token },
+                push_subscription: { value: token },
             })
 
             const tokenHash = createHash('sha256').update(token, 'utf-8').digest('hex')
@@ -236,7 +236,7 @@ describe('PushSubscriptionsManagerService', () => {
             await insertPushSubscription(team.id, distinctId, apnsToken, 'ios', true, 'apns')
 
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
-                push_subscription_distinct_id: {
+                push_subscription: {
                     distinctId,
                     firebaseAppId: 'app-123',
                     platform: 'android',
@@ -244,13 +244,13 @@ describe('PushSubscriptionsManagerService', () => {
             }
             const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
             expect(result).toEqual({
-                push_subscription_distinct_id: { value: fcmToken },
+                push_subscription: { value: fcmToken },
             })
         })
 
         it('returns null when subscription not found', async () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
-                push_subscription_distinct_id: {
+                push_subscription: {
                     distinctId: 'non-existent-user',
                     firebaseAppId: 'test-project',
                     platform: 'android',
@@ -258,7 +258,7 @@ describe('PushSubscriptionsManagerService', () => {
             }
             const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
             expect(result).toEqual({
-                push_subscription_distinct_id: { value: null },
+                push_subscription: { value: null },
             })
         })
     })

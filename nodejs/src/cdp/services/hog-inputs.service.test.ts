@@ -230,12 +230,12 @@ describe('Hog Inputs', () => {
                 enabled: true,
                 type: 'destination',
                 inputs: {
-                    push_subscription_distinct_id: { value: 'user-123' },
+                    push_subscription: { value: 'user-123' },
                 },
                 inputs_schema: [
                     {
-                        key: 'push_subscription_distinct_id',
-                        type: 'push_subscription_distinct_id',
+                        key: 'push_subscription',
+                        type: 'push_subscription',
                         platform: 'android',
                     },
                 ],

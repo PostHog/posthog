@@ -345,7 +345,7 @@ export type HogFunctionInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
-        | 'push_subscription_distinct_id'
+        | 'push_subscription'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

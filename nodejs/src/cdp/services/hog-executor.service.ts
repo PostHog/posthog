@@ -774,7 +774,7 @@ export class HogExecutorService {
         let fcmToken: string | null = null
         if (invocation.state.globals?.inputs) {
             const pushSubscriptionKey = invocation.hogFunction.inputs_schema?.find(
-                (schema) => schema.type === 'push_subscription_distinct_id'
+                (schema) => schema.type === 'push_subscription'
             )?.key
             if (pushSubscriptionKey && invocation.state.globals.inputs[pushSubscriptionKey]) {
                 fcmToken = invocation.state.globals.inputs[pushSubscriptionKey] || null
