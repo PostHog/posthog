@@ -157,7 +157,7 @@ class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
     pass
 
 
-class CHQueryErrorInvalidJoinOnExpression(ExposedCHQueryError):
+class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
     pass
 
 
