@@ -4,25 +4,19 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
-from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode, SummarizationProvider
+from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode
 
 # Window processing configuration
 DEFAULT_MAX_ITEMS_PER_WINDOW = 10  # Max items to process per window (conservative for worst-case 30s/item)
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
-DEFAULT_PROVIDER = SummarizationProvider.OPENAI
 DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 
-# Max text representation length by provider (in characters)
-# Gemini models have ~1M token context. At typical 2.5:1 char/token ratio,
-# 1.5M chars = ~600K tokens, leaving room for system prompt and output.
-# OpenAI GPT-4.1-nano has 1M token context with better token efficiency,
-# so 2M chars = ~800K tokens is safe.
-MAX_LENGTH_BY_PROVIDER: dict[SummarizationProvider, int] = {
-    SummarizationProvider.GEMINI: 1_500_000,
-    SummarizationProvider.OPENAI: 2_000_000,
-}
+# Max text representation length (in characters)
+# GPT-4.1-nano has 1M token context. At typical 2.5:1 char/token ratio,
+# 2M chars = ~800K tokens, leaving room for system prompt and output.
+MAX_TEXT_REPR_LENGTH = 2_000_000
 
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
