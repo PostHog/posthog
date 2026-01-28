@@ -248,7 +248,7 @@ class TestKernelRuntimeService(BaseTest):
             backend=KernelRuntime.Backend.DOCKER,
             sandbox_id=runtime.sandbox_id,
         )
-        payload_out = {
+        payload_out: dict[str, Any] = {
             "status": "ok",
             "stdout": "hello",
             "stderr": "",
@@ -305,7 +305,7 @@ class TestKernelRuntimeService(BaseTest):
         bridge_payload = {"query": "select 1", "response_path": "/tmp/resp.json"}
         bridge_payload_json = json.dumps(bridge_payload)
         bridge_message = f"{marker}{len(bridge_payload_json)} {bridge_payload_json}\n"
-        payload_out = {
+        payload_out: dict[str, Any] = {
             "type": "result",
             "status": "ok",
             "stdout": f"before {bridge_message}after",
@@ -367,7 +367,7 @@ class TestKernelRuntimeService(BaseTest):
         bridge_payload = {"query": "select 1", "response_path": "/tmp/resp.json"}
         bridge_payload_json = json.dumps(bridge_payload)
         bridge_message = f"{marker}{len(bridge_payload_json)} {bridge_payload_json}\n"
-        payload_out = {
+        payload_out: dict[str, Any] = {
             "type": "result",
             "status": "ok",
             "stdout": "final",
