@@ -1,3 +1,4 @@
+import os
 import json
 from collections.abc import Callable
 from enum import StrEnum
@@ -114,6 +115,12 @@ class _KafkaProducer:
         max_request_size=None,
         compression_type=None,
     ):
+        hostname = os.environ.get("HOSTNAME", "")
+        if "temporal-worker-data-warehouse" in hostname:
+            import traceback
+
+            logger.info(f"KafkaProducer stack: {traceback.format_stack()}")
+
         if settings.TEST:
             test = True  # Set at runtime so that overriden settings.TEST is supported
         if kafka_security_protocol is None:
