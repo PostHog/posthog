@@ -296,6 +296,14 @@ export class ClickHousePersonRepository implements PersonRepository {
                     return `toDateTime(JSONExtractString(properties, '${escapedKey}')) > toDateTime('${escapeClickHouseString(normalizedValue)}')`
                 }
 
+                // The "is_cleaned_path_exact" operator is intended for URL/path event properties,
+                // not for person properties. We handle it explicitly here to avoid falling through
+                // to the generic default and to make this behavior clear.
+                case 'is_cleaned_path_exact': {
+                    throw new Error(
+                        'Operator "is_cleaned_path_exact" is not supported for person properties; it is only valid for event/path properties'
+                    )
+                }
                 default:
                     throw new Error(`Unsupported property filter operator: ${operator}`)
             }
