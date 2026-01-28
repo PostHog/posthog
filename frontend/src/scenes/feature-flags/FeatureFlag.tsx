@@ -537,11 +537,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             to use a flag in a runtime where it's not allowed (e.g., using a server-only
                                             flag in client-side code), it won't evaluate.{' '}
                                             <Link
-                                                to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-contexts-optional"
                                                 target="_blank"
                                                 targetBlankIcon
                                             >
-                                                Learn more about using evaluation contexts
+                                                Learn more about using evaluation runtimes
                                             </Link>
                                         </div>
                                         <LemonField name="evaluation_runtime">

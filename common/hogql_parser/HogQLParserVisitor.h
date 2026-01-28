@@ -183,8 +183,6 @@ public:
 
     virtual std::any visitColumnExprNullTupleAccess(HogQLParser::ColumnExprNullTupleAccessContext *context) = 0;
 
-    virtual std::any visitColumnExprTypeCast(HogQLParser::ColumnExprTypeCastContext *context) = 0;
-
     virtual std::any visitColumnExprPrecedence1(HogQLParser::ColumnExprPrecedence1Context *context) = 0;
 
     virtual std::any visitColumnExprPrecedence2(HogQLParser::ColumnExprPrecedence2Context *context) = 0;
