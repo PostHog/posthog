@@ -323,26 +323,13 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
 docker:
-    docker:services:up:
-        cmd: docker compose -f docker-compose.dev.yml up -d
-        description: Start Docker infrastructure services
-        services:
-            - docker
-            - postgresql
-            - clickhouse
-            - redis
-            - kafka
+    # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
-        description: Stop Docker infrastructure services
-        services:
-            - docker
+        description: Stop all Docker infrastructure services
     docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
-        description: Stop Docker infrastructure services and remove all volumes (complete wipe)
-        services:
-            - docker
-        prompt: true
+        description: Stop all Docker services and remove volumes (complete wipe)
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
