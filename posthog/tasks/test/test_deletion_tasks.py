@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -9,7 +11,7 @@ from posthog.tasks.tasks import delete_organization_data_and_notify_task, delete
 
 class TestDeleteProjectDataAndNotifyTask(BaseTest):
     @patch("posthog.email.is_email_available", return_value=False)
-    def test_deletes_team_and_data(self, mock_email):
+    def test_deletes_team_and_data(self, mock_email: Any) -> None:
         team = Team.objects.create(organization=self.organization, name="Team to delete")
         team_id = team.id
 
@@ -23,7 +25,7 @@ class TestDeleteProjectDataAndNotifyTask(BaseTest):
         self.assertFalse(Team.objects.filter(id=team_id).exists())
 
     @patch("posthog.email.is_email_available", return_value=False)
-    def test_deletes_project_and_teams(self, mock_email):
+    def test_deletes_project_and_teams(self, mock_email: Any) -> None:
         project, team = Project.objects.create_with_team(
             organization=self.organization,
             initiating_user=self.user,
@@ -44,7 +46,7 @@ class TestDeleteProjectDataAndNotifyTask(BaseTest):
 
     @patch("posthog.tasks.email.send_project_deleted_email")
     @patch("posthog.email.is_email_available", return_value=True)
-    def test_sends_email_when_available(self, mock_email_available, mock_send_email):
+    def test_sends_email_when_available(self, mock_email_available: Any, mock_send_email: Any) -> None:
         team = Team.objects.create(organization=self.organization, name="Team to delete")
         team_id = team.id
 
@@ -63,7 +65,7 @@ class TestDeleteProjectDataAndNotifyTask(BaseTest):
 
 class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
     @patch("posthog.email.is_email_available", return_value=False)
-    def test_deletes_organization_and_teams(self, mock_email):
+    def test_deletes_organization_and_teams(self, mock_email: Any) -> None:
         org = Organization.objects.create(name="Org to delete")
         org.members.add(self.user)
         team = Team.objects.create(organization=org, name="Team in org")
@@ -83,7 +85,7 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
 
     @patch("posthog.tasks.email.send_organization_deleted_email")
     @patch("posthog.email.is_email_available", return_value=True)
-    def test_sends_email_when_available(self, mock_email_available, mock_send_email):
+    def test_sends_email_when_available(self, mock_email_available: Any, mock_send_email: Any) -> None:
         org = Organization.objects.create(name="Org to delete")
         org.members.add(self.user)
         team = Team.objects.create(organization=org, name="Team in org")
