@@ -105,12 +105,17 @@ export function NotebookPanel(): JSX.Element | null {
                     <SidePanelContentContainer flagOffClassName="flex flex-col flex-1 overflow-y-auto p-3 bg-[var(--color-bg-surface-primary)]">
                         {isRemovingSidePanelFlag && (
                             <SidePanelPaneHeader title="Notebooks">
-                                <div className="flex gap-1">
+                                <div className="flex gap-1 overflow-hidden">
                                     <NotebookListMini
                                         selectedNotebookId={selectedNotebook}
                                         onSelectNotebook={(notebook) => {
                                             selectNotebook(notebook.short_id)
                                         }}
+                                        buttonProps={
+                                            isRemovingSidePanelFlag
+                                                ? { className: 'max-w-[120px]', truncate: true }
+                                                : undefined
+                                        }
                                     />
 
                                     {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}

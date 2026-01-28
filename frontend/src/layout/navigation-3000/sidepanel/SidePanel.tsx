@@ -12,6 +12,7 @@ import {
     IconLock,
     IconLogomark,
     IconNotebook,
+    IconSparkles,
     IconSupport,
     IconX,
 } from '@posthog/icons'
@@ -252,7 +253,7 @@ export function SidePanel({
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
                 isRemovingSidePanelFlag &&
-                    '@container/side-panel bg-surface-secondary absolute top-px right-px bottom-px h-full flex flex-col',
+                    '@container/side-panel bg-surface-secondary absolute top-0 right-0 bottom-0 h-full flex flex-col border-t-none',
                 isRemovingSidePanelFlag && !sidePanelOpen && 'hidden',
                 className
             )}
@@ -352,76 +353,83 @@ export function SidePanel({
                     <Tabs.Root
                         className={cn(
                             'scene-panel-container bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
-                            'z-[var(--z-scene-panel)] lg:rounded-tr-none'
+                            'z-[var(--z-scene-panel)] lg:rounded-none '
                         )}
                         value={activeTab}
                         onValueChange={(value) => openSidePanel(value as SidePanelTab)}
                     >
-                        {/* We want to limit the sidepanel to the PostHog AI tab when it's open */}
-                        {activeTab === SidePanelTab.Max ? null : (
-                            // {/* Header with close button */}
-                            <div className="h-[50px] flex items-center justify-between gap-2 pl-2 pr-1.5 py-2 border-b border-primary shrink-0">
-                                {/* Tab buttons */}
-                                <Tabs.List className="relative z-0 flex gap-1 grow">
-                                    {[
-                                        ...(scenePanelIsPresent ? [SidePanelTab.Info] : []),
-                                        SidePanelTab.Discussion,
-                                        SidePanelTab.AccessControl,
-                                        SidePanelTab.Notebooks,
-                                    ]
-                                        .filter((tab) => tab === SidePanelTab.Info || visibleTabs.includes(tab))
-                                        .map((tab) => {
-                                            const { Icon, label } = SIDE_PANEL_TABS[tab]!
-                                            return (
-                                                <Tabs.Tab
-                                                    key={tab}
-                                                    value={tab}
-                                                    render={(props) => (
-                                                        <ButtonPrimitive
-                                                            {...props}
-                                                            onClick={() => openSidePanel(tab as SidePanelTab)}
-                                                            tooltip={label}
-                                                            className="size-[33px] @[600px]/side-panel:w-auto hover:bg-transparent group justify-center @[600px]/side-panel:justify-normal"
-                                                        >
+                        {/* Header with close button */}
+                        <div className="h-[50px] flex items-center justify-between gap-2 pl-2 pr-1.5 py-2 border-b border-primary shrink-0">
+                            {/* Tab buttons */}
+                            <Tabs.List className="relative z-0 flex gap-1 grow">
+                                {[
+                                    ...(scenePanelIsPresent ? [SidePanelTab.Info] : []),
+                                    SidePanelTab.Discussion,
+                                    SidePanelTab.AccessControl,
+                                    SidePanelTab.Notebooks,
+                                    ...(activeTab === SidePanelTab.Max ? [SidePanelTab.Max] : []),
+                                ]
+                                    .filter((tab) => tab === SidePanelTab.Info || visibleTabs.includes(tab))
+                                    .map((tab) => {
+                                        const { Icon, label } = SIDE_PANEL_TABS[tab]!
+                                        return (
+                                            <Tabs.Tab
+                                                key={tab}
+                                                value={tab}
+                                                render={(props) => (
+                                                    <ButtonPrimitive
+                                                        {...props}
+                                                        onClick={() => openSidePanel(tab as SidePanelTab)}
+                                                        tooltip={label}
+                                                        className="size-[33px] @[600px]/side-panel:w-auto hover:bg-transparent group justify-center @[600px]/side-panel:justify-normal"
+                                                    >
+                                                        {tab === SidePanelTab.Max ? (
+                                                            <IconSparkles
+                                                                className={cn(
+                                                                    'size-4 text-tertiary group-hover:text-primary -mt-[1px] ml-[2px]',
+                                                                    activeTab === tab ? 'text-primary' : 'text-tertiary'
+                                                                )}
+                                                            />
+                                                        ) : (
                                                             <Icon
                                                                 className={cn(
                                                                     'size-4 text-tertiary group-hover:text-primary',
                                                                     activeTab === tab ? 'text-primary' : 'text-tertiary'
                                                                 )}
                                                             />
-                                                            <span
-                                                                className={cn(
-                                                                    'hidden @[600px]/side-panel:block text-tertiary group-hover:text-primary',
-                                                                    activeTab === tab ? 'text-primary' : 'text-tertiary'
-                                                                )}
-                                                            >
-                                                                {label}
-                                                            </span>
-                                                        </ButtonPrimitive>
-                                                    )}
-                                                />
-                                            )
-                                        })}
-                                    <Tabs.Indicator className="transform-gpu absolute top-[calc(50%-1px)] left-0 z-[-1] h-[33px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
+                                                        )}
+                                                        <span
+                                                            className={cn(
+                                                                'hidden @[600px]/side-panel:block text-tertiary group-hover:text-primary',
+                                                                activeTab === tab ? 'text-primary' : 'text-tertiary'
+                                                            )}
+                                                        >
+                                                            {label}
+                                                        </span>
+                                                    </ButtonPrimitive>
+                                                )}
+                                            />
+                                        )
+                                    })}
+                                <Tabs.Indicator className="transform-gpu absolute top-[calc(50%-1px)] left-0 z-[-1] h-[33px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />
 
-                                    <ButtonPrimitive
-                                        onClick={() => {
-                                            closeSidePanel()
-                                        }}
-                                        tooltip="Close side panel"
-                                        tooltipPlacement="bottom-end"
-                                        iconOnly
-                                        className="group size-[33px] ml-auto"
-                                    >
-                                        <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
-                                    </ButtonPrimitive>
-                                </Tabs.List>
-                            </div>
-                        )}
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        closeSidePanel()
+                                    }}
+                                    tooltip="Close side panel"
+                                    tooltipPlacement="bottom-end"
+                                    iconOnly
+                                    className="group size-[33px] ml-auto"
+                                >
+                                    <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                                </ButtonPrimitive>
+                            </Tabs.List>
+                        </div>
 
                         {/* Content area */}
                         <Tabs.Panel
-                            className="h-full grow flex flex-col gap-2 relative -outline-offset-1 outline-blue-800 focus-visible:rounded-md"
+                            className="h-full grow flex flex-col gap-2 relative -outline-offset-1 outline-blue-800 focus-visible:rounded-md overflow-hidden"
                             value={activeTab}
                         >
                             {PanelContent && <PanelContent />}

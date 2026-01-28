@@ -46,7 +46,7 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
             >
                 {/* Size to mimic lemon button small */}
                 <ButtonPrimitive
-                    className="size-[33px] group"
+                    className="size-[33px] group -mr-[2px]"
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()

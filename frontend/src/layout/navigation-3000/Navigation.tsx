@@ -118,6 +118,7 @@ export function Navigation({
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
                                 'lg:mr-2': isRemovingSidePanelFlag,
+                                'rounded-r-none': isRemovingSidePanelFlag && sidePanelOpen,
                             }
                         )}
                     >
@@ -133,7 +134,8 @@ export function Navigation({
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
                                     'rounded-tl-none': firstTabIsActive,
-                                    'max-w-[calc(100%-var(--side-panel-width))]':
+                                    'focus-visible:outline-none': isRemovingSidePanelFlag,
+                                    'max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
                                         isRemovingSidePanelFlag && sidePanelOpen,
                                 }
                             )}

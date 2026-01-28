@@ -13,6 +13,7 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -46,7 +47,7 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
         reportRecordingPlaylistCreated('new')
@@ -57,21 +58,23 @@ function Header(): JSX.Element {
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
                     <LiveRecordingsCount />
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Playback from PostHog JSON file',
-                                to: urls.replayFilePlayback(),
-                            },
-                            {
-                                label: 'Kiosk mode',
-                                to: urls.replayKiosk(),
-                            },
-                        ]}
-                        placement="bottom-end"
-                    >
-                        <LemonButton icon={<IconEllipsis />} size="small" />
-                    </LemonMenu>
+                    {!isRemovingSidePanelFlag && (
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Playback from PostHog JSON file',
+                                    to: urls.replayFilePlayback(),
+                                },
+                                {
+                                    label: 'Kiosk mode',
+                                    to: urls.replayKiosk(),
+                                },
+                            ]}
+                            placement="bottom-end"
+                        >
+                            <LemonButton icon={<IconEllipsis />} size="small" />
+                        </LemonMenu>
+                    )}
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
