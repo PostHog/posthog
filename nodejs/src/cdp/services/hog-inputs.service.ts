@@ -4,6 +4,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { Hub } from '~/types'
 
+import { logger } from '../../utils/logger'
 import {
     HogFunctionInputSchemaType,
     HogFunctionInvocationGlobals,
@@ -240,6 +241,13 @@ export class HogInputsService {
             }
 
             if (!resolvedValue || typeof resolvedValue !== 'string') {
+                logger.warn('🦔', '[HogInputsService] Push subscription distinct_id template returned non-string', {
+                    hogFunctionId: hogFunction.id,
+                    hogFunctionName: hogFunction.name,
+                    teamId: hogFunction.team_id,
+                    inputKey: key,
+                    resolvedValueType: typeof resolvedValue,
+                })
                 continue
             }
 
