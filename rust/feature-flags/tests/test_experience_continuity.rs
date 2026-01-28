@@ -37,6 +37,7 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
         version: Some(1),
         evaluation_runtime: None,
         evaluation_tags: None,
+        bucketing_identifier: None,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -162,6 +163,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
         version: Some(1),
         evaluation_runtime: None,
         evaluation_tags: None,
+        bucketing_identifier: None,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -321,6 +323,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
         version: Some(1),
         evaluation_runtime: None,
         evaluation_tags: None,
+        bucketing_identifier: None,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -445,6 +448,7 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
         version: Some(1),
         evaluation_runtime: None,
         evaluation_tags: None,
+        bucketing_identifier: None,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -527,6 +531,123 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
         json_response["flags"]["experience-flag-test"]["enabled"],
         json!(true),
         "Top-level $anon_distinct_id should take precedence (evaluates to true)"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_experience_continuity_without_person_uses_anon_distinct_id() -> Result<()> {
+    // This test verifies that when:
+    // 1. No person record exists (common during anonymous->identified transition)
+    // 2. The SDK sends both distinct_id and $anon_distinct_id
+    // 3. The flag is multivariate (has variants)
+    // The server should use $anon_distinct_id for variant computation immediately,
+    // ensuring the user sees the same variant they saw while anonymous.
+
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team");
+
+    // Create multivariate flag with experience continuity (50/50 split)
+    let flag_row = FeatureFlagRow {
+        id: 105,
+        team_id: team.id,
+        name: Some("No Person EEC Multivariate Test".to_string()),
+        key: "no-person-eec-multivariate-test".to_string(),
+        filters: json!({
+            "groups": [{"rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50}
+                ]
+            }
+        }),
+        deleted: false,
+        active: true,
+        ensure_experience_continuity: Some(true),
+        version: Some(1),
+        evaluation_runtime: None,
+        evaluation_tags: None,
+        bucketing_identifier: None,
+    };
+    context.insert_flag(team.id, Some(flag_row)).await?;
+
+    // IMPORTANT: Do NOT create any person record
+    // This simulates the race condition where identify event hasn't been processed yet
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let server = ServerHandle::for_config_with_mock_redis(
+        config,
+        vec![],
+        vec![(team.api_token.clone(), team.id)],
+    )
+    .await;
+
+    // Step 1: Get the variant that "anon_user_123" would see
+    let anon_payload = json!({
+        "token": team.api_token,
+        "distinct_id": "anon_user_123",
+    });
+
+    let anon_res = server
+        .send_flags_request(anon_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(anon_res.status(), StatusCode::OK);
+    let anon_json = anon_res.json::<Value>().await?;
+
+    let expected_variant = anon_json["flags"]["no-person-eec-multivariate-test"]["variant"]
+        .as_str()
+        .expect("Should have a variant");
+
+    // Step 2: Verify a different distinct_id gets a different or same variant (doesn't matter)
+    // but record what it naturally evaluates to
+    let identified_payload = json!({
+        "token": team.api_token,
+        "distinct_id": "identified_user_456",
+    });
+
+    let identified_res = server
+        .send_flags_request(identified_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(identified_res.status(), StatusCode::OK);
+    let identified_json = identified_res.json::<Value>().await?;
+
+    let identified_natural_variant = identified_json["flags"]["no-person-eec-multivariate-test"]
+        ["variant"]
+        .as_str()
+        .expect("Should have a variant");
+
+    // Step 3: Now call with identified_user_456 as distinct_id but with $anon_distinct_id
+    // pointing to anon_user_123. Without a person record, the server should use
+    // anon_user_123 for variant computation (matching what the anon user saw).
+    let transition_payload = json!({
+        "token": team.api_token,
+        "distinct_id": "identified_user_456",
+        "$anon_distinct_id": "anon_user_123",
+    });
+
+    let transition_res = server
+        .send_flags_request(transition_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(transition_res.status(), StatusCode::OK);
+    let transition_json = transition_res.json::<Value>().await?;
+
+    let transition_variant = transition_json["flags"]["no-person-eec-multivariate-test"]["variant"]
+        .as_str()
+        .expect("Should have a variant");
+
+    // The key assertion: when $anon_distinct_id is provided with no person record,
+    // the variant should match what the anon_distinct_id user saw, NOT what the
+    // distinct_id would naturally evaluate to.
+    assert_eq!(
+        transition_variant, expected_variant,
+        "With $anon_distinct_id provided but no person record, should use $anon_distinct_id for variant hashing. \
+         Expected variant '{expected_variant}' (from anon_user_123), but got '{transition_variant}'. \
+         For reference, identified_user_456 naturally evaluates to '{identified_natural_variant}'."
     );
 
     Ok(())

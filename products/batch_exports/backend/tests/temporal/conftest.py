@@ -1,6 +1,7 @@
 import uuid
 import random
 import asyncio
+import logging
 import datetime as dt
 
 import pytest
@@ -8,14 +9,18 @@ import pytest
 from django.conf import settings
 
 import psycopg
+import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
 from infi.clickhouse_orm import Database
 from psycopg import sql
+from temporalio.client import Client as TemporalClient
+from temporalio.service import RPCError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.conftest import create_clickhouse_tables
-from posthog.models import Organization, Team
+from posthog.models import BatchExport, Organization, Team
+from posthog.models.team.util import delete_batch_exports
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
@@ -67,11 +72,11 @@ def team(organization):
     team.save()
 
     yield team
-
+    delete_batch_exports(team_ids=[team.pk])
     team.delete()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def aorganization():
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
     org = await sync_to_async(Organization.objects.create)(name=name, is_ai_data_processing_approved=True)
@@ -81,13 +86,13 @@ async def aorganization():
     await sync_to_async(org.delete)()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def ateam(aorganization):
     name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-
+    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
     await sync_to_async(team.delete)()
 
 
@@ -97,8 +102,8 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture(scope="module")
-async def clickhouse_client(event_loop):
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     async with ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
@@ -114,9 +119,29 @@ async def clickhouse_client(event_loop):
         yield client
 
 
+async def delete_temporal_schedule(temporal: TemporalClient, schedule_id: str):
+    """Delete a Temporal Schedule with the given id."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    await handle.delete()
+
+
+async def cleanup_temporal_schedules(temporal: TemporalClient):
+    """Clean up any Temporal Schedules created during the test."""
+    async for schedule in BatchExport.objects.all():
+        try:
+            await delete_temporal_schedule(temporal, str(schedule.id))
+        except RPCError:
+            # Assume this is fine as we are tearing down, but don't fail silently.
+            logging.warning("Schedule %s has already been deleted, ignoring.", schedule.id)
+            continue
+
+
 @pytest.fixture
 async def temporal_client():
-    """Provide a temporalio.client.Client to use in tests."""
+    """Provide a temporalio.client.Client to use in tests.
+
+    Also cleans up any Temporal Schedules created during the test.
+    """
     client = await connect(
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
@@ -125,11 +150,11 @@ async def temporal_client():
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )
-
     yield client
+    await cleanup_temporal_schedules(client)
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def workflows(request):
     """Return Temporal workflows to initialize a test worker.
 
@@ -144,7 +169,7 @@ async def workflows(request):
         return WORKFLOWS
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def activities(request):
     """Return Temporal activities to initialize a test worker.
 
@@ -159,14 +184,7 @@ async def activities(request):
         return ACTIVITIES
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(autouse=True, scope="module")
+@pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
 async def configure_logger_auto() -> None:
     """Configure logger when running in a Temporal activity environment."""
     configure_logger(cache_logger_on_first_use=False)
@@ -215,7 +233,7 @@ def batch_export_schema(request) -> dict | None:
         return None
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
     """Fixture to manage a database for Redshift and Postgres export testing.
 
@@ -283,7 +301,7 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temporal_worker(temporal_client, workflows, activities):
     worker = temporalio.worker.Worker(
         temporal_client,
@@ -356,7 +374,13 @@ def test_properties(request, session_id):
         return {**{"$session_id": session_id}, **request.param}
     except AttributeError:
         pass
-    return {"$browser": "Chrome", "$os": "Mac OS X", "prop": "value", "$session_id": session_id}
+    return {
+        "$browser": "Chrome",
+        "$os": "Mac OS X",
+        "prop": "value",
+        "$session_id": session_id,
+        "$current_url": "posthog.com",
+    }
 
 
 @pytest.fixture
@@ -380,6 +404,24 @@ def test_person_properties(request):
 
 
 @pytest.fixture
+def count_no_prop(request) -> int:
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return 5
+
+
+@pytest.fixture
+def events_table(request) -> str | None:
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return None
+
+
+@pytest.fixture
 async def generate_test_data(
     ateam,
     clickhouse_client,
@@ -389,9 +431,13 @@ async def generate_test_data(
     test_properties,
     test_person_properties,
     insert_sessions,
+    count_no_prop,
+    events_table,
 ):
     """Generate test data in ClickHouse."""
-    if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
+    if events_table:
+        table = events_table
+    elif data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
         table = "events_recent"
     else:
         table = "sharded_events"
@@ -416,7 +462,7 @@ async def generate_test_data(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=5,
+        count=count_no_prop,
         count_outside_range=0,
         count_other_team=0,
         properties=None,
@@ -471,7 +517,7 @@ async def generate_test_data(
     return (events_to_export_created, persons_to_export_created)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def generate_test_persons_data(ateam, clickhouse_client, data_interval_start, data_interval_end):
     """Generate test persons data in ClickHouse."""
     persons, _ = await generate_test_persons_in_clickhouse(

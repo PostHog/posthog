@@ -1,0 +1,605 @@
+import { DateTime } from 'luxon'
+
+import { defaultConfig } from '../../src/config/config'
+import {
+    CookielessServerHashMode,
+    Hub,
+    InternalPerson,
+    PluginsServerConfig,
+    ProjectId,
+    RawOrganization,
+    RawPerson,
+    Team,
+} from '../../src/types'
+import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
+import { UUIDT } from '../../src/utils/utils'
+
+export const commonUserId = 1001
+export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
+export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
+export const commonUserUuid = '797757a4-baed-4fa8-b73b-2b6cf0300299'
+
+export const POSTGRES_DELETE_COMMON_TABLES_QUERY = `
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- First handle tables with foreign key dependencies
+    DELETE FROM posthog_cohort CASCADE;
+    DELETE FROM posthog_featureflag CASCADE;
+    DELETE FROM posthog_organizationmembership CASCADE;
+    DELETE FROM posthog_project CASCADE;
+    DELETE FROM posthog_organization CASCADE;
+    DELETE FROM posthog_action CASCADE;
+    DELETE FROM posthog_user CASCADE;
+    DELETE FROM posthog_team CASCADE;
+
+    -- Then handle remaining tables
+    FOR r IN (
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = current_schema()
+        AND tablename NOT IN (
+            'posthog_cohort',
+            'posthog_featureflag',
+            'posthog_organizationmembership',
+            'posthog_project',
+            'posthog_organization',
+            'posthog_action',
+            'posthog_user',
+            'posthog_team',
+            -- Exclude persons-related tables as they're in a different database
+            'posthog_featureflaghashkeyoverride',
+            'posthog_cohortpeople',
+            'posthog_persondistinctid',
+            'posthog_personlessdistinctid',
+            'posthog_person',
+            'posthog_personoverridemapping',
+            'posthog_personoverride',
+            'posthog_pendingpersonoverride',
+            'posthog_flatpersonoverride',
+            'posthog_group',
+            'posthog_grouptypemapping'
+        )
+    ) LOOP
+        EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+END $$;
+`
+
+export const POSTGRES_DELETE_PERSONS_TABLES_QUERY = `
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- Delete persons-related tables with proper ordering for foreign keys
+    DELETE FROM posthog_grouptypemapping CASCADE;
+    DELETE FROM posthog_group CASCADE;
+    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_cohortpeople CASCADE;
+    DELETE FROM posthog_flatpersonoverride CASCADE;
+    DELETE FROM posthog_pendingpersonoverride CASCADE;
+    DELETE FROM posthog_personoverride CASCADE;
+    DELETE FROM posthog_personoverridemapping CASCADE;
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_personlessdistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
+
+    -- Handle any other tables that might exist in the persons database
+    FOR r IN (
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = current_schema()
+        AND tablename NOT IN (
+            'posthog_grouptypemapping',
+            'posthog_group',
+            'posthog_featureflaghashkeyoverride',
+            'posthog_cohortpeople',
+            'posthog_flatpersonoverride',
+            'posthog_pendingpersonoverride',
+            'posthog_personoverride',
+            'posthog_personoverridemapping',
+            'posthog_persondistinctid',
+            'posthog_personlessdistinctid',
+            'posthog_person'
+        )
+    ) LOOP
+        EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+END $$;
+`
+
+export async function clearDatabase(db: PostgresRouter) {
+    await db
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
+        .catch((e) => {
+            console.error('Error deleting common tables', e)
+            throw e
+        })
+
+    await db
+        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
+        .catch((e) => {
+            console.error('Error deleting persons tables', e)
+            throw e
+        })
+}
+
+// TODO: This shouldn't be called resetTestDatabase, as it actually adds data to the database
+// which can be misleading for people running tests
+export async function resetTestDatabase(extraServerConfig: Partial<PluginsServerConfig> = {}): Promise<void> {
+    const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
+    const pg = new PostgresRouter(config)
+
+    // Delete common tables using COMMON_WRITE
+    await pg
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
+        .catch((e) => {
+            console.error('Error deleting common tables', e)
+            throw e
+        })
+
+    // Delete persons tables using PERSONS_WRITE
+    await pg
+        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
+        .catch((e) => {
+            console.error('Error deleting persons tables', e)
+            throw e
+        })
+
+    const teamIdToCreate = 2 // TODO: This might be wrong
+    await createUserTeamAndOrganization(pg, teamIdToCreate)
+    await pg.end()
+}
+
+// Helper function to determine which database a table belongs to
+function getPostgresUseForTable(table: string): PostgresUse {
+    // Behavioral cohorts tables
+    if (table === 'cohort_membership') {
+        return PostgresUse.BEHAVIORAL_COHORTS_RW
+    }
+
+    // Persons-related tables
+    const personsTablesRegex =
+        /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
+    if (personsTablesRegex.test(table)) {
+        return PostgresUse.PERSONS_WRITE
+    }
+
+    // Default to common tables
+    return PostgresUse.COMMON_WRITE
+}
+
+export async function insertRow(postgres: PostgresRouter, table: string, objectProvided: Record<string, any>) {
+    // Handling of related fields
+    const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
+
+    const keys = Object.keys(object)
+        .map((key) => `"${key}"`)
+        .join(',')
+    const params = Object.keys(object)
+        .map((_, i) => `\$${i + 1}`)
+        .join(',')
+    const values = Object.values(object).map((value) => {
+        if (Array.isArray(value) && value.length > 0) {
+            return JSON.stringify(value)
+        }
+        return value
+    })
+
+    const postgresUse = getPostgresUseForTable(table)
+
+    try {
+        const {
+            rows: [rowSaved],
+        } = await postgres.query(
+            postgresUse,
+            `INSERT INTO ${table} (${keys})
+             VALUES (${params})
+             RETURNING *`,
+            values,
+            `insertRow-${table}`
+        )
+        const dependentQueries: Promise<void>[] = []
+
+        await Promise.all(dependentQueries)
+        return rowSaved
+    } catch (error) {
+        console.error(`Error on table ${table} when inserting object:\n`, object, '\n', error)
+        throw error
+    }
+}
+
+export async function createUserTeamAndOrganization(
+    db: PostgresRouter,
+    teamId: number,
+    userId: number = commonUserId,
+    userUuid: string = commonUserUuid,
+    organizationId: string = commonOrganizationId,
+    organizationMembershipId: string = commonOrganizationMembershipId,
+    teamOverrides: Record<string, any> = {}
+): Promise<void> {
+    await insertRow(db, 'posthog_user', {
+        id: userId,
+        uuid: userUuid,
+        password: 'gibberish',
+        first_name: 'PluginTest',
+        last_name: 'User',
+        email: `test${userId}@posthog.com`,
+        distinct_id: `plugin_test_user_distinct_id_${userId}`,
+        is_staff: false,
+        is_active: false,
+        date_joined: new Date().toISOString(),
+        events_column_config: { active: 'DEFAULT' },
+    })
+    await insertRow(db, 'posthog_organization', {
+        id: organizationId,
+        name: 'TEST ORG',
+        plugins_access_level: 9,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
+        for_internal_metrics: false,
+        available_product_features: [],
+        domain_whitelist: [],
+        is_member_join_email_enabled: false,
+        allow_publicly_shared_resources: true,
+        members_can_use_personal_api_keys: true,
+        slug: new UUIDT().toString(),
+        default_anonymize_ips: false,
+    } as RawOrganization)
+    await updateOrganizationAvailableFeatures(db, organizationId, [{ key: 'data_pipelines', name: 'Data Pipelines' }])
+    await insertRow(db, 'posthog_organizationmembership', {
+        id: organizationMembershipId,
+        organization_id: organizationId,
+        user_id: userId,
+        level: 15,
+        joined_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    })
+    await insertRow(db, 'posthog_project', {
+        id: teamId,
+        organization_id: organizationId,
+        name: 'TEST PROJECT',
+        created_at: new Date().toISOString(),
+    })
+
+    // Map drop_events_older_than_seconds to drop_events_older_than for database insertion
+    const { drop_events_older_than_seconds, ...otherTeamOverrides } = teamOverrides
+    const teamData: Record<string, any> = {
+        id: teamId,
+        project_id: teamId,
+        organization_id: organizationId,
+        app_urls: [],
+        name: 'TEST PROJECT',
+        event_names: [],
+        event_names_with_usage: [],
+        event_properties: [],
+        event_properties_with_usage: [],
+        event_properties_numerical: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        anonymize_ips: false,
+        completed_snippet_onboarding: true,
+        ingested_event: true,
+        uuid: new UUIDT().toString(),
+        session_recording_opt_in: true,
+        plugins_opt_in: false,
+        opt_out_capture: false,
+        is_demo: false,
+        api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
+        test_account_filters: [],
+        timezone: 'UTC',
+        data_attributes: ['data-attr'],
+        person_display_name_properties: [],
+        access_control: false,
+        base_currency: 'USD',
+        cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
+        session_recording_retention_period: '30d',
+        ...otherTeamOverrides,
+    }
+
+    // Convert seconds to interval if drop_events_older_than_seconds is provided
+    if (typeof drop_events_older_than_seconds === 'number') {
+        teamData.drop_events_older_than = `${drop_events_older_than_seconds} seconds`
+    }
+
+    await insertRow(db, 'posthog_team', teamData)
+}
+
+export async function getTeams(hub: Hub): Promise<Team[]> {
+    const selectResult = await hub.postgres.query<Team>(
+        PostgresUse.COMMON_READ,
+        'SELECT * FROM posthog_team ORDER BY id',
+        undefined,
+        'fetchAllTeams'
+    )
+    for (const row of selectResult.rows) {
+        row.project_id = parseInt(row.project_id as unknown as string) as ProjectId
+    }
+    return selectResult.rows
+}
+
+export async function getTeam(hub: Hub, teamId: Team['id']): Promise<Team | null> {
+    const teams = await getTeams(hub)
+    return teams.find((team) => team.id === teamId) ?? null
+}
+
+export async function getFirstTeam(hub: Hub): Promise<Team> {
+    return (await getTeams(hub))[0]
+}
+
+export const createOrganization = async (pg: PostgresRouter) => {
+    const organizationId = new UUIDT().toString()
+    await insertRow(pg, 'posthog_organization', {
+        id: organizationId,
+        name: 'TEST ORG',
+        plugins_access_level: 9,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
+        for_internal_metrics: false,
+        available_product_features: [],
+        domain_whitelist: [],
+        allow_publicly_shared_resources: true,
+        members_can_use_personal_api_keys: true,
+        is_member_join_email_enabled: false,
+        slug: new UUIDT().toString(),
+        default_anonymize_ips: false,
+    })
+    return organizationId
+}
+
+export const updateOrganizationAvailableFeatures = async (
+    pg: PostgresRouter,
+    organizationId: string,
+    features: { key: string; name: string }[]
+) => {
+    await pg.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_organization SET available_product_features = $1 WHERE id = $2`,
+        [features, organizationId],
+        'change-team-available-features'
+    )
+}
+
+type PartialProject = { organization_id: string }
+export const createTeam = async (
+    pg: PostgresRouter,
+    projectOrOrganizationId: ProjectId | string,
+    token?: string,
+    teamSettings?: Record<string, any>
+): Promise<number> => {
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    let organizationId: string
+    let projectId: ProjectId
+    if (typeof projectOrOrganizationId === 'number') {
+        projectId = projectOrOrganizationId
+        organizationId = await pg
+            .query<PartialProject>(
+                PostgresUse.COMMON_READ,
+                'SELECT organization_id FROM posthog_project WHERE id = $1',
+                [projectId],
+                'fetchOrganizationId'
+            )
+            .then((result) => result.rows[0].organization_id)
+    } else {
+        projectId = id as ProjectId
+        organizationId = projectOrOrganizationId
+        await insertRow(pg, 'posthog_project', {
+            // Every team (aka environment) must be a child of a project
+            id,
+            organization_id: organizationId,
+            name: 'TEST PROJECT',
+            created_at: new Date().toISOString(),
+        })
+    }
+    await insertRow(pg, 'posthog_team', {
+        id,
+        organization_id: organizationId,
+        project_id: projectId,
+        app_urls: [],
+        name: 'TEST PROJECT',
+        event_names: [],
+        event_names_with_usage: [],
+        event_properties: [],
+        event_properties_with_usage: [],
+        event_properties_numerical: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        anonymize_ips: false,
+        completed_snippet_onboarding: true,
+        ingested_event: true,
+        uuid: new UUIDT().toString(),
+        session_recording_opt_in: true,
+        plugins_opt_in: false,
+        opt_out_capture: false,
+        is_demo: false,
+        api_token: token ?? new UUIDT().toString(),
+        test_account_filters: [],
+        timezone: 'UTC',
+        data_attributes: ['data-attr'],
+        person_display_name_properties: [],
+        access_control: false,
+        base_currency: 'USD',
+        session_recording_retention_period: '30d',
+        ...teamSettings,
+    })
+    return id
+}
+
+export const createAction = async (
+    pg: PostgresRouter,
+    teamId: number,
+    name: string,
+    bytecode: any[] | null = null,
+    actionSettings?: Record<string, any>
+): Promise<number> => {
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(pg, 'posthog_action', {
+        id,
+        name,
+        description: `Test action: ${name}`,
+        team_id: teamId,
+        deleted: false,
+        bytecode: bytecode ? JSON.stringify(bytecode) : null,
+        bytecode_error: null,
+        post_to_slack: false,
+        slack_message_format: '',
+        is_calculating: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_calculated_at: new Date().toISOString(),
+        steps_json: [],
+        ...actionSettings,
+    })
+    return id
+}
+
+export const createUser = async (pg: PostgresRouter, distinctId: string) => {
+    const uuid = new UUIDT().toString()
+    const user = await insertRow(pg, 'posthog_user', {
+        uuid: uuid,
+        password: 'gibberish',
+        first_name: 'PluginTest',
+        last_name: 'User',
+        email: `test${uuid}@posthog.com`,
+        distinct_id: distinctId,
+        is_staff: false,
+        is_active: false,
+        date_joined: new Date().toISOString(),
+        events_column_config: { active: 'DEFAULT' },
+    })
+    return user.id
+}
+
+export const createOrganizationMembership = async (pg: PostgresRouter, organizationId: string, userId: number) => {
+    const membershipId = new UUIDT().toString()
+    const membership = await insertRow(pg, 'posthog_organizationmembership', {
+        id: membershipId,
+        organization_id: organizationId,
+        user_id: userId,
+        level: 15,
+        joined_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    })
+    return membership.id
+}
+
+export async function fetchPostgresPersons(postgres: PostgresRouter, teamId: number) {
+    const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
+    return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
+        // NOTE: we map to update some values here to maintain
+        // compatibility with `hub.fetchPersons`.
+        // TODO: remove unnecessary property translation operation.
+        (rawPerson: RawPerson) =>
+            ({
+                ...rawPerson,
+                created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
+                version: Number(rawPerson.version || 0),
+            }) as InternalPerson
+    )
+}
+
+export async function fetchPostgresDistinctIdsForPerson(postgres: PostgresRouter, personId: string): Promise<string[]> {
+    const query = `SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = ${personId} ORDER BY id`
+    return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'distinctIds')).rows.map(
+        (row: { distinct_id: string }) => row.distinct_id
+    )
+}
+
+export async function resetBehavioralCohortsDatabase(postgres: PostgresRouter): Promise<void> {
+    await postgres.query(
+        PostgresUse.BEHAVIORAL_COHORTS_RW,
+        'TRUNCATE TABLE cohort_membership',
+        undefined,
+        'reset-behavioral-cohorts-db'
+    )
+}
+
+export const createCohort = async (
+    pg: PostgresRouter,
+    teamId: number,
+    name: string,
+    filters: string | null = null,
+    cohortSettings?: Record<string, any>
+): Promise<number> => {
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(pg, 'posthog_cohort', {
+        id,
+        name,
+        description: `Test cohort: ${name}`,
+        team_id: teamId,
+        deleted: false,
+        filters:
+            filters ||
+            JSON.stringify({
+                properties: {
+                    type: 'AND',
+                    values: [],
+                },
+            }),
+        query: null,
+        version: null,
+        pending_version: null,
+        count: null,
+        is_calculating: false,
+        last_calculation: null,
+        errors_calculating: 0,
+        last_error_at: null,
+        is_static: false,
+        cohort_type: 'realtime',
+        created_at: new Date().toISOString(),
+        created_by_id: commonUserId,
+        groups: JSON.stringify([]),
+        ...cohortSettings,
+    })
+    return id
+}
+
+// Build an inline filters JSON string for cohorts with embedded bytecode and conditionHash
+export const buildInlineFiltersForCohorts = ({
+    bytecode,
+    conditionHash,
+    type = 'behavioral',
+    key = '$test_event',
+    extra,
+}: {
+    bytecode: any[]
+    conditionHash: string
+    type?: string
+    key?: string
+    extra?: Record<string, any>
+}): string => {
+    const filter: any = {
+        key,
+        type,
+        bytecode,
+        conditionHash,
+        ...(extra || {}),
+    }
+
+    if (type === 'behavioral') {
+        filter.value = 'performed_event'
+        filter.event_type = 'events'
+    } else if (type === 'person') {
+        filter.operator = 'is_set'
+    }
+
+    return JSON.stringify({
+        properties: {
+            type: 'OR',
+            values: [
+                {
+                    type: 'OR',
+                    values: [filter],
+                },
+            ],
+        },
+    })
+}

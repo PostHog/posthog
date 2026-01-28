@@ -15,13 +15,15 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey, UserInterviewType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { UserInterviewType } from '~/types'
 
 import { userInterviewsLogic } from './userInterviewsLogic'
 
 export const scene: SceneExport = {
     component: UserInterviews,
     logic: userInterviewsLogic,
+    productKey: ProductKey.USER_INTERVIEWS,
 }
 
 export function UserInterviews(): JSX.Element {

@@ -84,7 +84,7 @@ Keep shared code minimal to avoid tight coupling.
 - Each high level product should have its own folder.
   - Please keep the top level folders `under_score` cased, as dashes make it hard to import files in some languages (e.g. Python).
 - Each product has a few required files / folders:
-  - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` on build.
+  - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` and `frontend/src/products.json` on build.
   - `package.json` - describes the frontend dependencies. Ideally they should all be `peerDependencies` of whatever is in `frontend/package.json`
   - `__init__.py` - allows imports like `products.<product>.backend.*` (only if backend exists)
     - `backend/__init__.py` - marks the backend directory as a Python package/Django app (only if backend exists).

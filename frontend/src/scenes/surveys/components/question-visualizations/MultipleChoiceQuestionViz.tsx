@@ -3,10 +3,17 @@ import { useMemo } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { ResponseCard, ScrollToSurveyResultsCard } from 'scenes/surveys/components/question-visualizations/ResponseCard'
+import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
+import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 
-import { ChoiceQuestionResponseData, GraphType, InsightLogicProps } from '~/types'
+import {
+    ChoiceQuestionResponseData,
+    GraphType,
+    InsightLogicProps,
+    MultipleSurveyQuestion,
+    OpenQuestionResponseData,
+} from '~/types'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
@@ -15,7 +22,10 @@ const insightProps: InsightLogicProps = {
 const barColor = CHART_INSIGHTS_COLORS[2]
 
 interface Props {
+    question: MultipleSurveyQuestion
+    questionIndex: number
     responseData: ChoiceQuestionResponseData[]
+    totalResponses: number
 }
 
 interface ProcessedData {
@@ -23,30 +33,63 @@ interface ProcessedData {
     openEndedResponses: ChoiceQuestionResponseData[]
 }
 
-export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element | null {
+function toOpenQuestionFormat(responses: ChoiceQuestionResponseData[]): OpenQuestionResponseData[] {
+    return responses.map((r) => ({
+        distinctId: r.distinctId || '',
+        response: r.label,
+        personDisplayName: r.personDisplayName,
+        timestamp: r.timestamp,
+    }))
+}
+
+function OpenEndedResponsesSection({
+    openEndedResponses,
+    questionId,
+    questionIndex,
+}: {
+    openEndedResponses: ChoiceQuestionResponseData[]
+    questionId?: string
+    questionIndex: number
+}): JSX.Element {
+    return (
+        <div>
+            <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
+            <OpenQuestionSummaryV2
+                questionId={questionId}
+                questionIndex={questionIndex}
+                totalResponses={openEndedResponses.length}
+            />
+            <VirtualizedResponseList responses={toOpenQuestionFormat(openEndedResponses)} />
+        </div>
+    )
+}
+
+export function MultipleChoiceQuestionViz({
+    question,
+    questionIndex,
+    responseData,
+    totalResponses,
+}: Props): JSX.Element | null {
     const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
         const nonPredefinedResponses = responseData.filter((d) => !d.isPredefined)
 
-        // Chart shows predefined responses + total count for "Other" if it exists
         const chartData = [...predefinedResponses]
 
-        // If there are open-ended responses, add a summary count for the predefined "Other" option
         if (nonPredefinedResponses.length > 0) {
             const totalOpenEndedCount = nonPredefinedResponses.reduce((sum, d) => sum + d.value, 0)
             chartData.push({
                 label: 'Other (open-ended)',
                 value: totalOpenEndedCount,
-                isPredefined: true, // This represents the predefined "Other" option
+                isPredefined: true,
             })
         }
 
-        // Sort by value descending
         chartData.sort((a, b) => b.value - a.value)
 
         return {
             chartData,
-            openEndedResponses: nonPredefinedResponses, // Show all open-ended responses
+            openEndedResponses: nonPredefinedResponses,
         }
     }, [responseData])
 
@@ -79,6 +122,7 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
                                 backgroundColor: barColor,
                                 borderColor: barColor,
                                 hoverBackgroundColor: barColor,
+                                totalResponses,
                             },
                         ]}
                         labels={chartData.map((d) => d.label)}
@@ -87,24 +131,11 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
             </div>
 
             {openEndedResponses.length > 0 && (
-                <div>
-                    <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                        {openEndedResponses.slice(0, openEndedResponses.length > 20 ? 19 : 20).map((response, i) => (
-                            <ResponseCard
-                                key={`open-${i}`}
-                                response={response.label}
-                                distinctId={response.distinctId}
-                                personProperties={response.personProperties}
-                                timestamp={response.timestamp}
-                                count={response.value}
-                            />
-                        ))}
-                        {openEndedResponses.length > 20 && (
-                            <ScrollToSurveyResultsCard numOfResponses={openEndedResponses.length - 20} />
-                        )}
-                    </div>
-                </div>
+                <OpenEndedResponsesSection
+                    openEndedResponses={openEndedResponses}
+                    questionId={question.id}
+                    questionIndex={questionIndex}
+                />
             )}
         </div>
     )

@@ -9,11 +9,11 @@ from posthog.schema import MaxRecordingUniversalFilters
 
 from posthog.models import Team, User
 
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 
 from .prompts import (
@@ -112,8 +112,13 @@ class SearchSessionRecordingsTool(MaxTool):
     - When NOT to use the tool:
       * When the user asks to summarize session recordings
     """
-    context_prompt_template: str = "Current recordings filters are: {current_filters}"
+    context_prompt_template: str = (
+        "Current recordings filters are: {current_filters}.\nCurrent session ID being viewed: {current_session_id}."
+    )
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
+
+    def get_required_resource_access(self):
+        return [("session_recording", "viewer")]
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
@@ -122,6 +127,7 @@ class SearchSessionRecordingsTool(MaxTool):
         """
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
+        # Not providing current session id to the prompt, as it's not required for the filtering logic, only as a context
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         graph_context = {
             "change": user_prompt,

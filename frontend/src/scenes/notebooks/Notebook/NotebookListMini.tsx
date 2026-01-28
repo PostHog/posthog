@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 
 import { notebooksModel } from '~/models/notebooksModel'
 
@@ -24,9 +25,12 @@ export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps):
 
     return (
         <NotebookSelectPopover placement="bottom-start">
-            <LemonButton size="small" truncate>
-                {selectedTitle || 'Notebooks'}
-            </LemonButton>
+            {(open) => (
+                <ButtonPrimitive data-state={open ? 'open' : 'closed'}>
+                    {selectedTitle || 'Notebooks'}
+                    <MenuOpenIndicator />
+                </ButtonPrimitive>
+            )}
         </NotebookSelectPopover>
     )
 }

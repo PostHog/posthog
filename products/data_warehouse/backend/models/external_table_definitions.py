@@ -516,6 +516,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
             ),
             name="billing_cycle_anchor",
         ),
+        "cancel_at": StringDatabaseField(name="cancel_at"),
         "cancel_at_period_end": BooleanDatabaseField(name="cancel_at_period_end"),
         "cancellation_details": StringJSONDatabaseField(name="cancellation_details"),
         "__trial_end": IntegerDatabaseField(name="trial_end", hidden=True),
@@ -546,7 +547,6 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
             ),
             name="trial_start",
         ),
-        "trial_settings": StringJSONDatabaseField(name="trial_settings"),
     },
     "stripe_balancetransaction": {
         "id": StringDatabaseField(name="id"),

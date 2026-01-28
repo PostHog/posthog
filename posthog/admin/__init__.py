@@ -9,6 +9,7 @@ def register_all_admin():
         AsyncDeletionAdmin,
         BatchImportAdmin,
         CohortAdmin,
+        ColumnConfigurationAdmin,
         DashboardAdmin,
         DashboardTemplateAdmin,
         DataColorThemeAdmin,
@@ -29,16 +30,19 @@ def register_all_admin():
         PersonDistinctIdAdmin,
         PluginAdmin,
         PluginConfigAdmin,
+        ProductTourAdmin,
         ProjectAdmin,
         SurveyAdmin,
         TeamAdmin,
         TextAdmin,
         UserAdmin,
+        UserProductListAdmin,
     )
     from posthog.models import (
         AsyncDeletion,
         BatchImport,
         Cohort,
+        ColumnConfiguration,
         Dashboard,
         DashboardTemplate,
         DataColorTheme,
@@ -64,12 +68,13 @@ def register_all_admin():
         Text,
         User,
     )
+    from posthog.models.file_system.user_product_list import UserProductList
     from posthog.models.oauth import OAuthApplication
 
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
-    from products.tasks.backend.admin import SandboxSnapshotAdmin
-    from products.tasks.backend.models import SandboxSnapshot
+    from products.tasks.backend.admin import SandboxSnapshotAdmin, TaskAdmin, TaskRunAdmin
+    from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 
     admin.site.register(Organization, OrganizationAdmin)
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
@@ -94,9 +99,14 @@ def register_all_admin():
     admin.site.register(Text, TextAdmin)
 
     admin.site.register(Cohort, CohortAdmin)
+    admin.site.register(ColumnConfiguration, ColumnConfigurationAdmin)
     admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
     admin.site.register(Survey, SurveyAdmin)
+
+    from products.product_tours.backend.models import ProductTour
+
+    admin.site.register(ProductTour, ProductTourAdmin)
 
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
@@ -107,5 +117,10 @@ def register_all_admin():
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
     admin.site.register(OAuthApplication, OAuthApplicationAdmin)
 
+    admin.site.register(Task, TaskAdmin)
+    admin.site.register(TaskRun, TaskRunAdmin)
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
+
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
+
+    admin.site.register(UserProductList, UserProductListAdmin)

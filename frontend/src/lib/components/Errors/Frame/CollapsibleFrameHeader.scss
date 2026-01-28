@@ -1,0 +1,52 @@
+.collapsible-frame-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    overflow: hidden;
+
+    .frame-function {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        max-width: 60%;
+        height: 100%;
+        overflow: auto hidden;
+        white-space: nowrap;
+        scrollbar-width: none;
+
+        &[scrollable] {
+            mask-image: linear-gradient(to right, transparent, black 1em);
+        }
+    }
+
+    .frame-function::-webkit-scrollbar {
+        display: none; /* Chrome, Safari, Edge */
+    }
+
+    .frame-source {
+        display: flex;
+        flex: 1 1 auto;
+        align-items: center;
+        height: 100%;
+        overflow: auto hidden;
+        text-align: start;
+        white-space: nowrap;
+        scrollbar-width: none;
+
+        &[scrollable] {
+            mask-image: linear-gradient(to right, transparent, black 1em);
+        }
+    }
+
+    .frame-source::-webkit-scrollbar {
+        display: none; /* Chrome, Safari, Edge */
+    }
+
+    .frame-icons {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        margin-left: auto;
+    }
+}

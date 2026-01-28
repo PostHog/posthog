@@ -22,18 +22,6 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--days",
-            type=int,
-            default=30,
-            help="Number of days to look back (default: 30)",
-        )
-        parser.add_argument(
-            "--min-matches",
-            type=int,
-            default=3,
-            help="Minimum number of matches required (default: 3)",
-        )
-        parser.add_argument(
             "--parallelism",
             type=int,
             default=10,
@@ -51,29 +39,41 @@ class Command(BaseCommand):
             default=5,
             help="Delay between batches in minutes (default: 5)",
         )
+        parser.add_argument(
+            "--team-id",
+            type=int,
+            default=None,
+            help="Filter cohorts by team_id (optional)",
+        )
+        parser.add_argument(
+            "--cohort-id",
+            type=int,
+            default=None,
+            help="Filter to a specific cohort_id (optional)",
+        )
 
     def handle(self, *args, **options):
-        days = options.get("days", 30)
-        min_matches = options.get("min_matches", 3)
         parallelism = options.get("parallelism", 10)
         workflows_per_batch = options.get("workflows_per_batch", 5)
         batch_delay_minutes = options.get("batch_delay_minutes", 5)
+        team_id = options.get("team_id")
+        cohort_id = options.get("cohort_id")
 
         logger.info(
             "Starting realtime cohort calculation coordinator",
-            days=days,
-            min_matches=min_matches,
             parallelism=parallelism,
             workflows_per_batch=workflows_per_batch,
             batch_delay_minutes=batch_delay_minutes,
+            team_id=team_id,
+            cohort_id=cohort_id,
         )
 
         self.run_temporal_workflow(
-            days=days,
-            min_matches=min_matches,
             parallelism=parallelism,
             workflows_per_batch=workflows_per_batch,
             batch_delay_minutes=batch_delay_minutes,
+            team_id=team_id,
+            cohort_id=cohort_id,
         )
 
         logger.info(
@@ -86,11 +86,11 @@ class Command(BaseCommand):
 
     def run_temporal_workflow(
         self,
-        days: int,
-        min_matches: int,
         parallelism: int,
         workflows_per_batch: int,
         batch_delay_minutes: int,
+        team_id: int | None,
+        cohort_id: int | None,
     ) -> None:
         """Run the Temporal workflow for parallel processing."""
 
@@ -100,11 +100,11 @@ class Command(BaseCommand):
 
             # Create coordinator workflow inputs
             inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-                days=days,
-                min_matches=min_matches,
                 parallelism=parallelism,
                 workflows_per_batch=workflows_per_batch,
                 batch_delay_minutes=batch_delay_minutes,
+                team_id=team_id,
+                cohort_id=cohort_id,
             )
 
             # Generate unique workflow ID

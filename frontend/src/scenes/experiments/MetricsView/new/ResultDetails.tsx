@@ -1,14 +1,17 @@
-import { router } from 'kea-router'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
-import { IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
-import { urls } from 'scenes/urls'
 
 import {
     CachedNewExperimentQueryResponse,
@@ -25,7 +28,6 @@ import {
     FunnelStep,
     FunnelStepWithNestedBreakdown,
     RecordingUniversalFilters,
-    ReplayTabs,
 } from '~/types'
 
 import {
@@ -98,6 +100,65 @@ function convertExperimentResultToFunnelSteps(
     return funnelSteps
 }
 
+function SqlCollapsible({
+    hogql,
+    clickhouseSql,
+    showClickhouseSql,
+}: {
+    hogql?: string
+    clickhouseSql?: string
+    showClickhouseSql: boolean
+}): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'hogql' | 'clickhouse'>('hogql')
+
+    return (
+        <LemonCollapse
+            panels={[
+                {
+                    key: 'sql',
+                    header: 'SQL',
+                    content: showClickhouseSql ? (
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={setActiveTab}
+                            tabs={[
+                                {
+                                    key: 'hogql',
+                                    label: 'HogQL',
+                                    content: hogql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {hogql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-muted">No HogQL available</div>
+                                    ),
+                                },
+                                {
+                                    key: 'clickhouse',
+                                    label: 'ClickHouse',
+                                    content: clickhouseSql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {clickhouseSql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-muted">No SQL available</div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : hogql ? (
+                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                            {hogql}
+                        </CodeSnippet>
+                    ) : (
+                        <div className="text-muted">No SQL available</div>
+                    ),
+                },
+            ]}
+        />
+    )
+}
+
 export function ResultDetails({
     experiment,
     result,
@@ -107,6 +168,8 @@ export function ResultDetails({
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
 }): JSX.Element {
+    const { featureFlags } = useValues(experimentLogic)
+
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
             key: 'variant',
@@ -183,36 +246,36 @@ export function ResultDetails({
                 const variantKey = item.key
                 const filters = getViewRecordingFilters(experiment, metric, variantKey)
 
+                const filterGroup: Partial<RecordingUniversalFilters> = {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: filters,
+                            },
+                        ],
+                    },
+                    date_from: experiment?.start_date,
+                    date_to: experiment?.end_date,
+                    filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+                }
+
                 return (
-                    <LemonButton
+                    <ViewRecordingsPlaylistButton
+                        filters={filterGroup}
                         size="xsmall"
-                        icon={<IconRewindPlay />}
+                        type="secondary"
                         tooltip="Watch recordings of people who were exposed to this variant."
+                        disabled={filters.length === 0}
                         disabledReason={
                             filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined
                         }
-                        type="secondary"
+                        data-attr="experiment-metrics-view-recordings"
                         onClick={() => {
-                            const filterGroup: Partial<RecordingUniversalFilters> = {
-                                filter_group: {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            type: FilterLogicalOperator.And,
-                                            values: filters,
-                                        },
-                                    ],
-                                },
-                                date_from: experiment?.start_date,
-                                date_to: experiment?.end_date,
-                                filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
-                            }
-                            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
                             posthog.capture('viewed recordings from experiment', { variant: variantKey })
                         }}
-                    >
-                        View recordings
-                    </LemonButton>
+                    />
                 )
             },
         },
@@ -239,6 +302,11 @@ export function ResultDetails({
                     metric={metric}
                 />
             )}
+            <SqlCollapsible
+                hogql={result.hogql}
+                clickhouseSql={result.clickhouse_sql}
+                showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
+            />
         </div>
     )
 }

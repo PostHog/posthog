@@ -5,10 +5,10 @@ import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { AccessControlLevel, OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
@@ -221,7 +221,7 @@ export const inviteLogic = kea<inviteLogicType>([
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembersInternal.length
             if (values.preflight?.email_service_available) {
-                lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+                lemonToast.success(`Invited ${pluralize(inviteCount, 'new team member')}`)
             } else {
                 lemonToast.success('Team invite links generated')
             }
@@ -231,13 +231,6 @@ export const inviteLogic = kea<inviteLogicType>([
 
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
-            }
-
-            if (inviteCount > 0) {
-                // We want to avoid this updating the team before the onboarding is finished
-                setTimeout(() => {
-                    activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
-                }, 1000)
             }
         },
         addProjectAccess: ({ projectId }) => {

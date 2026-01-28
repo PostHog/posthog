@@ -31,9 +31,7 @@ class TestOrganization(BaseTest):
         self.assertEqual(self.organization.active_invites.count(), 1)
 
         expired_invite = OrganizationInvite.objects.create(organization=self.organization)
-        OrganizationInvite.objects.filter(id=expired_invite.id).update(
-            created_at=timezone.now() - timezone.timedelta(hours=73)
-        )
+        OrganizationInvite.objects.filter(id=expired_invite.id).update(created_at=timezone.now() - timedelta(hours=73))
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 

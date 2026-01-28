@@ -1,9 +1,14 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, Person, Team
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestCohort(BaseTest):
@@ -323,8 +328,8 @@ class TestCohort(BaseTest):
             "fe3876bc-c75c-4c79-ae55-2af6892b9da7",
             "345b621a-26e1-4888-a9eb-175329f7923b",
         ]
-        for uuid in uuids:
-            Person.objects.create(team=self.team, uuid=uuid)
+        for person_uuid in uuids:
+            Person.objects.create(team=self.team, uuid=person_uuid)
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
         # Insert all users into the cohort using batching (batchsize=3)
@@ -370,3 +375,136 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    @parameterized.expand(
+        [
+            # operator, filter_value, excluded_ages, included_ages
+            ["between", [18, 65], [15, 70], [25, 35, 18, 65]],
+            ["not_between", [18, 65], [25, 18, 65], [15, 70]],
+            ["min", 18, [15], [18, 25]],
+            ["max", 65, [70], [25, 65]],
+        ]
+    )
+    def test_calculating_cohort_with_numeric_property_operators(
+        self, operator, filter_value, excluded_ages, included_ages
+    ):
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="age", property_type=PropertyType.Numeric
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "age", "value": filter_value, "operator": operator, "type": "person"}]}],
+            name="my_cohort",
+        )
+
+        for age in excluded_ages:
+            Person.objects.create(
+                distinct_ids=[str(uuid.uuid4())],
+                team_id=self.team.pk,
+                properties={"age": age},
+            )
+
+        expected_people = []
+        for age in included_ages:
+            person = Person.objects.create(
+                distinct_ids=[str(uuid.uuid4())],
+                team_id=self.team.pk,
+                properties={"age": age},
+            )
+            expected_people.append(person)
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        uuids = [
+            row[0]
+            for row in sync_execute(
+                GET_COHORTPEOPLE_BY_COHORT_ID,
+                {
+                    "cohort_id": cohort.pk,
+                    "team_id": self.team.pk,
+                    "version": cohort.version,
+                },
+            )
+        ]
+
+        self.assertCountEqual(uuids, [p.uuid for p in expected_people])
+
+    def test_get_static_cohort_size(self):
+        """Test that get_static_cohort_size works with db_constraint=False on the person foreign key."""
+        from posthog.models.cohort.util import get_static_cohort_size
+
+        # Create persons
+        person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+        person3 = Person.objects.create(team=self.team, distinct_ids=["person3"])
+
+        # Create a static cohort
+        cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+
+        # Add persons to cohort using the many-to-many relationship
+        cohort.people.add(person1, person2, person3)
+
+        # Test that get_static_cohort_size returns the correct count
+        size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
+
+        # This should return 3, not a CombinedExpression
+        assert isinstance(size, int), f"Expected int, got {type(size)}: {size}"
+        assert size == 3, f"Expected 3 persons in cohort, got {size}"
+
+        # Test with team leakage - person from another team should not be counted
+        team2 = Team.objects.create(organization=self.organization)
+        person4 = Person.objects.create(team=team2, distinct_ids=["person4"])
+        cohort.people.add(person4)
+
+        size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
+        assert size == 3, f"Expected 3 persons from team {self.team.id}, got {size}"
+
+    @pytest.mark.ee
+    def test_calculate_people_ch_clears_realtime_type_when_exceeding_threshold(self):
+        from unittest.mock import patch
+
+        from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
+
+        # Create a realtime cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="large cohort",
+            cohort_type="realtime",
+        )
+
+        # Mock recalculate_cohortpeople to return a count exceeding the threshold
+        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = REALTIME_COHORT_MAX_PERSON_COUNT + 1
+
+            cohort.calculate_people_ch(pending_version=1)
+
+            # Verify cohort_type was cleared
+            cohort.refresh_from_db()
+            self.assertIsNone(cohort.cohort_type)
+            self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT + 1)
+
+    @pytest.mark.ee
+    def test_calculate_people_ch_keeps_realtime_type_when_at_threshold(self):
+        from unittest.mock import patch
+
+        from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
+
+        # Create a realtime cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="at threshold cohort",
+            cohort_type="realtime",
+        )
+
+        # Mock recalculate_cohortpeople to return exactly the threshold count
+        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = REALTIME_COHORT_MAX_PERSON_COUNT
+
+            cohort.calculate_people_ch(pending_version=1)
+
+            # Verify cohort_type was NOT cleared (at threshold is still OK)
+            cohort.refresh_from_db()
+            self.assertEqual(cohort.cohort_type, "realtime")
+            self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT)

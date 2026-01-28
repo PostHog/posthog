@@ -1,0 +1,26 @@
+.KioskPlayer {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: black;
+
+    &--loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    &__message {
+        font-size: 1.5rem;
+        color: white;
+    }
+
+    // Make the player fill the entire space
+    .SessionRecordingPlayerWrapper {
+        height: 100%;
+    }
+
+    .SessionRecordingPlayer {
+        height: 100%;
+    }
+}

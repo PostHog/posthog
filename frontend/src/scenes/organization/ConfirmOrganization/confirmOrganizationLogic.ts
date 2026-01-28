@@ -55,6 +55,8 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                     .then(() => {
                         const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
+                        // this url is validated in getRelativeNextPath as either being relative or on the same origin
+                        // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
                         location.href = nextUrl || '/'
                     })
                     .catch((error: any) => {

@@ -1,7 +1,7 @@
 import math
 import datetime as dt
 import dataclasses
-from typing import Any, TypedDict
+from typing import Any, Optional, TypedDict
 
 from django.conf import settings
 
@@ -9,7 +9,7 @@ import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 
-from posthog.models.action import Action
+from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -35,26 +35,26 @@ class WorkflowConfig(TypedDict):
 class RealtimeCohortCalculationCoordinatorWorkflowInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
-    days: int = 30  # Number of days to look back
-    min_matches: int = 3  # Minimum number of matches required
     parallelism: int = 10  # Number of child workflows to spawn
     workflows_per_batch: int = 5  # Number of workflows to start per batch
     batch_delay_minutes: int = 5  # Delay between batches in minutes
+    team_id: Optional[int] = None  # Filter by team_id (optional)
+    cohort_id: Optional[int] = None  # Filter to a specific cohort_id (optional)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
-            "days": self.days,
-            "min_matches": self.min_matches,
             "parallelism": self.parallelism,
             "workflows_per_batch": self.workflows_per_batch,
             "batch_delay_minutes": self.batch_delay_minutes,
+            "team_id": self.team_id,
+            "cohort_id": self.cohort_id,
         }
 
 
 @dataclasses.dataclass
 class RealtimeCohortCalculationCountResult:
-    """Result from counting total actions."""
+    """Result from counting total cohorts."""
 
     count: int
 
@@ -63,14 +63,19 @@ class RealtimeCohortCalculationCountResult:
 async def get_realtime_cohort_calculation_count_activity(
     inputs: RealtimeCohortCalculationCoordinatorWorkflowInputs,
 ) -> RealtimeCohortCalculationCountResult:
-    """Get the total count of actions with bytecode."""
+    """Get the total count of realtime cohorts."""
 
     @database_sync_to_async
-    def get_action_count():
-        # Only get actions that are not deleted and have bytecode
-        return Action.objects.filter(deleted=False, bytecode__isnull=False).count()
+    def get_cohort_count():
+        # Only get cohorts that are not deleted and have cohort_type='realtime'
+        queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
+        if inputs.team_id is not None:
+            queryset = queryset.filter(team_id=inputs.team_id)
+        if inputs.cohort_id is not None:
+            queryset = queryset.filter(id=inputs.cohort_id)
+        return queryset.count()
 
-    count = await get_action_count()
+    count = await get_cohort_count()
     return RealtimeCohortCalculationCountResult(count=count)
 
 
@@ -89,7 +94,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(f"Starting realtime cohort calculation coordinator with parallelism={inputs.parallelism}")
 
-        # Step 1: Get total count of actions
+        # Step 1: Get total count of cohorts
         count_result = await temporalio.workflow.execute_activity(
             get_realtime_cohort_calculation_count_activity,
             inputs,
@@ -97,24 +102,24 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
 
-        total_actions = count_result.count
-        if total_actions == 0:
-            workflow_logger.warning("No actions found")
+        total_cohorts = count_result.count
+        if total_cohorts == 0:
+            workflow_logger.warning("No realtime cohorts found")
             return
 
         workflow_logger.info(
-            f"Scheduling {total_actions} actions across {inputs.parallelism} child workflows "
+            f"Scheduling {total_cohorts} cohorts across {inputs.parallelism} child workflows "
             f"in batches of {inputs.workflows_per_batch} every {inputs.batch_delay_minutes} minutes"
         )
 
         # Step 2: Calculate ranges for each child workflow
-        actions_per_workflow = math.ceil(total_actions / inputs.parallelism)
+        cohorts_per_workflow = math.ceil(total_cohorts / inputs.parallelism)
 
         # Step 3: Prepare all workflow configs first
         workflow_configs: list[WorkflowConfig] = []
         for i in range(inputs.parallelism):
-            offset = i * actions_per_workflow
-            limit = min(actions_per_workflow, total_actions - offset)
+            offset = i * cohorts_per_workflow
+            limit = min(cohorts_per_workflow, total_cohorts - offset)
 
             if limit <= 0:
                 break
@@ -123,10 +128,10 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 WorkflowConfig(
                     id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
                     inputs=RealtimeCohortCalculationWorkflowInputs(
-                        days=inputs.days,
-                        min_matches=inputs.min_matches,
                         limit=limit,
                         offset=offset,
+                        team_id=inputs.team_id,
+                        cohort_id=inputs.cohort_id,
                     ),
                     offset=offset,
                     limit=limit,
@@ -161,7 +166,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 workflows_scheduled += 1
 
                 workflow_logger.info(
-                    f"Scheduled workflow {config['index']} for actions {config['offset']}-{config['offset'] + config['limit'] - 1}"
+                    f"Scheduled workflow {config['index']} for cohorts {config['offset']}-{config['offset'] + config['limit'] - 1}"
                 )
 
             workflow_logger.info(

@@ -2,6 +2,7 @@ from typing import cast
 
 from django.db import IntegrityError
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
@@ -77,14 +78,12 @@ class RoleSerializer(serializers.ModelSerializer):
         return organization.default_role_id == role.id
 
 
+@extend_schema(tags=["core"])
 class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
     permission_classes = [RolePermissions, TimeSensitiveActionPermission]
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(**self.request.GET.dict())
 
 
 class RoleMembershipSerializer(serializers.ModelSerializer):

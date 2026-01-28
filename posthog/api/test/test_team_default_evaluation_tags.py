@@ -91,7 +91,7 @@ class TestTeamDefaultEvaluationTags(APIBaseTest):
     def test_get_with_enabled_setting(self):
         """Test that the enabled setting is returned correctly"""
         # Enable the feature
-        self.team.default_evaluation_environments_enabled = True
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # Add some tags

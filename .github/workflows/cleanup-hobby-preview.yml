@@ -1,0 +1,129 @@
+name: Cleanup Hobby Preview Droplets
+
+on:
+    schedule:
+        # Run daily at 3am UTC
+        - cron: '0 3 * * *'
+    workflow_call:
+        inputs:
+            pr_number:
+                description: 'Specific PR number to cleanup (optional)'
+                type: string
+                required: false
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: 'Specific PR number to cleanup (leave empty for all stale)'
+                type: string
+                required: false
+            dry_run:
+                description: 'Dry run (no actual cleanup)'
+                type: boolean
+                default: true
+            max_inactive_days:
+                description: 'Max days of PR inactivity before cleanup'
+                type: number
+                default: 7
+
+permissions:
+    deployments: write
+
+jobs:
+    cleanup:
+        name: Cleanup preview droplets
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b
+
+            - name: Cleanup specific PR droplet
+              if: inputs.pr_number != ''
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  PR_NUMBER: ${{ inputs.pr_number }}
+              run: uv run bin/hobby-ci.py destroy-pr
+
+            - name: Cleanup stale droplets
+              if: inputs.pr_number == ''
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  MAX_INACTIVE_DAYS: ${{ inputs.max_inactive_days || '7' }}
+                  DRY_RUN: ${{ inputs.dry_run || 'false' }}
+              run: uv run bin/hobby-ci.py cleanup-stale
+
+            - name: Cleanup GitHub deployments and environments
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const fs = require('fs');
+
+                      // Collect PR numbers to clean up from either input or stale cleanup output
+                      let prsToClean = [];
+                      const inputPr = '${{ inputs.pr_number }}';
+
+                      if (inputPr) {
+                          prsToClean = [inputPr];
+                      } else {
+                          // Read from file written by cleanup-stale
+                          try {
+                              const content = fs.readFileSync('/tmp/cleaned_prs.txt', 'utf8');
+                              prsToClean = content.split(',').filter(pr => pr.trim());
+                          } catch (e) {
+                              console.log('No cleaned PRs file found');
+                          }
+                      }
+
+                      if (prsToClean.length === 0) {
+                          console.log('No PRs to cleanup');
+                          return;
+                      }
+
+                      console.log(`Cleaning up GitHub deployments for PRs: ${prsToClean.join(', ')}`);
+
+                      for (const prNumber of prsToClean) {
+                          const environment = `preview-pr-${prNumber}`;
+                          console.log(`\nCleaning up ${environment}...`);
+
+                          try {
+                              const { data: deployments } = await github.rest.repos.listDeployments({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  environment: environment,
+                                  per_page: 100
+                              });
+
+                              console.log(`  Found ${deployments.length} deployment(s)`);
+
+                              for (const deployment of deployments) {
+                                  try {
+                                      await github.rest.repos.createDeploymentStatus({
+                                          owner: context.repo.owner,
+                                          repo: context.repo.repo,
+                                          deployment_id: deployment.id,
+                                          state: 'inactive',
+                                          description: 'Preview cleanup'
+                                      });
+                                      await github.rest.repos.deleteDeployment({
+                                          owner: context.repo.owner,
+                                          repo: context.repo.repo,
+                                          deployment_id: deployment.id
+                                      });
+                                      console.log(`  Deleted deployment ${deployment.id}`);
+                                  } catch (error) {
+                                      console.log(`  Could not delete deployment ${deployment.id}: ${error.message}`);
+                                  }
+                              }
+
+                              await github.rest.repos.deleteAnEnvironment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  environment_name: environment
+                              });
+                              console.log(`  Deleted environment ${environment}`);
+                          } catch (error) {
+                              console.log(`  Could not cleanup ${environment}: ${error.message}`);
+                          }
+                      }

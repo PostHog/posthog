@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
-from inline_snapshot import snapshot
 from rest_framework import status
 
 # The remote config stuff plus plugin and hog function queries
@@ -17,6 +16,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         self.team.recording_domains = ["https://*.example.com"]
         self.team.session_recording_opt_in = True
         self.team.surveys_opt_in = True
+        self.team.extra_settings = {"recorder_script": "posthog-recorder"}
         self.team.save()
 
         # Force synchronous RemoteConfig creation for tests since signals are async now
@@ -50,49 +50,23 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     def test_valid_config(self):
         # Not sure why but there is sometimes one extra query here
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+            )
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/json"
-        assert response.json() == snapshot(
-            {
-                "token": "token123",
-                "supportedCompression": ["gzip", "gzip-js"],
-                "hasFeatureFlags": False,
-                "captureDeadClicks": False,
-                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
-                "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elementsChainAsString": True,
-                "sessionRecording": {
-                    "endpoint": "/s/",
-                    "consoleLogRecordingEnabled": True,
-                    "recorderVersion": "v2",
-                    "sampleRate": None,
-                    "minimumDurationMilliseconds": None,
-                    "linkedFlag": None,
-                    "networkPayloadCapture": None,
-                    "masking": None,
-                    "urlTriggers": [],
-                    "urlBlocklist": [],
-                    "eventTriggers": [],
-                    "scriptConfig": {"script": "posthog-recorder"},
-                    "triggerMatchType": None,
-                },
-                "errorTracking": {"autocaptureExceptions": False, "suppressionRules": []},
-                "surveys": False,
-                "heatmaps": False,
-                "defaultIdentifiedOnly": True,
-                "siteApps": [],
-            }
-        )
+        assert response.json() == self.snapshot
 
     def test_vary_header_response(self):
-        response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+        response = self.client.get(
+            f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+        )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "Origin" in response.headers["Vary"]
         assert "Referer" in response.headers["Vary"]
@@ -100,56 +74,68 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     def test_different_response_for_other_domains(self):
         # Not sure why but there is sometimes one extra query here
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 2)):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+            )
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["sessionRecording"]
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+            )
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["sessionRecording"]
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://bar.other.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://bar.other.com"}
+            )
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert not response.json()["sessionRecording"]
 
     def test_valid_config_js(self):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT - 1, CONFIG_REFRESH_QUERY_COUNT + 1)):
-            response = self.client.get(f"/array/{self.team.api_token}/config.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config.js", headers={"origin": "https://foo.example.com"}
+            )
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/config.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config.js", headers={"origin": "https://foo.example.com"}
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/javascript"
-
-        assert response.content == snapshot(
-            b'(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
-        )
+        assert response.content == self.snapshot
 
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_js(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT - 1, CONFIG_REFRESH_QUERY_COUNT + 1)):
-            response = self.client.get(f"/array/{self.team.api_token}/array.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/array.js", headers={"origin": "https://foo.example.com"}
+            )
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/array.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/array.js", headers={"origin": "https://foo.example.com"}
+            )
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/javascript"
         assert response.content
-
-        assert response.content == snapshot(
-            b'[MOCKED_ARRAY_JS_CONTENT]\n\n(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
-        )
+        assert response.content == self.snapshot
 
         # NOT actually testing the content here as it will change dynamically
 
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_uses_config_js_cache(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
-            response = self.client.get(f"/array/{self.team.api_token}/config.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config.js", headers={"origin": "https://foo.example.com"}
+            )
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/array.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/array.js", headers={"origin": "https://foo.example.com"}
+            )
         assert response.status_code == status.HTTP_200_OK

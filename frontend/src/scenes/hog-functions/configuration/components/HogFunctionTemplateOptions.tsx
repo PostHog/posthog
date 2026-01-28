@@ -26,12 +26,20 @@ export function HogFunctionTemplateOptions(): JSX.Element {
                     <LemonButton>Close</LemonButton>
                 </div>
 
-                <LemonButton type="secondary" onClick={() => duplicateFromTemplate()}>
+                <LemonButton
+                    type="secondary"
+                    onClick={() => duplicateFromTemplate()}
+                    tooltip="Create a new destination using the latest template version"
+                >
                     New function from template
                 </LemonButton>
 
                 {templateHasChanged ? (
-                    <LemonButton type="primary" onClick={() => resetToTemplate()}>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => resetToTemplate()}
+                        tooltip="Replace your current code with the latest template version"
+                    >
                         Reset to template
                     </LemonButton>
                 ) : null}

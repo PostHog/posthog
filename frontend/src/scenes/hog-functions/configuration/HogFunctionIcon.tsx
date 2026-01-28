@@ -160,7 +160,7 @@ export function HogFunctionIcon({
                 <>
                     <img
                         className={clsx(
-                            'overflow-hidden w-full h-full rounded transition-opacity shadow',
+                            'overflow-hidden w-full h-full rounded transition-opacity',
                             loaded ? 'opacity-100' : 'opacity-0'
                         )}
                         src={src}

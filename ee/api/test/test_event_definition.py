@@ -17,7 +17,7 @@ from posthog.models import ActivityLog, Tag, Team, User
 from posthog.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.license import AvailableFeature, License, LicenseManager
+from ee.models.license import License, LicenseManager
 
 
 @freeze_time("2020-01-02")
@@ -56,7 +56,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_list_event_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
 
         response = self.client.get("/api/projects/@current/event_definitions/")
@@ -93,7 +93,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_retrieve_existing_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         tag = Tag.objects.create(name="deprecated", team_id=self.demo_team.id)
@@ -115,7 +115,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_retrieve_create_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EventDefinition.objects.create(team=self.demo_team, name="event")
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -128,7 +128,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_search_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         enterprise_property = EnterpriseEventDefinition.objects.create(
             team=self.demo_team, name="enterprise event", owner=self.user
@@ -173,7 +173,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.patch(
@@ -194,6 +194,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()
         assert activity_log is not None
+        assert activity_log.detail is not None
         self.assertEqual(activity_log.scope, "EventDefinition")
         self.assertEqual(activity_log.activity, "changed")
         self.assertEqual(activity_log.detail["name"], "enterprise event")
@@ -215,36 +216,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             },
         ]
 
-    def test_update_event_without_license(self):
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
-    def test_with_expired_license(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
-        )
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="description test")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
     def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -261,7 +235,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_verify_then_unverify(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -291,12 +265,13 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        assert self.user.team is not None
         assert self.user.team.pk == self.demo_team.pk
 
         assert response.json()["verified"] is False
@@ -330,7 +305,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_cannot_update_verified_meta_properties_directly(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -361,7 +336,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime(2038, 1, 19, 3, 14, 7),
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event")
         response = self.client.patch(
@@ -373,29 +348,18 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_exclude_hidden_events(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         # Create some events with hidden flag
-        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="visible_event")
-        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="hidden_event1", hidden=True)
-        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="hidden_event2", hidden=True)
-
-        # Test without enterprise taxonomy - hidden events should still be shown even with exclude_hidden=true
-        self.organization.available_features = []
-        self.organization.save()
-
-        response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
-        assert response.status_code == status.HTTP_200_OK
-        event_names = {p["name"] for p in response.json()["results"]}
-        assert "visible_event" in event_names
-        assert "hidden_event1" in event_names
-        assert "hidden_event2" in event_names
-
-        # Test with enterprise taxonomy enabled - hidden events should be excluded when exclude_hidden=true
-        self.demo_team.organization.available_product_features = [
-            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
-        ]
-        self.demo_team.organization.save()
+        EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, project=self.demo_team.project, name="visible_event"
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, project=self.demo_team.project, name="hidden_event1", hidden=True
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, project=self.demo_team.project, name="hidden_event2", hidden=True
+        )
 
         response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
         assert response.status_code == status.HTTP_200_OK
@@ -414,7 +378,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_event_type_event(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         EnterpriseEventDefinition.objects.create(team=self.demo_team, name="rated_app")
         EnterpriseEventDefinition.objects.create(team=self.demo_team, name="installed_app")
@@ -423,3 +387,98 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
         self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+
+    def test_create_event_definition_with_description(self):
+        """Test creating an event definition with enterprise fields"""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "conversion_event",
+                "description": "User completed a conversion action",
+                "owner": self.user.id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "conversion_event"
+        assert response.json()["description"] == "User completed a conversion action"
+        assert response.json()["owner"]["id"] == self.user.id
+        assert response.json()["created_at"] is None
+        assert response.json()["last_seen_at"] is None
+
+        # Verify it's an EnterpriseEventDefinition in the database
+        event_def = EnterpriseEventDefinition.objects.get(name="conversion_event", team=self.demo_team)
+        assert event_def.description == "User completed a conversion action"
+        assert event_def.owner == self.user
+        assert event_def.created_at is None
+        assert event_def.last_seen_at is None
+
+        # Verify activity log was created
+        activity_log = ActivityLog.objects.filter(
+            scope="EventDefinition", activity="created", item_id=str(event_def.id)
+        ).first()
+        assert activity_log is not None
+
+    def test_create_event_definition_with_verified(self):
+        """Test creating a verified event definition"""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "verified_event",
+                "description": "This event is verified",
+                "verified": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["verified"] is True
+        assert response.json()["verified_by"]["id"] == self.user.id
+        assert response.json()["verified_at"] is not None
+        assert response.json()["hidden"] is False
+
+        # Verify in database
+        event_def = EnterpriseEventDefinition.objects.get(name="verified_event", team=self.demo_team)
+        assert event_def.verified is True
+        assert event_def.verified_by == self.user
+        assert event_def.verified_at is not None
+
+    def test_create_event_definition_with_hidden(self):
+        """Test creating a hidden event definition"""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "hidden_event",
+                "description": "This event is hidden",
+                "hidden": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["hidden"] is True
+        assert response.json()["verified"] is False
+
+        # Verify in database
+        event_def = EnterpriseEventDefinition.objects.get(name="hidden_event", team=self.demo_team)
+        assert event_def.hidden is True
+        assert event_def.verified is False
+
+    def test_create_event_definition_cannot_be_both_hidden_and_verified(self):
+        """Test that an event cannot be both hidden and verified"""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "conflicted_event",
+                "verified": True,
+                "hidden": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

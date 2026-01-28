@@ -133,6 +133,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
         updateDataWarehouseSavedQuery,
         loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
+        materializeDataWarehouseSavedQuery,
         revertMaterialization,
         setStartingMaterialization,
     } = useActions(dataWarehouseViewsLogic)
@@ -252,13 +253,14 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                             <div>
                                 <p className="text-xs">
                                     Materialized views are a way to pre-compute data in your data warehouse. This allows
-                                    you to run queries faster and more efficiently. Learn more about materialization{' '}
+                                    you to run queries faster and more efficiently.
+                                    <br />
                                     <Link
                                         data-attr="materializing-help"
                                         to="https://posthog.com/docs/data-warehouse/views#materializing-and-scheduling-a-view"
                                         target="_blank"
                                     >
-                                        here
+                                        Learn more about materialization
                                     </Link>
                                     .
                                 </p>
@@ -266,15 +268,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                     size="small"
                                     onClick={() => {
                                         if (editingView) {
-                                            updateDataWarehouseSavedQuery({
-                                                id: editingView.id,
-                                                sync_frequency: '24hour',
-                                                types: [[]],
-                                                lifecycle:
-                                                    dataModelingJobs && dataModelingJobs.results.length > 0
-                                                        ? 'update'
-                                                        : 'create',
-                                            })
+                                            materializeDataWarehouseSavedQuery(editingView.id)
                                         } else {
                                             saveAsView({ materializeAfterSave: true })
                                         }

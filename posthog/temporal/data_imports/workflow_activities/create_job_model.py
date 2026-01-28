@@ -74,7 +74,7 @@ def create_external_data_job_model_activity(
             f"Created external data job for external data source {inputs.source_id}",
         )
 
-        return str(job.id), schema.is_incremental, source.source_type
+        return str(job.id), schema.is_incremental or schema.is_append, source.source_type
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"

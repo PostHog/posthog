@@ -1,4 +1,3 @@
-import fs from 'fs'
 import type { Config } from 'jest'
 
 process.env.TZ = process.env.TZ || 'UTC'
@@ -18,14 +17,23 @@ const esmModules = [
     'escape-string-regexp',
     'unist-util-visit-parents',
     'unist-util-is',
+    '@tiptap',
+    'lowlight',
+    'devlop',
+    'hast-util-to-html',
+    'html-void-elements',
+    'property-information',
+    'stringify-entities',
+    'character-entities-html4',
+    'character-entities-legacy',
+    'ccount',
+    'hast-util-whitespace',
+    'space-separated-tokens',
+    'comma-separated-tokens',
+    'zwitch',
 ]
-const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
 function rootDirectories(): string[] {
-    const rootDirectories = ['<rootDir>/src', '<rootDir>/../products']
-    if (eeFolderExists) {
-        rootDirectories.push('<rootDir>/../ee/frontend')
-    }
-    return rootDirectories
+    return ['<rootDir>/src', '<rootDir>/../products']
 }
 
 const config: Config = {
@@ -108,7 +116,6 @@ const config: Config = {
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
-        '^@posthog/ee/exports': ['<rootDir>/../ee/frontend/exports', '<rootDir>/@posthog/ee/exports'],
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         'monaco-editor': '<rootDir>/node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts',
         '^scenes/(.*)$': '<rootDir>/src/scenes/$1',
@@ -187,7 +194,7 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/products/mcp/'],
+    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/'],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],

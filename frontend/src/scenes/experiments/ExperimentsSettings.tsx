@@ -1,20 +1,13 @@
-import { useValues } from 'kea'
-
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { DefaultExperimentConfidenceLevel } from 'scenes/settings/environment/DefaultExperimentConfidenceLevel'
 import { ExperimentRecalculationTime } from 'scenes/settings/environment/ExperimentRecalculationTime'
 import { OrganizationExperimentStatsMethod } from 'scenes/settings/organization/OrgExperimentStatsMethod'
-
-import { experimentLogic } from './experimentLogic'
 
 /**
  * although this works fine for now, if we keep adding more settings we need to refactor this to use the
  * <Settings /> component. That will require we create a new section for experiments on the SettingsMap.
  */
 export function ExperimentsSettings(): JSX.Element {
-    const { featureFlags } = useValues(experimentLogic)
-    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES]
-
     return (
         <div className="space-y-8">
             <div>
@@ -25,7 +18,8 @@ export function ExperimentsSettings(): JSX.Element {
                 </p>
                 <OrganizationExperimentStatsMethod />
             </div>
-            {timeseriesEnabled && <ExperimentRecalculationTime />}
+            <DefaultExperimentConfidenceLevel />
+            <ExperimentRecalculationTime />
         </div>
     )
 }

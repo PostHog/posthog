@@ -77,7 +77,7 @@ def fetch_log_entries(
 
     clickhouse_query = f"""
         SELECT log_source_id, instance_id, timestamp, upper(level) as level, message FROM log_entries
-        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}'}
+        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}"}
     """
 
     return [LogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]

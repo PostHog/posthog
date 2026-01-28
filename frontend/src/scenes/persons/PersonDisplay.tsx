@@ -13,7 +13,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
 import { PersonPreview } from './PersonPreview'
-import { PersonPropType, asDisplay, asLink } from './person-utils'
+import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from './person-utils'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
@@ -27,11 +27,16 @@ export interface PersonDisplayProps {
     children?: React.ReactChild
     withCopyButton?: boolean
     placement?: 'top' | 'bottom' | 'left' | 'right'
+    inline?: boolean
+    className?: string
+    /** Use muted/secondary text color instead of default */
+    muted?: boolean
 }
 
 export function PersonIcon({
     person,
     displayName,
+    index,
     ...props
 }: Pick<PersonDisplayProps, 'person'> &
     Omit<ProfilePictureProps, 'user' | 'name' | 'email'> & { displayName?: string }): JSX.Element {
@@ -45,9 +50,17 @@ export function PersonIcon({
         return typeof possibleEmail === 'string' ? possibleEmail : undefined
     }, [person?.properties?.email])
 
+    // Generate a stable color index from the person's distinct_id if not explicitly provided
+    //
+    // Don't depend on `person` for the memoization since this is only used to get an accurate color
+    // and person is a complex object that could change.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    const colorIndex = useMemo(() => index ?? getPersonColorIndex(person), [index])
+
     return (
         <ProfilePicture
             {...props}
+            index={colorIndex}
             user={{
                 first_name: display,
                 email,
@@ -68,6 +81,9 @@ export function PersonDisplay({
     children,
     withCopyButton,
     placement,
+    inline,
+    className,
+    muted,
 }: PersonDisplayProps): JSX.Element {
     const display = displayName || asDisplay(person)
     const [visible, setVisible] = useState(false)
@@ -86,7 +102,7 @@ export function PersonDisplay({
     }
 
     let content = children || (
-        <span className={clsx('flex items-center', isCentered && 'justify-center')}>
+        <span className={clsx(!inline && 'flex items-center', isCentered && 'justify-center')}>
             {withIcon && (
                 <PersonIcon
                     displayName={displayName}
@@ -99,7 +115,10 @@ export function PersonDisplay({
     )
 
     content = (
-        <span className="PersonDisplay" onClick={!noPopover ? handleClick : undefined}>
+        <span
+            className={clsx('PersonDisplay', muted && 'PersonDisplay--muted', className)}
+            onClick={!noPopover ? handleClick : undefined}
+        >
             {noLink || !href || (visible && !person?.properties) ? (
                 content
             ) : (
@@ -142,9 +161,12 @@ export function PersonDisplay({
             showArrow
         >
             {withCopyButton ? (
-                <div className="flex flex-row items-center justify-between">
-                    {content}
-                    <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
+                <div className="flex flex-row items-center justify-between gap-2 min-w-0">
+                    <span className="min-w-0 flex-1">{content}</span>
+                    <IconCopy
+                        className="text-lg cursor-pointer shrink-0"
+                        onClick={() => void copyToClipboard(display)}
+                    />
                 </div>
             ) : (
                 <span>{content}</span>

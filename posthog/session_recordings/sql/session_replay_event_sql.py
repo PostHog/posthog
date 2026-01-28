@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_SESSION_REPLAY_EVENTS, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 
@@ -126,7 +126,7 @@ def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
     return KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
         table_name="kafka_session_replay_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),
+        engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, group=CONSUMER_GROUP_SESSION_REPLAY_EVENTS),
     )
 
 
@@ -157,7 +157,7 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `_timestamp` Nullable(DateTime)
-{',`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))' if 'retention_period_days' not in exclude_columns else ''}
+{",`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))" if "retention_period_days" not in exclude_columns else ""}
 )"""
 
     return f"""
@@ -197,7 +197,7 @@ sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp
-{',max(retention_period_days) as retention_period_days' if 'retention_period_days' not in exclude_columns else ''}
+{",max(retention_period_days) as retention_period_days" if "retention_period_days" not in exclude_columns else ""}
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """

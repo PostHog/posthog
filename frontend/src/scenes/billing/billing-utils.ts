@@ -5,7 +5,7 @@ import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { compactNumber, dateStringToDayJs } from 'lib/utils'
+import { compactNumber, dateStringToDayJs, wordPluralize } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
@@ -16,10 +16,10 @@ import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps,
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const isProductVariantPrimary = (productType: string): boolean =>
-    ['session_replay', 'realtime_destinations', 'data_warehouse'].includes(productType)
+    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails'].includes(productType)
 
 export const isProductVariantSecondary = (productType: string): boolean =>
-    ['mobile_replay', 'batch_exports', 'data_warehouse_historical'].includes(productType)
+    ['mobile_replay', 'batch_exports', 'data_warehouse_historical', 'workflows_destinations'].includes(productType)
 
 export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
     // If subscribed and has tiers, check if the first tier is free
@@ -86,6 +86,86 @@ export const summarizeUsage = (usage: number | null): string => {
         return ''
     }
     return compactNumber(usage)
+}
+
+/**
+ * Check if a product has display formatting configured.
+ */
+export const hasDisplayFormatting = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
+    return !!(product.display_divisor != null || product.display_decimals != null || product.display_unit)
+}
+
+/**
+ * Formats a usage value for human-friendly display based on product display config.
+ * If the product has display formatting fields set, applies them. Otherwise returns
+ * either a compact number (compactFallback: true) or full number with commas.
+ *
+ * Examples:
+ * - Storage: 27648 MB → "27.65 GB" (divisor=1000, decimals=2, unit="GB")
+ * - No config: 1234567 → "1,234,567" (default) or "1.23 M" (compactFallback)
+ */
+export const formatDisplayUsage = (
+    value: number | null,
+    product: BillingProductV2Type | BillingProductV2AddonType,
+    options?: { compactFallback?: boolean }
+): string => {
+    if (value === null) {
+        return ''
+    }
+
+    // If no display formatting configured, return appropriate fallback
+    if (!hasDisplayFormatting(product)) {
+        return options?.compactFallback ? compactNumber(value) : value.toLocaleString()
+    }
+
+    const { display_divisor, display_decimals, display_unit } = product
+
+    // Apply divisor if set
+    let displayValue = display_divisor ? value / display_divisor : value
+
+    // Format with decimals if set
+    let formattedValue: string
+    if (typeof display_decimals === 'number') {
+        formattedValue = displayValue.toFixed(display_decimals)
+    } else {
+        formattedValue = displayValue.toLocaleString()
+    }
+
+    // Append unit if set (pluralized appropriately)
+    if (display_unit) {
+        // Don't pluralize abbreviations (all uppercase like "GB", "MB") or if value rounds to 1
+        const isAbbreviation = display_unit === display_unit.toUpperCase()
+        const roundedValue =
+            typeof display_decimals === 'number' ? parseFloat(displayValue.toFixed(display_decimals)) : displayValue
+        const shouldPluralize = !isAbbreviation && roundedValue !== 1
+        const unitLabel = shouldPluralize ? wordPluralize(display_unit) : display_unit
+        return `${formattedValue} ${unitLabel}`
+    }
+
+    return formattedValue
+}
+
+/**
+ * Create a value formatter function for a product.
+ * Uses formatDisplayUsage with compactFallback for non-configured products.
+ */
+export const createProductValueFormatter = (
+    product: BillingProductV2Type | BillingProductV2AddonType
+): ((value: number | null) => string) => {
+    return (value: number | null): string => formatDisplayUsage(value, product, { compactFallback: true })
+}
+
+/**
+ * Get the unit label for display (pluralized).
+ * Returns empty string when display formatting is enabled, since the unit is already
+ * included in the formatted value from formatDisplayUsage.
+ */
+export const getProductUnitLabel = (product: BillingProductV2Type | BillingProductV2AddonType): string => {
+    // When display formatting is enabled, the unit is already in the formatted value
+    if (hasDisplayFormatting(product)) {
+        return ''
+    }
+    return product.unit ? `${product.unit}s` : ''
 }
 
 export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {
@@ -228,26 +308,6 @@ export const convertAmountToUsage = (
     }
 
     return Math.round(usage)
-}
-
-export const getUpgradeProductLink = ({
-    product,
-    redirectPath,
-}: {
-    product?: BillingProductV2Type
-    redirectPath?: string
-}): string => {
-    let url = '/api/billing/activate?'
-    if (redirectPath) {
-        url += `redirect_path=${encodeURIComponent(redirectPath)}&`
-    }
-
-    url += `products=all_products:`
-    if (product && product.type) {
-        url += `&intent_product=${product.type}`
-    }
-
-    return url
 }
 
 export const convertLargeNumberToWords = (
@@ -539,4 +599,84 @@ export function buildBillingCsv(params: {
     ])
 
     return Papa.unparse([header, ...rows])
+}
+
+/**
+ * Build a human-readable list of product names (e.g., "A, B and C")
+ */
+export function formatProductNames(names: string[]): string {
+    if (names.length === 0) {
+        return ''
+    }
+    if (names.length === 1) {
+        return names[0]
+    }
+    return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
+}
+
+/**
+ * Get the consequence message for a product when it exceeds its usage limit
+ */
+export function getUsageLimitConsequence(productName: string): string {
+    if (productName === 'Data warehouse') {
+        return 'data will not be synced'
+    }
+    if (productName === 'Feature flags & Experiments') {
+        return 'feature flags will not evaluate'
+    }
+    return 'data loss may occur'
+}
+
+/**
+ * Build a consolidated message for products that have exceeded their usage limits
+ */
+export function buildUsageLimitExceededMessage(products: Array<{ name: string; subscribed: boolean | null }>): {
+    title: string
+    message: string
+} {
+    if (products.length === 0) {
+        return { title: '', message: '' }
+    }
+
+    const productNames = products.map((p) => p.name)
+    const allSubscribed = products.every((p) => p.subscribed === true)
+
+    // Build consequence message, deduplicating common consequences
+    const consequences = [...new Set(products.map((p) => getUsageLimitConsequence(p.name)))]
+
+    const productListText = formatProductNames(productNames)
+    const actionText = allSubscribed ? 'increase your billing limit' : 'upgrade your plan'
+    const consequenceText = consequences.join(' and ')
+
+    return {
+        title: products.length === 1 ? 'Usage limit exceeded' : 'Usage limits exceeded',
+        message: `You have exceeded the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+    }
+}
+
+/**
+ * Build a consolidated message for products approaching their usage limits
+ */
+export function buildUsageLimitApproachingMessage(
+    products: Array<{ name: string; percentage_usage: number; usage_key?: string | null }>
+): { title: string; message: string } {
+    if (products.length === 0) {
+        return { title: '', message: '' }
+    }
+
+    const usageDetails = products.map((p) => {
+        const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
+        const usageKey = p.usage_key?.toLowerCase() || 'usage'
+        return `${percentage}% of your ${usageKey} allocation`
+    })
+
+    const message =
+        products.length === 1
+            ? `You have currently used ${usageDetails[0]}.`
+            : `You are approaching your usage limits: ${usageDetails.join(', ')}.`
+
+    return {
+        title: products.length === 1 ? 'You will soon hit your usage limit' : 'You will soon hit your usage limits',
+        message,
+    }
 }

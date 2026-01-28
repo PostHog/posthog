@@ -47,6 +47,7 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
                     </LemonButton>
                 )),
             }}
+            size="small"
             type="secondary"
         >
             {selectedTitle}

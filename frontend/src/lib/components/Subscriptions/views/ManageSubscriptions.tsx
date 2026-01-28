@@ -103,14 +103,16 @@ export function ManageSubscriptions({
                             {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
                         </div>
 
-                        {subscriptions.map((sub) => (
-                            <SubscriptionListItem
-                                key={sub.id}
-                                subscription={sub}
-                                onClick={() => onSelect(sub.id)}
-                                onDelete={() => deleteSubscription(sub.id)}
-                            />
-                        ))}
+                        <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2">
+                            {subscriptions.map((sub) => (
+                                <SubscriptionListItem
+                                    key={sub.id}
+                                    subscription={sub}
+                                    onClick={() => onSelect(sub.id)}
+                                    onDelete={() => deleteSubscription(sub.id)}
+                                />
+                            ))}
+                        </div>
                     </div>
                 ) : (
                     <div className="flex flex-col p-4 items-center text-center">

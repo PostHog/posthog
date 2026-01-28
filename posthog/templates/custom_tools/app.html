@@ -1,19 +1,35 @@
+<style>
+  .custom-tools-table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  .custom-tools-table td {
+    word-wrap: break-word;
+    white-space: pre-wrap !important;
+  }
+</style>
 <div class="module">
-  <table summary="Custom admin tools">
+  <table summary="Custom admin tools" class="custom-tools-table">
     <caption>
       <a href="/admin/" class="section" title="Custom Tools">Custom Tools</a>
     </caption>
     <tr class="model-actionsanalysis">
-      <th scope="row">
+      <td scope="row">
         <a href="{% url 'realtime-cohorts-calculation' %}">Realtime Cohorts Calculation</a>
-      </th>
+      </td>
       <td>Run realtime cohorts calculation workflow</td>
     </tr>
     <tr class="model-resavecohorts">
-      <th scope="row">
+      <td scope="row">
         <a href="{% url 'resave-cohorts' %}">Resave Cohorts (Regenerate Bytecode & Type)</a>
-      </th>
+      </td>
       <td>Regenerate compiled bytecode and cohort_type for cohorts, with batch processing</td>
+    </tr>
+    <tr class="model-backfillprecalculatedpersonproperties">
+      <td scope="row">
+        <a href="{% url 'backfill-precalculated-person-properties' %}">Backfill Precalculated Person Properties</a>
+      </td>
+      <td>Backfill precalculated_person_properties table for realtime cohorts with person property filters</td>
     </tr>
   </table>
 </div>

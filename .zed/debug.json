@@ -1,0 +1,161 @@
+[
+    {
+        "label": "Backend",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "program": "$ZED_WORKTREE_ROOT/manage.py",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "args": ["runserver"],
+        "env": {
+            "PYTHONUNBUFFERED": "1",
+            "DJANGO_SETTINGS_MODULE": "posthog.settings",
+            "DEBUG": "1",
+            "CLICKHOUSE_SECURE": "False",
+            "KAFKA_HOSTS": "localhost",
+            "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+            "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+            "PRINT_SQL": "1",
+            "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+            "CLOUD_DEPLOYMENT": "local"
+        },
+        "justMyCode": false
+    },
+    {
+        "label": "Backend (with local billing)",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "program": "$ZED_WORKTREE_ROOT/manage.py",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "args": ["runserver"],
+        "env": {
+            "PYTHONUNBUFFERED": "1",
+            "DJANGO_SETTINGS_MODULE": "posthog.settings",
+            "DEBUG": "1",
+            "CLICKHOUSE_SECURE": "False",
+            "KAFKA_HOSTS": "localhost",
+            "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+            "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+            "PRINT_SQL": "1",
+            "BILLING_SERVICE_URL": "http://localhost:8100/",
+            "CLOUD_DEPLOYMENT": "local"
+        },
+        "justMyCode": false
+    },
+    {
+        "label": "Celery Threaded Pool",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "program": "$ZED_WORKTREE_ROOT/manage.py",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "args": ["run_autoreload_celery", "--type=worker"],
+        "env": {
+            "SKIP_ASYNC_MIGRATIONS_SETUP": "1",
+            "DEBUG": "1",
+            "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+            "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+        },
+        "justMyCode": true
+    },
+    {
+        "label": "Celery Beat",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "program": "$ZED_WORKTREE_ROOT/manage.py",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "args": ["run_autoreload_celery", "--type=beat"],
+        "env": {
+            "SKIP_ASYNC_MIGRATIONS_SETUP": "1",
+            "DEBUG": "1",
+            "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+            "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+        },
+        "justMyCode": true
+    },
+    {
+        "label": "Temporal Worker",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "program": "$ZED_WORKTREE_ROOT/manage.py",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "args": ["start_temporal_worker", "--task-queue", "development-task-queue"],
+        "env": {
+            "PYTHONUNBUFFERED": "1",
+            "DJANGO_SETTINGS_MODULE": "posthog.settings",
+            "DEBUG": "1",
+            "CLICKHOUSE_SECURE": "False",
+            "KAFKA_HOSTS": "localhost",
+            "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+            "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+            "PRINT_SQL": "1"
+        },
+        "justMyCode": false
+    },
+    {
+        "label": "Backend (Attach to bin/start)",
+        "adapter": "Debugpy",
+        "request": "attach",
+        "connect": {
+            "host": "localhost",
+            "port": 5678
+        },
+        "pathMappings": [
+            {
+                "localRoot": "$ZED_WORKTREE_ROOT",
+                "remoteRoot": "$ZED_WORKTREE_ROOT"
+            }
+        ],
+        "justMyCode": false
+    },
+    {
+        "label": "Pytest: Current File",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "module": "pytest",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "args": ["$ZED_FILE", "-vvv"],
+        "justMyCode": true
+    },
+    {
+        "label": "Python: Debug Tests",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "program": "$ZED_FILE",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "justMyCode": false
+    },
+    {
+        "label": "Django Migrations",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "program": "$ZED_WORKTREE_ROOT/manage.py",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "args": ["migrate", "posthog"],
+        "env": {
+            "PYTHONUNBUFFERED": "1",
+            "DJANGO_SETTINGS_MODULE": "posthog.settings",
+            "DEBUG": "1",
+            "CLICKHOUSE_SECURE": "False",
+            "KAFKA_HOSTS": "localhost",
+            "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+            "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+            "PRINT_SQL": "1",
+            "BILLING_SERVICE_URL": "http://localhost:8100/",
+            "CLOUD_DEPLOYMENT": "local"
+        },
+        "justMyCode": false
+    },
+    {
+        "label": "Dagster: Debug Dagit UI",
+        "adapter": "Debugpy",
+        "request": "launch",
+        "module": "dagster",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "args": ["dev", "--workspace", "$ZED_WORKTREE_ROOT/.dagster_home/workspace.yaml"],
+        "env": {
+            "DAGSTER_HOME": "$ZED_WORKTREE_ROOT/.dagster_home",
+            "DAGSTER_UI_PORT": "3030",
+            "DEBUG": "1"
+        },
+        "justMyCode": true
+    }
+]

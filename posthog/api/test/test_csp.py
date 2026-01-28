@@ -386,9 +386,9 @@ class TestCSPModule(TestCase):
             results[url] = sample_csp_report(properties, rate)
 
         # Check that the results are a mix of True and False (not all same decision for 0.5 rate)
-        assert (
-            True in results.values() and False in results.values()
-        ), "Expected some URLs to be sampled in and some out"
+        assert True in results.values() and False in results.values(), (
+            "Expected some URLs to be sampled in and some out"
+        )
 
         # Each URL should have a consistent sampling decision
         for url in urls:
@@ -419,9 +419,9 @@ class TestCSPModule(TestCase):
         for directive in directives:
             properties = {"document_url": url, "effective_directive": directive}
             result = sample_csp_report(properties, rate)
-            assert (
-                result == first_result
-            ), f"Expected same sampling decision for same URL regardless of directive, got {result} vs {first_result}"
+            assert result == first_result, (
+                f"Expected same sampling decision for same URL regardless of directive, got {result} vs {first_result}"
+            )
 
     def test_edge_case_urls_and_directives(self):
         """Test sampling with edge case URLs and directives"""
@@ -645,9 +645,9 @@ class TestCSPModule(TestCase):
             with freeze_time(time_string):
                 properties = {"document_url": url, "effective_directive": "script-src"}
                 result = sample_csp_report(properties, 0.5)
-                assert (
-                    result == expected_result
-                ), f"Expected {expected_result} for {url} at {time_string} (hash%100={expected_hash_mod}), got {result}"
+                assert result == expected_result, (
+                    f"Expected {expected_result} for {url} at {time_string} (hash%100={expected_hash_mod}), got {result}"
+                )
 
         # Demonstrate the key improvement: same URL gets different sampling decisions across time
         url = "https://test.com/page"

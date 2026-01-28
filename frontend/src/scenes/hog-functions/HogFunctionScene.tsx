@@ -5,12 +5,14 @@ import { LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { DataPipelinesNewSceneKind } from 'scenes/data-pipelines/DataPipelinesNewScene'
 import { DataPipelinesSceneTab } from 'scenes/data-pipelines/DataPipelinesScene'
@@ -35,6 +37,7 @@ import {
 } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
+import { HogFunctionBackfills } from './backfills/HogFunctionBackfills'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import {
     HogFunctionConfigurationClearChangesButton,
@@ -43,7 +46,7 @@ import {
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
-const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
+const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, DataPipelinesSceneTab>> = {
@@ -295,6 +298,7 @@ export function HogFunctionScene(): JSX.Element {
     const { currentTab, loading, loaded, logicProps, type, teamHasCohortFilters, currentProjectId } =
         useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { id, templateId } = logicProps
 
@@ -350,6 +354,15 @@ export function HogFunctionScene(): JSX.Element {
                   key: 'testing',
                   content: <HogFunctionTesting />,
               },
+
+        type === 'destination' && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
+            ? {
+                  label: 'Backfills',
+                  key: 'backfills',
+                  content: <HogFunctionBackfills id={id} />,
+              }
+            : null,
+
         {
             label: 'History',
             key: 'history',

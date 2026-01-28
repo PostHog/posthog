@@ -1,13 +1,56 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { Scene } from 'scenes/sceneTypes'
 
 import { InsightType } from '~/types'
+
+function useInsightTypeShortcut(
+    type: InsightType,
+    keybind: string[],
+    priority: number,
+    disabled: boolean = false
+): void {
+    const metadata = INSIGHT_TYPES_METADATA[type]
+    useAppShortcut({
+        name: `NewInsight${type}`,
+        keybind: [keybind],
+        intent: `New ${metadata.name}`,
+        interaction: 'function',
+        callback: () => {
+            eventUsageLogic.actions.reportSavedInsightNewInsightClicked(type)
+            router.actions.push(INSIGHT_TYPE_URLS[type])
+        },
+        scope: Scene.SavedInsights,
+        priority: priority,
+        disabled: disabled || !metadata.inMenu,
+    })
+}
+
+/** Registers keyboard shortcuts for creating each insight type. Render this in the SavedInsights scene. */
+export function NewInsightShortcuts(): null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hogDisabled = !featureFlags[FEATURE_FLAGS.HOG]
+
+    useInsightTypeShortcut(InsightType.TRENDS, keyBinds.tab1, 10)
+    useInsightTypeShortcut(InsightType.FUNNELS, keyBinds.tab2, 9)
+    useInsightTypeShortcut(InsightType.RETENTION, keyBinds.tab3, 8)
+    useInsightTypeShortcut(InsightType.PATHS, keyBinds.tab4, 7)
+    useInsightTypeShortcut(InsightType.STICKINESS, keyBinds.tab5, 6)
+    useInsightTypeShortcut(InsightType.LIFECYCLE, keyBinds.tab6, 5)
+    useInsightTypeShortcut(InsightType.SQL, keyBinds.tab7, 4)
+    useInsightTypeShortcut(InsightType.HOG, keyBinds.tab8, 3, hogDisabled)
+
+    return null
+}
 
 export function OverlayForNewInsightMenu({ dataAttr }: { dataAttr: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)

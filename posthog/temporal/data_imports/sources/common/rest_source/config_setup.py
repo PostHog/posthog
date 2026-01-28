@@ -67,7 +67,7 @@ def get_paginator_class(paginator_type: PaginatorType) -> type[BasePaginator]:
         return PAGINATOR_MAP[paginator_type]
     except KeyError:
         available_options = ", ".join(PAGINATOR_MAP.keys())
-        raise ValueError(f"Invalid paginator: {paginator_type}. " f"Available options: {available_options}")
+        raise ValueError(f"Invalid paginator: {paginator_type}. Available options: {available_options}")
 
 
 def create_paginator(
@@ -99,7 +99,7 @@ def get_auth_class(auth_type: AuthType) -> type[AuthConfigBase]:
         return AUTH_MAP[auth_type]
     except KeyError:
         available_options = ", ".join(AUTH_MAP.keys())
-        raise ValueError(f"Invalid paginator: {auth_type}. " f"Available options: {available_options}")
+        raise ValueError(f"Invalid paginator: {auth_type}. Available options: {available_options}")
 
 
 def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
@@ -375,7 +375,7 @@ def _create_response_actions_hook(
     def response_actions_hook(response: Response, *args: Any, **kwargs: Any) -> None:
         action_type = _handle_response_actions(response, response_actions)
         if action_type == "ignore":
-            logger.info(f"Ignoring response with code {response.status_code} " f"and content '{response.json()}'.")
+            logger.info(f"Ignoring response with code {response.status_code} and content '{response.json()}'.")
             raise IgnoreResponseException
 
         # If no action has been taken and the status code indicates an error,

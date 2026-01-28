@@ -143,7 +143,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 return sources.filter(
                     (source) =>
                         source.source_type.toLowerCase().includes(normalizedSearch) ||
-                        source.prefix?.toLowerCase().includes(normalizedSearch)
+                        source.prefix?.toLowerCase().includes(normalizedSearch) ||
+                        source.description?.toLowerCase().includes(normalizedSearch)
                 )
             },
         ],

@@ -47,7 +47,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
-            people = Person.objects.filter(cohort__id=cohort.pk)
+            people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people.count(), 1)
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -79,7 +79,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
-            people = Person.objects.filter(cohort__id=cohort.pk)
+            people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people.count(), 1)
 
         def test_calculate_cohort_from_list_with_person_id_type(self) -> None:
@@ -96,7 +96,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
-            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people_in_cohort.count(), 2)
 
             # Verify specific persons are in the cohort
@@ -116,7 +116,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
-            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people_in_cohort.count(), 2)
 
             # Verify specific persons are in the cohort

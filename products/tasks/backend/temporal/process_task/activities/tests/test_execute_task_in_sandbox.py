@@ -7,14 +7,11 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, TaskExecutionFailedError
-from products.tasks.backend.temporal.process_task.activities.clone_repository import (
-    CloneRepositoryInput,
-    clone_repository,
-)
 from products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox import (
     ExecuteTaskInput,
     execute_task_in_sandbox,
 )
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
 @pytest.mark.skipif(
@@ -22,6 +19,19 @@ from products.tasks.backend.temporal.process_task.activities.execute_task_in_san
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestExecuteTaskInSandboxActivity:
+    def _create_context(
+        self, github_integration, repository, task_id="test-task-123", run_id="test-run-456", create_pr=True
+    ):
+        return TaskProcessingContext(
+            task_id=task_id,
+            run_id=run_id,
+            team_id=github_integration.team_id,
+            github_integration_id=github_integration.id,
+            repository=repository,
+            distinct_id="test-user-id",
+            create_pr=create_pr,
+        )
+
     @pytest.mark.django_db
     def test_execute_task_success(self, activity_environment, github_integration):
         config = SandboxConfig(
@@ -32,36 +42,22 @@ class TestExecuteTaskInSandboxActivity:
         sandbox = None
         try:
             sandbox = Sandbox.create(config)
+            context = self._create_context(github_integration, "PostHog/posthog-js")
 
-            clone_input = CloneRepositoryInput(
-                sandbox_id=sandbox.id,
-                repository="PostHog/posthog-js",
-                github_integration_id=github_integration.id,
-                task_id="test-task-123",
-                distinct_id="test-user-id",
-            )
-
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
-            ) as mock_get_token:
-                mock_get_token.return_value = ""
-                async_to_sync(activity_environment.run)(clone_repository, clone_input)
+            sandbox.clone_repository("PostHog/posthog-js", github_token="")
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
             ) as mock_task_cmd:
                 mock_task_cmd.return_value = "echo 'Task executed successfully'"
 
-                input_data = ExecuteTaskInput(
-                    sandbox_id=sandbox.id,
-                    task_id="test-task-123",
-                    repository="PostHog/posthog-js",
-                    distinct_id="test-user-id",
-                )
+                input_data = ExecuteTaskInput(context=context, sandbox_id=sandbox.id)
 
                 async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
 
-                mock_task_cmd.assert_called_once_with("test-task-123", "/tmp/workspace/repos/posthog/posthog-js")
+                mock_task_cmd.assert_called_once_with(
+                    "test-task-123", "test-run-456", "/tmp/workspace/repos/posthog/posthog-js", True
+                )
 
         finally:
             if sandbox:
@@ -77,32 +73,18 @@ class TestExecuteTaskInSandboxActivity:
         sandbox = None
         try:
             sandbox = Sandbox.create(config)
-
-            clone_input = CloneRepositoryInput(
-                sandbox_id=sandbox.id,
-                repository="PostHog/posthog-js",
-                github_integration_id=github_integration.id,
-                task_id="test-task-fail",
-                distinct_id="test-user-id",
+            context = self._create_context(
+                github_integration, "PostHog/posthog-js", task_id="test-task-fail", run_id="test-run-fail"
             )
 
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
-            ) as mock_get_token:
-                mock_get_token.return_value = ""
-                async_to_sync(activity_environment.run)(clone_repository, clone_input)
+            sandbox.clone_repository("PostHog/posthog-js", github_token="")
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
             ) as mock_task_cmd:
                 mock_task_cmd.return_value = "exit 1"
 
-                input_data = ExecuteTaskInput(
-                    sandbox_id=sandbox.id,
-                    task_id="test-task-fail",
-                    repository="PostHog/posthog-js",
-                    distinct_id="test-user-id",
-                )
+                input_data = ExecuteTaskInput(context=context, sandbox_id=sandbox.id)
 
                 with pytest.raises(TaskExecutionFailedError):
                     async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
@@ -112,7 +94,7 @@ class TestExecuteTaskInSandboxActivity:
                 sandbox.destroy()
 
     @pytest.mark.django_db
-    def test_execute_task_repository_not_found(self, activity_environment):
+    def test_execute_task_repository_not_found(self, activity_environment, github_integration):
         config = SandboxConfig(
             name="test-execute-task-no-repo",
             template=SandboxTemplate.DEFAULT_BASE,
@@ -127,12 +109,10 @@ class TestExecuteTaskInSandboxActivity:
             ) as mock_task_cmd:
                 mock_task_cmd.return_value = "ls -la"
 
-                input_data = ExecuteTaskInput(
-                    sandbox_id=sandbox.id,
-                    task_id="test-task-no-repo",
-                    repository="PostHog/posthog-js",
-                    distinct_id="test-user-id",
+                context = self._create_context(
+                    github_integration, "PostHog/posthog-js", task_id="test-task-no-repo", run_id="test-run-no-repo"
                 )
+                input_data = ExecuteTaskInput(context=context, sandbox_id=sandbox.id)
 
                 with pytest.raises(TaskExecutionFailedError):
                     async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
@@ -142,13 +122,9 @@ class TestExecuteTaskInSandboxActivity:
                 sandbox.destroy()
 
     @pytest.mark.django_db
-    def test_execute_task_sandbox_not_found(self, activity_environment):
-        input_data = ExecuteTaskInput(
-            sandbox_id="non-existent-sandbox-id",
-            task_id="test-task",
-            repository="PostHog/posthog-js",
-            distinct_id="test-user-id",
-        )
+    def test_execute_task_sandbox_not_found(self, activity_environment, github_integration):
+        context = self._create_context(github_integration, "PostHog/posthog-js")
+        input_data = ExecuteTaskInput(context=context, sandbox_id="non-existent-sandbox-id")
 
         with pytest.raises(SandboxNotFoundError):
             async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
@@ -166,39 +142,30 @@ class TestExecuteTaskInSandboxActivity:
 
             repos_to_test = ["PostHog/posthog-js", "PostHog/posthog.com"]
 
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
-            ) as mock_get_token:
-                mock_get_token.return_value = ""
+            for repo in repos_to_test:
+                context = self._create_context(
+                    github_integration,
+                    repo,
+                    task_id=f"test-task-{repo.split('/')[1]}",
+                    run_id=f"test-run-{repo.split('/')[1]}",
+                )
+                sandbox.clone_repository(repo, github_token="")
 
-                for repo in repos_to_test:
-                    clone_input = CloneRepositoryInput(
-                        sandbox_id=sandbox.id,
-                        repository=repo,
-                        github_integration_id=github_integration.id,
-                        task_id=f"test-task-{repo.split('/')[1]}",
-                        distinct_id="test-user-id",
+                with patch(
+                    "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
+                ) as mock_task_cmd:
+                    mock_task_cmd.return_value = f"echo 'Working in {repo}'"
+
+                    input_data = ExecuteTaskInput(context=context, sandbox_id=sandbox.id)
+
+                    async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
+
+                    mock_task_cmd.assert_called_once_with(
+                        f"test-task-{repo.split('/')[1]}",
+                        f"test-run-{repo.split('/')[1]}",
+                        f"/tmp/workspace/repos/{repo.lower()}",
+                        True,
                     )
-                    async_to_sync(activity_environment.run)(clone_repository, clone_input)
-
-                    with patch(
-                        "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
-                    ) as mock_task_cmd:
-                        mock_task_cmd.return_value = f"echo 'Working in {repo}'"
-
-                        input_data = ExecuteTaskInput(
-                            sandbox_id=sandbox.id,
-                            task_id=f"test-task-{repo.split('/')[1]}",
-                            repository=repo,
-                            distinct_id="test-user-id",
-                        )
-
-                        async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
-
-                        mock_task_cmd.assert_called_once_with(
-                            f"test-task-{repo.split('/')[1]}",
-                            f"/tmp/workspace/repos/{repo.lower()}",
-                        )
 
         finally:
             if sandbox:

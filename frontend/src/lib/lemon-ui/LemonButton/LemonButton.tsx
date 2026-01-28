@@ -6,6 +6,7 @@ import React, { useContext } from 'react'
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { INTERACTIVE_CLOSE_DELAY_MS } from '../LemonInput/LemonInput'
 import { Link } from '../Link'
 import { PopoverOverlayContext, PopoverReferenceContext } from '../Popover'
 import { Spinner } from '../Spinner/Spinner'
@@ -23,6 +24,7 @@ export interface LemonButtonPropsBase
         | 'tabIndex'
         | 'form'
         | 'onMouseDown'
+        | 'onMouseUp'
         | 'onMouseEnter'
         | 'onMouseLeave'
         | 'onKeyDown'
@@ -43,6 +45,8 @@ export interface LemonButtonPropsBase
     disableClientSideRouting?: boolean
     /** If set clicking this button will open the page in a new tab. */
     targetBlank?: boolean
+    /** Disable automatically displaying an external link icon when targetBlank is set */
+    hideExternalLinkIcon?: boolean
 
     /** Icon displayed on the left. */
     icon?: React.ReactElement | null
@@ -65,6 +69,8 @@ export interface LemonButtonPropsBase
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: React.ReactElement | string | null | false
+    /** Whether the disabled reason tooltip is interactive (e.g., contains a link) */
+    disabledReasonInteractive?: boolean
     noPadding?: boolean
     size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
@@ -134,6 +140,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 className,
                 disabled,
                 disabledReason,
+                disabledReasonInteractive,
                 loading,
                 type = 'tertiary',
                 status = 'default',
@@ -150,6 +157,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 noPadding,
                 to,
                 targetBlank,
+                hideExternalLinkIcon,
                 disableClientSideRouting,
                 onClick,
                 truncate = false,
@@ -265,7 +273,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         {children ? <span className="LemonButton__content">{children}</span> : null}
                         {sideIcon ? (
                             <span className="LemonButton__icon">{sideIcon}</span>
-                        ) : targetBlank ? (
+                        ) : targetBlank && !hideExternalLinkIcon ? (
                             <IconExternal />
                         ) : null}
                     </span>
@@ -284,6 +292,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         arrowOffset={tooltipArrowOffset}
                         docLink={tooltipDocLink}
                         visible={tooltipForceMount}
+                        interactive={disabledReasonInteractive}
+                        closeDelayMs={disabledReasonInteractive ? INTERACTIVE_CLOSE_DELAY_MS : undefined}
                     >
                         {workingButton}
                     </Tooltip>
@@ -296,6 +306,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
                 workingButton = (
                     <div
+                        onMouseEnter={buttonProps.onMouseEnter}
                         className={clsx(
                             `LemonButtonWithSideAction LemonButtonWithSideAction--${type}`,
                             fullWidth && 'LemonButtonWithSideAction--full-width'

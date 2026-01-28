@@ -92,9 +92,11 @@ export const loadAppMetricsTotals = async (
             GROUP BY ${hogql.raw(breakdownBy.join(', '))}
         `) as HogQLQueryString
 
-    const response = await api.queryHogQL(query, {
-        refresh: 'async',
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+        { refresh: 'async_except_on_cache_miss' }
+    )
 
     const res: AppMetricsTotalsResponse = {}
 
@@ -204,9 +206,11 @@ const loadAppMetricsTimeSeries = async (
         ORDER BY breakdown
         `) as HogQLQueryString
 
-    const response = await api.queryHogQL(query, {
-        refresh: 'async',
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+        { refresh: 'async_except_on_cache_miss' }
+    )
 
     const labels = response.results?.[0]?.[0].map((label: string) => {
         switch (interval) {

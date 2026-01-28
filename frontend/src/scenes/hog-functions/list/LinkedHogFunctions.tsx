@@ -14,19 +14,14 @@ export type LinkedHogFunctionsProps = {
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
     hideFeedback?: boolean
+    emptyText?: string
 }
 
-const getFiltersFromSubTemplateIds = (subTemplateIds: HogFunctionSubTemplateIdType[]): CyclotronJobFiltersType[] => {
-    const filterGroups: CyclotronJobFiltersType[] = []
-
-    for (const subTemplateId of subTemplateIds) {
-        const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
-        if (commonProperties.filters) {
-            filterGroups.push(commonProperties.filters)
-        }
-    }
-
-    return filterGroups
+const getFiltersFromSubTemplateId = (
+    subTemplateId: HogFunctionSubTemplateIdType
+): CyclotronJobFiltersType | undefined => {
+    const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
+    return commonProperties.filters ?? undefined
 }
 
 export function LinkedHogFunctions({
@@ -35,6 +30,7 @@ export function LinkedHogFunctions({
     subTemplateIds,
     newDisabledReason,
     hideFeedback,
+    emptyText,
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
     const logicKey = useMemo(() => {
@@ -45,13 +41,29 @@ export function LinkedHogFunctions({
     // and set by the subtemplate modifier
     const templateType = type === 'internal_destination' ? 'destination' : type
 
-    const filterGroups = forceFilterGroups ?? getFiltersFromSubTemplateIds(subTemplateIds ?? [])
+    const getConfigurationOverrides = (
+        subTemplateId?: HogFunctionSubTemplateIdType
+    ): CyclotronJobFiltersType | undefined => {
+        if (forceFilterGroups && forceFilterGroups.length > 0) {
+            return forceFilterGroups[0]
+        }
+        if (subTemplateId) {
+            return getFiltersFromSubTemplateId(subTemplateId)
+        }
+        return undefined
+    }
+
+    const hogFunctionFilterList =
+        forceFilterGroups ??
+        (subTemplateIds?.map(getFiltersFromSubTemplateId).filter((filters) => !!filters) as
+            | CyclotronJobFiltersType[]
+            | undefined)
 
     return showNewDestination ? (
         <HogFunctionTemplateList
             type={templateType}
             subTemplateIds={subTemplateIds}
-            configurationOverrides={filterGroups.length ? { filters: filterGroups[0] } : undefined}
+            getConfigurationOverrides={getConfigurationOverrides}
             extraControls={
                 <>
                     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
@@ -63,9 +75,10 @@ export function LinkedHogFunctions({
     ) : (
         <HogFunctionList
             key={logicKey}
-            forceFilterGroups={filterGroups}
+            forceFilterGroups={hogFunctionFilterList}
             type={type}
             hideFeedback={hideFeedback}
+            emptyText={emptyText}
             extraControls={
                 <>
                     <LemonButton

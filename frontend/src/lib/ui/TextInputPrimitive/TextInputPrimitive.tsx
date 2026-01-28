@@ -9,7 +9,7 @@ export const textInputVariants = cva({
     base: 'text-input-primitive w-full rounded border text-sm outline-none relative',
     variants: {
         variant: {
-            default: 'border-primary bg-surface-primary hover:border-secondary focus-visible:border-secondary',
+            default: 'border-primary bg-surface-primary',
             invisible: 'border-transparent bg-transparent hover:border-transparent',
         },
         size: {
@@ -26,11 +26,16 @@ export const textInputVariants = cva({
             true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',
             false: '',
         },
+        hideFocus: {
+            true: 'shadow-none',
+            false: '',
+        },
     },
     defaultVariants: {
         variant: 'default',
         size: 'default',
         error: false,
+        hideFocus: false,
     },
     compoundVariants: [
         // Paddings
@@ -79,6 +84,7 @@ export type TextInputBaseProps = {
     dataAttr?: string
     className?: string
     suffix?: React.ReactNode
+    showFocusPulse?: boolean
 } & VariantProps<typeof textInputVariants>
 
 export interface TextInputPrimitiveProps
@@ -86,7 +92,17 @@ export interface TextInputPrimitiveProps
         Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {}
 
 export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiveProps>((props, ref) => {
-    const { autoFocus, variant, size = 'default', type = 'text', className, suffix, ...rest } = props
+    const {
+        autoFocus,
+        variant,
+        size = 'default',
+        type = 'text',
+        className,
+        suffix,
+        showFocusPulse = true,
+        hideFocus = false,
+        ...rest
+    } = props
 
     const internalRef = useRef<HTMLInputElement>(null)
 
@@ -120,7 +136,9 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
                 textInputVariants({
                     variant,
                     size,
+                    hideFocus,
                 }),
+                'input-like',
                 className
             )}
         >
@@ -128,7 +146,11 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
                 ref={mergedRef}
                 type={type}
                 className={cn(
-                    textInputVariants({ size, variant: 'invisible', hasSuffix: suffix ? true : false }),
+                    textInputVariants({
+                        size,
+                        variant: 'invisible',
+                        hasSuffix: suffix ? true : false,
+                    }),
                     'flex-1'
                 )}
                 {...rest}

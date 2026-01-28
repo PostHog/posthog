@@ -9,6 +9,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -20,15 +21,19 @@ from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
+    AzureBlobIntegration,
+    AzureBlobIntegrationError,
     ClickUpIntegration,
     DatabricksIntegration,
     DatabricksIntegrationError,
     EmailIntegration,
+    FirebaseIntegration,
     GitHubIntegration,
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     Integration,
+    JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
@@ -41,6 +46,7 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
+    mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -65,6 +71,14 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = GoogleCloudIntegration.integration_from_key(
                 validated_data["kind"], key_info, team_id, request.user
             )
+            return instance
+
+        elif validated_data["kind"] == "firebase":
+            key_file = request.FILES.get("key")
+            if not key_file:
+                raise ValidationError("Firebase service account key file not provided")
+            key_info = json.loads(key_file.read().decode("utf-8"))
+            instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
             return instance
 
         elif validated_data["kind"] == "email":
@@ -157,6 +171,25 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "azure-blob":
+            config = validated_data.get("config", {})
+            connection_string = config.get("connection_string")
+            if not connection_string:
+                raise ValidationError("Connection string must be provided")
+
+            if not isinstance(connection_string, str):
+                raise ValidationError("Connection string must be a string")
+
+            try:
+                instance = AzureBlobIntegration.integration_from_config(
+                    team_id=team_id,
+                    connection_string=connection_string,
+                    created_by=request.user,
+                )
+            except AzureBlobIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
@@ -169,6 +202,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
         raise ValidationError("Kind not supported")
 
 
+@extend_schema(tags=["core"])
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -199,6 +233,7 @@ class IntegrationViewSet(
             try:
                 auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
                 response = redirect(auth_url)
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
 
                 return response
@@ -209,6 +244,7 @@ class IntegrationViewSet(
             app_slug = get_instance_setting("GITHUB_APP_SLUG")
             installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
             response = redirect(installation_url)
+            # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
 
             return response
@@ -440,8 +476,27 @@ class IntegrationViewSet(
         github = GitHubIntegration(self.get_object())
         return Response({"repositories": github.list_repositories()})
 
+    @action(methods=["GET"], detail=True, url_path="jira_projects")
+    def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        jira = JiraIntegration(self.get_object())
+        return Response({"projects": jira.list_projects()})
+
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         email = EmailIntegration(self.get_object())
         verification_result = email.verify()
         return Response(verification_result)
+
+    @extend_schema(responses={200: IntegrationSerializer})
+    @action(methods=["PATCH"], detail=True, url_path="email")
+    def email_update(self, request, **kwargs) -> Response:
+        instance = self.get_object()
+        config = request.data.get("config", {})
+
+        serializer = NativeEmailIntegrationSerializer(data=config)
+        serializer.is_valid(raise_exception=True)
+
+        email = EmailIntegration(instance)
+        email.update_native_integration(serializer.validated_data, instance.team_id)
+
+        return Response(IntegrationSerializer(email.integration).data)

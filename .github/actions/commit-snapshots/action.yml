@@ -3,7 +3,7 @@ description: Applies snapshot patches, counts changes, commits, and posts PR com
 
 inputs:
     workflow-type:
-        description: 'Workflow type (storybook or playwright)'
+        description: 'Workflow type (storybook, playwright, or backend)'
         required: true
     patch-path:
         description: 'Path where patch artifacts are already downloaded (e.g., /tmp/snapshot-patches/)'
@@ -43,23 +43,27 @@ runs:
     steps:
         - name: Apply snapshot patches
           shell: bash
+          env:
+              PATCH_PATH: ${{ inputs.patch-path }}
           run: |
               # Apply all patch files from the provided patch directory
               # Patches handle A/M/D automatically including binary files
-              if [ -d "${{ inputs.patch-path }}" ]; then
-                PATCHES=$(find "${{ inputs.patch-path }}" -name "*.patch" | sort)
+              if [ -d "$PATCH_PATH" ]; then
+                PATCHES=$(find "$PATCH_PATH" -name "*.patch" | sort)
                 if [ -n "$PATCHES" ]; then
-                  echo "Applying patches from ${{ inputs.patch-path }}..."
+                  echo "::group::Applying snapshot patches"
+                  echo "Applying patches from $PATCH_PATH..."
                   for patch in $PATCHES; do
                     echo "Applying $patch"
                     git apply --index "$patch"
                   done
                   echo "Applied all patches successfully"
+                  echo "::endgroup::"
                 else
-                  echo "No patch files found in ${{ inputs.patch-path }}"
+                  echo "No patch files found in $PATCH_PATH"
                 fi
               else
-                echo "Patch directory ${{ inputs.patch-path }} does not exist"
+                echo "Patch directory $PATCH_PATH does not exist"
               fi
 
         - name: Configure git
@@ -72,32 +76,36 @@ runs:
         - name: Verify branch hasn't advanced
           id: verify
           shell: bash
+          env:
+              BRANCH_NAME: ${{ inputs.branch-name }}
+              TESTED_SHA: ${{ inputs.commit-sha }}
           run: |
+              echo "::group::Verifying branch hasn't advanced"
               # Check if the remote branch HEAD still matches the commit we tested
-              TESTED_SHA="${{ inputs.commit-sha }}"
-              CURRENT_SHA=$(git ls-remote origin "refs/heads/${{ inputs.branch-name }}" | cut -f1)
+              CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH_NAME" | cut -f1)
 
               if [ "$TESTED_SHA" != "$CURRENT_SHA" ]; then
                 echo "branch-advanced=true" >> $GITHUB_OUTPUT
                 echo "current-sha=$CURRENT_SHA" >> $GITHUB_OUTPUT
-                echo "⚠️  Branch has advanced during workflow execution"
+                echo "::warning::⏭️ Branch advanced during workflow - snapshot commit skipped"
                 echo "   Tested:  $TESTED_SHA"
                 echo "   Current: $CURRENT_SHA"
-                echo "   Skipping snapshot commit - new workflow run will handle it"
               else
                 echo "branch-advanced=false" >> $GITHUB_OUTPUT
-                echo "✓ Branch HEAD matches tested commit - proceeding with snapshot commit"
+                echo "::notice::✅ Branch HEAD matches tested commit - proceeding with snapshot commit"
               fi
+              echo "::endgroup::"
 
         - name: Post skip comment
           if: steps.verify.outputs.branch-advanced == 'true'
           shell: bash
           env:
               GH_TOKEN: ${{ inputs.github-token }}
+              TESTED_SHA: ${{ inputs.commit-sha }}
+              CURRENT_SHA: ${{ steps.verify.outputs.current-sha }}
+              PR_NUMBER: ${{ inputs.pr-number }}
           run: |
-              TESTED_SHA="${{ inputs.commit-sha }}"
-              CURRENT_SHA="${{ steps.verify.outputs.current-sha }}"
-              gh pr comment ${{ inputs.pr-number }} --body "⏭️ Skipped snapshot commit because branch advanced to \`${CURRENT_SHA:0:7}\` while workflow was testing \`${TESTED_SHA:0:7}\`.
+              gh pr comment $PR_NUMBER --body "⏭️ Skipped snapshot commit because branch advanced to \`${CURRENT_SHA:0:7}\` while workflow was testing \`${TESTED_SHA:0:7}\`.
 
               The new commit will trigger its own snapshot update workflow.
 
@@ -111,8 +119,12 @@ runs:
           shell: bash
           env:
               GH_TOKEN: ${{ inputs.github-token }}
+              SNAPSHOT_PATH: ${{ inputs.snapshot-path }}
+              PR_NUMBER: ${{ inputs.pr-number }}
+              COMMIT_MESSAGE: ${{ inputs.commit-message }}
+              BRANCH_NAME: ${{ inputs.branch-name }}
           run: |
-              CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh ${{ inputs.snapshot-path }})
+              CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh $SNAPSHOT_PATH)
               echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
               echo "Snapshot changes: $CHANGES_JSON"
 
@@ -120,16 +132,16 @@ runs:
               if [ "$TOTAL" -gt 0 ]; then
                 # Disable auto-merge BEFORE committing
                 # This ensures auto-merge is disabled even if workflow gets cancelled after push
-                gh pr merge --disable-auto ${{ inputs.pr-number }} || echo "Auto-merge was not enabled"
-                echo "Auto-merge disabled - snapshot changes require human review"
+                gh pr merge --disable-auto $PR_NUMBER || echo "Auto-merge was not enabled"
+                echo "::notice::🔒 Auto-merge disabled - snapshot changes require manual review"
 
                 # Now commit and push
-                git add ${{ inputs.snapshot-path }} -A
-                git commit -m "${{ inputs.commit-message }}"
+                git add $SNAPSHOT_PATH -A
+                git commit -m "$COMMIT_MESSAGE"
                 # Push directly - SHA verification already ensured we're up to date
-                BRANCH_NAME="${{ inputs.branch-name }}"
                 git push origin HEAD:"$BRANCH_NAME" --quiet
                 SNAPSHOT_SHA=$(git rev-parse HEAD)
+                echo "::notice::📸 Committed snapshot changes"
                 echo "committed=true" >> $GITHUB_OUTPUT
                 echo "snapshot-sha=$SNAPSHOT_SHA" >> $GITHUB_OUTPUT
               else
@@ -142,19 +154,25 @@ runs:
           shell: bash
           env:
               GH_TOKEN: ${{ inputs.github-token }}
+              SNAPSHOT_SHA: ${{ steps.commit.outputs.snapshot-sha }}
+              PR_NUMBER: ${{ inputs.pr-number }}
+              COMMIT_SHA: ${{ inputs.commit-sha }}
+              WORKFLOW_TYPE: ${{ inputs.workflow-type }}
+              CHANGES: ${{ steps.commit.outputs.changes }}
+              REPOSITORY: ${{ inputs.repository }}
           run: |
               .github/scripts/post-snapshot-comment.js \
-                "${{ inputs.workflow-type }}" \
+                "$WORKFLOW_TYPE" \
                 "update" \
-                '${{ steps.commit.outputs.changes }}' \
-                "${{ inputs.pr-number }}" \
-                "${{ inputs.repository }}" \
-                "${{ inputs.commit-sha }}" \
-                "${{ steps.commit.outputs.snapshot-sha }}"
+                "$CHANGES" \
+                "$PR_NUMBER" \
+                "$REPOSITORY" \
+                "$COMMIT_SHA" \
+                "$SNAPSHOT_SHA"
 
-        - name: Fail workflow to trigger CHECK mode
+        - name: Fail workflow to signal snapshot changes
           if: steps.commit.outputs.committed == 'true'
           shell: bash
           run: |
-              echo "::notice::Snapshots were updated. Workflow will fail to trigger CHECK mode on next run."
+              echo "::notice::Snapshots were updated and committed. Workflow fails to prevent auto-merge and signal review needed."
               exit 1

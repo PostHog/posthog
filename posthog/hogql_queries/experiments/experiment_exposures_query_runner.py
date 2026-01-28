@@ -3,6 +3,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
+from scipy.stats import chisquare
 
 from posthog.schema import (
     CachedExperimentExposureQueryResponse,
@@ -11,6 +12,7 @@ from posthog.schema import (
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
     IntervalType,
+    SampleRatioMismatch,
 )
 
 from posthog.hogql import ast
@@ -30,6 +32,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
+SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calculation
 
 
 class ExperimentExposuresQueryRunner(QueryRunner):
@@ -107,6 +110,82 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
         return builder.get_exposure_timeseries_query()
 
+    def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
+        """
+        Calculate Sample Ratio Mismatch using chi-squared goodness-of-fit test.
+        Compares observed variant distribution against expected (from rollout percentages).
+        Returns None if insufficient data.
+        """
+        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        variants_config = multivariate_data.get("variants", [])
+
+        if not variants_config or not total_exposures:
+            return None
+
+        rollout_percentages: dict[str, float] = {}
+        for variant_config in variants_config:
+            key = variant_config.get("key")
+            pct = variant_config.get("rollout_percentage", 0)
+            if key:
+                rollout_percentages[key] = pct
+
+        # Holdout takes its percentage from the total, other variants share the remainder
+        if self.query.holdout:
+            holdout_key = f"holdout-{self.query.holdout.id}"
+            holdout_filters = self.query.holdout.filters
+            holdout_pct = (
+                holdout_filters[0].rollout_percentage
+                if holdout_filters and holdout_filters[0].rollout_percentage is not None
+                else 0
+            )
+
+            if holdout_pct > 0:
+                rollout_percentages[holdout_key] = holdout_pct
+                remaining = 100 - holdout_pct
+                for key in list(rollout_percentages.keys()):
+                    if key != holdout_key:
+                        rollout_percentages[key] = rollout_percentages[key] * (remaining / 100)
+
+        # Get all variant keys with non-zero rollout percentage
+        # We must iterate over these (not total_exposures) to ensure sum(observed) == sum(expected)
+        variants_with_rollout = {key for key, pct in rollout_percentages.items() if pct > 0}
+
+        # Calculate total observed for variants with non-zero rollout
+        # Use .get(key, 0) to handle variants that may be missing from total_exposures
+        total_observed = sum(
+            total_exposures.get(key, 0) for key in variants_with_rollout if key != MULTIPLE_VARIANT_KEY
+        )
+        if total_observed < SRM_MINIMUM_SAMPLE_SIZE:
+            return None
+
+        observed: list[float] = []
+        expected: list[float] = []
+        expected_counts: dict[str, float] = {}
+
+        # Iterate over all variants with non-zero rollout (not just those in total_exposures)
+        # This ensures variants with 0 exposures are still included in the chi-square calculation
+        for variant_key in variants_with_rollout:
+            if variant_key == MULTIPLE_VARIANT_KEY:
+                continue
+
+            obs_count = total_exposures.get(variant_key, 0)
+            rollout_pct = rollout_percentages[variant_key]
+            exp_count = (rollout_pct / 100) * total_observed
+
+            observed.append(float(obs_count))
+            expected.append(exp_count)
+            expected_counts[variant_key] = exp_count
+
+        if len(observed) < 2:
+            return None
+
+        _, p_value = chisquare(observed, expected)
+
+        return SampleRatioMismatch(
+            expected=expected_counts,
+            p_value=float(p_value),
+        )
+
     def _calculate(self) -> ExperimentExposureQueryResponse:
         try:
             # Adding experiment specific tags to the tag collection
@@ -172,10 +251,13 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             for variant, series in variant_series.items():
                 total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
+            sample_ratio_mismatch = self._calculate_srm(total_exposures)
+
             return ExperimentExposureQueryResponse(
                 timeseries=ordered_timeseries,
                 total_exposures=total_exposures,
                 date_range=self.date_range,
+                sample_ratio_mismatch=sample_ratio_mismatch,
             )
         except Exception as e:
             capture_exception(

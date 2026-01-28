@@ -43,7 +43,7 @@ impl Release {
         let client = &context().client;
 
         let path = format!("error_tracking/releases/hash/{hash_id}");
-        let response = client.send_get(&path, |req| req);
+        let response = client.send_get(client.project_url(&path)?, |req| req);
 
         if let Err(err) = response {
             if let ClientError::ApiError(404, _, _) = err {
@@ -75,6 +75,14 @@ impl ReleaseBuilder {
     }
 
     pub fn with_git(&mut self, info: GitInfo) -> &mut Self {
+        if !self.has_project() {
+            if let Some(name) = &info.repo_name {
+                self.with_project(name);
+            }
+        }
+        if !self.has_version() {
+            self.with_version(&info.commit_id);
+        }
         self.with_metadata("git", info)
             .expect("We can serialise git info")
     }
@@ -88,9 +96,17 @@ impl ReleaseBuilder {
         Ok(self)
     }
 
+    pub fn has_project(&self) -> bool {
+        self.project.is_some()
+    }
+
     pub fn with_project(&mut self, project: &str) -> &mut Self {
         self.project = Some(project.to_string());
         self
+    }
+
+    pub fn has_version(&self) -> bool {
+        self.version.is_some()
     }
 
     pub fn with_version(&mut self, version: &str) -> &mut Self {
@@ -156,7 +172,9 @@ impl ReleaseBuilder {
         let client = &context().client;
 
         let response = client
-            .send_post("error_tracking/releases", |req| req.json(&request))
+            .send_post(client.project_url("error_tracking/releases")?, |req| {
+                req.json(&request)
+            })
             .context("Failed to create release")?;
 
         let response = response.json::<Release>()?;

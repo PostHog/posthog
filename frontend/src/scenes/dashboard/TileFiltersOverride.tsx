@@ -9,6 +9,8 @@ import '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { DashboardTile, QueryBasedInsightModel } from '~/types'
@@ -19,6 +21,9 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
     const { overrides } = useValues(tileLogic)
     const { setDates, setProperties } = useActions(tileLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
 
     return (
         <div className="space-y-4 tile-filters-override">
@@ -33,9 +38,11 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                     <label className="text-sm font-medium mb-2 block">Date Range</label>
                     <DateFilter
                         showCustom
+                        showExplicitDateToggle={canAccessExplicitDateToggle}
                         dateFrom={overrides.date_from ?? null}
                         dateTo={overrides.date_to ?? null}
-                        onChange={(from, to) => setDates(from, to)}
+                        explicitDate={overrides.explicitDate}
+                        onChange={(from, to, explicitDate) => setDates(from, to, explicitDate)}
                         makeLabel={(key) => (
                             <>
                                 <IconCalendar />

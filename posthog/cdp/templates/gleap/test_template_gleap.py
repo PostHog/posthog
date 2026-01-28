@@ -1,5 +1,3 @@
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.gleap.template_gleap import template as template_gleap
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 
@@ -27,23 +25,21 @@ class TestTemplateGleap(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.gleap.io/admin/identify",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "User-Agent": "PostHog Gleap.io App",
-                        "Api-Token": "uB6Jymn60NN5EEIWgiUzZx13geVlEx26",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
-                        "name": "example",
-                        "email": "example@posthog.com",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.gleap.io/admin/identify",
+            {
+                "method": "POST",
+                "headers": {
+                    "User-Agent": "PostHog Gleap.io App",
+                    "Api-Token": "uB6Jymn60NN5EEIWgiUzZx13geVlEx26",
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
+                    "name": "example",
+                    "email": "example@posthog.com",
+                },
+            },
         )
 
     def test_body_includes_all_properties_if_set(self):
@@ -54,9 +50,11 @@ class TestTemplateGleap(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0][1]["body"] == snapshot(
-            {"userId": "edad9282-25d0-4cf1-af0e-415535ee1161", "name": "example", "email": "example@posthog.com"}
-        )
+        assert self.get_mock_fetch_calls()[0][1]["body"] == {
+            "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
+            "name": "example",
+            "email": "example@posthog.com",
+        }
 
         self.run_function(
             inputs=create_inputs(include_all_properties=True),
@@ -65,17 +63,15 @@ class TestTemplateGleap(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0][1]["body"] == snapshot(
-            {
-                "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
-                "account_status": "paid",
-                "name": "example",
-                "email": "example@posthog.com",
-            }
-        )
+        assert self.get_mock_fetch_calls()[0][1]["body"] == {
+            "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
+            "account_status": "paid",
+            "name": "example",
+            "email": "example@posthog.com",
+        }
 
     def test_function_requires_identifier(self):
         self.run_function(inputs=create_inputs(userId=""))
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot([("No User ID set. Skipping...",)])
+        assert self.get_mock_print_calls() == [("No User ID set. Skipping...",)]

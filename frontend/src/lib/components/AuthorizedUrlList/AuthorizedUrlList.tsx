@@ -9,7 +9,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
-import { ExperimentIdType } from '~/types'
+import { ExperimentIdType, ToolbarUserIntent } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
 import { EmptyState } from './EmptyState'
@@ -19,17 +19,22 @@ export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
+    productTourId?: string | null
+    userIntent?: ToolbarUserIntent
     query?: string | null
     allowWildCards?: boolean
     displaySuggestions?: boolean
     showLaunch?: boolean
     allowAdd?: boolean
     allowDelete?: boolean
+    launchInSameTab?: boolean
 }
 
 export function AuthorizedUrlList({
     actionId,
     experimentId,
+    productTourId,
+    userIntent,
     query,
     type,
     addText = 'Add new authorized URL',
@@ -38,10 +43,13 @@ export function AuthorizedUrlList({
     allowAdd = true,
     allowDelete = true,
     showLaunch = true,
+    launchInSameTab = false,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
+        productTourId: productTourId ?? null,
         actionId: actionId ?? null,
+        userIntent,
         type,
         query,
         allowWildCards,
@@ -54,9 +62,10 @@ export function AuthorizedUrlList({
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
             <EmptyState
                 experimentId={experimentId}
+                productTourId={productTourId}
                 actionId={actionId}
                 type={type}
                 displaySuggestions={displaySuggestions}
@@ -68,6 +77,7 @@ export function AuthorizedUrlList({
                         type={type}
                         actionId={actionId}
                         experimentId={experimentId}
+                        productTourId={productTourId}
                         allowWildCards={allowWildCards}
                     />
                 </div>
@@ -98,6 +108,7 @@ export function AuthorizedUrlList({
                             type={type}
                             actionId={actionId}
                             experimentId={experimentId}
+                            productTourId={productTourId}
                             allowWildCards={allowWildCards}
                         />
                     </div>
@@ -138,7 +149,7 @@ export function AuthorizedUrlList({
                                                     : // other urls are simply opened directly
                                                       `${keyedURL.url}${query ?? ''}`
                                             }
-                                            targetBlank
+                                            targetBlank={!launchInSameTab}
                                             tooltip={
                                                 type === AuthorizedUrlListType.TOOLBAR_URLS ||
                                                 type === AuthorizedUrlListType.WEB_ANALYTICS

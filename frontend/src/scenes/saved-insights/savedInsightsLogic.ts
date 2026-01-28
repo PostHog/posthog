@@ -24,7 +24,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Breadcrumb, InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -39,7 +39,6 @@ export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsig
 }
 
 export interface SavedInsightFilters {
-    layoutView: LayoutView
     order: string
     tab: SavedInsightsTabs
     search: string
@@ -55,7 +54,6 @@ export interface SavedInsightFilters {
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
-        layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
@@ -178,8 +176,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     cleanFilters({
                         ...(merge ? state || {} : {}),
                         ...filters,
-                        // Reset page on filter change EXCEPT if it's page or view that's being updated
-                        ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
+                        // Reset page on filter change EXCEPT if it's page that's being updated
+                        ...('page' in filters ? {} : { page: 1 }),
                     }),
             },
         ],
@@ -308,10 +306,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     keys = keys.filter((k) => k !== 'tab')
                     eventUsageLogic.actions.reportSavedInsightTabChanged(filters.tab)
                 }
-                if (keys.includes('layoutView')) {
-                    keys = keys.filter((k) => k !== 'layoutView')
-                    eventUsageLogic.actions.reportSavedInsightLayoutChanged(filters.layoutView)
-                }
                 if (keys.length > 0) {
                     eventUsageLogic.actions.reportSavedInsightFilterUsed(keys)
                 }
@@ -377,7 +371,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
         return {
             loadInsights: changeUrl,
-            setLayoutView: changeUrl,
         }
     }),
     tabAwareUrlToAction(({ actions, values }) => ({

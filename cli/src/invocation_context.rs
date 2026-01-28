@@ -32,13 +32,14 @@ pub fn context() -> &'static InvocationContext {
     INVOCATION_CONTEXT.get().expect("Context has been set up")
 }
 
-pub fn init_context(host: Option<String>, skip_ssl: bool) -> Result<()> {
+pub fn init_context(host: Option<String>, skip_ssl: bool, rate_limit: Option<usize>) -> Result<()> {
     let token = get_token()?;
     let config = InvocationConfig {
         api_key: token.token.clone(),
         host: host.unwrap_or(token.host.unwrap_or("https://us.i.posthog.com".into())),
         env_id: token.env_id.clone(),
         skip_ssl,
+        rate_limit: rate_limit.unwrap_or(480),
     };
 
     config.validate()?;
@@ -68,6 +69,7 @@ pub struct InvocationConfig {
     pub host: String,
     pub env_id: String,
     pub skip_ssl: bool,
+    pub rate_limit: usize, // max number of requests per minute
 }
 
 impl InvocationConfig {

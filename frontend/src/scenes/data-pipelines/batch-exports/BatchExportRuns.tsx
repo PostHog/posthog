@@ -8,6 +8,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber, humanizeBytes } from 'lib/utils'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
@@ -152,6 +153,26 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         },
                     },
                     {
+                        title: 'Rows exported',
+                        key: 'rowsExported',
+                        render: (_, run) => {
+                            if (run.records_completed == null) {
+                                return ''
+                            }
+                            return humanFriendlyNumber(run.records_completed)
+                        },
+                    },
+                    {
+                        title: 'Bytes exported',
+                        key: 'bytesExported',
+                        render: (_, run) => {
+                            if (run.bytes_exported == null) {
+                                return ''
+                            }
+                            return humanizeBytes(run.bytes_exported)
+                        },
+                    },
+                    {
                         title: 'Run start',
                         key: 'runStart',
                         tooltip: 'Date and time when this BatchExport run started',
@@ -239,6 +260,26 @@ export function BatchExportRunsGrouped({
                                         title: 'ID',
                                         key: 'runId',
                                         render: (_, run) => run.id,
+                                    },
+                                    {
+                                        title: 'Rows exported',
+                                        key: 'rowsExported',
+                                        render: (_, run) => {
+                                            if (run.records_completed == null) {
+                                                return ''
+                                            }
+                                            return humanFriendlyNumber(run.records_completed)
+                                        },
+                                    },
+                                    {
+                                        title: 'Bytes exported',
+                                        key: 'bytesExported',
+                                        render: (_, run) => {
+                                            if (run.bytes_exported == null) {
+                                                return ''
+                                            }
+                                            return humanizeBytes(run.bytes_exported)
+                                        },
                                     },
                                     {
                                         title: 'Run start',

@@ -31,10 +31,10 @@ class SSHTunnelMixin:
 
             @contextmanager
             def with_ssh_func():
-                with ssh_tunnel.get_tunnel(config.host, config.port) as t:
-                    if t is None:
+                with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+                    if tunnel is None:
                         raise Exception("Can't open tunnel to SSH server")
-                    yield t.local_bind_host, t.local_bind_port
+                    yield tunnel.local_bind_host, tunnel.local_bind_port
 
             return with_ssh_func
 

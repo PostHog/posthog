@@ -47,11 +47,11 @@ class TagsTestCase(TestMigrations):
 
         # BATCH CASE
         teams = Team.objects.bulk_create(
-            [Team(name=f"batch_team-{team_number+10}", organization=org) for team_number in range(501)]
+            [Team(name=f"batch_team-{team_number + 10}", organization=org) for team_number in range(501)]
         )
         Dashboard.objects.bulk_create(
             [
-                Dashboard(name=f"batch_dashboard-{dashboard_number+10}", team=team)
+                Dashboard(name=f"batch_dashboard-{dashboard_number + 10}", team=team)
                 for dashboard_number, team in enumerate(teams)
             ]
         )

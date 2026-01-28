@@ -36,6 +36,11 @@
         padding-right: 0.5rem;
     }
 
+    &.PropertyFilterButton--compact {
+        height: unset;
+        padding: 0.25rem;
+    }
+
     > :not(.PropertyFilterButton-content) {
         flex-shrink: 0;
     }

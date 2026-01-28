@@ -183,6 +183,7 @@ describe('maxContextLogic', () => {
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.Insights,
                     TaxonomicFilterGroupType.Dashboards,
+                    TaxonomicFilterGroupType.ErrorTrackingIssues,
                 ],
             })
 
@@ -273,6 +274,163 @@ describe('maxContextLogic', () => {
                 compiledContext: partial({
                     dashboards: [partial({ id: 1, insights: [partial({ id: 'insight-1' })] })],
                 }),
+            })
+        })
+
+        describe('toolContextItems', () => {
+            it('returns empty array when no tools have context', async () => {
+                await expectLogic(logic).toMatchValues({
+                    toolContextItems: [],
+                })
+            })
+
+            it('returns tool context items from registered tools', async () => {
+                const { maxGlobalLogic } = require('./maxGlobalLogic')
+                const globalLogic = maxGlobalLogic()
+                globalLogic.mount()
+
+                // Register a tool with context description
+                globalLogic.actions.registerTool({
+                    identifier: 'test_tool',
+                    name: 'Test Tool',
+                    description: 'Test tool description',
+                    contextDescription: {
+                        text: 'Test Dashboard',
+                        icon: '<IconDashboard />',
+                    },
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    toolContextItems: [
+                        {
+                            text: 'Test Dashboard',
+                            icon: '<IconDashboard />',
+                        },
+                    ],
+                })
+
+                globalLogic.unmount()
+            })
+
+            it('deduplicates tool context items with same name', async () => {
+                const { maxGlobalLogic } = require('./maxGlobalLogic')
+                const globalLogic = maxGlobalLogic()
+                globalLogic.mount()
+
+                // Register two tools with same context name
+                globalLogic.actions.registerTool({
+                    identifier: 'tool_one',
+                    name: 'Tool One',
+                    description: 'First tool',
+                    contextDescription: {
+                        text: 'Test Dashboard',
+                        icon: '<IconDashboard />',
+                    },
+                })
+
+                globalLogic.actions.registerTool({
+                    identifier: 'tool_two',
+                    name: 'Tool Two',
+                    description: 'Second tool',
+                    contextDescription: {
+                        text: 'Test Dashboard',
+                        icon: '<IconDashboard />',
+                    },
+                })
+
+                // Should only have one item (deduplicated)
+                await expectLogic(logic).toMatchValues({
+                    toolContextItems: [
+                        {
+                            text: 'Test Dashboard',
+                            icon: '<IconDashboard />',
+                        },
+                    ],
+                })
+
+                globalLogic.unmount()
+            })
+
+            it('includes multiple different tool context items', async () => {
+                const { maxGlobalLogic } = require('./maxGlobalLogic')
+                const globalLogic = maxGlobalLogic()
+                globalLogic.mount()
+
+                // Register tools with different context
+                globalLogic.actions.registerTool({
+                    identifier: 'tool_one',
+                    name: 'Tool One',
+                    description: 'First tool',
+                    contextDescription: {
+                        text: 'Dashboard A',
+                        icon: '<IconDashboard />',
+                    },
+                })
+
+                globalLogic.actions.registerTool({
+                    identifier: 'tool_two',
+                    name: 'Tool Two',
+                    description: 'Second tool',
+                    contextDescription: {
+                        text: 'Dashboard B',
+                        icon: '<IconGraph />',
+                    },
+                })
+
+                // Should have both items
+                await expectLogic(logic).toMatchValues({
+                    toolContextItems: [
+                        {
+                            text: 'Dashboard A',
+                            icon: '<IconDashboard />',
+                        },
+                        {
+                            text: 'Dashboard B',
+                            icon: '<IconGraph />',
+                        },
+                    ],
+                })
+
+                globalLogic.unmount()
+            })
+
+            it('is case-insensitive for deduplication', async () => {
+                const { maxGlobalLogic } = require('./maxGlobalLogic')
+                const globalLogic = maxGlobalLogic()
+                globalLogic.mount()
+
+                // Register tools with different casing
+                globalLogic.actions.registerTool({
+                    identifier: 'tool_one',
+                    name: 'Tool One',
+                    description: 'First tool',
+                    contextDescription: {
+                        text: 'test dashboard',
+                        icon: '<IconDashboard />',
+                    },
+                })
+
+                globalLogic.actions.registerTool({
+                    identifier: 'tool_two',
+                    name: 'Tool Two',
+                    description: 'Second tool',
+                    contextDescription: {
+                        text: 'Test Dashboard',
+                        icon: '<IconDashboard />',
+                    },
+                })
+
+                // Should only have one (first registered)
+                await expectLogic(logic).toMatchValues({
+                    toolContextItems: [
+                        {
+                            text: 'test dashboard',
+                            icon: '<IconDashboard />',
+                        },
+                    ],
+                })
+
+                globalLogic.unmount()
             })
         })
     })

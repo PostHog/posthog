@@ -39,6 +39,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$insight_alert_firing',
                 },
             ]
+        case 'discussion-mention':
+            return [
+                {
+                    label: 'Discussion mention',
+                    value: '$discussion_mention_created',
+                },
+            ]
         default:
             return [
                 {
@@ -65,6 +72,7 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 'activity',
                 'item_id',
                 'scope',
+                'detail',
                 'detail.name',
                 'detail.changes',
                 'created_at',

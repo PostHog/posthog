@@ -287,7 +287,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "$virt_initial_channel_type",
                     "$virt_initial_referring_domain_type",
                     "$virt_revenue",
-                    "$virt_revenue_last_30_days",
+                    "$virt_mrr",
                 ],
             ),
             ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),
@@ -336,12 +336,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             (
                 "Get all group1 properties",
                 "type=group&group_type_index=1",
-                ["group1 another", "group1 property", "$virt_revenue", "$virt_revenue_last_30_days"],
+                ["group1 another", "group1 property", "$virt_revenue", "$virt_mrr"],
             ),
             (
                 "Get all group2 properties",
                 "type=group&group_type_index=2",
-                ["group2 property", "$virt_revenue", "$virt_revenue_last_30_days"],
+                ["group2 property", "$virt_revenue", "$virt_mrr"],
             ),
             (
                 "Search group1 properties containing 'prop'",
@@ -446,20 +446,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert property_definition.property_type == "Numeric"
         assert property_definition.is_numerical
         assert response.json()["property_type"] == "Numeric"
-
-    @patch("posthog.models.Organization.is_feature_available", return_value=False)
-    def test_update_property_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
-        """Test that enterprise-only fields require license"""
-        property_definition = PropertyDefinition.objects.create(
-            team=self.team, name="test_property", property_type="String"
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}",
-            {"verified": True},  # This should be blocked since it's enterprise-only
-        )
-
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
@@ -613,8 +599,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "tags": [],
                 },
                 {
-                    "id": "builtin_virt_revenue_last_30_days",
-                    "name": "$virt_revenue_last_30_days",
+                    "id": "builtin_virt_mrr",
+                    "name": "$virt_mrr",
                     "is_numerical": True,
                     "property_type": "Numeric",
                     "tags": [],
@@ -630,8 +616,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             assert len(virtual_props) == 4
             assert all(prop["is_numerical"] for prop in virtual_props)
             assert all(
-                prop["name"]
-                in ["$virt_session_count", "$virt_pageview_count", "$virt_revenue", "$virt_revenue_last_30_days"]
+                prop["name"] in ["$virt_session_count", "$virt_pageview_count", "$virt_revenue", "$virt_mrr"]
                 for prop in virtual_props
             )
 

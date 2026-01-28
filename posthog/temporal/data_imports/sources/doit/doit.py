@@ -67,6 +67,8 @@ def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
         if name not in columns_to_ignore:
             key = f"{key}-{value}"
 
+    # this hash has no security impact
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     hash_key = hashlib.md5(key.encode()).hexdigest()
 
     return {**row, "id": hash_key}
@@ -124,6 +126,9 @@ def doit_source(
         arrow_schema = build_pyarrow_schema(column_types_dict)
 
         rows: list[list[Any]] = result["result"]["rows"]
+
+        if "id" not in arrow_schema.names:
+            arrow_schema = arrow_schema.append(pa.field("id", pa.string(), nullable=False))
 
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 

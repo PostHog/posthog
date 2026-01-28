@@ -1,10 +1,11 @@
 import { Node } from '@xyflow/react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { stepDelayLogic } from './stepDelayLogic'
 
 export function StepDelayConfiguration({
     node,
@@ -14,7 +15,8 @@ export function StepDelayConfiguration({
     const action = node.data
     const { delay_duration } = action.config
 
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { logicProps } = useValues(workflowLogic)
+    const { setDelayWorkflowActionConfig } = useActions(stepDelayLogic({ workflowLogicProps: logicProps }))
 
     return (
         <>
@@ -23,7 +25,9 @@ export function StepDelayConfiguration({
             <p className="mb-0">Wait for a specified duration.</p>
             <HogFlowDuration
                 value={delay_duration}
-                onChange={(value) => setWorkflowActionConfig(action.id, { delay_duration: value })}
+                onChange={(value) => {
+                    setDelayWorkflowActionConfig(action.id, { delay_duration: value })
+                }}
             />
         </>
     )

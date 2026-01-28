@@ -71,7 +71,27 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 
 const win = window as any
 
-win['ph_load_toolbar'] = function (toolbarParams: ToolbarParams, posthog: PostHog) {
+win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {
+    // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
+    if (posthog && toolbarParams.toolbarFlagsKey) {
+        const apiHost = posthog.config?.api_host || toolbarParams.apiURL || window.location.origin
+        const trimmedHost = apiHost.replace(/\/+$/, '')
+        await fetch(`${trimmedHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
+            credentials: 'include',
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.featureFlags) {
+                    posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
+                } else {
+                    console.error('[Toolbar Flags] Feature flags not found:', JSON.stringify(data))
+                }
+            })
+            .catch((error) => {
+                console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
+            })
+    }
+
     initKeaInToolbar()
     const container = document.createElement('div')
     const root = createRoot(container)

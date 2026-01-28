@@ -195,7 +195,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInQuery,
                 featureFlags,
                 context
-            ): RequiredExcept<Omit<DataTableNode, 'response'>, 'version' | 'tags' | 'defaultColumns'> => {
+            ): RequiredExcept<
+                Omit<DataTableNode, 'response'>,
+                'version' | 'tags' | 'defaultColumns' | 'contextKey'
+            > => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
@@ -217,6 +220,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? showIfFull,
                         showEventFilter: query.showEventFilter ?? showIfFull,
+                        showEventsFilter: query.showEventsFilter ?? false,
                         showSearch: query.showSearch ?? showIfFull,
                         showActions: query.showActions ?? true,
                         showDateRange: query.showDateRange ?? showIfFull,
@@ -232,6 +236,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,
                         showSavedFilters: query.showSavedFilters ?? false,
+                        showTableViews: query.showTableViews ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:
@@ -239,6 +244,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 ? context.showOpenEditorButton
                                 : (query.showOpenEditorButton ?? true),
                         showResultsTable: query.showResultsTable ?? true,
+                        showRecordingColumn: query.showRecordingColumn ?? false,
+                        showSourceQueryOptions: query.showSourceQueryOptions ?? true,
+                        showCount: query.showCount ?? false,
                     }),
                 }
             },

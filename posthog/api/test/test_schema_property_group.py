@@ -113,19 +113,64 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in str(response.json())
 
-    def test_property_name_validation(self):
+    def test_property_name_accepts_nonstandard_names(self):
+        """Non-standard property names (e.g., starting with numbers, containing spaces) should be accepted
+        to support grandfathered property names that are already in use."""
+        max_length_name = "a" * 200
         response = self.client.post(
             f"/api/projects/{self.project.id}/schema_property_groups/",
             {
                 "name": "Test Group",
                 "properties": [
-                    {"name": "123invalid", "property_type": "String"},
+                    {"name": "123startswithnumber", "property_type": "String"},
+                    {"name": "has spaces", "property_type": "String"},
+                    {"name": "has-dashes", "property_type": "String"},
+                    {"name": "$special_prefix", "property_type": "String"},
+                    {"name": max_length_name, "property_type": "String"},
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        property_names = {p["name"] for p in data["properties"]}
+        assert "123startswithnumber" in property_names
+        assert "has spaces" in property_names
+        assert "has-dashes" in property_names
+        assert "$special_prefix" in property_names
+        assert max_length_name in property_names
+
+    def test_property_name_rejects_empty(self):
+        """Empty property names should be rejected."""
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": "Test Group",
+                "properties": [
+                    {"name": "", "property_type": "String"},
                 ],
             },
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "must start with a letter or underscore" in str(response.json())
+        response_str = str(response.json()).lower()
+        assert "blank" in response_str or "required" in response_str
+
+    def test_property_name_rejects_too_long(self):
+        """Property names over 200 characters should be rejected."""
+        long_name = "a" * 201
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": "Test Group",
+                "properties": [
+                    {"name": long_name, "property_type": "String"},
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "200 characters or less" in str(response.json())
 
     def test_delete_property_group(self):
         property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="To Delete")

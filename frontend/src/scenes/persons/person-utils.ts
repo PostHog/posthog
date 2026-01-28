@@ -1,12 +1,40 @@
 import './PersonDisplay.scss'
 
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { NUM_LETTERMARK_STYLES } from 'lib/lemon-ui/Lettermark/Lettermark'
 import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
-import { midEllipsis } from 'lib/utils'
+import { isUUIDLike, midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
+
+/**
+ * Generates a stable color index from a string using djb2 hash.
+ * Used for consistent avatar colors based on person identifiers.
+ */
+function hashStringToColorIndex(str: string): number {
+    let hash = 5381
+    for (let i = 0; i < str.length; i++) {
+        hash = (hash * 33) ^ str.charCodeAt(i)
+    }
+    return Math.abs(hash) % NUM_LETTERMARK_STYLES
+}
+
+/**
+ * Returns a stable color index for a person based on their identifier.
+ * Uses distinct_id (or first of distinct_ids) to generate consistent colors.
+ */
+export function getPersonColorIndex(person: PersonPropType | null | undefined): number | undefined {
+    if (!person) {
+        return undefined
+    }
+    const identifier = person.distinct_id || person.distinct_ids?.[0]
+    if (!identifier) {
+        return undefined
+    }
+    return hashStringToColorIndex(identifier)
+}
 
 export type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
@@ -37,7 +65,28 @@ function scoreDistinctId(id: string): number {
     return 1
 }
 
-export function asDisplay(person: PersonPropType | null | undefined, maxLength?: number): string {
+/**
+ * Returns a human-friendly display name for a Person object.
+ *
+ * Resolution order:
+ * 1. A custom display property defined by the team
+ * 2. `person.distinct_id`
+ * 3. The highest-priority ID from `person.distinct_ids`
+ *
+ * If `truncateIdUUID` is enabled and the resolved value looks UUID-like
+ * (8-4-4-4-12 hex format), the string is truncated via `midEllipsis` to
+ * 22 characters (or `maxLength` if provided).
+ *
+ * @param person - The Person object to format.
+ * @param maxLength - Optional maximum length for non-UUID display values. Defaults to 40.
+ * @param truncateIdUUID - Whether to truncate UUID-like identifiers. Defaults to false.
+ * @returns A formatted display string such as an email, name, or truncated ID.
+ */
+export function asDisplay(
+    person: PersonPropType | null | undefined,
+    maxLength?: number,
+    truncateIdUUID?: boolean
+): string {
     if (!person) {
         return 'Unknown'
     }
@@ -45,7 +94,7 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
 
     // Sync the logic below with the plugin server `getPersonDetails`
     const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-    const customPropertyKey = personDisplayNameProperties.find((x) => person.properties?.[x])
+    const customPropertyKey = personDisplayNameProperties.find((x: string) => person.properties?.[x])
     const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
 
     const customIdentifier: string =
@@ -58,6 +107,13 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
             ? person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
             : undefined)
     )?.trim()
+
+    // Force return of the UUID truncated to 22 characters (unless maxLength is specified)
+    // 0199ed4a-5c03-0000-3220-df21df612e95 => 0199ed4a-5c…21df612e95
+    // Which keeps the the timestamp at the beginning of the UUID and a unique identifier at the end.
+    if (truncateIdUUID && display && isUUIDLike(display)) {
+        return midEllipsis(display, maxLength || 22)
+    }
 
     return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }

@@ -27,7 +27,7 @@ import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } fro
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
-const humanize = (value: string): string => {
+export const humanize = (value: string): string => {
     const fallback = typeof value === 'string' ? (value ?? '') : ''
 
     // Simple replacement from something like MY_STRING-here to My string here
@@ -38,7 +38,7 @@ const humanize = (value: string): string => {
         .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
-const MappingSummary = memo(function MappingSummary({
+export const MappingSummary = memo(function MappingSummary({
     mapping,
 }: {
     mapping: HogFunctionMappingType
@@ -90,7 +90,7 @@ export function HogFunctionMapping({
     index: number
     mapping: HogFunctionMappingType
     onChange: (mapping: HogFunctionMappingType | null) => void
-    parentConfiguration: HogFunctionConfigurationType
+    parentConfiguration: Pick<HogFunctionConfigurationType, 'inputs_schema' | 'inputs'>
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
@@ -212,10 +212,9 @@ export function HogFunctionMappings(): JSX.Element | null {
                 value: HogFunctionMappingType[] | undefined
                 onChange: (mappings: HogFunctionMappingType[]) => void
             }) => {
-                if (!value) {
-                    // Tricky there can be a race where this renders before the parent is un-rendered
-                    return <></>
-                }
+                // Default to empty array if mappings is undefined
+                // This ensures the UI renders even when no mappings exist
+                const mappingsValue = value ?? []
 
                 const addMapping = (template: string): void => {
                     const mappingTemplate = mappingTemplates.find((t) => t.name === template)
@@ -229,16 +228,16 @@ export function HogFunctionMappings(): JSX.Element | null {
                                       .map((m) => [m.key, { value: structuredClone(m.default) }])
                               )
                             : {}
-                        onChange([...value, { ...mapping, name, inputs }])
-                        setActiveKeys([...activeKeys, value.length])
+                        onChange([...mappingsValue, { ...mapping, name, inputs }])
+                        setActiveKeys([...activeKeys, mappingsValue.length])
                     }
                     return
                 }
 
                 const duplicateMapping = (mapping: HogFunctionMappingType): void => {
-                    const index = value.findIndex((m) => m === mapping)
+                    const index = mappingsValue.findIndex((m) => m === mapping)
                     if (index !== -1) {
-                        const newMappings = [...value]
+                        const newMappings = [...mappingsValue]
                         newMappings.splice(index + 1, 0, mapping)
                         onChange(newMappings)
                         setActiveKeys([index + 1])
@@ -246,17 +245,17 @@ export function HogFunctionMappings(): JSX.Element | null {
                 }
 
                 const removeMapping = (mapping: HogFunctionMappingType): void => {
-                    const index = value.findIndex((m) => m === mapping)
+                    const index = mappingsValue.findIndex((m) => m === mapping)
                     if (index !== -1) {
-                        onChange(value.filter((_, i) => i !== index))
+                        onChange(mappingsValue.filter((_, i) => i !== index))
                         setActiveKeys(activeKeys.filter((i) => i !== index))
                     }
                 }
 
                 const toggleDisabled = (mapping: HogFunctionMappingType): void => {
-                    const index = value.findIndex((m) => m === mapping)
+                    const index = mappingsValue.findIndex((m) => m === mapping)
                     if (index !== -1) {
-                        onChange(value.map((m, i) => (i === index ? { ...m, disabled: !m.disabled } : m)))
+                        onChange(mappingsValue.map((m, i) => (i === index ? { ...m, disabled: !m.disabled } : m)))
                     }
                 }
 
@@ -277,9 +276,9 @@ export function HogFunctionMappings(): JSX.Element | null {
                             mappingName: (name) => (!name ? 'You must enter a name' : undefined),
                         },
                         onSubmit: async ({ mappingName }) => {
-                            const index = value.findIndex((m) => m === mapping)
+                            const index = mappingsValue.findIndex((m) => m === mapping)
                             if (index !== -1) {
-                                onChange(value.map((m, i) => (i === index ? { ...m, name: mappingName } : m)))
+                                onChange(mappingsValue.map((m, i) => (i === index ? { ...m, name: mappingName } : m)))
                             }
                         },
                     })
@@ -312,14 +311,14 @@ export function HogFunctionMappings(): JSX.Element | null {
                         </div>
 
                         <div className="deprecated-space-y-2">
-                            {value.length ? (
+                            {mappingsValue.length ? (
                                 <div className="-mx-3 border-t border-b">
                                     <LemonCollapse
                                         multiple
                                         embedded
                                         activeKeys={activeKeys}
                                         onChange={(activeKeys) => setActiveKeys(activeKeys)}
-                                        panels={value.map(
+                                        panels={mappingsValue.map(
                                             (mapping, index): LemonCollapsePanel<number> => ({
                                                 key: index,
                                                 header: {
@@ -362,10 +361,12 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                         mapping={mapping}
                                                         onChange={(mapping) => {
                                                             if (!mapping) {
-                                                                onChange(value.filter((_, i) => i !== index))
+                                                                onChange(mappingsValue.filter((_, i) => i !== index))
                                                             } else {
                                                                 onChange(
-                                                                    value.map((m, i) => (i === index ? mapping : m))
+                                                                    mappingsValue.map((m, i) =>
+                                                                        i === index ? mapping : m
+                                                                    )
                                                                 )
                                                             }
                                                         }}

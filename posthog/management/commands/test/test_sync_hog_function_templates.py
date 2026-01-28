@@ -160,9 +160,9 @@ class TestSyncHogFunctionTemplates:
 
         # Find the slack template in HOG_FUNCTION_TEMPLATES
         slack_template = next((t for t in HOG_FUNCTION_TEMPLATES if t.id == TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]), None)
-        assert (
-            slack_template is not None
-        ), f"Template {TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]} not found in HOG_FUNCTION_TEMPLATES"
+        assert slack_template is not None, (
+            f"Template {TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]} not found in HOG_FUNCTION_TEMPLATES"
+        )
 
         # Check that the template was stored correctly
         db_template = HogFunctionTemplate.objects.get(template_id=slack_template.id)

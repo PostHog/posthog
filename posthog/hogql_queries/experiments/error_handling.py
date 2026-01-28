@@ -21,7 +21,9 @@ logger = structlog.get_logger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-# User-friendly error messages for different error types
+# User-friendly error messages for specific error types
+# Note: ValueError and generic Exception are intentionally excluded - they pass through unaltered
+# so the original error message is visible for debugging
 ERROR_TYPE_MESSAGES: dict[type, str] = {
     # Statistical calculation errors
     StatisticError: "Unable to calculate experiment statistics. Please ensure your experiment has sufficient data and try again.",
@@ -29,15 +31,14 @@ ERROR_TYPE_MESSAGES: dict[type, str] = {
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
     ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
     # Python built-in errors that can occur during calculation
-    ValueError: "Invalid experiment configuration detected. Please check your experiment setup.",
     ZeroDivisionError: "Unable to calculate results due to insufficient data. Please wait for more experiment data.",
-    # Default fallback
-    Exception: "Unable to calculate experiment results. Please try again or contact support if the issue persists.",
 }
 
 
-def get_user_friendly_message(error: Exception) -> str:
-    """Convert technical error messages to user-friendly ones based on error type and message content."""
+def get_user_friendly_message(error: Exception) -> str | None:
+    """Convert technical error messages to user-friendly ones based on error type.
+    Returns None if the error type is not in the mapping (should be re-raised as-is).
+    """
 
     error_type = type(error)
 
@@ -68,8 +69,7 @@ def get_user_friendly_message(error: Exception) -> str:
         if isinstance(error, registered_type):
             return message
 
-    # Default fallback
-    return ERROR_TYPE_MESSAGES[Exception]
+    return None
 
 
 def experiment_error_handler(method: F) -> F:
@@ -130,8 +130,10 @@ def experiment_error_handler(method: F) -> F:
                 # Preserve original exception for internal callers
                 raise
 
-            # Raise user-friendly error
+            # Convert to user-friendly error if we have a mapping, otherwise re-raise as-is
             user_message = get_user_friendly_message(e)
+            if user_message is None:
+                raise
             raise ValidationError(user_message)
 
     return cast(F, wrapper)

@@ -7,6 +7,8 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { personLogic } from 'scenes/persons/personLogic'
 
+import { PropertyDefinitionType } from '~/types'
+
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { Properties } from './components/Properties'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -31,19 +33,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonPropertie
         return null
     }
 
-    const pinnedProperties = Object.fromEntries(
-        Object.entries(person.properties).filter(([key, _]) => pinnedPersonProperties.includes(key))
-    )
-    const unpinnedProperties = Object.fromEntries(
-        Object.entries(person.properties).filter(([key, _]) => !pinnedPersonProperties.includes(key))
-    )
-
     return (
         <Properties
-            pinnedProperties={pinnedProperties}
-            unpinnedProperties={unpinnedProperties}
+            properties={person.properties || {}}
+            pinnedProperties={pinnedPersonProperties}
             onPin={pinPersonProperty}
             onUnpin={unpinPersonProperty}
+            type={PropertyDefinitionType.Person}
         />
     )
 }

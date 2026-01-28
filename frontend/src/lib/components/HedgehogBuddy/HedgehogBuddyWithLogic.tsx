@@ -6,18 +6,27 @@ import { useEffect } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { useAppShortcut } from '../AppShortcuts/useAppShortcut'
 import { MemberHedgehogBuddy, MyHedgehogBuddy } from './HedgehogBuddy'
 import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 
 export function HedgehogBuddyWithLogic(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const { patchHedgehogConfig, toggleHedgehogMode } = useActions(hedgehogBuddyLogic)
     const { user } = useValues(userLogic)
 
     const { members } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
 
     useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled, ensureAllMembersLoaded])
+
+    useAppShortcut({
+        name: 'ToggleHedgehogMode',
+        keybind: [],
+        intent: 'Toggle hedgehog mode',
+        interaction: 'function',
+        callback: toggleHedgehogMode,
+    })
 
     return hedgehogConfig.enabled ? (
         <>

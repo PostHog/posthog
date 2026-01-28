@@ -7,6 +7,7 @@ from django.conf import settings
 
 import psycopg
 import aioboto3
+import pytest_asyncio
 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import AWSCredentials
 from products.batch_exports.backend.tests.temporal.destinations.redshift.utils import MISSING_REQUIRED_ENV_VARS
@@ -51,7 +52,7 @@ def postgres_config(redshift_config):
     yield redshift_config
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def psycopg_connection(redshift_config, setup_postgres_test_db):
     """Fixture to manage a psycopg2 connection."""
     connection = await psycopg.AsyncConnection.connect(
@@ -117,7 +118,7 @@ def key_prefix(ateam) -> str:
     return f"/test-copy-redshift-batch-export_{ateam.pk}"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def s3_client(aws_credentials, bucket_name):
     """Manage an S3 client to interact with an S3 bucket."""
     if not aws_credentials or not bucket_name:

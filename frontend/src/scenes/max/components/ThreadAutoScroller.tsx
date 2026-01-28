@@ -102,12 +102,46 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
         }
     }, [streamingActive, scrollToBottom])
 
+    const prevStreamingActive = useRef(streamingActive)
     useEffect(() => {
+        // Scroll to bottom when streaming ends (final scroll after all content is rendered)
+        if (prevStreamingActive.current && !streamingActive && !scrollOrigin.current.user) {
+            // Wait for browser paint cycle to ensure DOM is fully updated
+            const rafId = requestAnimationFrame(() => {
+                scrollToBottom()
+            })
+            prevStreamingActive.current = streamingActive
+            return () => cancelAnimationFrame(rafId)
+        }
+        prevStreamingActive.current = streamingActive
+
         if (!streamingActive || scrollOrigin.current.user) {
             return
         }
         scrollToBottom()
     }, [streamingActive, scrollToBottom, threadGrouped]) // Scroll when the thread updates
+
+    // Scroll to bottom when thread content changes (for non-streaming messages)
+    const previousThreadLength = useRef(threadGrouped.length)
+    useEffect(() => {
+        if (scrollOrigin.current.user || streamingActive) {
+            previousThreadLength.current = threadGrouped.length
+            return
+        }
+
+        // Only scroll if the thread actually grew (new message added)
+        if (threadGrouped.length > previousThreadLength.current) {
+            // Use requestAnimationFrame immediate scroll on next paint
+            const rafId = requestAnimationFrame(() => {
+                scrollToBottom()
+            })
+
+            previousThreadLength.current = threadGrouped.length
+            return () => cancelAnimationFrame(rafId)
+        }
+
+        previousThreadLength.current = threadGrouped.length
+    }, [threadGrouped.length, scrollToBottom, streamingActive])
 
     // Scroll to bottom when a new thread becomes visible (conversation changes)
     useEffect(() => {

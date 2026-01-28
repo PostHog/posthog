@@ -100,6 +100,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             }}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             showTrendLines={showTrendLines}
+            goalLines={retentionFilter?.goalLines ?? []}
         />
     ) : (
         <InsightEmptyState />

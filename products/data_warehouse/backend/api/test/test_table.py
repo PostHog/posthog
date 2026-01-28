@@ -393,9 +393,9 @@ class TestTable(APIBaseTest):
             }
 
             with self.settings(
-                AIRBYTE_BUCKET_KEY="test_key",
-                AIRBYTE_BUCKET_SECRET="test_secret",
-                AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY="test_key",
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET="test_secret",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
                 DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
             ):
                 response = self.client.post(
@@ -480,9 +480,9 @@ class TestTable(APIBaseTest):
             }
 
             with self.settings(
-                AIRBYTE_BUCKET_KEY="test_key",
-                AIRBYTE_BUCKET_SECRET="test_secret",
-                AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY="test_key",
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET="test_secret",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
                 DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
             ):
                 response = self.client.post(
@@ -553,9 +553,9 @@ class TestTable(APIBaseTest):
             }
             # Patch the settings to use our test bucket
             with self.settings(
-                AIRBYTE_BUCKET_KEY="object_storage_root_user",
-                AIRBYTE_BUCKET_SECRET="object_storage_root_password",
-                AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY="object_storage_root_user",
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET="object_storage_root_password",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
                 BUCKET_URL=f"s3://{test_bucket_name}",
                 DATAWAREHOUSE_BUCKET=test_bucket_name,
             ):

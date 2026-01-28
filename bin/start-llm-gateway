@@ -1,0 +1,21 @@
+ #!/usr/bin/env bash
+  set -euo pipefail
+  
+  cd "$(dirname "$0")/../services/llm-gateway"
+  
+  # Isolate from flox/main repo environment
+  unset VIRTUAL_ENV
+  export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
+  
+  # Create venv if it doesn't exist
+  if [ ! -d ".venv" ]; then
+      uv venv .venv
+  fi
+  
+  # Install dependencies
+  uv pip install -e . --quiet
+  
+  exec .venv/bin/uvicorn llm_gateway.main:app \
+      --host 0.0.0.0 \
+      --port "${LLM_GATEWAY_PORT:-3308}" \
+      --reload

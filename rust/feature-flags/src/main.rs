@@ -66,7 +66,8 @@ fn init_tracer(
 
 #[tokio::main]
 async fn main() {
-    let config = Config::init_from_env().expect("Invalid configuration:");
+    let mut config = Config::init_from_env().expect("Invalid configuration:");
+    config.validate_and_fix_timeouts();
 
     // Instantiate tracing outputs following Django's DEBUG-based approach:
     //   - stdout with a level configured by the RUST_LOG envvar
@@ -91,13 +92,24 @@ async fn main() {
                         | FmtSpan::ACTIVE,
                 )
                 .with_ansi(true)
-                .with_filter(EnvFilter::from_default_env())
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy()
+                        .add_directive("pyroscope=warn".parse().unwrap()),
+                )
                 .boxed()
         } else {
             // Production: JSON format (like Django's JSONRenderer())
             base_layer
                 .json()
-                .with_filter(EnvFilter::from_default_env())
+                .with_span_list(false)
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy()
+                        .add_directive("pyroscope=warn".parse().unwrap()),
+                )
                 .boxed()
         }
     };
@@ -120,6 +132,16 @@ async fn main() {
         .with(log_layer)
         .with(otel_layer)
         .init();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    // NOTE: Must be after tracing is initialized so logs are visible
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
 
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)

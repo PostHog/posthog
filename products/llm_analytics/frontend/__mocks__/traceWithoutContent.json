@@ -1,0 +1,51 @@
+{
+    "createdAt": "2025-01-29T16:04:53.816000+00:00",
+    "id": "537b7988-0186-494f-a313-77a5a8f7db26",
+    "traceName": "Trace without content",
+    "inputState": null,
+    "outputState": null,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "inputCost": 0,
+    "outputCost": 0,
+    "totalCost": 0,
+    "totalLatency": 0.5,
+    "person": {
+        "uuid": "01948e98-5a50-0000-3306-c86d238dd29e",
+        "created_at": "2025-01-29T16:04:53+00:00",
+        "distinct_id": "test-user-123",
+        "properties": {
+            "email": "test@example.com"
+        }
+    },
+    "events": [
+        {
+            "createdAt": "2025-01-29T16:04:53.816000+00:00",
+            "event": "$ai_generation",
+            "id": "0194b2ce-f18c-7785-8fc1-299e70777852",
+            "properties": {
+                "$ai_model": "gpt-4",
+                "$ai_provider": "openai",
+                "$ai_input": "Hello, how are you?",
+                "$ai_output_choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "I'm doing well, thank you for asking! How can I help you today?"
+                        },
+                        "finish_reason": "stop"
+                    }
+                ],
+                "$ai_input_tokens": 10,
+                "$ai_output_tokens": 15,
+                "$ai_total_cost_usd": 0.001,
+                "$ai_latency": 0.5,
+                "$ai_trace_id": "537b7988-0186-494f-a313-77a5a8f7db26",
+                "$ai_span_id": "1ef92c9d-4846-4dc9-bc3b-2d0ec78e2485",
+                "$lib": "posthog-python",
+                "$lib_version": "3.11.0"
+            }
+        }
+    ]
+}

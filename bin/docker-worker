@@ -6,7 +6,7 @@ set -e
 # Stop any background jobs on exit
 trap 'kill $(jobs -p)' EXIT
 
-./bin/plugin-server &
+./bin/posthog-node &
 ./bin/docker-worker-celery --with-scheduler &
 
 # Exit if any processes exit, and exit with it's exit code

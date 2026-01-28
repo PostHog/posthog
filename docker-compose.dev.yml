@@ -18,6 +18,7 @@ services:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
             - 'capture:host-gateway'
+            - 'capture-ai:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
         environment:
@@ -28,6 +29,11 @@ services:
                         path /s/*
                     }
 
+                    @capture-ai {
+                        path /i/v0/ai
+                        path /i/v0/ai/*
+                    }
+
                     @capture {
                         path /e
                         path /e/*
@@ -36,8 +42,10 @@ services:
                         path /batch*
                         path /capture
                         path /capture*
-                        path /ai
-                        path /ai/*
+                    }
+
+                    @capture-logs {
+                        path /i/v1/logs
                     }
 
                     @flags {
@@ -52,8 +60,16 @@ services:
                         path /public/m/*
                     }
 
+                    handle @capture-ai {
+                        reverse_proxy capture-ai:3309
+                    }
+
                     handle @capture {
                         reverse_proxy capture:3307
+                    }
+
+                    handle @capture-logs {
+                        reverse_proxy capture-logs:4318
                     }
 
                     handle @replay-capture {
@@ -79,24 +95,20 @@ services:
             service: db
         ports:
             - '5432:5432'
+        volumes:
+            - postgres-15-data:/var/lib/postgresql/data
         # something in the django app when running in dev mode
         # (maybe only in Pycharm) keeps many idle transactions open
         # and eventually kills postgres, these settings aim to stop that happening.
         # They are only for DEV and should not be used in production.
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
 
-    redis:
-        extends:
-            file: docker-compose.base.yml
-            service: redis
-        ports:
-            - '6379:6379'
     redis7:
         extends:
             file: docker-compose.base.yml
             service: redis7
         ports:
-            - '6479:6379'
+            - '6379:6379'
 
     flower:
         extends:
@@ -111,7 +123,7 @@ services:
             service: clickhouse
         hostname: clickhouse
         # Development performance optimizations
-        mem_limit: 6g
+        mem_limit: 8g
         cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
@@ -160,6 +172,8 @@ services:
             service: kafka_ui
         ports:
             - '9093:8080'
+        environment:
+            SERVER_MAX_HTTP_REQUEST_HEADER_SIZE: 65536
         depends_on:
             - kafka
 
@@ -170,6 +184,11 @@ services:
         ports:
             - '19000:19000'
             - '19001:19001'
+
+    objectstorage-azure:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage-azure
 
     maildev:
         extends:
@@ -191,32 +210,19 @@ services:
         extends:
             file: docker-compose.base.yml
             service: echo_server
-        expose:
-            - '18081:18081'
 
     feature-flags:
         extends:
             file: docker-compose.base.yml
             service: feature-flags
         depends_on:
-            - redis
+            - redis7
             - db
         environment:
             # Mode 2: Dual-write warming phase for developers
-            FLAGS_REDIS_URL: 'redis://redis:6379/1'
+            FLAGS_REDIS_URL: 'redis://redis7:6379/1'
             FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
             REDIS_COMPRESSION_ENABLED: 'true'
-
-    livestream:
-        extends:
-            file: docker-compose.base.yml
-            service: livestream
-        environment:
-            - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
-        ports:
-            - '8666:8080'
-        volumes:
-            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
 
     # Temporal containers
     elasticsearch:
@@ -287,5 +293,6 @@ networks:
         driver: bridge
 
 volumes:
+    postgres-15-data:
     redpanda-data:
     seaweedfs-data:

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
@@ -71,6 +71,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         required=True,
                         placeholder="COMPUTE_WAREHOUSE",
                     ),
+                    # the validation for these options happens in validate_credentials
                     SourceFieldSelectConfig(
                         name="auth_type",
                         label="Authentication type",
@@ -94,7 +95,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             name="password",
                                             label="Password",
                                             type=SourceFieldInputConfigType.PASSWORD,
-                                            required=True,
+                                            required=False,
                                             placeholder="",
                                         ),
                                     ],
@@ -117,7 +118,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             name="private_key",
                                             label="Private key",
                                             type=SourceFieldInputConfigType.TEXTAREA,
-                                            required=True,
+                                            required=False,
                                             placeholder="",
                                         ),
                                         SourceFieldInputConfig(
@@ -150,6 +151,17 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "This account has been marked for decommission": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "404 Not Found": None,
+            "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "MFA authentication is required": None,
+            "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
+            "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+        }
+
     def get_schemas(self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
@@ -180,14 +192,15 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
 
         return schemas
 
-    def validate_credentials(self, config: SnowflakeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
 
-        if config.auth_type.selection == "keypair" and (
-            not config.auth_type.passphrase or not config.auth_type.private_key or not config.auth_type.user
-        ):
-            return False, "Missing required parameters: passphrase, private key"
+        # passphrase is optional if the key they use to auth is not encrypted
+        if config.auth_type.selection == "keypair" and (not config.auth_type.user or not config.auth_type.private_key):
+            return False, "Missing required parameters: username, private key"
 
         try:
             self.get_schemas(config, team_id)

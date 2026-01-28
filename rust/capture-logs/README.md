@@ -1,11 +1,13 @@
 # PostHog Log Capture Service
 
-A service that receives OpenTelemetry Protocol (OTLP) logs via gRPC and processes them based on team authentication.
+A service that receives OpenTelemetry Protocol (OTLP) logs via HTTP and processes them based on team authentication.
 
 ## Features
 
-- Receives OTLP logs via gRPC on port 4317
-- Authenticates clients using JWT tokens
+- Receives OTLP logs via HTTP on `/v1/logs` and `/i/v1/logs` endpoints
+- Supports Protobuf and JSON formats
+- Supports JSONL (JSON Lines) format for multiple log batches
+- Authenticates clients using Bearer tokens or query parameters
 - Associates logs with specific team IDs
 - Health check endpoints
 - Prometheus metrics
@@ -22,22 +24,21 @@ The service is configured using environment variables:
 
 ## Authentication
 
-Clients must authenticate by sending a valid JWT token in the Authorization header:
+Clients must authenticate by sending a valid token either:
+
+1. In the Authorization header:
 
 ```http
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoiMTIzNDU2Nzg5MCJ9.czOuiHUzSl8s9aJiPghhkGZP-WxI7K-I85XNY-bXRSQ
+Authorization: Bearer your-project-api-key
 ```
 
-The JWT token must contain a `team_id` claim which is used to associate logs with a specific team.
+2. As a query parameter:
 
-### Example JWT Payload
-
-```json
-{
-  "team_id": "your-team-id",
-  "exp": 1735689600  // Optional expiration time
-}
+```http
+POST /v1/logs?token=your-project-api-key
 ```
+
+The token is your PostHog project API key.
 
 ## Running the Service
 
@@ -51,18 +52,55 @@ cargo run --bin capture_logs
 
 ```bash
 docker build -t posthog/capture-logs .
-docker run -p 4317:4317 -p 8000:8000 -e JWT_SECRET=your_secret_key posthog/capture-logs
+docker run -p 8000:8000 posthog/capture-logs
 ```
 
 ## Sending Logs
 
-You can configure any OpenTelemetry-compatible client to send logs to this service. Make sure to:
+You can configure any OpenTelemetry-compatible client to send logs to this service. The service accepts:
 
-1. Set the gRPC endpoint to `http://your-service-host:4317`
-2. Configure the client to include the JWT token in the Authorization header
-3. Use the standard OTLP log format
+### Single JSON Format
+
+Standard OTLP ExportLogsServiceRequest as JSON:
+
+```bash
+curl -X POST http://localhost:8000/v1/logs \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"resourceLogs":[{"resource":{"attributes":[]},"scopeLogs":[{"logRecords":[{"body":{"stringValue":"Hello World"}}]}]}]}'
+```
+
+### JSONL Format (JSON Lines)
+
+Multiple ExportLogsServiceRequest objects, one per line:
+
+```bash
+curl -X POST http://localhost:8000/v1/logs \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d $'{"resourceLogs":[{"resource":{},"scopeLogs":[{"logRecords":[{"body":{"stringValue":"Log 1"}}]}]}]}\n{"resourceLogs":[{"resource":{},"scopeLogs":[{"logRecords":[{"body":{"stringValue":"Log 2"}}]}]}]}'
+```
+
+### Protobuf Format
+
+Standard OTLP protobuf encoding is also supported.
+
+Requirements:
+
+1. Set the HTTP endpoint to `http://your-service-host:8000/v1/logs`
+2. Include your PostHog project API key in the Authorization header or as a query parameter
+3. Use standard OTLP log format (JSON, JSONL, or Protobuf)
 
 ## Endpoints
+
+### Log Ingestion
+
+- `POST /v1/logs` - Accept OTLP logs (JSON, JSONL, or Protobuf)
+- `POST /i/v1/logs` - Alternative endpoint for OTLP logs
+- `OPTIONS /v1/logs` - CORS preflight support
+- `OPTIONS /i/v1/logs` - CORS preflight support
+
+### Management
 
 - `/` - Basic information page
 - `/_readiness` - Readiness probe for Kubernetes

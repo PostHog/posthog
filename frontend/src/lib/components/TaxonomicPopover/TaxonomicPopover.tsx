@@ -19,7 +19,7 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
-    extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {
+    extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideAction'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
@@ -43,6 +43,8 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
+    allowNonCapturedEvents?: boolean
+    sideIcon?: React.ReactElement | null
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -79,8 +81,10 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
         maxContextOptions,
+        allowNonCapturedEvents,
         width,
         placement,
+        sideIcon,
         ...buttonPropsRest
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
@@ -90,7 +94,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
 
     const isClearButtonShown = allowClear && !!localValue
 
-    const buttonPropsFinal: Omit<LemonButtonProps, 'sideIcon' | 'sideAction'> = buttonPropsRest
+    const buttonPropsFinal: Omit<LemonButtonProps, 'sideAction' | 'sideIcon'> = buttonPropsRest
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
     ) : placeholder || placeholderClass ? (
@@ -129,6 +133,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     showNumericalPropsOnly={showNumericalPropsOnly}
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     maxContextOptions={maxContextOptions}
+                    allowNonCapturedEvents={allowNonCapturedEvents}
                     width={width}
                 />
             }
@@ -156,7 +161,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     ref={ref}
                 />
             ) : (
-                <LemonButton {...buttonPropsFinal} ref={ref} />
+                <LemonButton {...buttonPropsFinal} {...(sideIcon !== undefined && { sideIcon })} ref={ref} />
             )}
         </LemonDropdown>
     )

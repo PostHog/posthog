@@ -22,10 +22,14 @@ export interface PropertyFilterButtonProps {
     children?: string
     item: AnyPropertyFilter
     disabledReason?: string
+    compact?: boolean
 }
 
 export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
-    function PropertyFilterButton({ onClick, onClose, children, item, disabledReason }, ref): JSX.Element {
+    function PropertyFilterButton(
+        { onClick, onClose, children, item, disabledReason, compact = false },
+        ref
+    ): JSX.Element {
         const { cohortsById } = useValues(cohortsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -53,10 +57,10 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             <ButtonComponent
                 ref={ref as any}
                 onClick={disabledReason ? undefined : onClick}
-                className={clsx('PropertyFilterButton', 'grow', {
+                className={clsx('PropertyFilterButton', 'grow', 'ph-no-capture', {
                     'PropertyFilterButton--closeable': closable,
                     'PropertyFilterButton--clickable': clickable,
-                    'ph-no-capture': true,
+                    'PropertyFilterButton--compact': compact,
                 })}
                 aria-disabled={!!disabledReason}
                 type={ButtonComponent === 'button' ? 'button' : undefined}

@@ -1,12 +1,16 @@
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import Mock
 
 from django.db import connection
 
+from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
 from posthog.helpers.full_text_search import process_query
 from posthog.models import Dashboard, FeatureFlag, Insight, Team
 from posthog.models.event_definition import EventDefinition
+from posthog.models.hog_flow.hog_flow import HogFlow
 
+from products.early_access_features.backend.models import EarlyAccessFeature
 from products.notebooks.backend.models import Notebook
 
 
@@ -137,6 +141,169 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?q=sec&entities=event_definition")
 
         self.assertEqual(response.status_code, 200)
+
+    def test_early_access_features(self):
+        EarlyAccessFeature.objects.create(name="first feature", team=self.team, stage="beta")
+        EarlyAccessFeature.objects.create(name="second feature", team=self.team, stage="beta")
+        EarlyAccessFeature.objects.create(name="third feature", team=self.team, stage="alpha")
+
+        response = self.client.get("/api/projects/@current/search?q=sec&entities=early_access_feature")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["counts"]["early_access_feature"], 1)
+
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["type"], "early_access_feature")
+        self.assertEqual(results[0]["extra_fields"]["name"], "second feature")
+
+    def test_hog_flows(self):
+        HogFlow.objects.create(name="first workflow", team=self.team)
+        HogFlow.objects.create(name="second workflow", team=self.team)
+        HogFlow.objects.create(name="third workflow", team=self.team)
+
+        response = self.client.get("/api/projects/@current/search?q=sec&entities=hog_flow")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["counts"]["hog_flow"], 1)
+
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["type"], "hog_flow")
+        self.assertEqual(results[0]["extra_fields"]["name"], "second workflow")
+
+    def test_filters(self):
+        # Create feature flags with specific tags to identify them
+        FeatureFlag.objects.create(
+            name="filter test active one", key="filter_active1", team=self.team, created_by=self.user, active=True
+        )
+        FeatureFlag.objects.create(
+            name="filter test active two", key="filter_active2", team=self.team, created_by=self.user, active=True
+        )
+        FeatureFlag.objects.create(
+            name="filter test inactive", key="filter_inactive1", team=self.team, created_by=self.user, active=False
+        )
+
+        # Mock view with user_access_control
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        # Test without filters - should get all flags for this team
+        qs_no_filter, entity_name = class_queryset(
+            view=mock_view,
+            klass=FeatureFlag,
+            project_id=self.team.project_id,
+            query=None,
+            search_fields={"key": "A", "name": "C"},
+            extra_fields=["key", "name", "active"],
+            filters=None,
+        )
+        count_without_filter = qs_no_filter.count()
+
+        # Test with filters - should get fewer results (only active ones)
+        qs_with_filter, entity_name = class_queryset(
+            view=mock_view,
+            klass=FeatureFlag,
+            project_id=self.team.project_id,
+            query=None,
+            search_fields={"key": "A", "name": "C"},
+            extra_fields=["key", "name", "active"],
+            filters={"active": True},
+        )
+        count_with_filter = qs_with_filter.count()
+
+        # The filtered count should be less than unfiltered (we created 1 inactive flag)
+        self.assertLess(count_with_filter, count_without_filter)
+
+        # Verify all returned flags with filter are active
+        results = list(qs_with_filter)
+        for result in results:
+            self.assertTrue(result["extra_fields"]["active"])
+
+        # Test with specific key filter
+        qs_key_filter, entity_name = class_queryset(
+            view=mock_view,
+            klass=FeatureFlag,
+            project_id=self.team.project_id,
+            query=None,
+            search_fields={"key": "A", "name": "C"},
+            extra_fields=["key", "name"],
+            filters={"key": "filter_active1"},
+        )
+        self.assertEqual(qs_key_filter.count(), 1)
+        self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
+
+    def test_search_entities_returns_total_count(self):
+        for i in range(5):
+            Insight.objects.create(team=self.team, name=f"total count insight {i}", saved=True)
+
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        results, counts, total_count = search_entities(
+            entities={"insight"},
+            query="total count",
+            project_id=self.team.project_id,
+            view=mock_view,
+            entity_map=ENTITY_MAP,
+        )
+
+        self.assertEqual(total_count, 5)
+        self.assertEqual(len(results), 5)
+
+    def test_search_entities_pagination_with_limit(self):
+        for i in range(10):
+            Insight.objects.create(team=self.team, name=f"pagination limit {i}", saved=True)
+
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        results, counts, total_count = search_entities(
+            entities={"insight"},
+            query="pagination limit",
+            project_id=self.team.project_id,
+            view=mock_view,
+            entity_map=ENTITY_MAP,
+            limit=3,
+        )
+
+        self.assertEqual(total_count, 10)
+        self.assertEqual(len(results), 3)
+
+    def test_search_entities_pagination_with_offset(self):
+        for i in range(10):
+            Insight.objects.create(team=self.team, name=f"pagination offset {i}", saved=True)
+
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        results_page1, _, total_count1 = search_entities(
+            entities={"insight"},
+            query="pagination offset",
+            project_id=self.team.project_id,
+            view=mock_view,
+            entity_map=ENTITY_MAP,
+            limit=3,
+            offset=0,
+        )
+        results_page2, _, total_count2 = search_entities(
+            entities={"insight"},
+            query="pagination offset",
+            project_id=self.team.project_id,
+            view=mock_view,
+            entity_map=ENTITY_MAP,
+            limit=3,
+            offset=3,
+        )
+
+        self.assertEqual(total_count1, 10)
+        self.assertEqual(total_count2, 10)
+        self.assertEqual(len(results_page1), 3)
+        self.assertEqual(len(results_page2), 3)
+
+        page1_ids = {r["result_id"] for r in results_page1}
+        page2_ids = {r["result_id"] for r in results_page2}
+        self.assertEqual(len(page1_ids & page2_ids), 0)
 
 
 @pytest.mark.django_db

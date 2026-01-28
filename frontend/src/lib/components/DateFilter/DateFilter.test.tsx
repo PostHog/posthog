@@ -54,3 +54,51 @@ describe('DateFilter', () => {
         await waitFor(() => expect(onChange).toHaveBeenCalledWith('-5d', '', false))
     })
 })
+
+describe('DateFilter with allowFixedRangeWithTime', () => {
+    let onChange = jest.fn()
+    beforeEach(() => {
+        initKeaTests()
+        onChange = jest.fn()
+        render(
+            <Provider>
+                <DateFilter onChange={onChange} dateOptions={dateMapping} allowFixedRangeWithTime />
+            </Provider>
+        )
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('shows include time toggle in custom fixed date range', async () => {
+        const dateFilter = screen.getByTestId('date-filter')
+        userEvent.click(dateFilter)
+
+        const fixedRangeOption = screen.getByText(/custom fixed date range…$/i)
+        userEvent.click(fixedRangeOption)
+
+        await waitFor(() => {
+            expect(screen.getByText(/include time\?/i)).toBeInTheDocument()
+        })
+    })
+
+    it('opens the time range picker when toggling include time', async () => {
+        const dateFilter = screen.getByTestId('date-filter')
+        userEvent.click(dateFilter)
+
+        const fixedRangeOption = screen.getByText(/custom fixed date range…$/i)
+        userEvent.click(fixedRangeOption)
+
+        await waitFor(() => {
+            expect(screen.getByText(/include time\?/i)).toBeInTheDocument()
+        })
+
+        const timeToggle = screen.getByRole('switch')
+        userEvent.click(timeToggle)
+
+        await waitFor(() => {
+            expect(screen.getByText(/select a date and time range/i)).toBeInTheDocument()
+        })
+    })
+})

@@ -4,7 +4,7 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
-import { ProgressStatus } from '~/types'
+import { ExperimentProgressStatus } from '~/types'
 
 import { StatusTag } from './ExperimentView/components'
 import {
@@ -21,7 +21,7 @@ export const ExperimentDetails = ({
     status,
 }: {
     logItem: ActivityLogItem
-    status: ProgressStatus
+    status: ExperimentProgressStatus
 }): JSX.Element => {
     return (
         <LemonCard className="flex items-center justify-between gap-3 p-4">
@@ -169,7 +169,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                                 <span>created a new shared metric:</span>
                             ) : (
                                 <span>
-                                    created a new <StatusTag status={ProgressStatus.Draft} /> experiment:
+                                    created a new <StatusTag status={ExperimentProgressStatus.Draft} /> experiment:
                                 </span>
                             ),
                         ]}
@@ -220,6 +220,28 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={['deleted experiment holdout:']}
                         suffix={<strong>{logItem.detail.name}</strong>}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'deleted' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['deleted experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'restored' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['restored experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
                     />
                 ),
             }

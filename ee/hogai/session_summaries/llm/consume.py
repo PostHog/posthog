@@ -127,6 +127,7 @@ def _convert_llm_content_to_session_summary(
         session_start_time_str=session_start_time_str,
         session_duration=session_duration,
         session_id=session_id,
+        final_validation=final_validation,
     )
 
     # Track generation for history of experiments. Don't run in tests.
@@ -141,67 +142,84 @@ def _convert_llm_content_to_session_summary(
 
 
 async def get_llm_session_group_patterns_extraction(
-    prompt: PatternsPrompt, user_id: int, session_ids: list[str], model_to_use: str, trace_id: str | None = None
+    prompt: PatternsPrompt,
+    user_id: int,
+    session_ids: list[str],
+    model_to_use: str,
+    trace_id: str | None = None,
+    user_distinct_id: str | None = None,
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to extract patterns from multiple sessions."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
-        user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
         model=model_to_use,
         trace_id=trace_id,
+        user_id=user_id,
+        user_distinct_id=user_distinct_id,
     )
     raw_content = get_raw_content(result)
     if not raw_content:
-        raise ValueError(
-            f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
-        )
+        msg = f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
     return patterns
 
 
 async def get_llm_session_group_patterns_assignment(
-    prompt: PatternsPrompt, user_id: int, session_ids: list[str], model_to_use: str, trace_id: str | None = None
+    prompt: PatternsPrompt,
+    user_id: int,
+    session_ids: list[str],
+    model_to_use: str,
+    trace_id: str | None = None,
+    user_distinct_id: str | None = None,
 ) -> RawSessionGroupPatternAssignmentsList:
     """Call LLM to assign events to extracted patterns."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
-        user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
         model=model_to_use,
         trace_id=trace_id,
+        user_id=user_id,
+        user_distinct_id=user_distinct_id,
     )
     raw_content = get_raw_content(result)
     if not raw_content:
-        raise ValueError(
-            f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
-        )
+        msg = f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     patterns = load_pattern_assignments_from_llm_content(raw_content, sessions_identifier)
     return patterns
 
 
 async def get_llm_session_group_patterns_combination(
-    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
+    prompt: PatternsPrompt,
+    user_id: int,
+    session_ids: list[str],
+    trace_id: str | None = None,
+    user_distinct_id: str | None = None,
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to combine patterns from multiple chunks."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
-        user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
         model=SESSION_SUMMARIES_SYNC_MODEL,
         trace_id=trace_id,
+        user_id=user_id,
+        user_distinct_id=user_distinct_id,
     )
     raw_content = get_raw_content(result)
     if not raw_content:
-        raise ValueError(
-            f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
-        )
+        msg = f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
     return patterns
 
@@ -221,21 +239,25 @@ async def get_llm_single_session_summary(
     session_duration: int,
     system_prompt: str | None = None,
     trace_id: str | None = None,
+    user_distinct_id: str | None = None,
 ) -> SessionSummarySerializer:
     """Generate a single session summary in one LLM call."""
     try:
         # TODO: Think about edge-case like one summary too large for o3 (cut some context or use other model)
         result = await call_llm(
             input_prompt=summary_prompt,
-            user_key=user_id,
             session_id=session_id,
             system_prompt=system_prompt,
             model=model_to_use,
             trace_id=trace_id,
+            user_id=user_id,
+            user_distinct_id=user_distinct_id,
         )
         raw_content = get_raw_content(result)
         if not raw_content:
-            raise ValueError(f"No content consumed when calling LLM for session summary, sessions {session_id}")
+            msg = f"No content consumed when calling LLM for session summary, sessions {session_id}"
+            logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
+            raise ValueError(msg)
         session_summary = _convert_llm_content_to_session_summary(
             content=raw_content,
             allowed_event_ids=allowed_event_ids,
@@ -251,9 +273,9 @@ async def get_llm_single_session_summary(
             final_validation=True,
         )
         if not session_summary:
-            raise ValueError(
-                f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
-            )
+            msg = f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
+            logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
+            raise ValueError(msg)
         # If parsing succeeds, yield the new chunk
         return session_summary
     except (SummaryValidationError, ValueError) as err:
@@ -263,6 +285,7 @@ async def get_llm_single_session_summary(
             f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (get): {err}",
             session_id=session_id,
             user_id=user_id,
+            signals_type="session-summaries",
         )
         raise ExceptionToRetry() from err
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
@@ -271,6 +294,7 @@ async def get_llm_single_session_summary(
             f"Error calling LLM for session_id {session_id} by user {user_id}: {err}",
             session_id=session_id,
             user_id=user_id,
+            signals_type="session-summaries",
         )
         raise ExceptionToRetry() from err
 
@@ -290,6 +314,7 @@ async def stream_llm_single_session_summary(
     session_duration: int,
     system_prompt: str | None = None,
     trace_id: str | None = None,
+    user_distinct_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream LLM summary for a session, yielding JSON chunks."""
     try:
@@ -297,11 +322,12 @@ async def stream_llm_single_session_summary(
         accumulated_usage = 0
         stream = await stream_llm(
             input_prompt=summary_prompt,
-            user_key=user_id,
             session_id=session_id,
             system_prompt=system_prompt,
             trace_id=trace_id,
             model=model_to_use,
+            user_id=user_id,
+            user_distinct_id=user_distinct_id,
         )
         async for chunk in stream:
             accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0
@@ -341,6 +367,7 @@ async def stream_llm_single_session_summary(
                     f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (stream): {err}",
                     session_id=session_id,
                     user_id=user_id,
+                    signals_type="session-summaries",
                 )
                 raise ExceptionToRetry() from err
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
@@ -349,6 +376,7 @@ async def stream_llm_single_session_summary(
             f"Error streaming LLM for session_id {session_id} by user {user_id}: {err}",
             session_id=session_id,
             user_id=user_id,
+            signals_type="session-summaries",
         )
         raise ExceptionToRetry() from err
     finally:
@@ -357,7 +385,12 @@ async def stream_llm_single_session_summary(
             try:
                 await stream.close()
             except Exception:
-                logger.warning("Failed to close LLM stream", session_id=session_id, user_id=user_id)
+                logger.warning(
+                    "Failed to close LLM stream",
+                    session_id=session_id,
+                    user_id=user_id,
+                    signals_type="session-summaries",
+                )
 
     # Final validation of accumulated content (to decide if to retry the whole stream or not)
     try:
@@ -382,6 +415,7 @@ async def stream_llm_single_session_summary(
                 f"Final LLM content validation failed for session_id {session_id}",
                 session_id=session_id,
                 user_id=user_id,
+                signals_type="session-summaries",
             )
             raise ValueError("Final content validation failed")
         final_summary_str = json.dumps(final_summary.data)
@@ -393,6 +427,7 @@ async def stream_llm_single_session_summary(
             f"Failed to validate final LLM content for session_id {session_id}: {str(err)}",
             session_id=session_id,
             user_id=user_id,
+            signals_type="session-summaries",
         )
         raise ExceptionToRetry() from err
 
