@@ -39,7 +39,7 @@ MAILJET_ENDPOINTS: dict[str, MailjetEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
-        sort="LastActivityAt+DESC",
+        sort="LastActivityAt DESC",
     ),
     "campaign": MailjetEndpointConfig(
         name="campaign",
@@ -56,7 +56,7 @@ MAILJET_ENDPOINTS: dict[str, MailjetEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
-        sort="CreatedAt+DESC",
+        sort="CreatedAt DESC",
     ),
     "message": MailjetEndpointConfig(
         name="message",
@@ -73,7 +73,7 @@ MAILJET_ENDPOINTS: dict[str, MailjetEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
-        sort="ArrivedAt+DESC",
+        sort="ArrivedAt DESC",
     ),
     "listrecipient": MailjetEndpointConfig(
         name="listrecipient",
