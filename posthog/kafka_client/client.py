@@ -37,7 +37,6 @@ class KafkaProducerForTests:
         produce_future = FutureProduceResult(topic_partition=TopicPartition(topic, 1))
         future = FutureRecordMetadata(
             produce_future=produce_future,
-            relative_offset=0,
             timestamp_ms=0,
             checksum=0,
             serialized_key_size=0,
