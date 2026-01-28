@@ -4,6 +4,7 @@ import { parseJSON } from '~/utils/json-parse'
 
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
+import { HogFunctionType } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
 
 export type PushSubscriptionGetArgs = {
@@ -63,6 +64,12 @@ export type PushSubscription = {
     last_successfully_used_at: string | null
     created_at: string
     updated_at: string
+}
+
+export type PushSubscriptionInputToLoad = {
+    distinctId: string
+    firebaseAppId: string
+    platform?: 'android' | 'ios'
 }
 
 export class PushSubscriptionsManagerService {
@@ -409,6 +416,57 @@ export class PushSubscriptionsManagerService {
             [newDistinctId, subscriptionId, teamId],
             'updatePushSubscriptionDistinctId'
         )
+    }
+
+    public async loadPushSubscriptions(
+        hogFunction: HogFunctionType,
+        inputsToLoad: Record<string, PushSubscriptionInputToLoad>
+    ): Promise<Record<string, { value: string | null }>> {
+        const returnInputs: Record<string, { value: string | null }> = {}
+        const provider = 'fcm' as const
+
+        for (const [key, { distinctId, firebaseAppId, platform }] of Object.entries(inputsToLoad)) {
+            returnInputs[key] = { value: null }
+
+            const subscriptions = await this.get({
+                teamId: hogFunction.team_id,
+                distinctId,
+                platform,
+                firebaseAppId,
+                provider,
+            })
+
+            let subscription = subscriptions.length > 0 ? subscriptions[0] : null
+
+            if (!subscription) {
+                // TODOdin: track time we take for these lookups?
+                const relatedDistinctIds = await this.getDistinctIdsForSamePerson(hogFunction.team_id, distinctId)
+
+                if (relatedDistinctIds.length > 0) {
+                    subscription = await this.findSubscriptionByPersonDistinctIds(
+                        hogFunction.team_id,
+                        relatedDistinctIds,
+                        platform,
+                        firebaseAppId,
+                        provider
+                    )
+
+                    if (subscription) {
+                        await this.updateDistinctId(hogFunction.team_id, subscription.id, distinctId)
+                        subscription = {
+                            ...subscription,
+                            distinct_id: distinctId,
+                        }
+                    }
+                }
+            }
+
+            if (subscription && subscription.is_active && subscription.team_id === hogFunction.team_id) {
+                returnInputs[key] = { value: subscription.token }
+            }
+        }
+
+        return returnInputs
     }
 
     private hashToken(token: string): string {

@@ -62,11 +62,78 @@ export class HogInputsService {
 
         // Resolve push subscription inputs after we have newGlobals for template resolution
         if (hasPushSubscriptionInputs) {
-            const pushSubscriptionInputs = await this.loadPushSubscriptionInputs(
-                hogFunction,
-                newGlobals,
-                integrationInputs
-            )
+            const inputsToLoad: Record<string, { rawValue: string; schema: HogFunctionInputSchemaType }> = {}
+            hogFunction.inputs_schema?.forEach((schema) => {
+                if (schema.type === 'push_subscription_distinct_id') {
+                    const input = hogFunction.inputs?.[schema.key]
+                    const value = input?.value
+                    if (value && typeof value === 'string') {
+                        inputsToLoad[schema.key] = { rawValue: value, schema }
+                    }
+                }
+            })
+
+            let pushSubscriptionInputs: Record<string, { value: string | null }> = {}
+            if (Object.keys(inputsToLoad).length > 0) {
+                if (!integrationInputs) {
+                    throw new Error(
+                        `firebase_account integration is required for push subscription inputs. ` +
+                            `Please configure the firebase_account integration in your hog function.`
+                    )
+                }
+                const firebaseAccountInput = integrationInputs['firebase_account']
+                if (!firebaseAccountInput || !firebaseAccountInput.value) {
+                    throw new Error(
+                        `firebase_account integration is required for push subscription inputs but was not found. ` +
+                            `Please configure the firebase_account integration in your hog function.`
+                    )
+                }
+                const firebaseAppIdFromIntegration = firebaseAccountInput.value.key_info?.project_id ?? undefined
+                if (!firebaseAppIdFromIntegration) {
+                    throw new Error(
+                        `Firebase app ID (project_id) not found in firebase_account integration. ` +
+                            `Please ensure the Firebase service account key contains a valid project_id.`
+                    )
+                }
+
+                const pushSubscriptionPairs: Record<
+                    string,
+                    { distinctId: string; firebaseAppId: string; platform?: 'android' | 'ios' }
+                > = {}
+                for (const [key, { rawValue, schema }] of Object.entries(inputsToLoad)) {
+                    let resolvedValue: unknown = rawValue
+                    const input = hogFunction.inputs?.[key]
+                    const templating = schema.templating ?? 'hog'
+                    if (templating === 'liquid' || rawValue.includes('{{')) {
+                        resolvedValue = formatLiquidInput(rawValue, newGlobals, key)
+                    } else if (templating === 'hog' && input?.bytecode) {
+                        resolvedValue = await formatHogInput(input.bytecode, newGlobals, key)
+                    }
+                    if (!resolvedValue || typeof resolvedValue !== 'string') {
+                        logger.warn(
+                            '🦔',
+                            '[HogInputsService] Push subscription distinct_id template returned non-string',
+                            {
+                                hogFunctionId: hogFunction.id,
+                                hogFunctionName: hogFunction.name,
+                                teamId: hogFunction.team_id,
+                                inputKey: key,
+                                resolvedValueType: typeof resolvedValue,
+                            }
+                        )
+                        continue
+                    }
+                    pushSubscriptionPairs[key] = {
+                        distinctId: resolvedValue,
+                        firebaseAppId: firebaseAppIdFromIntegration,
+                        platform: schema.platform,
+                    }
+                }
+                pushSubscriptionInputs = await this.pushSubscriptionsManager.loadPushSubscriptions(
+                    hogFunction,
+                    pushSubscriptionPairs
+                )
+            }
 
             // Update the input values with resolved tokens
             for (const [key, resolvedInput] of Object.entries(pushSubscriptionInputs)) {
@@ -183,143 +250,6 @@ export class HogInputsService {
             }
         })
 
-        return returnInputs
-    }
-
-    public async loadPushSubscriptionInputs(
-        hogFunction: HogFunctionType,
-        globals: HogFunctionInvocationGlobalsWithInputs,
-        integrationInputs?: Record<string, { value: Record<string, any> | null }>
-    ): Promise<Record<string, { value: string | null }>> {
-        const inputsToLoad: Record<string, { rawValue: string; schema: HogFunctionInputSchemaType }> = {}
-
-        hogFunction.inputs_schema?.forEach((schema) => {
-            if (schema.type === 'push_subscription_distinct_id') {
-                const input = hogFunction.inputs?.[schema.key]
-                const value = input?.value
-                if (value && typeof value === 'string') {
-                    inputsToLoad[schema.key] = { rawValue: value, schema }
-                }
-            }
-        })
-
-        if (Object.keys(inputsToLoad).length === 0) {
-            return {}
-        }
-
-        // Validate that integrationInputs is present when we have push subscription inputs
-        if (!integrationInputs) {
-            throw new Error(
-                `firebase_account integration is required for push subscription inputs. ` +
-                    `Please configure the firebase_account integration in your hog function.`
-            )
-        }
-
-        // Validate that firebase_account integration is present
-        const firebaseAccountInput = integrationInputs['firebase_account']
-        if (!firebaseAccountInput || !firebaseAccountInput.value) {
-            throw new Error(
-                `firebase_account integration is required for push subscription inputs but was not found. ` +
-                    `Please configure the firebase_account integration in your hog function.`
-            )
-        }
-
-        const returnInputs: Record<string, { value: string | null }> = {}
-
-        for (const [key, { rawValue, schema }] of Object.entries(inputsToLoad)) {
-            returnInputs[key] = {
-                value: null,
-            }
-
-            let resolvedValue = rawValue
-            const input = hogFunction.inputs?.[key]
-            const templating = schema.templating ?? 'hog'
-            if (templating === 'liquid' || rawValue.includes('{{')) {
-                resolvedValue = formatLiquidInput(rawValue, globals, key)
-            } else if (templating === 'hog' && input?.bytecode) {
-                resolvedValue = await formatHogInput(input.bytecode, globals, key)
-            }
-
-            if (!resolvedValue || typeof resolvedValue !== 'string') {
-                logger.warn('🦔', '[HogInputsService] Push subscription distinct_id template returned non-string', {
-                    hogFunctionId: hogFunction.id,
-                    hogFunctionName: hogFunction.name,
-                    teamId: hogFunction.team_id,
-                    inputKey: key,
-                    resolvedValueType: typeof resolvedValue,
-                })
-                continue
-            }
-
-            const distinctId = resolvedValue
-
-            // Get firebase_app_id from firebase_account integration
-            const firebaseAppId = firebaseAccountInput.value.key_info?.project_id ?? undefined
-
-            // If firebase_account integration is present but firebase_app_id is missing,
-            // skip querying and throw an error that will be logged in the UI
-            if (!firebaseAppId) {
-                throw new Error(
-                    `Firebase app ID (project_id) not found in firebase_account integration. ` +
-                        `Cannot resolve push subscription for distinct_id: ${distinctId}. ` +
-                        `Please ensure the Firebase service account key contains a valid project_id.`
-                )
-            }
-
-            // For firebase-push-notifications destination, filter by provider="fcm"
-            const provider: 'fcm' | 'apns' = 'fcm'
-
-            // Step 1: Look up subscription by distinct_id directly
-            const subscriptions = await this.pushSubscriptionsManager.get({
-                teamId: hogFunction.team_id,
-                distinctId,
-                platform: schema.platform,
-                firebaseAppId,
-                provider,
-            })
-
-            let subscription = subscriptions.length > 0 ? subscriptions[0] : null
-
-            // Step 2: If not found, try fallback to other distinct_ids for same person
-            if (!subscription) {
-                const relatedDistinctIds = await this.pushSubscriptionsManager.getDistinctIdsForSamePerson(
-                    hogFunction.team_id,
-                    distinctId
-                )
-
-                if (relatedDistinctIds.length > 0) {
-                    subscription = await this.pushSubscriptionsManager.findSubscriptionByPersonDistinctIds(
-                        hogFunction.team_id,
-                        relatedDistinctIds,
-                        schema.platform,
-                        firebaseAppId,
-                        provider
-                    )
-
-                    // Step 3: If found, update subscription to use new distinct_id
-                    if (subscription) {
-                        await this.pushSubscriptionsManager.updateDistinctId(
-                            hogFunction.team_id,
-                            subscription.id,
-                            distinctId
-                        )
-                        // Update the subscription object to reflect the new distinct_id
-                        subscription = {
-                            ...subscription,
-                            distinct_id: distinctId,
-                        }
-                    }
-                }
-            }
-
-            if (subscription && subscription.is_active && subscription.team_id === hogFunction.team_id) {
-                returnInputs[key] = {
-                    value: subscription.token,
-                }
-            }
-        }
-
-        // If we haven't found a subscription, we will handle that in the hog function run.
         return returnInputs
     }
 }
