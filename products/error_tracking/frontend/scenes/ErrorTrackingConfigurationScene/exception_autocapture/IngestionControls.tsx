@@ -1,23 +1,34 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonLabel } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonLabel } from '@posthog/lemon-ui'
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
-import { sdkPolicyConfigLogic } from 'lib/components/IngestionControls/sdkPolicyConfigLogic'
 import { UrlConfigLogicProps, urlConfigLogic } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
-import { SDKPolicyConfig } from 'lib/components/IngestionControls/types'
+import { ErrorTrackingAutoCaptureControls } from 'lib/components/IngestionControls/types'
 
 import { AccessControlResourceType } from '~/types'
 
-export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean }): JSX.Element | null {
-    const logic = sdkPolicyConfigLogic({ logicKey: 'error-tracking' })
+import { autoCaptureControlsLogic } from './autoCaptureControlsLogic'
 
-    const { policy, triggers, matchType, sampleRate, linkedFeatureFlag, eventTriggers, urlTriggers, urlBlocklist } =
-        useValues(logic)
+export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean }): JSX.Element | null {
+    const logic = autoCaptureControlsLogic
+
     const {
-        loadPolicy,
+        controlsLoading,
+        hasControls,
+        triggers,
+        matchType,
+        sampleRate,
+        linkedFeatureFlag,
+        eventTriggers,
+        urlTriggers,
+        urlBlocklist,
+    } = useValues(logic)
+    const {
+        loadControls,
+        createControls,
         setMatchType,
         setSampleRate,
         setLinkedFeatureFlag,
@@ -27,12 +38,29 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
     } = useActions(logic)
 
     useEffect(() => {
-        loadPolicy()
+        loadControls()
         // oxlint-disable-next-line exhaustive-deps
     }, [])
 
-    if (!policy) {
+    if (controlsLoading) {
         return null
+    }
+
+    if (!hasControls) {
+        return (
+            <div className="space-y-4 p-4 border rounded">
+                <div className="text-center">
+                    <h3 className="text-lg font-semibold mb-2">No autocapture controls configured</h3>
+                    <p className="text-muted mb-4">
+                        Autocapture controls allow you to fine-tune which exceptions are captured based on URLs, events,
+                        feature flags, and sampling rates.
+                    </p>
+                    <LemonButton type="primary" onClick={() => createControls()}>
+                        Enable autocapture controls
+                    </LemonButton>
+                </div>
+            </div>
+        )
     }
 
     return (
@@ -85,7 +113,7 @@ const Sampling = ({
     onChange,
 }: {
     initialValue: number
-    onChange: (sampleRate: SDKPolicyConfig['sample_rate']) => void
+    onChange: (sampleRate: ErrorTrackingAutoCaptureControls['sample_rate']) => void
 }): JSX.Element => {
     return (
         <div className="space-y-2">
@@ -152,8 +180,8 @@ function EventTriggers({
     value,
     onChange,
 }: {
-    value: SDKPolicyConfig['event_triggers']
-    onChange: (eventTriggers: SDKPolicyConfig['event_triggers']) => void
+    value: ErrorTrackingAutoCaptureControls['event_triggers']
+    onChange: (eventTriggers: ErrorTrackingAutoCaptureControls['event_triggers']) => void
 }): JSX.Element | null {
     return (
         <div className="flex flex-col space-y-2 mt-2">
@@ -180,8 +208,8 @@ function LinkedFlagSelector({
     value,
     onChange,
 }: {
-    value: SDKPolicyConfig['linked_feature_flag']
-    onChange: (linkedFeatureFlag: SDKPolicyConfig['linked_feature_flag']) => void
+    value: ErrorTrackingAutoCaptureControls['linked_feature_flag']
+    onChange: (linkedFeatureFlag: ErrorTrackingAutoCaptureControls['linked_feature_flag']) => void
 }): JSX.Element | null {
     return (
         <IngestionControls.FlagTrigger logicKey="error-tracking-linked-flag" flag={value} onChange={onChange}>

@@ -1,7 +1,9 @@
+from decimal import Decimal
 from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
 from django_deprecate_fields import deprecate_field
@@ -299,6 +301,51 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
         # constraints = [
         #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
         # ]
+
+
+class ErrorTrackingAutoCaptureControls(UUIDTModel):
+    """
+    Controls for error tracking autocapture behavior.
+    Defines sample rates, feature flag linkage, and URL/event-based triggers.
+    """
+
+    class MatchType(models.TextChoices):
+        ALL = "all"
+        ANY = "any"
+
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE)
+
+    match_type = models.CharField(
+        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
+    )
+
+    sample_rate = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=False,
+        blank=False,
+        default=Decimal(1),
+        validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
+    )
+
+    linked_feature_flag = models.JSONField(null=True, blank=True)
+    event_triggers = ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True)
+    url_triggers = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+    url_blocklist = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingautocapturecontrols"
+
+
+def get_autocapture_controls(team_id: int) -> dict | None:
+    """Get the autocapture controls for a team, formatted for API responses."""
+    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values().first()
+    if result:
+        if result.get("sample_rate") is not None:
+            result["sample_rate"] = float(result["sample_rate"])
+        if result.get("id") is not None:
+            result["id"] = str(result["id"])
+    return result
 
 
 class ErrorTrackingStackFrame(UUIDTModel):

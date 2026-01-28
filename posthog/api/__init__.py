@@ -38,12 +38,12 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingAutoCaptureControlsViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingReleaseViewSet,
-    ErrorTrackingSDKPolicyConfigViewSet,
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
@@ -863,9 +863,9 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/sdk_policy",
-    ErrorTrackingSDKPolicyConfigViewSet,
-    "environment_error_tracking_sdk_policy_config",
+    r"error_tracking/autocapture_controls",
+    ErrorTrackingAutoCaptureControlsViewSet,
+    "environment_error_tracking_autocapture_controls",
     ["team_id"],
 )
 

@@ -218,7 +218,7 @@ import {
     ErrorTrackingSymbolSet,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
-import { SDKPolicyConfig, SDKPolicyConfigContext } from './components/IngestionControls/types'
+import { ErrorTrackingAutoCaptureControls } from './components/IngestionControls/types'
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
@@ -1171,12 +1171,8 @@ export class ApiRequest {
         return this.errorTrackingReleases().addPathComponent(id)
     }
 
-    public errorTrackingSDKPolicies(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).withAction('sdk_policy')
-    }
-
-    public errorTrackingSDKPolicy(id: SDKPolicyConfig['id']): ApiRequest {
-        return this.errorTrackingSDKPolicies().addPathComponent(id)
+    public errorTrackingAutoCaptureControls(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).withAction('autocapture_controls')
     }
 
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
@@ -3384,12 +3380,18 @@ const api = {
             },
         },
 
-        sdkPolicyConfig: {
-            async list(context: SDKPolicyConfigContext): Promise<SDKPolicyConfig[]> {
-                return await new ApiRequest().errorTrackingSDKPolicies().withQueryString({ context }).get()
+        autoCaptureControls: {
+            async get(): Promise<ErrorTrackingAutoCaptureControls | null> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().get()
             },
-            async update(data: SDKPolicyConfig): Promise<void> {
-                return await new ApiRequest().errorTrackingSDKPolicy(data.id).update({ data })
+            async create(): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().create()
+            },
+            async update(data: ErrorTrackingAutoCaptureControls): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().update({ data })
+            },
+            async delete(): Promise<void> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withAction('delete_controls').delete()
             },
         },
 

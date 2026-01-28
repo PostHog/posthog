@@ -1,11 +1,11 @@
 from .assignment_rules import ErrorTrackingAssignmentRuleViewSet
+from .autocapture_controls import ErrorTrackingAutoCaptureControlsViewSet
 from .external_references import ErrorTrackingExternalReferenceViewSet
 from .fingerprints import ErrorTrackingFingerprintViewSet
 from .git_provider_file_link_resolver import GitProviderFileLinksViewSet
 from .grouping_rules import ErrorTrackingGroupingRuleViewSet
 from .issues import ErrorTrackingIssueViewSet
 from .releases import ErrorTrackingReleaseViewSet
-from .sdk_policy_config import ErrorTrackingSDKPolicyConfigViewSet
 from .stack_frames import ErrorTrackingStackFrameViewSet
 from .suppression_rules import ErrorTrackingSuppressionRuleViewSet
 from .symbol_sets import ErrorTrackingSymbolSetViewSet
@@ -17,7 +17,7 @@ __all__ = [
     "ErrorTrackingSymbolSetViewSet",
     "ErrorTrackingFingerprintViewSet",
     "ErrorTrackingGroupingRuleViewSet",
-    "ErrorTrackingSDKPolicyConfigViewSet",
+    "ErrorTrackingAutoCaptureControlsViewSet",
     "ErrorTrackingReleaseViewSet",
     "ErrorTrackingSuppressionRuleViewSet",
     "ErrorTrackingAssignmentRuleViewSet",

@@ -61,15 +61,12 @@ export interface LinkedFeatureFlag extends Pick<FeatureFlagBasicType, 'id' | 'ke
     variant?: string | null
 }
 
-export interface SDKPolicyConfig {
+export interface ErrorTrackingAutoCaptureControls {
     id: string
     match_type: 'any' | 'all'
     sample_rate: number
-    minimum_duration_milliseconds: number | null
     linked_feature_flag: LinkedFeatureFlag | null
     event_triggers: string[]
     url_triggers: UrlTriggerConfig[]
     url_blocklist: UrlTriggerConfig[]
 }
-
-export type SDKPolicyConfigContext = 'error-tracking'

@@ -1,1 +1,1 @@
-0006_frame_idx_removal
+0007_autocapture_controls
