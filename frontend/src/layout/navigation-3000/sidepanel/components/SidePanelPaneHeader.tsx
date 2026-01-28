@@ -31,7 +31,7 @@ export function SidePanelPaneHeader({ children, title, className, onClose }: Sid
                 className
             )}
         >
-            {!isRemovingSidePanelFlag && title ? (
+            {title ? (
                 <h3
                     className={cn('flex-1 flex items-center gap-1 font-semibold mb-0 truncate', {
                         'text-sm px-2': !modalMode,

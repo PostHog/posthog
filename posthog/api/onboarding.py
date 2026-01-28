@@ -1,7 +1,6 @@
-from typing import TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import structlog
-from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field
 from rest_framework import request, response, viewsets
 from rest_framework.decorators import action
@@ -11,9 +10,11 @@ from posthog.schema import WebsiteBrowsingHistoryProdInterest
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_client import get_llm_client
 from posthog.rate_limit import OnboardingIPThrottle
 
-from ee.hogai.llm import MaxChatOpenAI
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -151,31 +152,45 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_message = "\n".join(user_parts)
 
         try:
-            llm = MaxChatOpenAI(
-                model="gpt-4.1-mini",
-                temperature=0.1,
-                user=request.user,
-                team=self.team,
-                billable=False,
-                inject_context=False,
-                posthog_properties={
-                    "ai_product": "onboarding",
-                    "ai_feature": "recommend_products",
-                },
-            ).with_structured_output(
-                ProductRecommendationResponse,
-                method="json_schema",
-                include_raw=False,
+            user_distinct_id = cast("User", request.user).distinct_id
+            client = get_llm_client("growth")
+            model = "gpt-5-mini"
+
+            logger.debug(
+                "Making LLM request for product recommendation",
+                team_id=self.team.id,
+                user_distinct_id=user_distinct_id,
+                model=model,
             )
 
-            messages = [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=user_message),
-            ]
+            completion = client.beta.chat.completions.parse(
+                model=model,
+                temperature=1,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                user=user_distinct_id,  # type: ignore[arg-type]
+                response_format=ProductRecommendationResponse,
+            )
 
-            result = cast(ProductRecommendationResponse, llm.invoke(messages))
+            logger.debug(
+                "LLM request completed",
+                team_id=self.team.id,
+                user_distinct_id=user_distinct_id,
+                model_used=completion.model,
+                usage=completion.usage.model_dump() if completion.usage else None,
+            )
+
+            result = completion.choices[0].message.parsed
+            if result is None:
+                raise ValueError("Failed to parse LLM response")
 
             valid_products = [p for p in result.products if p in VALID_PRODUCTS][:PRODUCTS_LIMIT]
+
+            # Fallback to product_analytics if no valid products were recommended
+            if not valid_products:
+                valid_products = [Product.PRODUCT_ANALYTICS]
 
             return response.Response(
                 {

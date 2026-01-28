@@ -26,6 +26,7 @@ import { personsSceneLogic } from './personsSceneLogic'
 export const scene: SceneExport = {
     component: PersonsScene,
     logic: personsSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {

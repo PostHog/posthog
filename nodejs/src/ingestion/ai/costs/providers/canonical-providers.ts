@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-01-22 10:06:01 UTC
+// Generated at: 2026-01-27 20:02:21 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -18,7 +18,6 @@ export type CanonicalProvider =
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
-    | 'cerebras'
     | 'cerebras-fp16'
     | 'chutes'
     | 'chutes-bf16'
@@ -46,7 +45,6 @@ export type CanonicalProvider =
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-bf16'
-    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'gmicloud-int4'
     | 'google-ai-studio'
@@ -59,10 +57,12 @@ export type CanonicalProvider =
     | 'hyperbolic-bf16'
     | 'hyperbolic-fp8'
     | 'inception'
+    | 'inceptron-fp8'
     | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'
     | 'liquid'
+    | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mancer-int4'
     | 'minimax'
@@ -121,8 +121,10 @@ export type CanonicalProvider =
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'
+    | 'upstage'
     | 'venice-beta'
     | 'venice-fp16'
+    | 'venice-fp4'
     | 'venice-fp8'
     | 'wandb-bf16'
     | 'wandb-fp16'

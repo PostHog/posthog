@@ -36,7 +36,6 @@ class Ticket(UUIDTModel):
     distinct_id = models.CharField(max_length=400)  # PostHog distinct_id for Person linking only
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     priority = models.CharField(max_length=20, choices=Priority.choices, null=True, blank=True)
-    assigned_to = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     anonymous_traits = models.JSONField(default=dict, blank=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)

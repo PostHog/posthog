@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -78,6 +79,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSavedView)
 
                     return [...values.dataWarehouseSavedQueries, newView]
                 },

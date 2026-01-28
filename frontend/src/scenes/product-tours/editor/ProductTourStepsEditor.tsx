@@ -3,16 +3,8 @@ import './ProductTourStepsEditor.scss'
 import { JSONContent } from '@tiptap/core'
 import { useState } from 'react'
 
-import {
-    IconChevronLeft,
-    IconChevronRight,
-    IconCursorClick,
-    IconEye,
-    IconMessage,
-    IconQuestion,
-    IconTrash,
-} from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCursorClick, IconEye, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonMenu, LemonModal } from '@posthog/lemon-ui'
 
 import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
 
@@ -27,6 +19,7 @@ import {
 } from '~/types'
 
 import { ProductTourPreview } from '../components/ProductTourPreview'
+import { STEP_TYPE_ICONS, STEP_TYPE_LABELS, createDefaultStep } from '../stepUtils'
 import { StepButtonsEditor } from './StepButtonsEditor'
 import { StepContentEditor } from './StepContentEditor'
 import { StepLayoutSettings } from './StepLayoutSettings'
@@ -37,18 +30,6 @@ export interface ProductTourStepsEditorProps {
     steps: ProductTourStep[]
     appearance?: ProductTourAppearance
     onChange: (steps: ProductTourStep[]) => void
-}
-
-const STEP_TYPE_ICONS: Partial<Record<ProductTourStepType, JSX.Element>> = {
-    element: <IconCursorClick />,
-    modal: <IconMessage />,
-    survey: <IconQuestion />,
-}
-
-const STEP_TYPE_LABELS: Partial<Record<ProductTourStepType, string>> = {
-    element: 'Element',
-    modal: 'Modal',
-    survey: 'Survey',
 }
 
 function getStepTitle(step: ProductTourStep, index: number): string {
@@ -94,6 +75,13 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
     const [showScreenshotModal, setShowScreenshotModal] = useState(false)
 
     const selectedStep = steps[selectedStepIndex]
+
+    const addStep = (type: ProductTourStepType): void => {
+        const newStep = createDefaultStep(type)
+        const newSteps = [...steps, newStep]
+        onChange(newSteps)
+        setSelectedStepIndex(newSteps.length - 1)
+    }
 
     const updateStep = (index: number, updates: Partial<ProductTourStep>): void => {
         const newSteps = [...steps]
@@ -146,6 +134,28 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
             <div className="ProductTourStepsEditor__sidebar">
                 <div className="ProductTourStepsEditor__sidebar-header">
                     <span className="font-semibold">Steps</span>
+                    <LemonMenu
+                        items={[
+                            {
+                                icon: STEP_TYPE_ICONS['modal'],
+                                label: STEP_TYPE_LABELS['modal']!,
+                                onClick: () => addStep('modal'),
+                            },
+                            {
+                                icon: STEP_TYPE_ICONS['survey'],
+                                label: STEP_TYPE_LABELS['survey']!,
+                                onClick: () => addStep('survey'),
+                            },
+                            {
+                                icon: STEP_TYPE_ICONS['element'],
+                                label: STEP_TYPE_LABELS['element']!,
+                                disabledReason: 'Add element steps with the Toolbar',
+                            },
+                        ]}
+                        placement="bottom-end"
+                    >
+                        <LemonButton size="xsmall" icon={<IconPlus />} tooltip="Add step" />
+                    </LemonMenu>
                 </div>
 
                 <div className="ProductTourStepsEditor__sidebar-list">
@@ -164,7 +174,7 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                             <span className="ProductTourStepsEditor__sidebar-item-title">
                                 {getStepTitle(step, index)}
                             </span>
-                            <LemonBadge.Number count={index + 1} size="small" />
+                            <LemonBadge.Number count={index + 1} size="small" maxDigits={2} />
                         </button>
                     ))}
                 </div>
@@ -177,17 +187,17 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                         {/* Step header */}
                         <div className="ProductTourStepsEditor__step-header">
                             <div className="flex items-center gap-2">
-                                <LemonBadge.Number count={selectedStepIndex + 1} size="medium" />
+                                <LemonBadge.Number count={selectedStepIndex + 1} size="medium" maxDigits={2} />
                                 <span className="font-semibold">{STEP_TYPE_LABELS[selectedStep.type]} step</span>
                                 {selectedStep.type === 'element' && (
                                     <>
-                                        {selectedStep.screenshotMediaId && (
+                                        {!selectedStep.useManualSelector && selectedStep.screenshotMediaId && (
                                             <StepScreenshotThumbnail
                                                 mediaId={selectedStep.screenshotMediaId}
                                                 onClick={() => setShowScreenshotModal(true)}
                                             />
                                         )}
-                                        {selectedStep.selector && (
+                                        {selectedStep.useManualSelector && selectedStep.selector && (
                                             <code className="text-xs bg-fill-primary px-2 py-0.5 rounded">
                                                 {selectedStep.selector}
                                             </code>
@@ -198,16 +208,20 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     size="small"
-                                    icon={<IconChevronLeft />}
+                                    icon={<IconChevronDown transform="rotate(180)" />}
                                     onClick={() => moveStep(selectedStepIndex, 'up')}
-                                    disabledReason={selectedStepIndex === 0 ? 'First step' : undefined}
+                                    disabledReason={selectedStepIndex === 0 ? 'Cannot move first step up' : undefined}
                                     tooltip="Move up"
                                 />
                                 <LemonButton
                                     size="small"
-                                    icon={<IconChevronRight />}
+                                    icon={<IconChevronDown />}
                                     onClick={() => moveStep(selectedStepIndex, 'down')}
-                                    disabledReason={selectedStepIndex === steps.length - 1 ? 'Last step' : undefined}
+                                    disabledReason={
+                                        selectedStepIndex === steps.length - 1
+                                            ? 'Cannot move last step down'
+                                            : undefined
+                                    }
                                     tooltip="Move down"
                                 />
                                 <LemonButton

@@ -1285,7 +1285,7 @@ export function dateFilterToText(
             return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
         }
         if (dateFrom?.includes('T') || dateTo?.includes('T')) {
-            return formatDateTimeRange(dayjs(dateFrom), dayjs(dateTo))
+            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
         }
         return `${dateFrom} - ${dateTo}`
     }

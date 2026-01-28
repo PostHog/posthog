@@ -103,18 +103,12 @@ services:
         # They are only for DEV and should not be used in production.
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
 
-    redis:
-        extends:
-            file: docker-compose.base.yml
-            service: redis
-        ports:
-            - '6379:6379'
     redis7:
         extends:
             file: docker-compose.base.yml
             service: redis7
         ports:
-            - '6479:6379'
+            - '6379:6379'
 
     flower:
         extends:
@@ -222,11 +216,11 @@ services:
             file: docker-compose.base.yml
             service: feature-flags
         depends_on:
-            - redis
+            - redis7
             - db
         environment:
             # Mode 2: Dual-write warming phase for developers
-            FLAGS_REDIS_URL: 'redis://redis:6379/1'
+            FLAGS_REDIS_URL: 'redis://redis7:6379/1'
             FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
             REDIS_COMPRESSION_ENABLED: 'true'
 

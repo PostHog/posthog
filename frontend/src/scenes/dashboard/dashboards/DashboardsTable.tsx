@@ -23,13 +23,11 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import {
     AccessControlLevel,
     AccessControlResourceType,
-    AvailableFeature,
     DashboardBasicType,
     DashboardMode,
     DashboardType,
@@ -62,7 +60,6 @@ export function DashboardsTable({
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setFilters, tableSortingChanged } = useActions(dashboardsLogic)
     const { tableSorting, currentTab } = useValues(dashboardsLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
@@ -128,17 +125,13 @@ export function DashboardsTable({
             },
             sorter: nameCompareFunction,
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof DashboardType,
-                      render: function Render(tags: DashboardType['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
-                      },
-                  } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof DashboardType,
+            render: function Render(tags: DashboardType['tags']) {
+                return tags ? <ObjectTags tags={tags} staticOnly /> : null
+            },
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<

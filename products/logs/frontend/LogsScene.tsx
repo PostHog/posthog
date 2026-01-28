@@ -2,16 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
-import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar'
-import { LogsFilterBar as LogsFilterBarV2 } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
@@ -20,7 +18,7 @@ import { logsSceneLogic } from './logsSceneLogic'
 export const scene: SceneExport = {
     component: LogsScene,
     logic: logsSceneLogic,
-    settingSectionId: 'environment-logs',
+    productKey: ProductKey.LOGS,
 }
 
 export function LogsScene(): JSX.Element {
@@ -34,7 +32,6 @@ export function LogsScene(): JSX.Element {
 }
 
 const LogsSceneContent = (): JSX.Element => {
-    const newLogsFilterBar = useFeatureFlag('NEW_LOGS_FILTER_BAR')
     const {
         tabId,
         parsedLogs,
@@ -83,7 +80,6 @@ const LogsSceneContent = (): JSX.Element => {
                     limits, we want to hear from you.
                 </p>
             </LemonBanner>
-            {newLogsFilterBar ? <LogsFilterBarV2 /> : <LogsFilterBar />}
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                 <LogsViewer
                     tabId={tabId}

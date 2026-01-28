@@ -304,7 +304,7 @@ describe('SessionFilter', () => {
             await sessionFilter.handleNewSession(1, 'session-123')
 
             expect(mockRedis.set).toHaveBeenCalled()
-            expect(SessionBatchMetrics.incrementNewSessionsRateLimited).toHaveBeenCalled()
+            expect(SessionBatchMetrics.incrementNewSessionsRateLimited).toHaveBeenCalledWith(1)
             expect(SessionBatchMetrics.incrementSessionsBlocked).toHaveBeenCalled()
         })
 
@@ -322,7 +322,7 @@ describe('SessionFilter', () => {
             await disabledFilter.handleNewSession(1, 'session-123')
 
             expect(mockRedis.set).not.toHaveBeenCalled()
-            expect(SessionBatchMetrics.incrementNewSessionsRateLimited).toHaveBeenCalled()
+            expect(SessionBatchMetrics.incrementNewSessionsRateLimited).toHaveBeenCalledWith(1)
         })
 
         it('should skip all Redis calls when filter is disabled', async () => {

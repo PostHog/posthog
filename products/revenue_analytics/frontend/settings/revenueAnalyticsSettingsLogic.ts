@@ -4,6 +4,7 @@ import { beforeUnload } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -316,10 +317,20 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         }
 
         return {
-            addGoal: updateCurrentTeam,
+            addGoal: () => {
+                updateCurrentTeam()
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpRevenueGoal)
+            },
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
-            save: updateCurrentTeam,
+            save: () => {
+                updateCurrentTeam()
+
+                // Mark ConnectRevenueSource as completed when saving with events configured
+                if ((values.revenueAnalyticsConfig?.events?.length ?? 0) > 0) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConnectRevenueSource)
+                }
+            },
             updateFilterTestAccounts: ({ filterTestAccounts }) => {
                 updateCurrentTeam()
                 actions.reportRevenueAnalyticsTestAccountFilterUpdated(filterTestAccounts)
@@ -329,6 +340,12 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 const func = config.enabled
                     ? actions.reportRevenueAnalyticsDataSourceEnabled
                     : actions.reportRevenueAnalyticsDataSourceDisabled
+
+                // Mark ConnectRevenueSource as completed when enabling a data source
+                if (config.enabled) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConnectRevenueSource)
+                }
+
                 return func(source.source_type)
             },
         }

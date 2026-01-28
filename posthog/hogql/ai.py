@@ -211,9 +211,9 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         {
             "prompt": prompt,
             "response": candidate_sql or error,
-            "result": ("valid_hogql" if generated_valid_hogql else "invalid_hogql")
-            if candidate_sql
-            else "prompt_unclear",
+            "result": (
+                ("valid_hogql" if generated_valid_hogql else "invalid_hogql") if candidate_sql else "prompt_unclear"
+            ),
             "attempt_count": attempt_count,
             "prompt_tokens_last": prompt_tokens_last,
             "completion_tokens_last": completion_tokens_last,
@@ -228,15 +228,16 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         raise PromptUnclear(error)
 
 
-def hit_openai(messages, user) -> tuple[str, int, int]:
+def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
-    result = openai_client.chat.completions.create(
+    result = openai_client.chat.completions.create(  # type: ignore
         model="gpt-4.1-mini",
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
+        posthog_properties=posthog_properties,
     )
 
     content: str = ""

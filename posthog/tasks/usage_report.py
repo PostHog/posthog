@@ -1343,6 +1343,7 @@ def get_teams_with_exceptions_captured_in_period(
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
+    # nosemgrep: clickhouse-fstring-param-audit - lib_expression from internal materialized column helper
     results = sync_execute(
         f"""
         SELECT

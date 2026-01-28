@@ -7,17 +7,17 @@ from temporalio.common import RetryPolicy
 from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode, SummarizationProvider
 
 # Window processing configuration
-DEFAULT_MAX_TRACES_PER_WINDOW = 10  # Max traces to process per window (conservative for worst-case 30s/trace)
+DEFAULT_MAX_ITEMS_PER_WINDOW = 10  # Max items to process per window (conservative for worst-case 30s/item)
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_PROVIDER = SummarizationProvider.OPENAI
-DEFAULT_MODEL = OpenAIModel.GPT_4_1_MINI
+DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 
 # Max text representation length by provider (in characters)
 # Gemini models have ~1M token context. At typical 2.5:1 char/token ratio,
 # 1.5M chars = ~600K tokens, leaving room for system prompt and output.
-# OpenAI GPT-4.1-mini has 1M token context with better token efficiency,
+# OpenAI GPT-4.1-nano has 1M token context with better token efficiency,
 # so 2M chars = ~800K tokens is safe.
 MAX_LENGTH_BY_PROVIDER: dict[SummarizationProvider, int] = {
     SummarizationProvider.GEMINI: 1_500_000,
@@ -48,6 +48,13 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event schema
 EVENT_NAME_TRACE_SUMMARY = "$ai_trace_summary"
+EVENT_NAME_GENERATION_SUMMARY = "$ai_generation_summary"  # For generation-level summarization
+
+# Document types for embeddings
+GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level embeddings
+
+# Generation-level configuration
+DEFAULT_MAX_GENERATIONS_PER_WINDOW = 50  # Higher than traces - generations are simpler units
 
 # Team allowlist - only these teams will be processed by the coordinator
 # Empty list means no teams will be processed (coordinator skips)
@@ -67,3 +74,6 @@ WORKFLOW_NAME = "llma-trace-summarization"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-summarization-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-summarization-coordinator-schedule"
 CHILD_WORKFLOW_ID_PREFIX = "llma-trace-summarization-team"
+
+# Generation-level schedule configuration (reuses same coordinator workflow with different inputs)
+GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-summarization-coordinator-schedule"

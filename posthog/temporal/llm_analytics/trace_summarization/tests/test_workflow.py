@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
-from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
+from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, SampledItem
+from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_items_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
@@ -70,16 +70,16 @@ def sample_trace_hierarchy(sample_trace_data):
     }
 
 
-class TestQueryTracesInWindowActivity:
-    """Tests for query_traces_in_window_activity."""
+class TestSampleItemsInWindowActivity:
+    """Tests for sample_items_in_window_activity."""
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_query_traces_success(self, mock_team):
-        """Test successful trace querying from window."""
+    async def test_sample_items_success(self, mock_team):
+        """Test successful item sampling from window."""
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
-            max_traces=100,
+            max_items=100,
             window_minutes=60,
             window_start="2025-01-15T11:00:00",
             window_end="2025-01-15T12:00:00",
@@ -104,19 +104,20 @@ class TestQueryTracesInWindowActivity:
             ]
             mock_runner.calculate.return_value.results = mock_traces
 
-            result = await query_traces_in_window_activity(inputs)
+            result = await sample_items_in_window_activity(inputs)
 
             assert len(result) == 50
-            assert result[0] == "trace_0"
-            assert result[49] == "trace_49"
+            assert isinstance(result[0], SampledItem)
+            assert result[0].trace_id == "trace_0"
+            assert result[49].trace_id == "trace_49"
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_query_traces_empty(self, mock_team):
-        """Test querying when no traces found in window."""
+    async def test_sample_items_empty(self, mock_team):
+        """Test sampling when no traces found in window."""
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
-            max_traces=100,
+            max_items=100,
             window_minutes=60,
             window_start="2025-01-15T11:00:00",
             window_end="2025-01-15T12:00:00",
@@ -128,7 +129,7 @@ class TestQueryTracesInWindowActivity:
             mock_runner = mock_runner_class.return_value
             mock_runner.calculate.return_value.results = []
 
-            result = await query_traces_in_window_activity(inputs)
+            result = await sample_items_in_window_activity(inputs)
 
             assert len(result) == 0
 
@@ -189,6 +190,7 @@ class TestGenerateSummaryActivity:
 
             result = await generate_and_save_summary_activity(
                 sample_trace_data["trace_id"],
+                sample_trace_data["trace_timestamp"],
                 mock_team.id,
                 "2025-01-01T00:00:00Z",  # window_start
                 "2025-01-01T01:00:00Z",  # window_end
@@ -248,6 +250,7 @@ class TestGenerateSummaryActivity:
 
             result = await generate_and_save_summary_activity(
                 sample_trace_data["trace_id"],
+                sample_trace_data["trace_timestamp"],
                 mock_team.id,
                 "2025-01-01T00:00:00Z",
                 "2025-01-01T01:00:00Z",
@@ -302,6 +305,7 @@ class TestGenerateSummaryActivity:
 
             result = await generate_and_save_summary_activity(
                 sample_trace_data["trace_id"],
+                sample_trace_data["trace_timestamp"],
                 mock_team.id,
                 "2025-01-01T00:00:00Z",
                 "2025-01-01T01:00:00Z",
@@ -323,19 +327,36 @@ class TestBatchTraceSummarizationWorkflow:
         inputs = BatchTraceSummarizationWorkflow.parse_inputs(["123"])
 
         assert inputs.team_id == 123
-        assert inputs.max_traces == 10
+        assert inputs.analysis_level == "trace"
+        assert inputs.max_items == 10
         assert inputs.batch_size == 3
         assert inputs.mode == "detailed"
         assert inputs.window_minutes == 60
 
-    def test_parse_inputs_full(self):
-        """Test parsing full inputs."""
+    def test_parse_inputs_full_trace_level(self):
+        """Test parsing full inputs for trace-level analysis."""
         inputs = BatchTraceSummarizationWorkflow.parse_inputs(
-            ["123", "200", "20", "detailed", "30", "2025-01-01T00:00:00Z", "2025-01-02T00:00:00Z"]
+            ["123", "trace", "200", "20", "detailed", "30", "2025-01-01T00:00:00Z", "2025-01-02T00:00:00Z"]
         )
 
         assert inputs.team_id == 123
-        assert inputs.max_traces == 200
+        assert inputs.analysis_level == "trace"
+        assert inputs.max_items == 200
+        assert inputs.batch_size == 20
+        assert inputs.mode == "detailed"
+        assert inputs.window_minutes == 30
+        assert inputs.window_start == "2025-01-01T00:00:00Z"
+        assert inputs.window_end == "2025-01-02T00:00:00Z"
+
+    def test_parse_inputs_full_generation_level(self):
+        """Test parsing full inputs for generation-level analysis."""
+        inputs = BatchTraceSummarizationWorkflow.parse_inputs(
+            ["123", "generation", "200", "20", "detailed", "30", "2025-01-01T00:00:00Z", "2025-01-02T00:00:00Z"]
+        )
+
+        assert inputs.team_id == 123
+        assert inputs.analysis_level == "generation"
+        assert inputs.max_items == 200
         assert inputs.batch_size == 20
         assert inputs.mode == "detailed"
         assert inputs.window_minutes == 30

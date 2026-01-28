@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -14,8 +14,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { UserBasicType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
+import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
@@ -28,6 +29,7 @@ import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 export const scene: SceneExport<{ ticketId: string }> = {
     component: SupportTicketScene,
     logic: supportTicketSceneLogic,
+    productKey: ProductKey.CONVERSATIONS,
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
@@ -38,7 +40,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         ticketLoading,
         status,
         priority,
-        assignedTo,
+        assignee,
         chatMessages,
         messagesLoading,
         messageSending,
@@ -51,7 +53,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         exceptionsQuery,
         chatPanelWidth,
     } = useValues(logic)
-    const { setStatus, setPriority, setAssignedTo, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
+    const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
     const { push } = useActions(router)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
@@ -209,16 +211,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Assignee</span>
-                                <MemberSelect
-                                    value={
-                                        !assignedTo || assignedTo === 'All users' || typeof assignedTo === 'string'
-                                            ? null
-                                            : assignedTo
-                                    }
-                                    onChange={(user: UserBasicType | null) =>
-                                        setAssignedTo(user?.id?.toString() || ('All users' as string))
-                                    }
-                                />
+                                <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                    {(resolvedAssignee, isOpen) => (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            active={isOpen}
+                                            sideIcon={<IconChevronDown />}
+                                        >
+                                            <span className="flex items-center gap-1">
+                                                <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                                <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
+                                            </span>
+                                        </LemonButton>
+                                    )}
+                                </AssigneeSelect>
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">

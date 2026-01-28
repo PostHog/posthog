@@ -3,7 +3,7 @@ from typing import Literal
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from llm_gateway.api.products import validate_product
+from llm_gateway.products.config import validate_product
 from llm_gateway.services.model_registry import get_available_models
 
 models_router = APIRouter(tags=["models"])
