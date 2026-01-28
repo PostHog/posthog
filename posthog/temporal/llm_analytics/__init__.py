@@ -1,5 +1,6 @@
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
+    disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     execute_llm_judge_activity,
@@ -29,6 +30,7 @@ EVAL_WORKFLOWS = [
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
+    disable_evaluation_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
@@ -55,6 +57,7 @@ ACTIVITIES = [
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
+    disable_evaluation_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
