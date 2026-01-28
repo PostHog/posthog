@@ -1541,7 +1541,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
-                // Filters are stored as-is from URL; normalization happens in convertUniversalFiltersToRecordingsQuery
                 const updatedFilters = {
                     ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
