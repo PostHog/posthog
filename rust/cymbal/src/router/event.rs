@@ -144,7 +144,7 @@ pub async fn process_event(
     if issue.status == IssueStatus::Suppressed {
         return Ok(ProcessEventResponse {
             issue_id: issue.id,
-            issue_status: issue.status.to_string(),
+            issue_status: issue.status,
             event: None,
         });
     }
@@ -152,7 +152,7 @@ pub async fn process_event(
     // Return output
     Ok(ProcessEventResponse {
         issue_id: issue.id,
-        issue_status: issue.status.to_string(),
+        issue_status: issue.status,
         event: Some(fingerprinted.to_output(issue.id)),
     })
 }

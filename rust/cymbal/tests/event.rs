@@ -349,7 +349,7 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
     harness.suppress_issue(created.issue_id).await;
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
-    dbg!(&body);
+
     assert!(status.is_success());
     assert_eq!(body.issue_status, IssueStatus::Suppressed);
     assert_eq!(body.issue_id, created.issue_id);
