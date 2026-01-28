@@ -268,6 +268,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
                 )
                 .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -347,6 +348,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
                 )
                 .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -410,6 +412,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
                 )
                 .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -485,6 +488,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
                 )
                 .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -670,6 +674,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
                 )
                 .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -836,6 +841,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
                 )
                 .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -987,6 +993,7 @@ describe('Pipeline Integration Tests', () => {
                     dlqTopic: 'dlq-topic',
                     promiseScheduler: mockPromiseScheduler,
                 })
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -1151,6 +1158,7 @@ describe('Pipeline Integration Tests', () => {
                     dlqTopic: 'dlq-topic',
                     promiseScheduler: mockPromiseScheduler,
                 })
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -1244,6 +1252,7 @@ describe('Pipeline Integration Tests', () => {
                     dlqTopic: 'dlq-topic',
                     promiseScheduler: mockPromiseScheduler,
                 })
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -1358,6 +1367,7 @@ describe('Pipeline Integration Tests', () => {
                     dlqTopic: 'dlq-topic',
                     promiseScheduler: mockPromiseScheduler,
                 })
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -1622,6 +1632,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
                 )
                 .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
@@ -1908,6 +1919,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
                 )
                 .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: true })
                 .build()
 
             const unwrapper = createUnwrapper(pipeline)
