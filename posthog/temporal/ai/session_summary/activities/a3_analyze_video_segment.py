@@ -49,7 +49,7 @@ async def analyze_video_segment_activity(
 
     Returns detailed descriptions of salient moments in the segment.
     """
-    start_time = time.perf_counter()
+    start_time = time.time()
     success = False
     try:
         # Retrieve cached event data from Redis (populated by fetch_session_data_activity)

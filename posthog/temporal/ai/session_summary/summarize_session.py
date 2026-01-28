@@ -385,7 +385,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
-        start_time = time.perf_counter()
+        start_time = time.time()
         success = False
         try:
             # Get summary data from the DB (caches in Redis for both LLM and video-based flows)

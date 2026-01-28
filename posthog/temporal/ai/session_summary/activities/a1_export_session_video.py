@@ -41,7 +41,7 @@ VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
 @temporalio.activity.defn
 async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> int | None:
     """Export full session video and return ExportedAsset ID, or None if session is too short"""
-    start_time = time.perf_counter()
+    start_time = time.time()
     success = False
     try:
         # Check for existing exported asset for this session
